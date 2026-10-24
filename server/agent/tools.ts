@@ -12,6 +12,7 @@ import { mediaStatus, storeMedia } from "../media/snowflake";
 import { createPullRequest, getConnection, listRepos, repoDetails, resolveRepo } from "../services/github";
 import { cloneIntoWorkspace, commitAndPush, linkedRepo } from "./repos";
 import { brandText } from "@shared/brand";
+import { storeArtifacts } from "./artifacts";
 import { absoluteAssetWarnings, detectPreviewRoot, previewBaseUrl, registerLiveServer, unregisterLiveServer, waitForPort } from "./preview";
 import type { BrowseResult } from "./browser";
 import { clip, deleteWorkspaceFile, listWorkspaceTree, readWorkspaceFile, runCommand, SandboxError, writeWorkspaceFile } from "./sandbox";
@@ -26,6 +27,8 @@ export type ToolContext = {
   onPlan: (steps: PlanStep[]) => void;
   onFileChange: (path: string) => void;
   onCommand: (command: string) => void;
+  /** Called with paths the agent attached explicitly, so the end-of-run collection skips them. */
+  onAttach?: (paths: string[]) => void;
 };
 
 export type ToolOutcome = { ok: boolean; content: string; summary: string; exitCode?: number | null; image?: { mediaType: "image/jpeg"; base64: string } };
@@ -89,6 +92,7 @@ const schemas = {
     full_page: z.boolean().default(true),
     wait_ms: z.number().int().min(0).max(15000).default(1500),
   }),
+  attach_files: z.object({ paths: z.array(z.string().min(1).max(500)).min(1).max(20), note: z.string().max(500).optional() }),
   github_list_repos: z.object({ query: z.string().max(100).default("") }),
   github_get_repo: z.object({ repo: z.string().min(1).max(200) }),
   github_clone_to_workspace: z.object({ repo: z.string().min(1).max(200), branch: z.string().max(200).optional() }),
@@ -105,6 +109,12 @@ const schemas = {
 type ToolName = keyof typeof schemas;
 
 type ToolDef = Anthropic.Tool & { name: ToolName };
+
+const ATTACH_TOOL: ToolDef = {
+  name: "attach_files",
+  description: "Attach files from the workspace to your reply so the user can preview or download them with one click (documents, PDFs, archives, images, data exports, key code files). Use it for every deliverable you produce. Files up to 25 MB; create archives with run_command (e.g. zip -r out.zip dir) before attaching. Other files you create or change are also attached automatically at the end of the run.",
+  input_schema: { type: "object", properties: { paths: { type: "array", items: { type: "string" }, description: "Workspace-relative file paths" }, note: { type: "string", description: "Optional one-line description" } }, required: ["paths"] },
+};
 
 const CODING_TOOLS: ToolDef[] = [
   {
@@ -228,7 +238,7 @@ const GITHUB_TOOLS: ToolDef[] = [
 
 export function toolsFor(opts: { coding: boolean; web: boolean; eager: boolean; github?: boolean }): Anthropic.Tool[] {
   const tools: ToolDef[] = [];
-  if (opts.coding) tools.push(...CODING_TOOLS);
+  if (opts.coding) tools.push(...CODING_TOOLS, ATTACH_TOOL);
   if (opts.github) tools.push(...(opts.coding ? GITHUB_TOOLS : GITHUB_TOOLS.slice(0, 2)));
   if (opts.coding && deployConfigured().ok) tools.push(DEPLOY_TOOL);
   if ((opts.web || opts.coding) && browserConfigured()) tools.push(BROWSE_TOOL, ...BROWSER_TOOLS);
@@ -361,6 +371,14 @@ async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOu
       return runBrowserTool(name, input, ctx);
     case "test_preview_visual":
       return visualTest(input as z.infer<typeof schemas.test_preview_visual>, ctx);
+    case "attach_files": {
+      const { paths } = input as z.infer<typeof schemas.attach_files>;
+      const { stored, skipped } = await storeArtifacts(ctx.sessionId, ctx.root, Array.from(new Set(paths)), true);
+      if (stored.length) ctx.emit({ type: "artifacts", files: stored, auto: false, more: 0, skipped });
+      ctx.onAttach?.(stored.map(file => file.path));
+      const lines = [...stored.map(file => `Attached ${file.path} (${file.sizeBytes} bytes)`), ...skipped.map(reason => `Skipped ${reason}`)];
+      return { ok: stored.length > 0, content: lines.join("\n") || "Nothing attached.", summary: `${stored.length} attached${skipped.length ? `, ${skipped.length} skipped` : ""}` };
+    }
     case "github_list_repos":
     case "github_get_repo":
     case "github_clone_to_workspace":

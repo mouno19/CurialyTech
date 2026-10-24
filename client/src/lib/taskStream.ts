@@ -16,7 +16,10 @@ export type TimelineItem =
   | { kind: "notice"; id: string; ts: string; level: "info" | "warn" | "error"; message: string }
   | { kind: "repo"; id: string; ts: string; label: string; detail: string; url: string }
   | { kind: "browser"; id: string; ts: string }
+  | { kind: "attachments"; id: string; ts: string; files: Attachment[]; auto: boolean; more: number; skipped: string[] }
   | { kind: "media"; id: string; ts: string; mediaId: string | null; filename: string; mimeType: string; caption: string; src: string };
+
+export type Attachment = Extract<AgentEvent, { type: "artifacts" }>["files"][number];
 
 export type BrowserState = { sessionId: string; status: "live" | "ended"; liveUrl: string | null; replayUrl: string; url: string; action: string; detail: string; actions: number; startedAt: string; endedAt?: string; reason?: string };
 
@@ -173,6 +176,9 @@ function apply(state: StreamState, event: AgentEvent) {
     case "done":
       state.status = event.status;
       if (event.answer) state.answer = event.answer;
+      break;
+    case "artifacts":
+      items.push({ kind: "attachments", id: `a${event.seq}`, ts: event.ts, files: event.files, auto: event.auto, more: event.more, skipped: event.skipped });
       break;
     case "browser_session": {
       const current = state.browsers[event.sessionId];

@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle, Bot, Brain, Check, CheckCircle2, ChevronDown, ChevronRight, Circle, CircleDashed, ExternalLink, FilePen, FileSearch, FolderTree,
-  GitBranch, Globe, ListChecks, Loader2, Rocket, Route, Search, ShieldCheck, SquareTerminal, Trash2, Wrench, X, XCircle,
+  GitBranch, Globe, ListChecks, Loader2, Paperclip, Rocket, Route, Search, ShieldCheck, SquareTerminal, Trash2, Wrench, X, XCircle,
 } from "lucide-react";
 import { PHASES, type PlanStep } from "@shared/agent";
 import type { BrowserState, StreamState, TimelineItem, TurnUsage } from "@/lib/taskStream";
 import { LiveBrowser } from "@/components/LiveBrowser";
+import { Attachments } from "@/components/Attachments";
 import { getModel } from "@shared/agent";
 import { formatDuration, formatTokens } from "@/lib/api";
 import { DiffViewer } from "./DiffViewer";
@@ -110,7 +111,7 @@ export function ThinkingBlock({ item, usage }: { item: Extract<TimelineItem, { k
 const TOOL_ICONS: Record<string, typeof Wrench> = {
   run_command: SquareTerminal, verify: ShieldCheck, read_file: FileSearch, write_file: FilePen, edit_file: FilePen, delete_file: Trash2,
   list_files: FolderTree, search_files: Search, web_fetch: Globe, delegate_research: Bot, research_agent: Bot, update_plan: ListChecks,
-  browse: Globe, deploy_preview: Rocket, browser_click: Globe, browser_type: Globe, browser_scroll: Globe, browser_extract: Globe, browser_screenshot: Globe, browser_close: Globe,
+  browse: Globe, deploy_preview: Rocket, browser_click: Globe, browser_type: Globe, browser_scroll: Globe, browser_extract: Globe, browser_screenshot: Globe, browser_close: Globe, attach_files: Paperclip,
   github_list_repos: GitBranch, github_get_repo: GitBranch, github_clone_to_workspace: GitBranch, github_commit_and_push: GitBranch, github_create_pr: GitBranch,
 };
 
@@ -194,6 +195,8 @@ export function TimelineEntry({ item, usageByTurn, browsers }: { item: TimelineI
   switch (item.kind) {
     case "browser":
       return browsers?.[item.id] ? <LiveBrowser browser={browsers[item.id]} compact /> : null;
+    case "attachments":
+      return <Attachments files={item.files} auto={item.auto} more={item.more} skipped={item.skipped} />;
     case "thinking":
       return <ThinkingBlock item={item} usage={usageByTurn.get(item.turn)} />;
     case "tool":

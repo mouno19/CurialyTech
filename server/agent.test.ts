@@ -214,3 +214,25 @@ describe("white-label scrubbing", () => {
     expect(brandText("Manus task stopped")).toBe("Curialy Research Agent task stopped");
   });
 });
+
+describe("artifacts", () => {
+  it("finds files created or changed during a run, including by commands, deliverables first", async () => {
+    const { workspaceManifest, changedSince, classify } = await import("./agent/artifacts");
+    const ws = path.join(process.env.AGENT_WORKSPACE_ROOT!, "artifact-run");
+    fs.mkdirSync(path.join(ws, "node_modules", "x"), { recursive: true });
+    fs.writeFileSync(path.join(ws, "keep.txt"), "same");
+    fs.writeFileSync(path.join(ws, "edit.ts"), "a");
+    const before = workspaceManifest(ws);
+    await new Promise(resolve => setTimeout(resolve, 15));
+    fs.writeFileSync(path.join(ws, "edit.ts"), "ab");
+    fs.writeFileSync(path.join(ws, "report.pdf"), "%PDF");
+    fs.writeFileSync(path.join(ws, "bundle.zip"), "PK");
+    fs.writeFileSync(path.join(ws, "package-lock.json"), "{}");
+    fs.writeFileSync(path.join(ws, "node_modules", "x", "index.js"), "");
+    const changed = changedSince(before, workspaceManifest(ws));
+    expect(changed).toEqual(["bundle.zip", "report.pdf", "edit.ts"]);
+    expect(classify("notes.MD").kind).toBe("document");
+    expect(classify("src/app.tsx").kind).toBe("code");
+    expect(classify("data.csv").mimeType).toBe("text/csv");
+  });
+});

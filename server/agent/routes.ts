@@ -282,21 +282,39 @@ export function agentRouter() {
   }));
 
   // Stream through this origin (white-label: the storage host never appears in the browser).
-  // Bytes are piped, not buffered or written to disk.
+  // Bytes are piped, not buffered or written to disk. ?download=1 forces a download.
   router.get("/media/:id", handle(async (req, res) => {
     const media = await getMedia(String(req.params.id));
     if (!media) return res.status(404).json({ error: "Not found." });
     const upstream = await fetch(await presignedUrl(media.stage_path, 300));
     if (!upstream.ok || !upstream.body) return res.status(502).json({ error: "Curialy Vault could not return this file." });
-    const inline = /^image\/(png|jpe?g|gif|webp|avif)$/.test(media.mime_type);
+    const image = /^image\/(png|jpe?g|gif|webp|avif|svg\+xml)$/.test(media.mime_type); // SVG is safe under the sandbox CSP below
+    const pdf = media.mime_type === "application/pdf";
+    const inline = req.query.download !== "1" && (image || pdf);
     res.setHeader("Content-Type", inline ? media.mime_type : "application/octet-stream");
     res.setHeader("Content-Disposition", `${inline ? "inline" : "attachment"}; filename="${media.filename.replace(/["\\\r\n]/g, "")}"`);
-    res.setHeader("Content-Security-Policy", "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'");
+    // Agent-produced content: no script, no same-origin access. Chrome's PDF viewer will not render
+    // inside a CSP sandbox, so PDFs get a script-free policy instead.
+    res.setHeader("Content-Security-Policy", pdf && inline ? "default-src 'none'; script-src 'none'; frame-ancestors 'self'" : "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'");
+    if (pdf && inline) res.setHeader("X-Frame-Options", "SAMEORIGIN"); // allow the in-app PDF viewer
     res.setHeader("Cache-Control", "private, max-age=600");
     const length = upstream.headers.get("content-length");
     if (length) res.setHeader("Content-Length", length);
     const { Readable } = await import("node:stream");
     Readable.fromWeb(upstream.body as never).pipe(res);
+  }));
+
+  // Text preview (Markdown, code, CSV, JSON...): first 512 KB as JSON, binary content refused.
+  router.get("/media/:id/text", handle(async (req, res) => {
+    const media = await getMedia(String(req.params.id));
+    if (!media) return res.status(404).json({ error: "Not found." });
+    if (media.size_bytes > 5 * 1024 * 1024) return res.status(413).json({ error: "Too large to preview; download it instead." });
+    const upstream = await fetch(await presignedUrl(media.stage_path, 300));
+    if (!upstream.ok) return res.status(502).json({ error: "Curialy Vault could not return this file." });
+    const buffer = Buffer.from(await upstream.arrayBuffer());
+    if (buffer.subarray(0, 8000).includes(0)) return res.status(415).json({ error: "Binary file; download it instead." });
+    const limit = 512 * 1024;
+    res.json({ filename: media.filename, content: buffer.subarray(0, limit).toString("utf8"), truncated: buffer.length > limit, bytes: buffer.length });
   }));
 
   router.delete("/media/:id", handle(async (req, res) => res.json({ deleted: await deleteMedia(String(req.params.id)) })));

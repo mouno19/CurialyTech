@@ -7,6 +7,7 @@ import { getModel, type AgentTaskSummary } from "@shared/agent";
 import { AppShell, EmptyState, GitHubMark, useGitHub } from "@/components/shell/AppShell";
 import { RepoSelector } from "@/components/RepoSelector";
 import { LiveBrowser } from "@/components/LiveBrowser";
+import { Attachments } from "@/components/Attachments";
 import { DiffViewer } from "@/components/deck/DiffViewer";
 import { PhaseStepper, PlanView, ThinkingBlock, TimelineEntry, ToolCard } from "@/components/deck/Timeline";
 import { agentApi, formatTokens } from "@/lib/api";
@@ -33,7 +34,7 @@ function StatusChip({ status, live }: { status: string | null; live?: boolean })
 
 function Conversation({ state, task }: { state: StreamState; task: AgentTaskSummary | null }) {
   const bottom = useRef<HTMLDivElement>(null);
-  const messages = state.items.filter((item): item is Extract<TimelineItem, { kind: "user" | "text" | "browser" }> => item.kind === "user" || item.kind === "text" || item.kind === "browser");
+  const messages = state.items.filter((item): item is Extract<TimelineItem, { kind: "user" | "text" | "browser" | "attachments" }> => item.kind === "user" || item.kind === "text" || item.kind === "browser" || item.kind === "attachments");
   const lastText = [...messages].reverse().find((item): item is Extract<TimelineItem, { kind: "text" }> => item.kind === "text");
   const finished = state.status === "completed" || state.status === "failed" || state.status === "cancelled";
   const [copied, setCopied] = useState(false);
@@ -47,6 +48,7 @@ function Conversation({ state, task }: { state: StreamState; task: AgentTaskSumm
       {messages.map(item => {
         if (item.kind === "user") return <div key={item.id} className="msg-user">{item.text}</div>;
         if (item.kind === "browser") return state.browsers[item.id] ? <LiveBrowser key={`b-${item.id}`} browser={state.browsers[item.id]} /> : null;
+        if (item.kind === "attachments") return <Attachments key={item.id} files={item.files} auto={item.auto} more={item.more} skipped={item.skipped} />;
         const isFinal = finished && item === lastText;
         return (
           <div key={item.id} className={`msg-assistant${isFinal ? " msg-final" : " interim"}`}>

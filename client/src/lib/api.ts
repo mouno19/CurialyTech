@@ -54,6 +54,8 @@ export const agentApi = {
   },
   media: () => api<{ files: MediaFile[]; stage: { ok: boolean; detail: string } }>("/api/agent/media"),
   mediaUrl: (id: string) => `/api/agent/media/${id}`,
+  mediaDownloadUrl: (id: string) => `/api/agent/media/${id}?download=1`,
+  mediaText: (id: string) => api<{ filename: string; content: string; truncated: boolean; bytes: number }>(`/api/agent/media/${id}/text`),
   removeMedia: (id: string) => api<{ deleted: boolean }>(`/api/agent/media/${id}`, { method: "DELETE" }),
   deployments: () => api<{ deployments: Deployment[]; configured: { ok: boolean; missing: string[] } }>("/api/agent/deployments"),
   github: () => api<GitHubStatus>("/api/agent/github"),

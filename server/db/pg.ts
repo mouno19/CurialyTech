@@ -163,6 +163,11 @@ const MIGRATIONS: { id: number; sql: string }[] = [
       UPDATE curialy.chat_sessions SET github_mode = 'export' WHERE github_repo IS NOT NULL AND github_mode IS NULL;
     `,
   },
+  {
+    id: 4,
+    sql: `ALTER TABLE curialy.file_metadata ADD COLUMN IF NOT EXISTS source_path text;
+          CREATE INDEX IF NOT EXISTS file_metadata_session_idx ON curialy.file_metadata (session_id, created_at);`,
+  },
 ];
 
 export async function migrate() {

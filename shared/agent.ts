@@ -96,6 +96,8 @@ export type AgentEventBody =
   | { type: "external"; source: "research" | "research"; status: string; detail: string; url?: string }
   | { type: "media"; callId: string; mediaId: string | null; filename: string; mimeType: string; caption: string; inlineDataUrl?: string }
   | { type: "deployment"; deploymentId: string; status: "creating" | "building" | "live" | "failed" | "deleted"; url?: string; detail: string; expiresAt?: string }
+  /** Files attached to the chat (stored in Curialy Vault). auto = collected at the end of the run. */
+  | { type: "artifacts"; files: { mediaId: string; path: string; filename: string; mimeType: string; sizeBytes: number; kind: "image" | "pdf" | "archive" | "document" | "code" | "data" | "other"; primary: boolean }[]; auto: boolean; more: number; skipped: string[] }
   | { type: "browser_session"; sessionId: string; status: "live" | "ended"; liveUrl: string | null; replayUrl: string; reason?: string }
   | { type: "browser_action"; sessionId: string; action: string; detail: string; url: string; title: string }
   | { type: "preview"; url: string; dir: string | null; mode: "static" | "server" }

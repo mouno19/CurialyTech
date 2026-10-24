@@ -46,10 +46,19 @@ function useHealth() {
   const [active, setActive] = useState(0);
   useEffect(() => {
     let alive = true;
-    const load = () => agentApi.health().then(data => { if (alive) { setProviders(data.providers); setActive(data.activeTasks); } }).catch(() => alive && setProviders([]));
+    let timer: ReturnType<typeof setTimeout>;
+    // Poll every 30 s; when anything looks degraded, re-check after 5 s so a transient blip
+    // (e.g. a restart) does not show as an outage for half a minute.
+    const load = () => agentApi.health()
+      .then(data => {
+        if (!alive) return;
+        setProviders(data.providers);
+        setActive(data.activeTasks);
+        timer = setTimeout(load, data.providers.every(probe => !probe.configured || probe.ok) ? 30_000 : 5000);
+      })
+      .catch(() => { if (alive) { setProviders([]); timer = setTimeout(load, 5000); } });
     load();
-    const timer = setInterval(load, 30_000);
-    return () => { alive = false; clearInterval(timer); };
+    return () => { alive = false; clearTimeout(timer); };
   }, []);
   return { providers, active };
 }
