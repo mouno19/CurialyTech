@@ -94,6 +94,8 @@ export type AgentEventBody =
   | { type: "external"; source: "manus"; status: string; detail: string; url?: string }
   | { type: "media"; callId: string; mediaId: string | null; filename: string; mimeType: string; caption: string; inlineDataUrl?: string }
   | { type: "deployment"; deploymentId: string; status: "creating" | "building" | "live" | "failed" | "deleted"; url?: string; detail: string; expiresAt?: string }
+  | { type: "browser_session"; sessionId: string; status: "live" | "ended"; liveUrl: string | null; replayUrl: string; reason?: string }
+  | { type: "browser_action"; sessionId: string; action: string; detail: string; url: string; title: string }
   | { type: "preview"; url: string; dir: string | null; mode: "static" | "server" }
   | { type: "repo"; fullName: string; branch: string; baseSha: string; repoPath: string; url: string }
   | { type: "repo_push"; fullName: string; branch: string; commitSha: string; commitUrl: string; changed: number; deleted: number }

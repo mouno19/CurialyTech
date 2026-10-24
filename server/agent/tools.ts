@@ -6,7 +6,7 @@ import { z } from "zod";
 import type { PlanStep } from "@shared/agent";
 import type { Emit } from "./bus";
 import { PROVIDER_ENV, runManusTask } from "./providers";
-import { browse } from "./browser";
+import { browserConfigured, closeLiveBrowser, liveBrowser, navigate, snapshot } from "./browser";
 import { deployConfigured, deployPreview } from "./deploy";
 import { mediaStatus, storeMedia } from "../media/snowflake";
 import { createPullRequest, getConnection, listRepos, repoDetails, resolveRepo } from "../services/github";
@@ -74,6 +74,12 @@ const schemas = {
   web_fetch: z.object({ url: z.string().url().max(2000) }),
   delegate_research: z.object({ task: z.string().min(10).max(12000) }),
   browse: z.object({ url: z.string().url().max(2000), screenshot: z.boolean().default(true), full_page: z.boolean().default(false), wait_ms: z.number().int().min(0).max(15000).default(2000) }),
+  browser_click: z.object({ selector: z.string().max(500).optional(), text: z.string().max(300).optional() }).refine(value => value.selector || value.text, "Pass selector or text"),
+  browser_type: z.object({ selector: z.string().min(1).max(500), text: z.string().max(5000), press_enter: z.boolean().default(false) }),
+  browser_scroll: z.object({ direction: z.enum(["down", "up", "top", "bottom"]).default("down"), pixels: z.number().int().min(50).max(20000).default(800) }),
+  browser_extract: z.object({ selector: z.string().max(500).optional(), include_links: z.boolean().default(false) }),
+  browser_screenshot: z.object({ full_page: z.boolean().default(false) }),
+  browser_close: z.object({}),
   test_preview_visual: z.object({
     dir: z.string().max(300).optional(),
     page: z.string().max(500).default("/"),
@@ -156,9 +162,18 @@ const DELEGATE_TOOL: ToolDef = {
 
 const BROWSE_TOOL: ToolDef = {
   name: "browse",
-  description: "Open a URL in a real cloud browser (Browserbase Chromium) and return the rendered page text, HTTP status, console errors and a screenshot. Use it to check JavaScript-rendered pages and to verify live previews after deploy_preview.",
+  description: "Open a URL in this task's live cloud browser (Browserbase Chromium; the user watches it in real time) and return the rendered text, HTTP status, console errors and a screenshot. The session stays open, so follow up with browser_click / browser_type / browser_scroll / browser_extract / browser_screenshot, and browser_close when done.",
   input_schema: { type: "object", properties: { url: { type: "string" }, screenshot: { type: "boolean", description: "Default true" }, full_page: { type: "boolean", description: "Full-page screenshot. Default false" }, wait_ms: { type: "integer", description: "Extra wait for network idle, 0-15000. Default 2000" } }, required: ["url"] },
 };
+
+const BROWSER_TOOLS: ToolDef[] = [
+  { name: "browser_click", description: "Click an element in the live browser, by CSS selector or by its visible text (buttons/links).", input_schema: { type: "object", properties: { selector: { type: "string" }, text: { type: "string" } } } },
+  { name: "browser_type", description: "Type into an input in the live browser (replaces its value); optionally press Enter to submit.", input_schema: { type: "object", properties: { selector: { type: "string" }, text: { type: "string" }, press_enter: { type: "boolean" } }, required: ["selector", "text"] } },
+  { name: "browser_scroll", description: "Scroll the live browser page.", input_schema: { type: "object", properties: { direction: { type: "string", enum: ["down", "up", "top", "bottom"] }, pixels: { type: "integer" } } } },
+  { name: "browser_extract", description: "Extract the visible text of the page (or of the elements matching selector), optionally with links. Use this to read documentation or scrape data.", input_schema: { type: "object", properties: { selector: { type: "string" }, include_links: { type: "boolean" } } } },
+  { name: "browser_screenshot", description: "Screenshot the live browser's current view (or the full page).", input_schema: { type: "object", properties: { full_page: { type: "boolean" } } } },
+  { name: "browser_close", description: "Close the live browser session when you are done browsing (it also closes automatically at the end of the task).", input_schema: { type: "object", properties: {} } },
+];
 
 const VISUAL_TOOL: ToolDef = {
   name: "test_preview_visual",
@@ -215,7 +230,7 @@ export function toolsFor(opts: { coding: boolean; web: boolean; eager: boolean; 
   if (opts.coding) tools.push(...CODING_TOOLS);
   if (opts.github) tools.push(...(opts.coding ? GITHUB_TOOLS : GITHUB_TOOLS.slice(0, 2)));
   if (opts.coding && deployConfigured().ok) tools.push(DEPLOY_TOOL);
-  if ((opts.web || opts.coding) && PROVIDER_ENV.browserbaseKey && PROVIDER_ENV.browserbaseProject) tools.push(BROWSE_TOOL);
+  if ((opts.web || opts.coding) && browserConfigured()) tools.push(BROWSE_TOOL, ...BROWSER_TOOLS);
   if (opts.coding && PROVIDER_ENV.browserbaseKey && PROVIDER_ENV.browserbaseProject) tools.push(VISUAL_TOOL);
   if (opts.web) {
     tools.push(WEB_FETCH_TOOL);
@@ -329,10 +344,18 @@ async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOu
     }
     case "browse": {
       const { url, screenshot, full_page, wait_ms } = input as z.infer<typeof schemas.browse>;
-      ctx.emit({ type: "tool_output", callId: ctx.callId, stream: "stdout", chunk: `Opening Browserbase session for ${url}\n` });
-      const page = await browse({ url, screenshot, fullPage: full_page, waitMs: wait_ms, signal: ctx.signal });
-      return reportPage(ctx, page, url);
+      const live = await liveBrowser(ctx.sessionId, ctx.emit, ctx.signal);
+      ctx.emit({ type: "tool_output", callId: ctx.callId, stream: "stdout", chunk: `Live Browserbase session ${live.sessionId}\nOpening ${url}\n` });
+      const status = await navigate(live, url, wait_ms);
+      return reportPage(ctx, await snapshot(live, { screenshot, fullPage: full_page, status }), url);
     }
+    case "browser_click":
+    case "browser_type":
+    case "browser_scroll":
+    case "browser_extract":
+    case "browser_screenshot":
+    case "browser_close":
+      return runBrowserTool(name, input, ctx);
     case "test_preview_visual":
       return visualTest(input as z.infer<typeof schemas.test_preview_visual>, ctx);
     case "github_list_repos":
@@ -510,9 +533,11 @@ async function visualTest(input: z.infer<typeof schemas.test_preview_visual>, ct
   }
 
   try {
-    log("Opening it in a Browserbase cloud Chromium…\n");
-    const result = await browse({ url, screenshot: true, fullPage: input.full_page, waitMs: input.wait_ms, signal: ctx.signal });
-    return await reportPage(ctx, result, url, extra);
+    log("Opening it in the live Browserbase browser…\n");
+    const live = await liveBrowser(ctx.sessionId, ctx.emit, ctx.signal);
+    const status = await navigate(live, url, input.wait_ms);
+    live.action("visual-test", "Capturing full-page screenshot for visual review");
+    return await reportPage(ctx, await snapshot(live, { screenshot: true, fullPage: input.full_page, status }), url, extra);
   } finally {
     if (server) {
       unregisterLiveServer(ctx.sessionId);
@@ -520,5 +545,68 @@ async function visualTest(input: z.infer<typeof schemas.test_preview_visual>, ct
       await server.done.catch(() => undefined);
       log("Test server stopped.\n");
     }
+  }
+}
+
+async function runBrowserTool(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOutcome> {
+  if (name === "browser_close") {
+    await closeLiveBrowser(ctx.sessionId, "agent");
+    return { ok: true, content: "Browser session closed.", summary: "Closed" };
+  }
+  const live = await liveBrowser(ctx.sessionId, ctx.emit, ctx.signal);
+  const { page } = live;
+  const where = () => `Now at ${page.url()}`;
+  switch (name) {
+    case "browser_click": {
+      const { selector, text } = input as z.infer<typeof schemas.browser_click>;
+      live.action("click", `Clicking ${selector ?? `"${text}"`}…`);
+      const locator = selector ? page.locator(selector).first() : page.getByRole("button", { name: text }).or(page.getByRole("link", { name: text })).or(page.getByText(text!, { exact: false })).first();
+      await locator.click({ timeout: 15_000 });
+      await page.waitForLoadState("domcontentloaded", { timeout: 15_000 }).catch(() => undefined);
+      await page.waitForLoadState("networkidle", { timeout: 3000 }).catch(() => undefined);
+      live.action("loaded", `Clicked ${selector ?? `"${text}"`}; now on ${(await page.title().catch(() => "")) || page.url()}`);
+      return { ok: true, content: `Clicked ${selector ?? `"${text}"`}. ${where()} (title: ${await page.title().catch(() => "")}).`, summary: `Clicked ${selector ?? text}` };
+    }
+    case "browser_type": {
+      const { selector, text, press_enter } = input as z.infer<typeof schemas.browser_type>;
+      live.action("type", `Typing into ${selector}…`);
+      await page.locator(selector).first().fill(text, { timeout: 15_000 });
+      if (press_enter) {
+        await page.locator(selector).first().press("Enter");
+        await page.waitForLoadState("domcontentloaded", { timeout: 15_000 }).catch(() => undefined);
+      }
+      return { ok: true, content: `Typed ${text.length} characters into ${selector}${press_enter ? " and pressed Enter" : ""}. ${where()}.`, summary: `Typed into ${selector}` };
+    }
+    case "browser_scroll": {
+      const { direction, pixels } = input as z.infer<typeof schemas.browser_scroll>;
+      live.action("scroll", `Scrolling ${direction}…`);
+      await page.evaluate(({ direction: dir, pixels: px }) => {
+        if (dir === "top") window.scrollTo(0, 0);
+        else if (dir === "bottom") window.scrollTo(0, document.body.scrollHeight);
+        else window.scrollBy(0, dir === "down" ? px : -px);
+      }, { direction, pixels });
+      const position = await page.evaluate(() => ({ y: Math.round(window.scrollY), height: document.body.scrollHeight }));
+      return { ok: true, content: `Scrolled ${direction}; now at ${position.y}px of ${position.height}px.`, summary: `Scrolled ${direction}` };
+    }
+    case "browser_extract": {
+      const { selector, include_links } = input as z.infer<typeof schemas.browser_extract>;
+      live.action("extract", selector ? `Extracting ${selector}…` : "Extracting page content…");
+      const data = await page.evaluate(({ selector: sel, includeLinks }) => {
+        const nodes = sel ? Array.from(document.querySelectorAll(sel)) : [document.body];
+        const text = nodes.map(node => (node as HTMLElement).innerText ?? "").join("\n\n");
+        const links = includeLinks ? Array.from(document.querySelectorAll("a[href]")).slice(0, 200).map(a => `${(a as HTMLAnchorElement).innerText.trim().slice(0, 80)} -> ${(a as HTMLAnchorElement).href}`) : [];
+        return { text, links, matched: nodes.length };
+      }, { selector: selector ?? null, includeLinks: include_links });
+      if (selector && data.matched === 0) return { ok: false, content: `No elements match ${selector}. ${where()}.`, summary: "No match" };
+      const body = `${where()} (title: ${await page.title().catch(() => "")})\n\n${clip(data.text, 40_000)}${data.links.length ? `\n\nLinks:\n${data.links.join("\n")}` : ""}`;
+      return { ok: true, content: body, summary: `${data.text.length} chars${data.links.length ? `, ${data.links.length} links` : ""}` };
+    }
+    case "browser_screenshot": {
+      const { full_page } = input as z.infer<typeof schemas.browser_screenshot>;
+      live.action("screenshot", "Taking a screenshot…");
+      return reportPage(ctx, await snapshot(live, { screenshot: true, fullPage: full_page }), page.url());
+    }
+    default:
+      return { ok: false, content: `Unknown browser tool ${name}`, summary: "Unknown tool" };
   }
 }

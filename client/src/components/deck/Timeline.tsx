@@ -4,7 +4,8 @@ import {
   GitBranch, Globe, ListChecks, Loader2, Rocket, Route, Search, ShieldCheck, SquareTerminal, Trash2, Wrench, X, XCircle,
 } from "lucide-react";
 import { PHASES, type PlanStep } from "@shared/agent";
-import type { StreamState, TimelineItem, TurnUsage } from "@/lib/taskStream";
+import type { BrowserState, StreamState, TimelineItem, TurnUsage } from "@/lib/taskStream";
+import { LiveBrowser } from "@/components/LiveBrowser";
 import { formatDuration, formatTokens } from "@/lib/api";
 import { DiffViewer } from "./DiffViewer";
 
@@ -108,7 +109,7 @@ export function ThinkingBlock({ item, usage }: { item: Extract<TimelineItem, { k
 const TOOL_ICONS: Record<string, typeof Wrench> = {
   run_command: SquareTerminal, verify: ShieldCheck, read_file: FileSearch, write_file: FilePen, edit_file: FilePen, delete_file: Trash2,
   list_files: FolderTree, search_files: Search, web_fetch: Globe, delegate_research: Bot, manus: Bot, update_plan: ListChecks,
-  browse: Globe, deploy_preview: Rocket,
+  browse: Globe, deploy_preview: Rocket, browser_click: Globe, browser_type: Globe, browser_scroll: Globe, browser_extract: Globe, browser_screenshot: Globe, browser_close: Globe,
   github_list_repos: GitBranch, github_get_repo: GitBranch, github_clone_to_workspace: GitBranch, github_commit_and_push: GitBranch, github_create_pr: GitBranch,
 };
 
@@ -188,8 +189,10 @@ export function ToolCard({ item }: { item: Extract<TimelineItem, { kind: "tool" 
   );
 }
 
-export function TimelineEntry({ item, usageByTurn }: { item: TimelineItem; usageByTurn: Map<number, TurnUsage> }) {
+export function TimelineEntry({ item, usageByTurn, browsers }: { item: TimelineItem; usageByTurn: Map<number, TurnUsage>; browsers?: Record<string, BrowserState> }) {
   switch (item.kind) {
+    case "browser":
+      return browsers?.[item.id] ? <LiveBrowser browser={browsers[item.id]} compact /> : null;
     case "thinking":
       return <ThinkingBlock item={item} usage={usageByTurn.get(item.turn)} />;
     case "tool":

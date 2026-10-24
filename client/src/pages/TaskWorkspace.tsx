@@ -6,6 +6,7 @@ import { ArrowUp, Bot, Brain, CircleStop, Copy, ExternalLink, FileDiff, Globe, L
 import { getModel, type AgentTaskSummary } from "@shared/agent";
 import { AppShell, EmptyState, GitHubMark, useGitHub } from "@/components/shell/AppShell";
 import { RepoSelector } from "@/components/RepoSelector";
+import { LiveBrowser } from "@/components/LiveBrowser";
 import { DiffViewer } from "@/components/deck/DiffViewer";
 import { PhaseStepper, PlanView, ThinkingBlock, TimelineEntry, ToolCard } from "@/components/deck/Timeline";
 import { agentApi, formatTokens } from "@/lib/api";
@@ -32,8 +33,8 @@ function StatusChip({ status, live }: { status: string | null; live?: boolean })
 
 function Conversation({ state, task }: { state: StreamState; task: AgentTaskSummary | null }) {
   const bottom = useRef<HTMLDivElement>(null);
-  const messages = state.items.filter((item): item is Extract<TimelineItem, { kind: "user" | "text" }> => item.kind === "user" || item.kind === "text");
-  const lastText = [...messages].reverse().find(item => item.kind === "text");
+  const messages = state.items.filter((item): item is Extract<TimelineItem, { kind: "user" | "text" | "browser" }> => item.kind === "user" || item.kind === "text" || item.kind === "browser");
+  const lastText = [...messages].reverse().find((item): item is Extract<TimelineItem, { kind: "text" }> => item.kind === "text");
   const finished = state.status === "completed" || state.status === "failed" || state.status === "cancelled";
   const [copied, setCopied] = useState(false);
   useEffect(() => { bottom.current?.scrollIntoView({ block: "end" }); }, [messages.length, lastText?.text.length]);
@@ -45,6 +46,7 @@ function Conversation({ state, task }: { state: StreamState; task: AgentTaskSumm
     <div className="convo">
       {messages.map(item => {
         if (item.kind === "user") return <div key={item.id} className="msg-user">{item.text}</div>;
+        if (item.kind === "browser") return state.browsers[item.id] ? <LiveBrowser key={`b-${item.id}`} browser={state.browsers[item.id]} /> : null;
         const isFinal = finished && item === lastText;
         return (
           <div key={item.id} className={`msg-assistant${isFinal ? " msg-final" : " interim"}`}>
@@ -210,7 +212,7 @@ function Deck({ state, task, onDeploy, deploying }: { state: StreamState; task: 
             <>
               <PlanView steps={state.plan} />
               {activity.length === 0 && <EmptyState icon={Loader2} title="Waiting for the first event">The agent's thinking, tool calls and file changes will stream here live.</EmptyState>}
-              {activity.map(item => <TimelineEntry key={`${item.kind}-${item.id}`} item={item} usageByTurn={usageByTurn} />)}
+              {activity.map(item => <TimelineEntry key={`${item.kind}-${item.id}`} item={item} usageByTurn={usageByTurn} browsers={state.browsers} />)}
               <div ref={bottom} />
             </>
           )}

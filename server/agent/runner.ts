@@ -12,6 +12,7 @@ import { materializeWorkspace, snapshotWorkspace } from "./workspaces";
 import { fetchMediaBytes } from "../media/snowflake";
 import { getConnection } from "../services/github";
 import { linkedRepo } from "./repos";
+import { closeLiveBrowser } from "./browser";
 
 const MAX_TURNS = 60;
 const MAX_HEAL_ITERATIONS = 4;
@@ -339,6 +340,8 @@ async function runTask(taskId: string, conversation: Record<string, unknown>[], 
     emit({ type: "status", status });
     emit({ type: "done", status, answer: "" });
   } finally {
+    // The cloud browser never outlives the run (it bills per minute and holds a session slot).
+    await closeLiveBrowser(taskId, controller.signal.aborted ? "cancelled" : "done").catch(() => undefined);
     // Persist the durable copy of the workspace; the VPS directory is scratch and gets swept when idle.
     await snapshotWorkspace(taskId).catch(error => console.error(`[agent] snapshot ${taskId} failed:`, error.message));
     await settleTaskWrites(taskId);
@@ -607,8 +610,9 @@ async function trackedTool(ctx: RunContext, callId: string, name: string, input:
   ctx.emit({ type: "tool_call", callId, name, input: redactLargeInput(input) });
   if (name === "update_plan") {
     if (ctx.phases.get("planning") === "active") ctx.phases.set("planning", "done");
-  } else if ((name === "run_command" && typeof input.command === "string" && isVerificationCommand(input.command)) || name === "browse") {
-    if (ctx.changedFiles.size || name !== "browse") ctx.phases.advance("verification");
+  } else if ((name === "run_command" && typeof input.command === "string" && isVerificationCommand(input.command)) || name === "browse" || name.startsWith("browser_")) {
+    // Browsing counts as verification only once there is something of ours to check.
+    if (ctx.changedFiles.size || name === "run_command") ctx.phases.advance("verification");
   } else if (name === "test_preview_visual") {
     ctx.phases.advance("verification");
   } else if (["write_file", "edit_file", "delete_file", "run_command", "deploy_preview"].includes(name)) {

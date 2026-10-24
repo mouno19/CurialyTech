@@ -15,7 +15,10 @@ export type TimelineItem =
   | { kind: "external"; id: string; ts: string; status: string; detail: string; url?: string }
   | { kind: "notice"; id: string; ts: string; level: "info" | "warn" | "error"; message: string }
   | { kind: "repo"; id: string; ts: string; label: string; detail: string; url: string }
+  | { kind: "browser"; id: string; ts: string }
   | { kind: "media"; id: string; ts: string; mediaId: string | null; filename: string; mimeType: string; caption: string; src: string };
+
+export type BrowserState = { sessionId: string; status: "live" | "ended"; liveUrl: string | null; replayUrl: string; url: string; action: string; detail: string; actions: number; startedAt: string; endedAt?: string; reason?: string };
 
 export type DeploymentState = { id: string; status: string; url?: string; detail: string; expiresAt?: string; updatedAt: string };
 
@@ -28,6 +31,7 @@ export type StreamState = {
   changes: FileChange[];
   usage: TurnUsage[];
   deployments: DeploymentState[];
+  browsers: Record<string, BrowserState>;
   status: TaskStatus | null;
   model: string | null;
   answer: string;
@@ -40,7 +44,7 @@ export type StreamState = {
 const initialPhases = () => Object.fromEntries(PHASES.map(phase => [phase.id, { state: "pending" as PhaseState }])) as StreamState["phases"];
 
 export const initialStreamState = (): StreamState => ({
-  items: [], phases: initialPhases(), plan: [], changes: [], usage: [], deployments: [], status: null, model: null, answer: "", events: [], lastSeq: 0, connected: false, ended: false,
+  items: [], phases: initialPhases(), plan: [], changes: [], usage: [], deployments: [], browsers: {}, status: null, model: null, answer: "", events: [], lastSeq: 0, connected: false, ended: false,
 });
 
 type Action = { type: "events"; events: AgentEvent[] } | { type: "connected"; value: boolean } | { type: "ended" } | { type: "reset" };
@@ -170,6 +174,21 @@ function apply(state: StreamState, event: AgentEvent) {
       state.status = event.status;
       if (event.answer) state.answer = event.answer;
       break;
+    case "browser_session": {
+      const current = state.browsers[event.sessionId];
+      if (event.status === "live") {
+        state.browsers = { ...state.browsers, [event.sessionId]: { sessionId: event.sessionId, status: "live", liveUrl: event.liveUrl, replayUrl: event.replayUrl, url: "about:blank", action: "open", detail: "Browser session started", actions: 0, startedAt: event.ts } };
+        items.push({ kind: "browser", id: event.sessionId, ts: event.ts });
+      } else if (current) {
+        state.browsers = { ...state.browsers, [event.sessionId]: { ...current, status: "ended", liveUrl: null, endedAt: event.ts, reason: event.reason, detail: "Browsing finished" } };
+      }
+      break;
+    }
+    case "browser_action": {
+      const current = state.browsers[event.sessionId];
+      if (current) state.browsers = { ...state.browsers, [event.sessionId]: { ...current, url: event.url || current.url, action: event.action, detail: event.detail, actions: current.actions + 1 } };
+      break;
+    }
     case "repo":
       items.push({ kind: "repo", id: `r${event.seq}`, ts: event.ts, label: `Cloned ${event.fullName}`, detail: `branch ${event.branch} @ ${event.baseSha.slice(0, 7)} → ${event.repoPath === "." ? "workspace root" : `${event.repoPath}/`}`, url: event.url });
       break;
