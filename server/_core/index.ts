@@ -7,7 +7,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { authConfigured, loginHandler, logoutHandler, requireAdmin, sameOriginOnly } from "../auth";
-import { agentRouter } from "../agent/routes";
+import { agentRouter, githubReposHandler } from "../agent/routes";
 import { failOrphanedTasks } from "../agent/store";
 import { isRunning } from "../agent/runner";
 import { startWorkspaceSweeper } from "../agent/workspaces";
@@ -43,6 +43,7 @@ async function startServer() {
   app.post("/api/auth/logout", logoutHandler);
   registerGitHubAuth(app);
   app.use("/api/agent", requireAdmin, agentRouter());
+  app.get("/api/github/repos", requireAdmin, (req, res) => void githubReposHandler(req, res).catch(error => res.status(502).json({ error: error instanceof Error ? error.message : "GitHub request failed" })));
   app.get("/api/platform/config.js", (_req, res) => {
     res.set("Cache-Control", "no-store").type("application/javascript").send(publicPlatformScript());
   });

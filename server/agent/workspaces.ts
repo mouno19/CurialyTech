@@ -3,6 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { ensureWorkspace, removeWorkspace, workspacePath, writeWorkspaceBytes } from "./sandbox";
 import { idleWorkspaces, loadWorkspaceSnapshot, saveWorkspaceSnapshot, updateAgentTask } from "./store";
+import { linkedRepo, linkedSnapshotFiles, restoreLinkedRepo } from "./repos";
+import { getConnection } from "../services/github";
 
 // Workspaces on the VPS are scratch space only. The durable copy of an agent's files is the
 // snapshot in Tiger; the directory is removed once a session has been idle for IDLE_MINUTES
@@ -45,6 +47,16 @@ export function collectWorkspaceFiles(root: string) {
 export async function snapshotWorkspace(taskId: string) {
   const root = workspacePath(taskId);
   if (!fs.existsSync(root)) return null;
+  const repo = await linkedRepo(taskId);
+  if (repo) {
+    // Linked GitHub repo: archive only the agent's edits (plus anything outside the repo folder);
+    // the unchanged repository is re-fetched from GitHub on restore.
+    const edits = await linkedSnapshotFiles(taskId, root, repo);
+    const outside = repo.repoPath === "." ? [] : collectWorkspaceFiles(root).files.filter(file => !file.path.startsWith(`${repo.repoPath}/`));
+    const files = [...edits, ...outside].map(file => ({ path: file.path, content: file.content, sha256: createHash("sha256").update(file.content).digest("hex") }));
+    await saveWorkspaceSnapshot(taskId, files);
+    return { files: files.length, bytes: files.reduce((sum, file) => sum + file.content.length, 0), skipped: 0 };
+  }
   const result = collectWorkspaceFiles(root);
   await saveWorkspaceSnapshot(taskId, result.files);
   return { files: result.files.length, bytes: result.total, skipped: result.skipped };
@@ -55,6 +67,12 @@ export async function materializeWorkspace(taskId: string) {
   const dir = workspacePath(taskId);
   if (fs.existsSync(dir)) return { dir, restored: 0 };
   const root = ensureWorkspace(taskId);
+  const repo = await linkedRepo(taskId);
+  if (repo) {
+    const connection = await getConnection().catch(() => null);
+    if (!connection) throw new Error(`Reconnect GitHub to restore ${repo.fullName} into this workspace.`);
+    await restoreLinkedRepo(root, repo, connection.token);
+  }
   const files = await loadWorkspaceSnapshot(taskId);
   for (const file of files) writeWorkspaceBytes(root, file.path, file.content);
   return { dir: root, restored: files.length };

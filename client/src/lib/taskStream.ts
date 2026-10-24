@@ -14,6 +14,7 @@ export type TimelineItem =
   | { kind: "heal"; id: string; ts: string; iteration: number; reason: string; model: string }
   | { kind: "external"; id: string; ts: string; status: string; detail: string; url?: string }
   | { kind: "notice"; id: string; ts: string; level: "info" | "warn" | "error"; message: string }
+  | { kind: "repo"; id: string; ts: string; label: string; detail: string; url: string }
   | { kind: "media"; id: string; ts: string; mediaId: string | null; filename: string; mimeType: string; caption: string; src: string };
 
 export type DeploymentState = { id: string; status: string; url?: string; detail: string; expiresAt?: string; updatedAt: string };
@@ -168,6 +169,15 @@ function apply(state: StreamState, event: AgentEvent) {
     case "done":
       state.status = event.status;
       if (event.answer) state.answer = event.answer;
+      break;
+    case "repo":
+      items.push({ kind: "repo", id: `r${event.seq}`, ts: event.ts, label: `Cloned ${event.fullName}`, detail: `branch ${event.branch} @ ${event.baseSha.slice(0, 7)} → ${event.repoPath === "." ? "workspace root" : `${event.repoPath}/`}`, url: event.url });
+      break;
+    case "repo_push":
+      items.push({ kind: "repo", id: `r${event.seq}`, ts: event.ts, label: `Pushed ${event.commitSha.slice(0, 7)} → ${event.branch}`, detail: `${event.changed} changed, ${event.deleted} deleted · ${event.fullName}`, url: event.commitUrl });
+      break;
+    case "repo_pr":
+      items.push({ kind: "repo", id: `r${event.seq}`, ts: event.ts, label: `Opened PR #${event.number}`, detail: `${event.head} → ${event.base} · ${event.fullName}`, url: event.url });
       break;
     case "media":
       items.push({ kind: "media", id: `m${event.seq}`, ts: event.ts, mediaId: event.mediaId, filename: event.filename, mimeType: event.mimeType, caption: event.caption, src: event.mediaId ? `/api/agent/media/${event.mediaId}` : event.inlineDataUrl ?? "" });

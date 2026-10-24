@@ -9,10 +9,11 @@ export type StoredConversation = Anthropic.MessageParam[] | Record<string, unkno
 type SessionRow = {
   id: string; prompt: string; status: TaskStatus; mode: TaskMode; model: string; effort: ThinkingLevel; web_search: boolean;
   phase: PhaseId | null; answer: string | null; error: string | null; usage: AgentTaskSummary["usage"]; files_changed: number;
-  workspace_state: string; github_repo: string | null; github_repo_url: string | null; github_pushed_at: Date | null; created_at: Date; updated_at: Date;
+  workspace_state: string; github_repo: string | null; github_repo_url: string | null; github_pushed_at: Date | null;
+  github_mode: "export" | "linked" | null; github_branch: string | null; created_at: Date; updated_at: Date;
 };
 
-const SUMMARY_COLUMNS = "id, prompt, status, mode, model, effort, web_search, phase, answer, error, usage, files_changed, workspace_state, github_repo, github_repo_url, github_pushed_at, created_at, updated_at";
+const SUMMARY_COLUMNS = "id, prompt, status, mode, model, effort, web_search, phase, answer, error, usage, files_changed, workspace_state, github_repo, github_repo_url, github_pushed_at, github_mode, github_branch, created_at, updated_at";
 
 function fromRow(row: SessionRow): AgentTaskSummary & { workspaceState: string } {
   return {
@@ -20,6 +21,7 @@ function fromRow(row: SessionRow): AgentTaskSummary & { workspaceState: string }
     webSearch: row.web_search, phase: row.phase, answer: row.answer ?? undefined, error: row.error ?? undefined,
     usage: row.usage, filesChanged: row.files_changed, workspaceState: row.workspace_state,
     githubRepo: row.github_repo ?? undefined, githubRepoUrl: row.github_repo_url ?? undefined, githubPushedAt: row.github_pushed_at?.toISOString(),
+    githubMode: row.github_mode ?? undefined, githubBranch: row.github_branch ?? undefined,
     createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(),
   };
 }

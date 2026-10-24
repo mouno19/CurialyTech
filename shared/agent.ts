@@ -94,6 +94,9 @@ export type AgentEventBody =
   | { type: "external"; source: "manus"; status: string; detail: string; url?: string }
   | { type: "media"; callId: string; mediaId: string | null; filename: string; mimeType: string; caption: string; inlineDataUrl?: string }
   | { type: "deployment"; deploymentId: string; status: "creating" | "building" | "live" | "failed" | "deleted"; url?: string; detail: string; expiresAt?: string }
+  | { type: "repo"; fullName: string; branch: string; baseSha: string; repoPath: string; url: string }
+  | { type: "repo_push"; fullName: string; branch: string; commitSha: string; commitUrl: string; changed: number; deleted: number }
+  | { type: "repo_pr"; fullName: string; number: number; url: string; head: string; base: string }
   | { type: "notice"; level: "info" | "warn"; message: string }
   | { type: "error"; message: string }
   | { type: "done"; status: TaskStatus; answer: string };
@@ -116,6 +119,8 @@ export type AgentTaskSummary = {
   githubRepo?: string;
   githubRepoUrl?: string;
   githubPushedAt?: string;
+  githubMode?: "export" | "linked";
+  githubBranch?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -127,4 +132,7 @@ export type CreateTaskRequest = {
   effort: ThinkingLevel;
   webSearch: boolean;
   attachmentIds: string[];
+  /** Optional "owner/name" to clone into the workspace before the agent starts. */
+  repo?: string | null;
+  repoBranch?: string | null;
 };

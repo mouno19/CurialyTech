@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle, Bot, Brain, Check, CheckCircle2, ChevronDown, ChevronRight, Circle, CircleDashed, ExternalLink, FilePen, FileSearch, FolderTree,
-  Globe, ListChecks, Loader2, Rocket, Route, Search, ShieldCheck, SquareTerminal, Trash2, Wrench, X, XCircle,
+  GitBranch, Globe, ListChecks, Loader2, Rocket, Route, Search, ShieldCheck, SquareTerminal, Trash2, Wrench, X, XCircle,
 } from "lucide-react";
 import { PHASES, type PlanStep } from "@shared/agent";
 import type { StreamState, TimelineItem, TurnUsage } from "@/lib/taskStream";
@@ -109,11 +109,12 @@ const TOOL_ICONS: Record<string, typeof Wrench> = {
   run_command: SquareTerminal, verify: ShieldCheck, read_file: FileSearch, write_file: FilePen, edit_file: FilePen, delete_file: Trash2,
   list_files: FolderTree, search_files: Search, web_fetch: Globe, delegate_research: Bot, manus: Bot, update_plan: ListChecks,
   browse: Globe, deploy_preview: Rocket,
+  github_list_repos: GitBranch, github_get_repo: GitBranch, github_clone_to_workspace: GitBranch, github_commit_and_push: GitBranch, github_create_pr: GitBranch,
 };
 
 function toolSubtitle(item: Extract<TimelineItem, { kind: "tool" }>) {
   const input = item.input ?? {};
-  const value = input.command ?? input.path ?? input.url ?? input.pattern ?? input.task ?? (item.name === "deploy_preview" && typeof input.kind === "string" ? `${input.kind} preview` : undefined);
+  const value = input.command ?? input.path ?? input.url ?? input.pattern ?? input.task ?? input.repo ?? input.message ?? input.title ?? (item.name === "deploy_preview" && typeof input.kind === "string" ? `${input.kind} preview` : undefined);
   if (typeof value === "string") return value;
   if (item.name === "update_plan" && Array.isArray(input.steps)) return `${input.steps.length} steps`;
   const partial = partialField(item.inputPartial, ["command", "path", "url", "pattern"]);
@@ -148,7 +149,7 @@ function Terminal({ command, segments, result, live }: { command?: string; segme
 }
 
 export function ToolCard({ item }: { item: Extract<TimelineItem, { kind: "tool" }> }) {
-  const isShell = ["run_command", "verify", "manus", "delegate_research", "browse", "deploy_preview"].includes(item.name);
+  const isShell = ["run_command", "verify", "manus", "delegate_research", "browse", "deploy_preview", "github_clone_to_workspace", "github_commit_and_push"].includes(item.name);
   const isWrite = item.name === "write_file" || item.name === "edit_file" || item.name === "delete_file";
   const running = !item.result;
   const [open, setOpen] = useState(isShell || isWrite);
@@ -226,6 +227,17 @@ export function TimelineEntry({ item, usageByTurn }: { item: TimelineItem; usage
             <span className="title">Manus · {item.status}</span>
             <span className="sub">{item.detail}</span>
             {item.url && <a className="icon-btn sm" href={item.url} target="_blank" rel="noreferrer" title="Open in Manus"><ExternalLink size={13} /></a>}
+          </div>
+        </div>
+      );
+    case "repo":
+      return (
+        <div className="tl" style={{ borderColor: "var(--violet-line)" }}>
+          <div className="tl-head">
+            <GitBranch size={15} color="var(--violet)" />
+            <span className="title">{item.label}</span>
+            <span className="sub mono">{item.detail}</span>
+            <a className="icon-btn sm" href={item.url} target="_blank" rel="noreferrer" title="Open on GitHub"><ExternalLink size={13} /></a>
           </div>
         </div>
       );

@@ -171,3 +171,59 @@ export async function retireRepo(token: string, fullName: string) {
     throw error;
   }
 }
+
+// ---- Repository discovery (UI picker + agent tools) ----
+
+export type RepoSummary = { id: number; name: string; full_name: string; private: boolean; default_branch: string; description: string | null; updated_at: string; language: string | null; size_kb: number; html_url: string };
+
+const toSummary = (repo: any): RepoSummary => ({
+  id: repo.id, name: repo.name, full_name: repo.full_name, private: repo.private, default_branch: repo.default_branch, description: repo.description,
+  updated_at: repo.updated_at, language: repo.language, size_kb: repo.size, html_url: repo.html_url,
+});
+
+export async function listRepos(token: string, perPage = 50) {
+  const repos = await githubApi<any[]>(token, `/user/repos?sort=updated&per_page=${Math.min(100, perPage)}&affiliation=owner,collaborator`);
+  return repos.map(toSummary);
+}
+
+/**
+ * Resolve what a user typed ("easyeps", "EasyEPS", "mouno19/easyeps") to one of their repositories.
+ * Exact full-name or name matches win; otherwise a unique case-insensitive substring match.
+ */
+export async function resolveRepo(token: string, query: string) {
+  const wanted = query.trim().replace(/^https?:\/\/github\.com\//i, "").replace(/\.git$/i, "").replace(/\/+$/, "");
+  if (wanted.includes("/")) {
+    const repo = await githubApi<any>(token, `/repos/${wanted}`);
+    return { repo: toSummary(repo), candidates: [] as RepoSummary[] };
+  }
+  const repos = await githubApi<any[]>(token, "/user/repos?sort=updated&per_page=100&affiliation=owner,collaborator,organization_member").then(list => list.map(toSummary));
+  const lower = wanted.toLowerCase();
+  const exact = repos.filter(repo => repo.name.toLowerCase() === lower);
+  if (exact.length === 1) return { repo: exact[0], candidates: [] };
+  const partial = (exact.length ? exact : repos.filter(repo => repo.name.toLowerCase().includes(lower) || repo.name.toLowerCase().replace(/[-_.]/g, "").includes(lower.replace(/[-_.\s]/g, ""))));
+  if (partial.length === 1) return { repo: partial[0], candidates: [] };
+  return { repo: null, candidates: partial.slice(0, 10) };
+}
+
+export async function repoDetails(token: string, fullName: string) {
+  const [repo, branches, languages] = await Promise.all([
+    githubApi<any>(token, `/repos/${fullName}`),
+    githubApi<{ name: string; commit: { sha: string }; protected: boolean }[]>(token, `/repos/${fullName}/branches?per_page=30`).catch(() => []),
+    githubApi<Record<string, number>>(token, `/repos/${fullName}/languages`).catch(() => ({})),
+  ]);
+  return { ...toSummary(repo), open_issues: repo.open_issues_count, topics: repo.topics ?? [], branches: branches.map(branch => ({ name: branch.name, sha: branch.commit.sha, protected: branch.protected })), languages };
+}
+
+export async function branchHead(token: string, fullName: string, branch: string) {
+  try {
+    const ref = await githubApi<{ object: { sha: string } }>(token, `/repos/${fullName}/git/ref/heads/${encodeURIComponent(branch)}`);
+    return ref.object.sha;
+  } catch (error) {
+    if (error instanceof GitHubError && error.status === 404) return null;
+    throw error;
+  }
+}
+
+export async function createPullRequest(token: string, fullName: string, input: { title: string; body: string; head: string; base: string; draft?: boolean }) {
+  return githubApi<{ number: number; html_url: string; state: string }>(token, `/repos/${fullName}/pulls`, { method: "POST", body: JSON.stringify(input) });
+}

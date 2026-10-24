@@ -172,7 +172,9 @@ function runCommandNow({ root, command, timeoutSec, signal, onOutput }: Paramete
   const unit = `curialy-agent-${process.pid}-${++commandCounter}-${Date.now()}`;
   const script = 'umask 002; cd -- "$1" || exit 97; eval "$2"';
   const shellArgs = ["/usr/bin/timeout", "--kill-after=5", `${timeout}s`, "/bin/bash", "-c", script, "curialy", root, command];
-  const env = ["HOME=/var/lib/curialy-agent", "PATH=/usr/local/bin:/usr/bin:/bin", "LANG=C.UTF-8", "CI=1", "TERM=dumb", "NO_COLOR=1", "npm_config_update_notifier=false"];
+  // Repos fetched by the app are owned by the app user; let the sandbox's git operate on them.
+  const env = ["HOME=/var/lib/curialy-agent", "PATH=/usr/local/bin:/usr/bin:/bin", "LANG=C.UTF-8", "CI=1", "TERM=dumb", "NO_COLOR=1", "npm_config_update_notifier=false",
+    "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=safe.directory", "GIT_CONFIG_VALUE_0=*", "GIT_TERMINAL_PROMPT=0"];
   const [file, args] = SANDBOX_MODE === "systemd"
     ? ["sudo", ["-n", "systemd-run", "--quiet", "--scope", "--unit", unit,
         "-p", "MemoryMax=512M", "-p", "MemorySwapMax=512M", "-p", "TasksMax=256", "-p", "CPUQuota=150%",

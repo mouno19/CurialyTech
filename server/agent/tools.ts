@@ -7,6 +7,8 @@ import { PROVIDER_ENV, runManusTask } from "./providers";
 import { browse } from "./browser";
 import { deployConfigured, deployPreview } from "./deploy";
 import { mediaStatus, storeMedia } from "../media/snowflake";
+import { createPullRequest, getConnection, listRepos, repoDetails, resolveRepo } from "../services/github";
+import { cloneIntoWorkspace, commitAndPush, linkedRepo } from "./repos";
 import { clip, deleteWorkspaceFile, listWorkspaceTree, readWorkspaceFile, runCommand, SandboxError, writeWorkspaceFile } from "./sandbox";
 
 export type ToolContext = {
@@ -68,6 +70,11 @@ const schemas = {
   web_fetch: z.object({ url: z.string().url().max(2000) }),
   delegate_research: z.object({ task: z.string().min(10).max(12000) }),
   browse: z.object({ url: z.string().url().max(2000), screenshot: z.boolean().default(true), full_page: z.boolean().default(false), wait_ms: z.number().int().min(0).max(15000).default(2000) }),
+  github_list_repos: z.object({ query: z.string().max(100).default("") }),
+  github_get_repo: z.object({ repo: z.string().min(1).max(200) }),
+  github_clone_to_workspace: z.object({ repo: z.string().min(1).max(200), branch: z.string().max(200).optional() }),
+  github_commit_and_push: z.object({ message: z.string().min(3).max(5000), branch: z.string().max(200).optional() }),
+  github_create_pr: z.object({ title: z.string().min(3).max(256), body: z.string().max(60000).default(""), head: z.string().max(200).optional(), base: z.string().max(200).optional(), draft: z.boolean().default(false) }),
   deploy_preview: z.object({
     kind: z.enum(["static", "node"]),
     build_command: z.string().max(500).default(""),
@@ -147,9 +154,38 @@ const DEPLOY_TOOL: ToolDef = {
   input_schema: { type: "object", properties: { kind: { type: "string", enum: ["static", "node"] }, build_command: { type: "string" }, publish_path: { type: "string" }, start_command: { type: "string" } }, required: ["kind"] },
 };
 
-export function toolsFor(opts: { coding: boolean; web: boolean; eager: boolean }): Anthropic.Tool[] {
+const GITHUB_TOOLS: ToolDef[] = [
+  {
+    name: "github_list_repos",
+    description: "List the user's GitHub repositories (owned or collaborator), most recently updated first. Optional query filters by name, case-insensitive.",
+    input_schema: { type: "object", properties: { query: { type: "string" } } },
+  },
+  {
+    name: "github_get_repo",
+    description: "Get a repository's details, branches and languages. Accepts 'owner/name' or just a name like 'easyeps', which is matched against the user's repositories.",
+    input_schema: { type: "object", properties: { repo: { type: "string" } }, required: ["repo"] },
+  },
+  {
+    name: "github_clone_to_workspace",
+    description: "Clone one of the user's repositories into this task's workspace so its files can be read, edited and tested with the other tools. Accepts 'owner/name' or a bare name. Clones the default branch unless branch is given. One repository per task.",
+    input_schema: { type: "object", properties: { repo: { type: "string" }, branch: { type: "string" } }, required: ["repo"] },
+  },
+  {
+    name: "github_commit_and_push",
+    description: "Commit every change in the cloned repository (edits, new files, deletions; .gitignore is respected) and push it to GitHub. Pushes to the cloned branch by default; pass branch to push to a new branch, which is the safe choice before github_create_pr. Plain 'git push' inside run_command has no credentials and will fail; always use this tool.",
+    input_schema: { type: "object", properties: { message: { type: "string", description: "Commit message" }, branch: { type: "string" } }, required: ["message"] },
+  },
+  {
+    name: "github_create_pr",
+    description: "Open a pull request in the cloned repository from head (default: the last branch you pushed with github_commit_and_push) into base (default: the branch that was cloned).",
+    input_schema: { type: "object", properties: { title: { type: "string" }, body: { type: "string" }, head: { type: "string" }, base: { type: "string" }, draft: { type: "boolean" } }, required: ["title"] },
+  },
+];
+
+export function toolsFor(opts: { coding: boolean; web: boolean; eager: boolean; github?: boolean }): Anthropic.Tool[] {
   const tools: ToolDef[] = [];
   if (opts.coding) tools.push(...CODING_TOOLS);
+  if (opts.github) tools.push(...(opts.coding ? GITHUB_TOOLS : GITHUB_TOOLS.slice(0, 2)));
   if (opts.coding && deployConfigured().ok) tools.push(DEPLOY_TOOL);
   if ((opts.web || opts.coding) && PROVIDER_ENV.browserbaseKey && PROVIDER_ENV.browserbaseProject) tools.push(BROWSE_TOOL);
   if (opts.web) {
@@ -287,6 +323,12 @@ async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOu
       const body = [`HTTP ${page.status ?? "unknown"} · final URL ${page.finalUrl}`, `Title: ${page.title}`, page.consoleErrors.length ? `Console errors:\n${page.consoleErrors.join("\n")}` : "No console errors.", "", clip(page.text, 30_000)].join("\n");
       return { ok, content: body, summary: `HTTP ${page.status ?? "?"} · ${page.title.slice(0, 60) || "page"}`, image };
     }
+    case "github_list_repos":
+    case "github_get_repo":
+    case "github_clone_to_workspace":
+    case "github_commit_and_push":
+    case "github_create_pr":
+      return runGitHubTool(name, input, ctx);
     case "deploy_preview": {
       const { kind, build_command, publish_path, start_command } = input as z.infer<typeof schemas.deploy_preview>;
       let deploymentId = "";
@@ -312,5 +354,76 @@ async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOu
       });
       return { ok: result.status === "completed", content: clip(`${result.answer}\n\n(Manus task: ${result.url})`, 40_000), summary: `Manus ${result.status}` };
     }
+  }
+}
+
+async function runGitHubTool(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOutcome> {
+  const connection = await getConnection();
+  if (!connection) return { ok: false, content: "GitHub is not connected. Ask the user to click Connect GitHub in the sidebar.", summary: "GitHub not connected" };
+  const { token, login } = connection;
+  const log = (chunk: string) => ctx.emit({ type: "tool_output", callId: ctx.callId, stream: "stdout", chunk });
+
+  const resolve = async (query: string) => {
+    const match = await resolveRepo(token, query);
+    if (match.repo) return match.repo;
+    const options = match.candidates.map(repo => repo.full_name).join(", ");
+    throw new Error(match.candidates.length ? `"${query}" matches several repositories: ${options}. Ask which one, or pass owner/name.` : `No repository matching "${query}" in ${login}'s account. Use github_list_repos to see what exists.`);
+  };
+
+  switch (name) {
+    case "github_list_repos": {
+      const { query } = input as z.infer<typeof schemas.github_list_repos>;
+      const repos = (await listRepos(token, 100)).filter(repo => !query || repo.name.toLowerCase().includes(query.toLowerCase()));
+      const lines = repos.map(repo => `${repo.full_name}${repo.private ? " (private)" : ""} · ${repo.language ?? "?"} · default ${repo.default_branch} · updated ${repo.updated_at.slice(0, 10)}${repo.description ? ` · ${repo.description.slice(0, 100)}` : ""}`);
+      return { ok: true, content: lines.join("\n") || "No repositories found.", summary: `${repos.length} repos` };
+    }
+    case "github_get_repo": {
+      const repo = await resolve((input as z.infer<typeof schemas.github_get_repo>).repo);
+      const details = await repoDetails(token, repo.full_name);
+      const languages = Object.entries(details.languages).sort((a, b) => b[1] - a[1]).map(([lang, bytes]) => `${lang} ${Math.round(bytes / 1024)}KB`).join(", ");
+      const content = [
+        `${details.full_name} (${details.private ? "private" : "public"}) ${details.html_url}`,
+        details.description ? `Description: ${details.description}` : "",
+        `Default branch: ${details.default_branch} · size ${Math.round(details.size_kb / 1024)} MB · open issues ${details.open_issues} · updated ${details.updated_at}`,
+        `Languages: ${languages || "unknown"}`,
+        `Branches: ${details.branches.map(branch => `${branch.name}${branch.protected ? " (protected)" : ""}`).join(", ")}`,
+      ].filter(Boolean).join("\n");
+      return { ok: true, content, summary: details.full_name };
+    }
+    case "github_clone_to_workspace": {
+      const { repo: query, branch } = input as z.infer<typeof schemas.github_clone_to_workspace>;
+      const repo = await resolve(query);
+      const result = await cloneIntoWorkspace({ sessionId: ctx.sessionId, root: ctx.root, fullName: repo.full_name, branch, token, onOutput: log });
+      if (result.alreadyLinked) return { ok: true, content: `${result.fullName} is already cloned at ${result.repoPath} (branch ${result.branch}).`, summary: `${result.fullName} already cloned` };
+      ctx.emit({ type: "repo", fullName: result.fullName, branch: result.branch, baseSha: result.baseSha, repoPath: result.repoPath, url: result.url });
+      ctx.onFileChange(".");
+      const tree = listWorkspaceTree(ctx.root, result.repoPath, 2, 200).map(entry => (entry.type === "dir" ? `${entry.path}/` : entry.path)).join("\n");
+      return {
+        ok: true,
+        content: `Cloned ${result.fullName}@${result.branch} (${result.baseSha.slice(0, 7)}) into ${result.repoPath === "." ? "the workspace root" : `${result.repoPath}/`}: ${result.files} tracked files.\nTop of the tree:\n${tree}\n\nRead the README and key config files before making changes. Push edits with github_commit_and_push.`,
+        summary: `Cloned ${result.fullName}@${result.branch} · ${result.files} files`,
+      };
+    }
+    case "github_commit_and_push": {
+      const { message, branch } = input as z.infer<typeof schemas.github_commit_and_push>;
+      const repo = await linkedRepo(ctx.sessionId);
+      if (!repo) return { ok: false, content: "No repository is cloned in this task. Use github_clone_to_workspace first.", summary: "No linked repo" };
+      const result = await commitAndPush({ sessionId: ctx.sessionId, root: ctx.root, repo, token, message, branch, signal: ctx.signal, onOutput: log });
+      if (result.nothingToPush) return { ok: true, content: `Nothing to push: the workspace matches ${repo.fullName}@${repo.branch}.`, summary: "Nothing to push" };
+      ctx.emit({ type: "repo_push", fullName: repo.fullName, branch: result.branch, commitSha: result.commitSha, commitUrl: result.commitUrl, changed: result.changed, deleted: result.deleted });
+      return { ok: true, content: `Pushed ${result.changed} changed and ${result.deleted} deleted file(s) to ${repo.fullName}@${result.branch}: ${result.commitUrl}`, summary: `Pushed ${result.commitSha.slice(0, 7)} → ${result.branch}` };
+    }
+    case "github_create_pr": {
+      const { title, body, head, base, draft } = input as z.infer<typeof schemas.github_create_pr>;
+      const repo = await linkedRepo(ctx.sessionId);
+      if (!repo) return { ok: false, content: "No repository is cloned in this task.", summary: "No linked repo" };
+      const headBranch = head || Object.keys(repo.pushed).filter(branchName => branchName !== repo.branch).pop();
+      if (!headBranch) return { ok: false, content: "Push your changes to a new branch with github_commit_and_push (branch: ...) before opening a pull request.", summary: "No head branch" };
+      const pr = await createPullRequest(token, repo.fullName, { title, body: `${body}\n\n---\nOpened by Curialy AI.`.trim(), head: headBranch, base: base || repo.branch, draft });
+      ctx.emit({ type: "repo_pr", fullName: repo.fullName, number: pr.number, url: pr.html_url, head: headBranch, base: base || repo.branch });
+      return { ok: true, content: `Opened PR #${pr.number}: ${pr.html_url}`, summary: `PR #${pr.number}` };
+    }
+    default:
+      return { ok: false, content: `Unknown GitHub tool ${name}`, summary: "Unknown tool" };
   }
 }

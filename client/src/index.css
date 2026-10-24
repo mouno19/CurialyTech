@@ -386,3 +386,10 @@ code, pre, kbd, .mono { font-family: var(--mono); }
 .media-tile .thumb { aspect-ratio: 4 / 3; background: var(--inset); display: grid; place-items: center; overflow: hidden; }
 .media-tile .thumb img { width: 100%; height: 100%; object-fit: cover; }
 .cap-group { padding: 10px 10px 4px; color: var(--faint); font-size: 9.5px; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; }
+
+/* Repository picker */
+.repo-menu { width: 380px; }
+.repo-search { display: flex; align-items: center; gap: 8px; padding: 6px 8px 8px; border-bottom: 1px solid var(--line); margin-bottom: 4px; position: sticky; top: -6px; background: var(--surface-2); z-index: 1; }
+.repo-search input { flex: 1; min-width: 0; height: 28px; border: 1px solid var(--line-strong); border-radius: 7px; background: var(--inset); padding: 0 9px; outline: none; font-size: 12.5px; }
+.repo-search input:focus { border-color: var(--violet-line); }
+@media (max-width: 860px) { .repo-menu { width: min(380px, calc(100vw - 32px)); } }

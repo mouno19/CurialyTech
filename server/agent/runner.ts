@@ -10,6 +10,8 @@ import { addMessage, createAgentTask, getAgentTask, getConversation, settleTaskW
 import { executeTool, isVerificationCommand, shellQuote, toolsFor, type ToolOutcome } from "./tools";
 import { materializeWorkspace, snapshotWorkspace } from "./workspaces";
 import { fetchMediaBytes } from "../media/snowflake";
+import { getConnection } from "../services/github";
+import { linkedRepo } from "./repos";
 
 const MAX_TURNS = 60;
 const MAX_HEAL_ITERATIONS = 4;
@@ -154,6 +156,9 @@ function detectVerificationCommands(root: string, changedFiles: Set<string>, age
 
 type RunContext = {
   taskId: string;
+  /** Per-run context appended after the static system prompt (kept separate so the base prompt caches). */
+  context: string;
+  github: boolean;
   runId: string;
   root: string;
   mode: TaskMode;
@@ -198,7 +203,7 @@ export async function startTask(req: CreateTaskRequest, attachments: { filename:
     const conversation: Record<string, unknown>[] = [{ role: "user", content: prompt }];
     await updateAgentTask(id, { conversation, workspaceState: "live" });
     await addMessage(id, "user", req.prompt);
-    void runTask(id, conversation, { mode: req.mode, effort: req.effort, webSearch: req.webSearch, spec, reason });
+    void runTask(id, conversation, { mode: req.mode, effort: req.effort, webSearch: req.webSearch, spec, reason, cloneRepo: req.repo ? { repo: req.repo, branch: req.repoBranch ?? undefined } : undefined });
     return id;
   } finally {
     reserved.delete(id);
@@ -232,17 +237,35 @@ export function cancelTask(taskId: string) {
   return true;
 }
 
-async function runTask(taskId: string, conversation: Record<string, unknown>[], opts: { mode: TaskMode; effort: ThinkingLevel; webSearch: boolean; spec: ModelSpec; reason: string }) {
+async function githubContext(taskId: string) {
+  const connection = await getConnection().catch(() => null);
+  if (!connection) return { github: false, context: "" };
+  const repo = await linkedRepo(taskId).catch(() => null);
+  const active = repo ? `${repo.fullName} (branch ${repo.branch}, cloned ${repo.repoPath === "." ? "at the workspace root" : `in ${repo.repoPath}/`})` : "None selected";
+  return {
+    github: true,
+    context: `User GitHub context:
+- Authenticated GitHub user: ${connection.login}
+- Active repository: ${active}
+- Capabilities: with the github_* tools you can list, inspect, clone, edit, commit, push and open pull requests on ${connection.login}'s repositories. You never see the access token; plain git push inside run_command has no credentials and will fail.
+- If the user mentions a repository by name (e.g. "easyeps"), match it against ${connection.login}'s repositories with github_get_repo${repo ? "" : ", clone it with github_clone_to_workspace,"} and inspect it before answering.
+- Push to the cloned branch only when the user explicitly asks for it; otherwise push to a new branch and open a pull request. Never rewrite history.`,
+  };
+}
+
+async function runTask(taskId: string, conversation: Record<string, unknown>[], opts: { mode: TaskMode; effort: ThinkingLevel; webSearch: boolean; spec: ModelSpec; reason: string; cloneRepo?: { repo: string; branch?: string } }) {
   const controller = new AbortController();
   running.set(taskId, controller);
   let bus: Awaited<ReturnType<typeof openChannel>>;
   let root: string;
   let restored = 0;
   let existing: Awaited<ReturnType<typeof getAgentTask>>;
+  let gh = { github: false, context: "" };
   try {
     bus = await openChannel(taskId);
     ({ dir: root, restored } = await materializeWorkspace(taskId));
     existing = await getAgentTask(taskId);
+    gh = await githubContext(taskId);
   } catch (error) {
     running.delete(taskId);
     console.error(`[agent] could not start ${taskId}:`, error);
@@ -252,6 +275,8 @@ async function runTask(taskId: string, conversation: Record<string, unknown>[], 
   const emit: Emit = body => bus.emit(body);
   const ctx: RunContext = {
     taskId,
+    context: gh.context,
+    github: gh.github,
     runId: randomUUID().slice(0, 8),
     root,
     mode: opts.mode,
@@ -279,6 +304,16 @@ async function runTask(taskId: string, conversation: Record<string, unknown>[], 
   }
 
   try {
+    if (opts.cloneRepo && ctx.github) {
+      // Repository picked in the UI: clone it as the first, fully visible step of the run.
+      const outcome = await trackedTool(ctx, `${ctx.runId}-clone`, "github_clone_to_workspace", { repo: opts.cloneRepo.repo, ...(opts.cloneRepo.branch ? { branch: opts.cloneRepo.branch } : {}) });
+      if (!outcome.ok) throw new Error(outcome.content);
+      ctx.context = (await githubContext(taskId)).context;
+      const first = conversation[0];
+      if (first && typeof first.content === "string") first.content = `${first.content}\n\n[The repository ${opts.cloneRepo.repo} has already been cloned into the workspace: ${outcome.summary}.]`;
+    } else if (opts.cloneRepo) {
+      throw new Error("Connect GitHub to work on a repository.");
+    }
     let answer: string;
     if (opts.spec.provider === "manus") answer = await runManus(ctx, conversation as unknown as Anthropic.MessageParam[]);
     else if (opts.spec.provider === "cortex-inference") answer = await runInference(ctx, conversation as unknown as Anthropic.MessageParam[]);
@@ -324,7 +359,7 @@ async function streamTurn(ctx: RunContext, conversation: Anthropic.MessageParam[
   const stream = client.messages.stream({
     model: ctx.spec.id,
     max_tokens: MAX_TOKENS,
-    system: ctx.mode === "agent" ? AGENT_SYSTEM : CHAT_SYSTEM,
+    system: [{ type: "text", text: ctx.mode === "agent" ? AGENT_SYSTEM : CHAT_SYSTEM }, ...(ctx.context ? [{ type: "text" as const, text: ctx.context }] : [])],
     messages: conversation,
     ...(tools.length ? { tools } : {}),
     ...reasoningParams(ctx.spec, ctx.effort),
@@ -376,7 +411,7 @@ const textOf = (message: Anthropic.Message) => message.content.filter((block): b
 async function runAnthropicLoop(ctx: RunContext, conversation: Anthropic.MessageParam[]) {
   const coding = ctx.mode === "agent";
   // Eager input streaming lets file bodies stream into the UI as they are generated.
-  const tools = () => toolsFor({ coding, web: ctx.webSearch, eager: ctx.spec.eagerInput });
+  const tools = () => toolsFor({ coding, web: ctx.webSearch, eager: ctx.spec.eagerInput, github: ctx.github });
   let healIteration = 0;
   let lastText = "";
 
@@ -455,8 +490,8 @@ function openAITools(tools: Anthropic.Tool[]) {
 
 async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unknown>[]) {
   const coding = ctx.mode === "agent";
-  const tools = openAITools(toolsFor({ coding, web: ctx.webSearch, eager: false }));
-  const system = { role: "system", content: coding ? AGENT_SYSTEM : CHAT_SYSTEM };
+  const tools = openAITools(toolsFor({ coding, web: ctx.webSearch, eager: false, github: ctx.github }));
+  const system = () => ({ role: "system", content: [coding ? AGENT_SYSTEM : CHAT_SYSTEM, ctx.context].filter(Boolean).join("\n\n") });
   let healIteration = 0;
   let lastText = "";
 
@@ -472,7 +507,7 @@ async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unkno
     let usage = { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0 };
     const calls = new Map<number, { id: string; name: string; args: string }>();
 
-    for await (const chunk of streamOpenAIChat({ model: ctx.spec.id, messages: [system, ...conversation], tools: tools.length ? tools : undefined, maxTokens: MAX_TOKENS, signal: ctx.signal })) {
+    for await (const chunk of streamOpenAIChat({ model: ctx.spec.id, messages: [system(), ...conversation], tools: tools.length ? tools : undefined, maxTokens: MAX_TOKENS, signal: ctx.signal })) {
       if (chunk.kind === "reasoning") {
         if (!thinkingStarted) {
           thinkingStarted = Date.now();

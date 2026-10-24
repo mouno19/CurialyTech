@@ -5,6 +5,7 @@ import { Markdown } from "@/components/Markdown";
 import { ArrowUp, Bot, Brain, CircleStop, Copy, ExternalLink, FileDiff, Loader2, RefreshCcw, Rocket, ScrollText, SquareTerminal, Trash2, User, Workflow } from "lucide-react";
 import { getModel, type AgentTaskSummary } from "@shared/agent";
 import { AppShell, EmptyState, GitHubMark, useGitHub } from "@/components/shell/AppShell";
+import { RepoSelector } from "@/components/RepoSelector";
 import { DiffViewer } from "@/components/deck/DiffViewer";
 import { PhaseStepper, PlanView, ThinkingBlock, TimelineEntry, ToolCard } from "@/components/deck/Timeline";
 import { agentApi, formatTokens } from "@/lib/api";
@@ -217,10 +218,27 @@ export default function TaskWorkspace({ id }: { id: string }) {
   const [exporting, setExporting] = useState(false);
   const { status: github } = useGitHub();
 
+  const [linking, setLinking] = useState<string | null>(null);
+  const linkRepo = async (fullName: string, branch: string) => {
+    setLinking(fullName);
+    try {
+      const result = await agentApi.linkRepo(id, fullName, branch);
+      setTask(current => (current ? { ...current, githubRepo: result.repo, githubRepoUrl: result.url, githubMode: "linked", githubBranch: result.branch } : current));
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Could not load the repository");
+    } finally {
+      setLinking(null);
+    }
+  };
+
   const exportToGithub = async () => {
     if (!task) return;
-    let body: { repoName?: string; private: boolean } = { private: true };
-    if (!task.githubRepo) {
+    let body: { repoName?: string; private: boolean; branch?: string } = { private: true };
+    if (task.githubMode === "linked") {
+      const branch = window.prompt(`Push workspace changes to which branch of ${task.githubRepo}?\n(Use a new branch name to keep ${task.githubBranch} untouched.)`, `curialy/${id.slice(0, 8)}`);
+      if (!branch) return;
+      body = { private: true, branch: branch.trim() };
+    } else if (!task.githubRepo) {
       const suggested = `curialy-${task.prompt.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "project"}`;
       const repoName = window.prompt("New GitHub repository name", suggested);
       if (!repoName) return;
@@ -229,6 +247,7 @@ export default function TaskWorkspace({ id }: { id: string }) {
     setExporting(true);
     try {
       const result = await agentApi.exportToGithub(id, body);
+      if (result.nothingToPush) { alert("Nothing to push: the workspace matches the repository."); return; }
       setTask(current => (current ? { ...current, githubRepo: result.repo, githubRepoUrl: result.url, githubPushedAt: new Date().toISOString() } : current));
       window.open(result.commitUrl, "_blank", "noopener");
     } catch (error) {
@@ -252,13 +271,16 @@ export default function TaskWorkspace({ id }: { id: string }) {
   const actions = (
     <>
       <StatusChip status={status} />
-      {task?.githubRepoUrl && (
-        <a className="chip mono desktop-only" href={task.githubRepoUrl} target="_blank" rel="noreferrer" title={task.githubPushedAt ? `Last pushed ${new Date(task.githubPushedAt).toLocaleString()}` : undefined}>
-          <GitHubMark size={12} /> {task.githubRepo}
+      {task?.githubRepoUrl ? (
+        <a className={`chip ${task.githubMode === "linked" ? "violet" : ""} desktop-only`} href={task.githubRepoUrl} target="_blank" rel="noreferrer" title={task.githubPushedAt ? `Last pushed ${new Date(task.githubPushedAt).toLocaleString()}` : undefined}>
+          <GitHubMark size={12} /> {task.githubMode === "linked" ? "Active Repo: " : ""}<span className="mono">{task.githubRepo}</span>{task.githubBranch ? ` (branch: ${task.githubBranch})` : ""}
         </a>
+      ) : task?.mode === "agent" && github?.connected && (
+        linking ? <span className="chip"><Loader2 size={11} className="spin" /> Loading {linking}…</span>
+          : <span className="desktop-only"><RepoSelector value={null} compact openDown disabled={running} onChange={repo => { if (repo) void linkRepo(repo.full_name, repo.default_branch); }} /></span>
       )}
       {task?.mode === "agent" && (github?.connected ? (
-        <button className="btn sm" disabled={running || exporting || task.filesChanged === 0} title={task.filesChanged === 0 ? "No files to export yet" : task.githubRepo ? `Push the latest files to ${task.githubRepo}` : "Create a repository in your GitHub account and push these files"} onClick={() => void exportToGithub()}>
+        <button className="btn sm" disabled={running || exporting || (task.filesChanged === 0 && task.githubMode !== "linked")} title={task.githubMode === "linked" ? `Commit and push workspace changes to ${task.githubRepo}` : task.filesChanged === 0 ? "No files to export yet" : task.githubRepo ? `Push the latest files to ${task.githubRepo}` : "Create a repository in your GitHub account and push these files"} onClick={() => void exportToGithub()}>
           {exporting ? <Loader2 size={13} className="spin" /> : <GitHubMark size={13} />} {task.githubRepo ? "Push to GitHub" : "Export to GitHub"}
         </button>
       ) : github && (

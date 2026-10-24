@@ -141,3 +141,29 @@ describe("github helpers", () => {
     expect(github.isValidRepoName("a b")).toBe(false);
   });
 });
+
+describe("linked repo change detection", () => {
+  it("lists modified, added and deleted files, respecting .gitignore and never .git/", async () => {
+    const { computeChanges } = await import("./agent/repos");
+    const { execFileSync } = await import("node:child_process");
+    const repoRoot = path.join(process.env.AGENT_WORKSPACE_ROOT!, "repo-under-test");
+    fs.mkdirSync(repoRoot, { recursive: true });
+    const git = (...args: string[]) => execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd: repoRoot, encoding: "utf8" });
+    git("init", "-q", "-b", "main");
+    fs.writeFileSync(path.join(repoRoot, "keep.txt"), "a\n");
+    fs.writeFileSync(path.join(repoRoot, "remove.txt"), "b\n");
+    fs.writeFileSync(path.join(repoRoot, ".gitignore"), "secret.env\n");
+    git("add", ".");
+    git("commit", "-q", "-m", "base");
+    const baseSha = git("rev-parse", "HEAD").trim();
+    fs.writeFileSync(path.join(repoRoot, "keep.txt"), "changed\n");
+    fs.unlinkSync(path.join(repoRoot, "remove.txt"));
+    fs.mkdirSync(path.join(repoRoot, "src"));
+    fs.writeFileSync(path.join(repoRoot, "src", "new file.ts"), "export {};\n");
+    fs.writeFileSync(path.join(repoRoot, "secret.env"), "TOKEN=x\n");
+    const changes = await computeChanges(repoRoot, { fullName: "o/r", url: "", branch: "main", baseSha, repoPath: ".", pushed: {}, deleted: [] });
+    expect(changes.changed.sort()).toEqual(["keep.txt", "src/new file.ts"]);
+    expect(changes.deleted).toEqual(["remove.txt"]);
+    await expect(computeChanges(repoRoot, { fullName: "o/r", url: "", branch: "main", baseSha: "not-a-sha; rm -rf /", repoPath: ".", pushed: {}, deleted: [] })).rejects.toThrow(/Invalid base sha/);
+  });
+});

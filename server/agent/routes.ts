@@ -13,7 +13,9 @@ import { listWorkspaceTree, readWorkspaceFile, removeWorkspace, resolveInWorkspa
 import { agentStats, deleteAgentTask, getAgentTask, listAgentTasks, listEventsAfter, listWorkspaceSnapshot, loadWorkspaceSnapshot, readSnapshotFile } from "./store";
 import { collectWorkspaceFiles } from "./workspaces";
 import { query } from "../db/pg";
-import { createRepo, disconnect, getConnection, GITHUB_SCOPES, GitHubError, isValidRepoName, oauthConfigured, pushProjectToRepo } from "../services/github";
+import { createRepo, disconnect, getConnection, GITHUB_SCOPES, GitHubError, isValidRepoName, listRepos, oauthConfigured, pushProjectToRepo } from "../services/github";
+import { cloneIntoWorkspace, commitAndPush, linkedRepo } from "./repos";
+import { materializeWorkspace } from "./workspaces";
 
 const createSchema = z.object({
   prompt: z.string().trim().min(2, "Describe what you want to accomplish.").max(20_000),
@@ -22,10 +24,21 @@ const createSchema = z.object({
   effort: z.enum(["low", "medium", "high"]).default("medium"),
   webSearch: z.boolean().default(false),
   attachmentIds: z.array(z.string().uuid()).max(10).default([]),
+  repo: z.string().trim().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, "Repository must be owner/name").nullish(),
+  repoBranch: z.string().trim().max(200).nullish(),
 });
+const linkSchema = z.object({ repo: z.string().trim().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/), branch: z.string().trim().max(200).optional() });
 
 const followUpSchema = z.object({ prompt: z.string().trim().min(1).max(20_000) });
-const exportSchema = z.object({ repoName: z.string().trim().max(100).optional(), private: z.boolean().default(true) });
+const exportSchema = z.object({ repoName: z.string().trim().max(100).optional(), private: z.boolean().default(true), message: z.string().trim().max(2000).optional(), branch: z.string().trim().max(200).optional() });
+
+/** GET repositories for the picker: the shape the UI (and /api/github/repos) promises. */
+export async function githubReposHandler(_req: Request, res: Response) {
+  const connection = await getConnection();
+  if (!connection) return res.status(409).json({ error: "Connect GitHub first.", repos: [] });
+  const repos = await listRepos(connection.token, 50);
+  res.json({ login: connection.login, repos: repos.map(({ id, name, full_name, private: isPrivate, default_branch, description, updated_at, language }) => ({ id, name, full_name, private: isPrivate, default_branch, description, updated_at, language })) });
+}
 
 const slugify = (text: string) => text.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "project";
 
@@ -275,7 +288,24 @@ export function agentRouter() {
     res.json({ disconnected: true });
   }));
 
+  router.get("/github/repos", handle(githubReposHandler));
+
+  // Attach one of the user's repositories to an idle task: fetch it into the workspace.
+  router.post("/tasks/:id/repo", handle(async (req, res) => {
+    const task = await taskOr404(req, res);
+    if (!task) return;
+    if (isRunning(task.id)) return res.status(409).json({ error: "Wait for the task to finish before selecting a repository." });
+    const input = linkSchema.parse(req.body ?? {});
+    const connection = await getConnection();
+    if (!connection) return res.status(409).json({ error: "Connect GitHub first." });
+    const { dir } = await materializeWorkspace(task.id);
+    const result = await cloneIntoWorkspace({ sessionId: task.id, root: dir, fullName: input.repo, branch: input.branch, token: connection.token });
+    await query("UPDATE curialy.chat_sessions SET workspace_state = 'live', last_activity_at = now() WHERE id = $1", [task.id]);
+    res.json({ repo: result.fullName, branch: result.branch, baseSha: result.baseSha, repoPath: result.repoPath, url: result.url, files: result.files });
+  }));
+
   // Export the session's workspace to a repo in the connected account (re-export adds a commit).
+  // For a linked repository this pushes the workspace changes back instead.
   router.post("/tasks/:id/export", handle(async (req, res) => {
     const task = await taskOr404(req, res);
     if (!task) return;
@@ -283,6 +313,13 @@ export function agentRouter() {
     const input = exportSchema.parse(req.body ?? {});
     const connection = await getConnection();
     if (!connection) return res.status(409).json({ error: "Connect GitHub first." });
+    const linked = await linkedRepo(task.id);
+    if (linked) {
+      const { dir } = await materializeWorkspace(task.id);
+      const pushed = await commitAndPush({ sessionId: task.id, root: dir, repo: linked, token: connection.token, message: input.message || `Curialy AI: ${task.prompt.split("\n")[0].slice(0, 60)}`, branch: input.branch });
+      if (pushed.nothingToPush) return res.json({ repo: linked.fullName, url: linked.url, commitUrl: linked.url, files: 0, created: false, nothingToPush: true });
+      return res.json({ repo: linked.fullName, url: linked.url, commitUrl: pushed.commitUrl, files: pushed.changed + pushed.deleted, created: false, branch: pushed.branch });
+    }
     const dir = workspacePath(task.id);
     const files = fs.existsSync(dir) ? collectWorkspaceFiles(dir).files : (await loadWorkspaceSnapshot(task.id)).map(file => ({ path: file.path, content: file.content }));
     if (!files.length) return res.status(409).json({ error: "This task has no files to export." });

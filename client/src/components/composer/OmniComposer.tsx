@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowUp, Bot, Check, ChevronDown, Globe, Loader2, MessageSquare, Paperclip, Sparkles, X } from "lucide-react";
 import { CAPABILITIES, getModel, MODELS, type CreateTaskRequest, type TaskMode, type ThinkingLevel } from "@shared/agent";
-import { agentApi, type UploadedFile } from "@/lib/api";
+import { agentApi, type GitHubRepo, type UploadedFile } from "@/lib/api";
+import { RepoSelector } from "@/components/RepoSelector";
+import { useGitHub } from "@/components/shell/AppShell";
 
 type Prefs = { model: string; mode: TaskMode; effort: ThinkingLevel; webSearch: boolean };
 const PREFS_KEY = "curialy.composer.v2";
@@ -80,6 +82,8 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed }: { onSubmit: (r
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [uploading, setUploading] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [repo, setRepo] = useState<GitHubRepo | null>(null);
+  const { status: github } = useGitHub();
   const textarea = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -124,7 +128,7 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed }: { onSubmit: (r
     if (text.length < 2 || busy || uploading) return;
     setError(null);
     try {
-      await onSubmit({ prompt: text, model: prefs.model, mode: prefs.mode, effort: prefs.effort, webSearch: prefs.webSearch, attachmentIds: files.map(file => file.id) });
+      await onSubmit({ prompt: text, model: prefs.model, mode: prefs.mode, effort: prefs.effort, webSearch: prefs.webSearch, attachmentIds: files.map(file => file.id), repo: prefs.mode === "agent" ? repo?.full_name ?? null : null, repoBranch: prefs.mode === "agent" ? repo?.default_branch ?? null : null });
       setPrompt("");
       setFiles([]);
     } catch (submitError) {
@@ -144,7 +148,7 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed }: { onSubmit: (r
           ref={textarea}
           value={prompt}
           autoFocus={autoFocus}
-          placeholder={prefs.mode === "agent" ? "Describe what to build, fix or refactor. The agent plans, edits files, runs checks and self-heals…" : "Ask anything. Toggle Web Search to let the model fetch pages…"}
+          placeholder={prefs.mode === "agent" ? (repo ? `Work on ${repo.full_name}: e.g. "Refactor the auth middleware and open a PR"…` : "Describe what to build, fix or refactor, or name one of your repos (\"check my easyeps repo\")…") : "Ask anything. Toggle Web Search to let the model fetch pages…"}
           onChange={event => setPrompt(event.target.value)}
           onKeyDown={event => {
             if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -166,6 +170,7 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed }: { onSubmit: (r
         )}
         <div className="composer-bar">
           <ModelPicker value={prefs.model} mode={prefs.mode} onChange={model => update({ model })} />
+          {github?.connected && prefs.mode === "agent" && <RepoSelector value={repo?.full_name ?? null} onChange={setRepo} />}
           <div className="segmented" role="radiogroup" aria-label="Mode">
             <button type="button" className={prefs.mode === "agent" ? "on" : ""} onClick={() => update({ mode: "agent" })} title="Autonomous coding agent with tools"><Bot size={12} style={{ verticalAlign: -2 }} /> Agent</button>
             <button type="button" className={prefs.mode === "chat" ? "on" : ""} onClick={() => update({ mode: "chat" })} title="Conversational answer"><MessageSquare size={12} style={{ verticalAlign: -2 }} /> Chat</button>

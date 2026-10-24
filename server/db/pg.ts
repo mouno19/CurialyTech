@@ -150,6 +150,19 @@ const MIGRATIONS: { id: number; sql: string }[] = [
       ALTER TABLE curialy.deployments ADD COLUMN IF NOT EXISTS repo_owned_by_user boolean NOT NULL DEFAULT false;
     `,
   },
+  {
+    id: 3,
+    sql: `
+      -- 'export': agent-created project pushed as a full tree; 'linked': an existing repo cloned into the workspace.
+      ALTER TABLE curialy.chat_sessions ADD COLUMN IF NOT EXISTS github_mode text;
+      ALTER TABLE curialy.chat_sessions ADD COLUMN IF NOT EXISTS github_branch text;
+      ALTER TABLE curialy.chat_sessions ADD COLUMN IF NOT EXISTS github_base_sha text;
+      ALTER TABLE curialy.chat_sessions ADD COLUMN IF NOT EXISTS github_repo_path text;
+      ALTER TABLE curialy.chat_sessions ADD COLUMN IF NOT EXISTS github_pushed jsonb NOT NULL DEFAULT '{}';
+      ALTER TABLE curialy.chat_sessions ADD COLUMN IF NOT EXISTS github_deleted jsonb NOT NULL DEFAULT '[]';
+      UPDATE curialy.chat_sessions SET github_mode = 'export' WHERE github_repo IS NOT NULL AND github_mode IS NULL;
+    `,
+  },
 ];
 
 export async function migrate() {
