@@ -185,3 +185,21 @@ describe("workspace previews", () => {
     expect(absoluteAssetWarnings('<script src="/assets/index.js"></script><link href="./a.css"><a href="//cdn.x/y">')).toEqual(["/assets/index.js"]);
   });
 });
+
+describe("tool_result error content", () => {
+  it("strips non-text blocks from is_error results in saved history", async () => {
+    const { sanitizeErrorToolResults } = await import("./agent/runner");
+    const history: any[] = [
+      { role: "user", content: "hi" },
+      { role: "user", content: [
+        { type: "tool_result", tool_use_id: "a", is_error: true, content: [{ type: "text", text: "HTTP 404" }, { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "xx" } }] },
+        { type: "tool_result", tool_use_id: "b", content: [{ type: "text", text: "ok" }, { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "yy" } }] },
+        { type: "tool_result", tool_use_id: "c", is_error: true, content: "plain" },
+      ] },
+    ];
+    expect(sanitizeErrorToolResults(history)).toBe(1);
+    expect(history[1].content[0].content).toBe("HTTP 404");
+    expect(history[1].content[1].content).toHaveLength(2); // successful results keep their screenshot
+    expect(history[1].content[2].content).toBe("plain");
+  });
+});

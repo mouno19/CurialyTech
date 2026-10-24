@@ -363,6 +363,10 @@ type OpenBlock = { kind: "thinking" | "text" | "tool_use"; id: string; started: 
 
 async function streamTurn(ctx: RunContext, conversation: Anthropic.MessageParam[], turn: number, tools: Anthropic.Tool[]) {
   const client = anthropicClient(ctx.spec.provider);
+  if (turn === 1) {
+    const fixed = sanitizeErrorToolResults(conversation);
+    if (fixed) ctx.emit({ type: "notice", level: "info", message: `Repaired ${fixed} earlier failed tool result(s) that contained images (rejected by the API).` });
+  }
   ctx.emit({ type: "turn_start", turn, model: ctx.spec.id });
   const stream = client.messages.stream({
     model: ctx.spec.id,
@@ -599,10 +603,35 @@ async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unkno
 
 async function runToolCall(ctx: RunContext, use: Anthropic.ToolUseBlock): Promise<Anthropic.ToolResultBlockParam> {
   const outcome = await trackedTool(ctx, use.id, use.name, (use.input ?? {}) as Record<string, unknown>);
+  // The Messages API rejects is_error results whose content is not all text, so a failed tool
+  // (e.g. browse on a 404 page) sends only its text; the screenshot is still shown in the UI.
+  if (!outcome.ok) {
+    const note = outcome.image ? "\n\n(A screenshot was captured but is omitted from error results.)" : "";
+    return { type: "tool_result", tool_use_id: use.id, content: outcome.content + note, is_error: true };
+  }
   const content: Anthropic.ToolResultBlockParam["content"] = outcome.image
     ? [{ type: "text", text: outcome.content }, { type: "image", source: { type: "base64", media_type: outcome.image.mediaType, data: outcome.image.base64 } }]
     : outcome.content;
-  return { type: "tool_result", tool_use_id: use.id, content, ...(outcome.ok ? {} : { is_error: true }) };
+  return { type: "tool_result", tool_use_id: use.id, content };
+}
+
+/**
+ * Repair history saved before the is_error fix: an is_error tool_result may only contain text.
+ * Mutates in place (the repaired history is what gets persisted) and reports how many it fixed.
+ */
+export function sanitizeErrorToolResults(conversation: Anthropic.MessageParam[]) {
+  let fixed = 0;
+  for (const message of conversation) {
+    if (message.role !== "user" || !Array.isArray(message.content)) continue;
+    for (const block of message.content) {
+      if (block.type !== "tool_result" || !block.is_error || !Array.isArray(block.content)) continue;
+      if (block.content.every(part => part.type === "text")) continue;
+      const text = block.content.filter((part): part is Anthropic.TextBlockParam => part.type === "text").map(part => part.text).join("\n");
+      block.content = text || "Tool failed.";
+      fixed++;
+    }
+  }
+  return fixed;
 }
 
 /** Execute one tool call with phase tracking and lifecycle events; shared by every provider loop. */
