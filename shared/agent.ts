@@ -113,6 +113,9 @@ export type AgentTaskSummary = {
   error?: string;
   usage: { inputTokens: number; outputTokens: number; thinkingTokens: number };
   filesChanged: number;
+  githubRepo?: string;
+  githubRepoUrl?: string;
+  githubPushedAt?: string;
   createdAt: string;
   updatedAt: string;
 };

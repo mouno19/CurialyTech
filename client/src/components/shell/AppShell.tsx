@@ -1,7 +1,20 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import { Activity, Boxes, ChevronsLeft, ChevronsRight, Images, KeyRound, LayoutDashboard, LogOut, Menu, PlugZap, SquareTerminal, Store } from "lucide-react";
-import { agentApi, authApi, type ProviderProbe } from "@/lib/api";
+import { agentApi, authApi, type GitHubStatus, type ProviderProbe } from "@/lib/api";
+
+const GitHubMark = ({ size = 17 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style={{ flex: `0 0 ${size}px` }}>
+    <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+  </svg>
+);
+
+export function useGitHub() {
+  const [status, setStatus] = useState<GitHubStatus | null>(null);
+  const refresh = () => agentApi.github().then(setStatus).catch(() => setStatus(null));
+  useEffect(() => { void refresh(); }, []);
+  return { status, refresh };
+}
 
 const NAV = [
   { href: "/", label: "Workspace Dashboard", icon: LayoutDashboard },
@@ -46,6 +59,7 @@ export function AppShell({ title, crumb, actions, children }: { title: string; c
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [mobileOpen, setMobileOpen] = useState(false);
   const { providers, active } = useHealth();
+  const { status: github } = useGitHub();
 
   useEffect(() => { try { localStorage.setItem("curialy.sidebar.collapsed", collapsed ? "1" : "0"); } catch { /* storage unavailable */ } }, [collapsed]);
   useEffect(() => setMobileOpen(false), [location]);
@@ -90,6 +104,17 @@ export function AppShell({ title, crumb, actions, children }: { title: string; c
             </span>
             <span className={`dot ${pillState}`} style={{ marginLeft: "auto" }} />
           </Link>
+          {github?.connected ? (
+            <Link href="/keys" className="nav-item" title={`GitHub: ${github.login}`}>
+              {github.avatarUrl ? <img src={github.avatarUrl} alt="" width={17} height={17} style={{ borderRadius: "50%", flex: "0 0 17px" }} /> : <GitHubMark />}
+              <span className="nav-text">{github.login}</span>
+            </Link>
+          ) : (
+            <a href="/api/auth/github/start" className="nav-item" title="Connect GitHub" aria-disabled={github ? !github.configured : undefined}>
+              <GitHubMark />
+              <span className="nav-text">Connect GitHub</span>
+            </a>
+          )}
           <button className="nav-item" onClick={() => authApi.logout().finally(() => window.location.assign("/login"))} title="Sign out">
             <LogOut size={17} />
             <span className="nav-text">Sign out</span>
@@ -109,6 +134,8 @@ export function AppShell({ title, crumb, actions, children }: { title: string; c
     </div>
   );
 }
+
+export { GitHubMark };
 
 export function EmptyState({ icon: Icon = Boxes, title, children }: { icon?: typeof Boxes; title: string; children?: ReactNode }) {
   return (

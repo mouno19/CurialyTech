@@ -1,15 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { query } from "../db/pg";
+import { createRepo, pushProjectToRepo, repoToken, retireRepo } from "../services/github";
 import { PROVIDER_ENV } from "./providers";
 import { collectWorkspaceFiles } from "./workspaces";
 
-// Temporary live previews on Render. Render only deploys from Git, so each preview is pushed to a
-// throwaway GitHub repo through the Git Data API (the token stays in this process; it is never
-// exposed to the sandbox), then a Render service is created from it. Both are deleted after
-// PREVIEW_TTL_MINUTES to conserve credits.
+// Temporary live previews on Render, which only deploys from Git. If the session was exported to
+// GitHub, the preview builds from that repo (and the repo is kept); otherwise a throwaway preview
+// repo is created in the connected account and retired when the preview expires. The Render
+// service is always deleted after PREVIEW_TTL_MINUTES to conserve credits.
 
 const PREVIEW_TTL_MINUTES = Number(process.env.PREVIEW_TTL_MINUTES || 120);
-const PRIVATE_REPOS = process.env.PREVIEW_REPO_PRIVATE !== "false";
+const PRIVATE_PREVIEW_REPOS = process.env.PREVIEW_REPO_PRIVATE !== "false";
 
 export type DeployRequest = {
   sessionId: string;
@@ -22,16 +23,6 @@ export type DeployRequest = {
   signal: AbortSignal;
 };
 
-async function github(path: string, init: RequestInit = {}) {
-  const response = await fetch(`https://api.github.com${path}`, {
-    ...init,
-    headers: { authorization: `Bearer ${PROVIDER_ENV.githubToken}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "content-type": "application/json", ...(init.headers ?? {}) },
-  });
-  const data: any = response.status === 204 ? null : await response.json().catch(() => null);
-  if (!response.ok) throw new Error(`GitHub ${init.method ?? "GET"} ${path} failed (${response.status}): ${data?.message ?? "error"}`);
-  return data;
-}
-
 async function render(path: string, init: RequestInit = {}) {
   const response = await fetch(`https://api.render.com/v1${path}`, {
     ...init,
@@ -42,25 +33,10 @@ async function render(path: string, init: RequestInit = {}) {
   return data;
 }
 
+/** Render side only; GitHub access is checked when a deploy starts (it depends on the stored connection). */
 export function deployConfigured() {
-  const missing = [!PROVIDER_ENV.renderKey && "RENDER_API_KEY", !PROVIDER_ENV.renderOwner && "RENDER_OWNER_ID", !PROVIDER_ENV.githubToken && "GITHUB_TOKEN"].filter(Boolean);
+  const missing = [!PROVIDER_ENV.renderKey && "RENDER_API_KEY", !PROVIDER_ENV.renderOwner && "RENDER_OWNER_ID"].filter(Boolean);
   return { ok: missing.length === 0, missing: missing as string[] };
-}
-
-async function pushRepo(name: string, files: { path: string; content: Buffer }[]) {
-  const user = await github("/user");
-  // auto_init gives the repo a first commit; the Git Data API cannot write to an empty repo.
-  const repo = await github("/user/repos", { method: "POST", body: JSON.stringify({ name, private: PRIVATE_REPOS, auto_init: true, description: "Temporary Curialy preview (auto-deleted)" }) });
-  const ref = await github(`/repos/${user.login}/${name}/git/ref/heads/${repo.default_branch}`);
-  const tree: { path: string; mode: string; type: string; sha: string }[] = [];
-  for (const file of files) {
-    const blob = await github(`/repos/${user.login}/${name}/git/blobs`, { method: "POST", body: JSON.stringify({ content: file.content.toString("base64"), encoding: "base64" }) });
-    tree.push({ path: file.path, mode: "100644", type: "blob", sha: blob.sha });
-  }
-  const createdTree = await github(`/repos/${user.login}/${name}/git/trees`, { method: "POST", body: JSON.stringify({ tree }) });
-  const commit = await github(`/repos/${user.login}/${name}/git/commits`, { method: "POST", body: JSON.stringify({ message: "Curialy preview", tree: createdTree.sha, parents: [ref.object.sha] }) });
-  await github(`/repos/${user.login}/${name}/git/refs/heads/${repo.default_branch}`, { method: "PATCH", body: JSON.stringify({ sha: commit.sha, force: true }) });
-  return { fullName: `${user.login}/${name}`, htmlUrl: repo.html_url as string, branch: repo.default_branch as string };
 }
 
 const sleep = (ms: number, signal: AbortSignal) => new Promise<void>((resolve, reject) => {
@@ -71,23 +47,52 @@ const sleep = (ms: number, signal: AbortSignal) => new Promise<void>((resolve, r
 export async function deployPreview(req: DeployRequest) {
   const config = deployConfigured();
   if (!config.ok) throw new Error(`Live previews are not configured: missing ${config.missing.join(", ")}.`);
+  const github = await repoToken();
+  if (!github) throw new Error("Connect GitHub first (sidebar → Connect GitHub): Render deploys from a Git repository.");
   const { files } = collectWorkspaceFiles(req.root);
   if (!files.length) throw new Error("The workspace is empty; nothing to deploy.");
+
   const id = randomUUID();
   const name = `curialy-preview-${id.slice(0, 8)}`;
   const expiresAt = new Date(Date.now() + PREVIEW_TTL_MINUTES * 60_000);
-  await query("INSERT INTO curialy.deployments (id, session_id, provider, status, expires_at) VALUES ($1, $2, 'render', 'creating', $3)", [id, req.sessionId, expiresAt]);
+  const { rows } = await query<{ github_repo: string | null }>("SELECT github_repo FROM curialy.chat_sessions WHERE id = $1", [req.sessionId]);
+  const exported = rows[0]?.github_repo ?? null;
+  await query("INSERT INTO curialy.deployments (id, session_id, provider, status, expires_at, repo_owned_by_user) VALUES ($1, $2, 'render', 'creating', $3, $4)", [id, req.sessionId, expiresAt, Boolean(exported)]);
 
   try {
-    req.onProgress("creating", `Pushing ${files.length} files to a temporary ${PRIVATE_REPOS ? "private" : "public"} GitHub repo…`);
-    const repo = await pushRepo(name, files);
-    await query("UPDATE curialy.deployments SET repo = $2 WHERE id = $1", [id, repo.fullName]);
+    let repoFullName: string;
+    let repoUrl: string;
+    let branch: string;
+    if (exported) {
+      req.onProgress("creating", `Pushing ${files.length} files to ${exported}…`);
+      const pushed = await pushProjectToRepo(github.token, exported, files, "Curialy: deploy preview");
+      repoFullName = exported;
+      repoUrl = pushed.repoUrl;
+      branch = pushed.branch;
+      await query("UPDATE curialy.chat_sessions SET github_pushed_at = now() WHERE id = $1", [req.sessionId]);
+    } else {
+      req.onProgress("creating", `Creating temporary ${PRIVATE_PREVIEW_REPOS ? "private" : "public"} repo ${github.login}/${name} with ${files.length} files…`);
+      const repo = await createRepo(github.token, name, PRIVATE_PREVIEW_REPOS, "Temporary Curialy preview (archived automatically)");
+      const pushed = await pushProjectToRepo(github.token, repo.full_name, files, "Curialy preview");
+      repoFullName = repo.full_name;
+      repoUrl = repo.html_url;
+      branch = pushed.branch;
+    }
+    await query("UPDATE curialy.deployments SET repo = $2 WHERE id = $1", [id, repoFullName]);
 
-    req.onProgress("creating", `Creating Render ${req.kind === "static" ? "static site" : "web service"} ${name}…`);
+    req.onProgress("creating", `Creating Render ${req.kind === "static" ? "static site" : "web service"} ${name} from ${repoFullName}…`);
     const body = req.kind === "static"
-      ? { type: "static_site", name, ownerId: PROVIDER_ENV.renderOwner, repo: repo.htmlUrl, branch: repo.branch, autoDeploy: "no", serviceDetails: { buildCommand: req.buildCommand || "", publishPath: req.publishPath || ".", pullRequestPreviewsEnabled: "no" } }
-      : { type: "web_service", name, ownerId: PROVIDER_ENV.renderOwner, repo: repo.htmlUrl, branch: repo.branch, autoDeploy: "no", serviceDetails: { runtime: "node", plan: "free", region: "oregon", envSpecificDetails: { buildCommand: req.buildCommand || "npm install", startCommand: req.startCommand || "npm start" } } };
-    const created = await render("/services", { method: "POST", body: JSON.stringify(body) });
+      ? { type: "static_site", name, ownerId: PROVIDER_ENV.renderOwner, repo: repoUrl, branch, autoDeploy: "no", serviceDetails: { buildCommand: req.buildCommand || "", publishPath: req.publishPath || ".", pullRequestPreviewsEnabled: "no" } }
+      : { type: "web_service", name, ownerId: PROVIDER_ENV.renderOwner, repo: repoUrl, branch, autoDeploy: "no", serviceDetails: { runtime: "node", plan: "free", region: "oregon", envSpecificDetails: { buildCommand: req.buildCommand || "npm install", startCommand: req.startCommand || "npm start" } } };
+    let created: any;
+    try {
+      created = await render("/services", { method: "POST", body: JSON.stringify(body) });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // Render reads repos through its own GitHub App, which must be granted access separately.
+      if (/repo|git|access|permission|not found/i.test(message)) throw new Error(`${message}. Make sure Render's GitHub App can access ${repoFullName} (Render dashboard → Account settings → Git providers → GitHub: grant "All repositories").`);
+      throw error;
+    }
     const service = created.service ?? created;
     const url: string = service.serviceDetails?.url ?? `https://${name}.onrender.com`;
     await query("UPDATE curialy.deployments SET service_id = $2, url = $3, status = 'building' WHERE id = $1", [id, service.id, url]);
@@ -103,8 +108,8 @@ export async function deployPreview(req: DeployRequest) {
       last = status;
       if (status === "live") {
         await query("UPDATE curialy.deployments SET status = 'live' WHERE id = $1", [id]);
-        req.onProgress("live", `Live until ${expiresAt.toISOString()} (auto-deleted after ${PREVIEW_TTL_MINUTES} min).`, url);
-        return { id, url, serviceId: service.id, repo: repo.fullName, expiresAt: expiresAt.toISOString() };
+        req.onProgress("live", `Live until ${expiresAt.toISOString()} (Render service deleted after ${PREVIEW_TTL_MINUTES} min).`, url);
+        return { id, url, serviceId: service.id, repo: repoFullName, expiresAt: expiresAt.toISOString() };
       }
       if (["build_failed", "update_failed", "canceled", "deactivated", "pre_deploy_failed"].includes(status)) {
         throw new Error(`Render deploy ${status}. Check build/start commands. Service ${service.id}.`);
@@ -120,12 +125,18 @@ export async function deployPreview(req: DeployRequest) {
 }
 
 export async function destroyDeployment(id: string) {
-  const { rows } = await query<{ service_id: string | null; repo: string | null }>("SELECT service_id, repo FROM curialy.deployments WHERE id = $1 AND deleted_at IS NULL", [id]);
+  const { rows } = await query<{ service_id: string | null; repo: string | null; repo_owned_by_user: boolean }>(
+    "SELECT service_id, repo, repo_owned_by_user FROM curialy.deployments WHERE id = $1 AND deleted_at IS NULL", [id],
+  );
   const row = rows[0];
   if (!row) return false;
   if (row.service_id) await render(`/services/${row.service_id}`, { method: "DELETE" }).catch(error => { if (!/404/.test(error.message)) throw error; });
-  if (row.repo && PROVIDER_ENV.githubToken) await github(`/repos/${row.repo}`, { method: "DELETE" }).catch(error => { if (!/404/.test(error.message)) throw error; });
-  await query("UPDATE curialy.deployments SET deleted_at = now(), status = 'deleted' WHERE id = $1", [id]);
+  let repoOutcome = "kept";
+  if (row.repo && !row.repo_owned_by_user) {
+    const github = await repoToken();
+    if (github) repoOutcome = await retireRepo(github.token, row.repo).catch(error => `cleanup failed: ${error.message}`);
+  }
+  await query("UPDATE curialy.deployments SET deleted_at = now(), status = 'deleted', detail = $2 WHERE id = $1", [id, `Render service deleted; repo ${repoOutcome}`]);
   return true;
 }
 

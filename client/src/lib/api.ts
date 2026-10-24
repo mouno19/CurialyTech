@@ -27,6 +27,7 @@ export type KeyStatus = { id: string; label: string; envVar: string; location: s
 export type TreeEntry = { path: string; type: "file" | "dir"; size: number };
 export type UploadedFile = { id: string; filename: string; mimeType: string; sizeBytes: number };
 export type MediaFile = UploadedFile & { kind: string; sessionId: string | null; createdAt: string };
+export type GitHubStatus = { configured: boolean; connected: boolean; login: string | null; name: string | null; avatarUrl: string | null; scopes: string[]; missingScopes: string[]; connectedAt: string | null };
 export type Deployment = { id: string; sessionId: string | null; status: string; url: string | null; repo: string | null; serviceId: string | null; detail: string | null; expiresAt: string; createdAt: string; deletedAt: string | null };
 
 export const agentApi = {
@@ -53,6 +54,9 @@ export const agentApi = {
   mediaUrl: (id: string) => `/api/agent/media/${id}`,
   removeMedia: (id: string) => api<{ deleted: boolean }>(`/api/agent/media/${id}`, { method: "DELETE" }),
   deployments: () => api<{ deployments: Deployment[]; configured: { ok: boolean; missing: string[] } }>("/api/agent/deployments"),
+  github: () => api<GitHubStatus>("/api/agent/github"),
+  disconnectGithub: () => api<{ disconnected: boolean }>("/api/agent/github", { method: "DELETE" }),
+  exportToGithub: (id: string, body: { repoName?: string; private: boolean }) => api<{ repo: string; url: string; commitUrl: string; files: number; created: boolean }>(`/api/agent/tasks/${id}/export`, { method: "POST", json: body }),
   removeDeployment: (id: string) => api<{ deleted: boolean }>(`/api/agent/deployments/${id}`, { method: "DELETE" }),
 };
 

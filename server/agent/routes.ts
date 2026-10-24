@@ -10,7 +10,10 @@ import { deployConfigured, destroyDeployment, listDeployments } from "./deploy";
 import { PROVIDER_ENV, probeProviders } from "./providers";
 import { activeTaskCount, cancelTask, followUp, isRunning, startTask, TaskRejected } from "./runner";
 import { listWorkspaceTree, readWorkspaceFile, removeWorkspace, resolveInWorkspace, SandboxError, workspacePath } from "./sandbox";
-import { agentStats, deleteAgentTask, getAgentTask, listAgentTasks, listEventsAfter, listWorkspaceSnapshot, readSnapshotFile } from "./store";
+import { agentStats, deleteAgentTask, getAgentTask, listAgentTasks, listEventsAfter, listWorkspaceSnapshot, loadWorkspaceSnapshot, readSnapshotFile } from "./store";
+import { collectWorkspaceFiles } from "./workspaces";
+import { query } from "../db/pg";
+import { createRepo, disconnect, getConnection, GITHUB_SCOPES, GitHubError, isValidRepoName, oauthConfigured, pushProjectToRepo } from "../services/github";
 
 const createSchema = z.object({
   prompt: z.string().trim().min(2, "Describe what you want to accomplish.").max(20_000),
@@ -22,6 +25,9 @@ const createSchema = z.object({
 });
 
 const followUpSchema = z.object({ prompt: z.string().trim().min(1).max(20_000) });
+const exportSchema = z.object({ repoName: z.string().trim().max(100).optional(), private: z.boolean().default(true) });
+
+const slugify = (text: string) => text.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "project";
 
 // Uploads are held in memory and streamed straight to the Snowflake stage; they never touch the VPS disk.
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 1 } });
@@ -30,6 +36,7 @@ function sendError(res: Response, error: unknown) {
   if (error instanceof z.ZodError) return res.status(400).json({ error: error.issues.map(issue => issue.message).join("; ") });
   if (error instanceof TaskRejected) return res.status(409).json({ error: error.message });
   if (error instanceof SandboxError) return res.status(400).json({ error: error.message });
+  if (error instanceof GitHubError) return res.status(error.status === 422 ? 422 : 502).json({ error: error.message });
   console.error("[agent]", error);
   return res.status(500).json({ error: error instanceof Error ? error.message : "Unexpected error" });
 }
@@ -84,7 +91,7 @@ export function agentRouter() {
         { id: "relay", label: "RelayStation API key", envVar: "RELAY_API_KEY", location: "/etc/curialyai.env", configured: Boolean(PROVIDER_ENV.relayKey), masked: mask(PROVIDER_ENV.relayKey) },
         { id: "browserbase", label: "Browserbase API key", envVar: "BROWSERBASE_API_KEY", location: "/etc/curialyai.env", configured: Boolean(PROVIDER_ENV.browserbaseKey), masked: mask(PROVIDER_ENV.browserbaseKey) },
         { id: "render", label: "Render API key", envVar: "RENDER_API_KEY", location: "/etc/curialyai.env", configured: Boolean(PROVIDER_ENV.renderKey), masked: mask(PROVIDER_ENV.renderKey) },
-        { id: "github", label: "GitHub token (preview repos)", envVar: "GITHUB_TOKEN", location: "/etc/curialyai.env", configured: Boolean(PROVIDER_ENV.githubToken), masked: mask(PROVIDER_ENV.githubToken), note: deployConfigured().ok ? undefined : "Required for Render live previews." },
+        { id: "github-oauth", label: "GitHub OAuth app", envVar: "GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET", location: "/etc/curialyai.env", configured: oauthConfigured(), masked: env.GITHUB_CLIENT_ID ?? null, note: "The connected account's token is stored AES-256-GCM encrypted in Tiger (key: GITHUB_TOKEN_KEY)." },
         { id: "manus", label: "Manus API key", envVar: "MANUS_AGENT_API_KEY", location: "/etc/curialyai.env", configured: Boolean(PROVIDER_ENV.manusKey), masked: mask(PROVIDER_ENV.manusKey) },
         { id: "tinker", label: "Thinking Machines Tinker key", envVar: "TINKER_API_KEY", location: "/etc/curialyai.env", configured: Boolean(env.TINKER_API_KEY), masked: mask(env.TINKER_API_KEY), note: "Stored for fine-tuning; no Tinker models are routable yet." },
         { id: "session", label: "Session signing secret", envVar: "SESSION_SECRET", location: "/etc/curialyai.env", configured: (env.SESSION_SECRET ?? "").length >= 32, masked: env.SESSION_SECRET ? "set" : null },
@@ -245,6 +252,53 @@ export function agentRouter() {
   }));
 
   router.delete("/media/:id", handle(async (req, res) => res.json({ deleted: await deleteMedia(String(req.params.id)) })));
+
+  // ---- GitHub ----
+
+  router.get("/github", handle(async (_req, res) => {
+    const connection = await getConnection();
+    const granted = new Set((connection?.scopes ?? "").split(/[,\s]+/).filter(Boolean));
+    res.json({
+      configured: oauthConfigured(),
+      connected: Boolean(connection),
+      login: connection?.login ?? null,
+      name: connection?.name ?? null,
+      avatarUrl: connection?.avatarUrl ?? null,
+      scopes: Array.from(granted),
+      missingScopes: connection ? GITHUB_SCOPES.filter(scope => !granted.has(scope)) : [],
+      connectedAt: connection?.connectedAt ?? null,
+    });
+  }));
+
+  router.delete("/github", handle(async (_req, res) => {
+    await disconnect();
+    res.json({ disconnected: true });
+  }));
+
+  // Export the session's workspace to a repo in the connected account (re-export adds a commit).
+  router.post("/tasks/:id/export", handle(async (req, res) => {
+    const task = await taskOr404(req, res);
+    if (!task) return;
+    if (isRunning(task.id)) return res.status(409).json({ error: "Wait for the task to finish before exporting." });
+    const input = exportSchema.parse(req.body ?? {});
+    const connection = await getConnection();
+    if (!connection) return res.status(409).json({ error: "Connect GitHub first." });
+    const dir = workspacePath(task.id);
+    const files = fs.existsSync(dir) ? collectWorkspaceFiles(dir).files : (await loadWorkspaceSnapshot(task.id)).map(file => ({ path: file.path, content: file.content }));
+    if (!files.length) return res.status(409).json({ error: "This task has no files to export." });
+    let fullName = task.githubRepo;
+    let created = false;
+    if (!fullName) {
+      const name = input.repoName || `curialy-${slugify(task.prompt)}`;
+      if (!isValidRepoName(name)) return res.status(422).json({ error: "Repository names may only contain letters, digits, '.', '-' and '_'." });
+      const repo = await createRepo(connection.token, name, input.private, `Created by Curialy AI: ${task.prompt.slice(0, 200)}`);
+      fullName = repo.full_name;
+      created = true;
+    }
+    const pushed = await pushProjectToRepo(connection.token, fullName, files, created ? "Initial export from Curialy AI" : "Update from Curialy AI");
+    await query("UPDATE curialy.chat_sessions SET github_repo = $2, github_repo_url = $3, github_pushed_at = now(), updated_at = now() WHERE id = $1", [task.id, fullName, pushed.repoUrl]);
+    res.json({ repo: fullName, url: pushed.repoUrl, commitUrl: pushed.commitUrl, files: files.length, created });
+  }));
 
   // ---- Live previews ----
 

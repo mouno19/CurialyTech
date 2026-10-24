@@ -9,16 +9,17 @@ export type StoredConversation = Anthropic.MessageParam[] | Record<string, unkno
 type SessionRow = {
   id: string; prompt: string; status: TaskStatus; mode: TaskMode; model: string; effort: ThinkingLevel; web_search: boolean;
   phase: PhaseId | null; answer: string | null; error: string | null; usage: AgentTaskSummary["usage"]; files_changed: number;
-  workspace_state: string; created_at: Date; updated_at: Date;
+  workspace_state: string; github_repo: string | null; github_repo_url: string | null; github_pushed_at: Date | null; created_at: Date; updated_at: Date;
 };
 
-const SUMMARY_COLUMNS = "id, prompt, status, mode, model, effort, web_search, phase, answer, error, usage, files_changed, workspace_state, created_at, updated_at";
+const SUMMARY_COLUMNS = "id, prompt, status, mode, model, effort, web_search, phase, answer, error, usage, files_changed, workspace_state, github_repo, github_repo_url, github_pushed_at, created_at, updated_at";
 
 function fromRow(row: SessionRow): AgentTaskSummary & { workspaceState: string } {
   return {
     id: row.id, prompt: row.prompt, status: row.status, mode: row.mode, model: row.model, effort: row.effort,
     webSearch: row.web_search, phase: row.phase, answer: row.answer ?? undefined, error: row.error ?? undefined,
     usage: row.usage, filesChanged: row.files_changed, workspaceState: row.workspace_state,
+    githubRepo: row.github_repo ?? undefined, githubRepoUrl: row.github_repo_url ?? undefined, githubPushedAt: row.github_pushed_at?.toISOString(),
     createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(),
   };
 }

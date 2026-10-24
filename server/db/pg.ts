@@ -127,6 +127,29 @@ const MIGRATIONS: { id: number; sql: string }[] = [
       );
     `,
   },
+  {
+    id: 2,
+    sql: `
+      CREATE TABLE IF NOT EXISTS curialy.github_connections (
+        user_id uuid PRIMARY KEY REFERENCES curialy.users(id) ON DELETE CASCADE,
+        github_id bigint NOT NULL,
+        login text NOT NULL,
+        name text,
+        email text,
+        avatar_url text,
+        scopes text NOT NULL DEFAULT '',
+        token_ciphertext bytea NOT NULL,
+        token_iv bytea NOT NULL,
+        token_tag bytea NOT NULL,
+        connected_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+      );
+      ALTER TABLE curialy.chat_sessions ADD COLUMN IF NOT EXISTS github_repo text;
+      ALTER TABLE curialy.chat_sessions ADD COLUMN IF NOT EXISTS github_repo_url text;
+      ALTER TABLE curialy.chat_sessions ADD COLUMN IF NOT EXISTS github_pushed_at timestamptz;
+      ALTER TABLE curialy.deployments ADD COLUMN IF NOT EXISTS repo_owned_by_user boolean NOT NULL DEFAULT false;
+    `,
+  },
 ];
 
 export async function migrate() {

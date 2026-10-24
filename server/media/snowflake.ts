@@ -72,7 +72,11 @@ export async function storeMedia(input: { buffer: Buffer; filename: string; mime
   const folder = `${input.kind}/${id}`;
   // PUT parses the "local" path only for the target file name; the bytes come from fileStream.
   await run(`PUT 'file:///${filename}' '${STAGE}/${folder}' AUTO_COMPRESS = FALSE OVERWRITE = TRUE`, { fileStream: input.buffer });
-  const stagePath = `${folder}/${filename}`;
+  // The driver decides the final object key (it can introduce a doubled slash), so read it back.
+  const listed = await run<{ name: string }>(`LIST '${STAGE}/${folder}'`);
+  const key = listed.map(row => row.name).find(name => name.endsWith(`/${filename}`));
+  if (!key) throw new Error("Upload to the media stage could not be confirmed.");
+  const stagePath = key.slice(key.indexOf("/") + 1); // strip the stage's own name prefix
   await query(
     `INSERT INTO curialy.file_metadata (id, session_id, kind, filename, mime_type, size_bytes, storage, stage_path)
      VALUES ($1, $2, $3, $4, $5, $6, 'snowflake_stage', $7)`,

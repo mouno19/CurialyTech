@@ -20,6 +20,8 @@ export default function Dashboard() {
   const [stats, setStats] = useState<Awaited<ReturnType<typeof agentApi.stats>> | null>(null);
   const [busy, setBusy] = useState(false);
   const [seed, setSeed] = useState<{ text: string; nonce: number }>();
+  const [githubNotice] = useState(() => new URLSearchParams(window.location.search).get("github"));
+  useEffect(() => { if (githubNotice) window.history.replaceState(null, "", "/"); }, [githubNotice]);
 
   useEffect(() => {
     agentApi.tasks().then(data => setTasks(data.tasks)).catch(() => setTasks([]));
@@ -43,6 +45,15 @@ export default function Dashboard() {
     <AppShell title="Workspace Dashboard">
       <div className="page">
         <div className="page-narrow">
+          {githubNotice && (
+            <div className={`alert ${githubNotice === "connected" ? "info" : "warn"}`} style={{ marginTop: 20 }}>
+              {githubNotice === "connected" ? "GitHub connected. Completed agent projects can now be exported to your account and deployed from your repos."
+                : githubNotice === "access_denied" ? "GitHub authorization was cancelled."
+                : githubNotice === "missing_repo_scope" ? "GitHub did not grant the repo scope, which is required to create repositories. Try connecting again and approve all requested permissions."
+                : githubNotice === "state_mismatch" ? "The GitHub sign-in link expired or did not match this browser. Start Connect GitHub again."
+                : `GitHub connection failed (${githubNotice}). Check the server log and try again.`}
+            </div>
+          )}
           <section className="hero">
             <span className="eyebrow">Autonomous agent workspace</span>
             <h2>Bring the messy part. <em>Watch every step.</em></h2>

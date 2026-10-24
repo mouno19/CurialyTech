@@ -39,6 +39,7 @@ export default function App() {
       <Switch>
         <Route path="/login"><Redirect to="/" /></Route>
         <Route path="/" component={Dashboard} />
+        <Route path="/dashboard">{() => <Redirect to={`/${window.location.search}`} />}</Route>
         <Route path="/tasks" component={Tasks} />
         <Route path="/tasks/:id">{params => <TaskWorkspace key={params.id} id={params.id} />}</Route>
         <Route path="/sandbox" component={Sandbox} />

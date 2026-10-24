@@ -121,3 +121,23 @@ describe("admin auth", () => {
     expect(auth.verifyPassword("x", "plain:text")).toBe(false);
   });
 });
+
+describe("github helpers", () => {
+  it("encrypts tokens at rest and detects tampering", async () => {
+    process.env.GITHUB_TOKEN_KEY = Buffer.alloc(32, 7).toString("base64");
+    const github = await import("./services/github");
+    const sealed = github.encryptToken("gho_example_token");
+    expect(sealed.ciphertext.toString("utf8")).not.toContain("gho_");
+    expect(github.decryptToken(sealed)).toBe("gho_example_token");
+    sealed.ciphertext[0] ^= 1;
+    expect(() => github.decryptToken(sealed)).toThrow();
+  });
+
+  it("validates repository names", async () => {
+    const github = await import("./services/github");
+    expect(github.isValidRepoName("curialy-slugify_1.0")).toBe(true);
+    expect(github.isValidRepoName("../evil")).toBe(false);
+    expect(github.isValidRepoName("..")).toBe(false);
+    expect(github.isValidRepoName("a b")).toBe(false);
+  });
+});

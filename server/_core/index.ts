@@ -13,6 +13,7 @@ import { isRunning } from "../agent/runner";
 import { startWorkspaceSweeper } from "../agent/workspaces";
 import { startDeploymentSweeper } from "../agent/deploy";
 import { migrate } from "../db/pg";
+import { registerGitHubAuth } from "../auth-github";
 
 async function startServer() {
   const app = express();
@@ -40,6 +41,7 @@ async function startServer() {
   app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
   app.post("/api/auth/login", loginHandler);
   app.post("/api/auth/logout", logoutHandler);
+  registerGitHubAuth(app);
   app.use("/api/agent", requireAdmin, agentRouter());
   app.get("/api/platform/config.js", (_req, res) => {
     res.set("Cache-Control", "no-store").type("application/javascript").send(publicPlatformScript());
