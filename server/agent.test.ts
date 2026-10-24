@@ -27,7 +27,7 @@ function ctx() {
   const events: any[] = [];
   return {
     events,
-    value: { root, callId: "call-1", signal: new AbortController().signal, emit: (event: any) => events.push(event), onPlan: vi.fn(), onFileChange: vi.fn(), onCommand: vi.fn() },
+    value: { root, sessionId: "00000000-0000-4000-8000-000000000000", vision: false, callId: "call-1", signal: new AbortController().signal, emit: (event: any) => events.push(event), onPlan: vi.fn(), onFileChange: vi.fn(), onCommand: vi.fn() },
   };
 }
 

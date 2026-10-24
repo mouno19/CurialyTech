@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
-import { Streamdown } from "streamdown";
-import { ArrowUp, Bot, Brain, CircleStop, Copy, FileDiff, Loader2, ScrollText, SquareTerminal, Trash2, User, Workflow } from "lucide-react";
+import { Markdown } from "@/components/Markdown";
+import { ArrowUp, Bot, Brain, CircleStop, Copy, ExternalLink, FileDiff, Loader2, RefreshCcw, Rocket, ScrollText, SquareTerminal, Trash2, User, Workflow } from "lucide-react";
 import { getModel, type AgentTaskSummary } from "@shared/agent";
 import { AppShell, EmptyState } from "@/components/shell/AppShell";
 import { DiffViewer } from "@/components/deck/DiffViewer";
@@ -10,7 +10,7 @@ import { PhaseStepper, PlanView, ThinkingBlock, TimelineEntry, ToolCard } from "
 import { agentApi, formatTokens } from "@/lib/api";
 import { totals, useTaskStream, type StreamState, type TimelineItem, type TurnUsage } from "@/lib/taskStream";
 
-type DeckTab = "activity" | "thinking" | "terminal" | "changes" | "raw";
+type DeckTab = "activity" | "thinking" | "terminal" | "changes" | "preview" | "raw";
 
 function useNarrow() {
   const query = "(max-width: 860px)";
@@ -55,7 +55,7 @@ function Conversation({ state, task }: { state: StreamState; task: AgentTaskSumm
                 {copied && <span className="faint">Copied</span>}
               </div>
             )}
-            <div className="markdown"><Streamdown>{item.text || " "}</Streamdown></div>
+            <Markdown text={item.text || " "} />
             {!item.done && <span className="caret" />}
           </div>
         );
@@ -111,7 +111,11 @@ function Deck({ state, task }: { state: StreamState; task: AgentTaskSummary | nu
   const usageByTurn = useMemo(() => new Map<number, TurnUsage>(state.usage.map((turn, index) => [index + 1, turn])), [state.usage]);
   const activity = state.items.filter(item => item.kind !== "user" && item.kind !== "text");
   const thinking = state.items.filter((item): item is Extract<TimelineItem, { kind: "thinking" }> => item.kind === "thinking");
-  const tools = state.items.filter((item): item is Extract<TimelineItem, { kind: "tool" }> => item.kind === "tool" && (item.name === "run_command" || item.name === "verify" || item.name === "manus" || item.name === "delegate_research"));
+  const tools = state.items.filter((item): item is Extract<TimelineItem, { kind: "tool" }> => item.kind === "tool" && ["run_command", "verify", "manus", "delegate_research", "browse", "deploy_preview"].includes(item.name));
+  const live = [...state.deployments].reverse().find(deployment => deployment.status === "live" && deployment.url);
+  const latestDeploy = state.deployments[state.deployments.length - 1];
+  const [frameKey, setFrameKey] = useState(0);
+  useEffect(() => { if (live) setTab(current => (current === "activity" ? "preview" : current)); }, [live?.url]);
   const bottom = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
   const scroller = useRef<HTMLDivElement>(null);
@@ -123,6 +127,7 @@ function Deck({ state, task }: { state: StreamState; task: AgentTaskSummary | nu
     { id: "thinking", label: "Thinking", icon: Brain, count: thinking.length },
     { id: "terminal", label: "Terminal", icon: SquareTerminal, count: tools.length },
     { id: "changes", label: "Changes", icon: FileDiff, count: state.changes.length },
+    { id: "preview", label: "Preview", icon: Rocket, count: state.deployments.length },
     { id: "raw", label: "Raw log", icon: ScrollText, count: state.events.length },
   ];
 
@@ -168,6 +173,19 @@ function Deck({ state, task }: { state: StreamState; task: AgentTaskSummary | nu
               {state.changes.map(change => <DiffViewer key={change.seq} change={change} />)}
             </>
           ) : <EmptyState icon={FileDiff} title="No file changes">Every file the agent creates, edits or deletes appears here as a diff.</EmptyState>)}
+          {tab === "preview" && (latestDeploy ? (
+            <>
+              <div className="preview-bar">
+                <span className={`chip ${latestDeploy.status === "live" ? "mint" : latestDeploy.status === "failed" ? "red" : "violet"}`}>{latestDeploy.status === "building" || latestDeploy.status === "creating" ? <Loader2 size={11} className="spin" /> : null}{latestDeploy.status}</span>
+                {latestDeploy.url && <a className="mono truncate" style={{ fontSize: 12 }} href={latestDeploy.url} target="_blank" rel="noreferrer">{latestDeploy.url}</a>}
+                <span className="spacer" />
+                {live && <button className="icon-btn sm" title="Reload preview" onClick={() => setFrameKey(value => value + 1)}><RefreshCcw size={13} /></button>}
+                {latestDeploy.url && <a className="icon-btn sm" href={latestDeploy.url} target="_blank" rel="noreferrer" title="Open in new tab"><ExternalLink size={13} /></a>}
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>{latestDeploy.detail}{latestDeploy.expiresAt ? ` · auto-deletes ${new Date(latestDeploy.expiresAt).toLocaleTimeString()}` : ""}</div>
+              {live ? <iframe key={frameKey} className="preview-frame" src={live.url} title="Live preview" sandbox="allow-scripts allow-forms allow-same-origin allow-popups" /> : latestDeploy.status !== "failed" && <EmptyState icon={Loader2} title="Render is building">The preview appears here as soon as the deploy is live.</EmptyState>}
+            </>
+          ) : <EmptyState icon={Rocket} title="No live preview yet">Press Deploy (or ask the agent to deploy) to publish this workspace to a temporary Render URL.</EmptyState>)}
           {tab === "raw" && (
             <div className="card raw">
               {state.events.map(event => {
@@ -195,6 +213,7 @@ export default function TaskWorkspace({ id }: { id: string }) {
   const [missing, setMissing] = useState(false);
   const [generation, setGeneration] = useState(0);
   const [mobilePane, setMobilePane] = useState<"chat" | "deck">("deck");
+  const [deploying, setDeploying] = useState(false);
   const narrow = useNarrow();
   const state = useTaskStream(id, generation);
 
@@ -210,6 +229,15 @@ export default function TaskWorkspace({ id }: { id: string }) {
   const actions = (
     <>
       <StatusChip status={status} />
+      {task?.mode === "agent" && (
+        <button className="btn sm" disabled={running || deploying} title="Publish this workspace as a temporary Render preview" onClick={() => {
+          setDeploying(true);
+          void agentApi.followUp(id, "Deploy this project as a temporary live preview with deploy_preview (choose static or node and the right build/start commands from the files), then open the URL with browse to confirm it renders, and report the link.")
+            .then(() => setGeneration(value => value + 1))
+            .catch(error => alert(error instanceof Error ? error.message : "Deploy failed to start"))
+            .finally(() => setDeploying(false));
+        }}><Rocket size={13} /> Deploy</button>
+      )}
       {running ? (
         <button className="btn danger sm" onClick={() => void agentApi.cancel(id)}><CircleStop size={13} /> Cancel</button>
       ) : (

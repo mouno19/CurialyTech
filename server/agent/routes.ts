@@ -1,15 +1,16 @@
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { Router, type Request, type Response } from "express";
+import multer from "multer";
+import { Router, type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
 import { MODELS, type AgentEvent } from "@shared/agent";
-import { db } from "../curialy-store";
-import { channel, isLive } from "./bus";
+import { deleteMedia, getMedia, listMedia, mediaStatus, presignedUrl, storeMedia } from "../media/snowflake";
+import { isLive, liveChannel } from "./bus";
+import { deployConfigured, destroyDeployment, listDeployments } from "./deploy";
 import { PROVIDER_ENV, probeProviders } from "./providers";
-import { activeTaskCount, cancelTask, followUp, startTask, TaskRejected } from "./runner";
-import { listWorkspaceTree, readWorkspaceFile, resolveInWorkspace, SandboxError, workspacePath, WORKSPACE_ROOT } from "./sandbox";
-import { agentStats, deleteAgentTask, getAgentTask, listAgentTasks, listEventsAfter } from "./store";
+import { activeTaskCount, cancelTask, followUp, isRunning, startTask, TaskRejected } from "./runner";
+import { listWorkspaceTree, readWorkspaceFile, removeWorkspace, resolveInWorkspace, SandboxError, workspacePath } from "./sandbox";
+import { agentStats, deleteAgentTask, getAgentTask, listAgentTasks, listEventsAfter, listWorkspaceSnapshot, readSnapshotFile } from "./store";
 
 const createSchema = z.object({
   prompt: z.string().trim().min(2, "Describe what you want to accomplish.").max(20_000),
@@ -22,6 +23,9 @@ const createSchema = z.object({
 
 const followUpSchema = z.object({ prompt: z.string().trim().min(1).max(20_000) });
 
+// Uploads are held in memory and streamed straight to the Snowflake stage; they never touch the VPS disk.
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 1 } });
+
 function sendError(res: Response, error: unknown) {
   if (error instanceof z.ZodError) return res.status(400).json({ error: error.issues.map(issue => issue.message).join("; ") });
   if (error instanceof TaskRejected) return res.status(409).json({ error: error.message });
@@ -30,8 +34,13 @@ function sendError(res: Response, error: unknown) {
   return res.status(500).json({ error: error instanceof Error ? error.message : "Unexpected error" });
 }
 
-function taskOr404(req: Request, res: Response) {
-  const task = getAgentTask(String(req.params.id));
+/** Wrap async handlers so rejections become JSON errors instead of hanging requests. */
+const handle = (fn: (req: Request, res: Response) => Promise<unknown>) => (req: Request, res: Response, _next: NextFunction) => {
+  fn(req, res).catch(error => (res.headersSent ? res.end() : sendError(res, error)));
+};
+
+async function taskOr404(req: Request, res: Response) {
+  const task = await getAgentTask(String(req.params.id));
   if (!task) res.status(404).json({ error: "Task not found." });
   return task;
 }
@@ -43,83 +52,91 @@ export function agentRouter() {
 
   router.get("/models", (_req, res) => res.json({ models: MODELS }));
 
-  router.get("/health", async (req, res) => {
+  router.get("/health", handle(async (req, res) => {
     const deep = req.query.deep === "1";
     if (!deep && healthCache && Date.now() - healthCache.at < 20_000) return res.json({ providers: healthCache.result, activeTasks: activeTaskCount() });
-    const result = await probeProviders(deep);
+    const [providers, media, database] = await Promise.all([
+      probeProviders(deep),
+      mediaStatus(deep).then(status => ({ id: "media", label: "Snowflake media stage", ok: status.ok, latencyMs: 0, detail: status.detail, configured: Boolean(process.env.SNOWFLAKE_PAT) })),
+      (async () => {
+        const started = Date.now();
+        try {
+          await agentStats();
+          return { id: "tiger", label: "Tiger Cloud (PostgreSQL)", ok: true, latencyMs: Date.now() - started, detail: "Connected", configured: true };
+        } catch (error) {
+          return { id: "tiger", label: "Tiger Cloud (PostgreSQL)", ok: false, latencyMs: Date.now() - started, detail: error instanceof Error ? error.message : "error", configured: Boolean(process.env.TIGER_DATABASE_URL) };
+        }
+      })(),
+    ]);
+    const result = [database, ...providers, media];
     if (!deep) healthCache = { at: Date.now(), result };
     res.json({ providers: result, activeTasks: activeTaskCount() });
-  });
+  }));
 
   router.get("/keys", (_req, res) => {
-    const mask = (value: string) => (value ? `••••${value.slice(-4)}` : null);
+    const mask = (value: string | undefined) => (value ? `••••${value.slice(-4)}` : null);
+    const env = process.env;
     res.json({
       keys: [
-        { id: "cortex", label: "Snowflake Cortex PAT", envVar: "SNOWFLAKE_PAT", location: "/etc/snowflake-proxy.env (bridge)", configured: true, masked: "held by bridge", note: `App talks to the bridge at ${PROVIDER_ENV.cortexBridgeUrl}; the PAT never enters the app process.` },
+        { id: "tiger", label: "Tiger Cloud connection", envVar: "TIGER_DATABASE_URL", location: "/etc/curialyai.env", configured: Boolean(env.TIGER_DATABASE_URL), masked: env.TIGER_DATABASE_URL ? new URL(env.TIGER_DATABASE_URL).host : null },
+        { id: "cortex", label: "Snowflake PAT", envVar: "SNOWFLAKE_PAT", location: "/etc/curialyai.env + /etc/snowflake-proxy.env", configured: Boolean(env.SNOWFLAKE_PAT), masked: mask(env.SNOWFLAKE_PAT), note: "Model calls go through the local bridge; the app uses the PAT directly only for the media stage." },
+        { id: "paper", label: "Paper Instruments API key", envVar: "PAPER_API_KEY", location: "/etc/curialyai.env", configured: Boolean(PROVIDER_ENV.paperKey), masked: mask(PROVIDER_ENV.paperKey) },
         { id: "relay", label: "RelayStation API key", envVar: "RELAY_API_KEY", location: "/etc/curialyai.env", configured: Boolean(PROVIDER_ENV.relayKey), masked: mask(PROVIDER_ENV.relayKey) },
+        { id: "browserbase", label: "Browserbase API key", envVar: "BROWSERBASE_API_KEY", location: "/etc/curialyai.env", configured: Boolean(PROVIDER_ENV.browserbaseKey), masked: mask(PROVIDER_ENV.browserbaseKey) },
+        { id: "render", label: "Render API key", envVar: "RENDER_API_KEY", location: "/etc/curialyai.env", configured: Boolean(PROVIDER_ENV.renderKey), masked: mask(PROVIDER_ENV.renderKey) },
+        { id: "github", label: "GitHub token (preview repos)", envVar: "GITHUB_TOKEN", location: "/etc/curialyai.env", configured: Boolean(PROVIDER_ENV.githubToken), masked: mask(PROVIDER_ENV.githubToken), note: deployConfigured().ok ? undefined : "Required for Render live previews." },
         { id: "manus", label: "Manus API key", envVar: "MANUS_AGENT_API_KEY", location: "/etc/curialyai.env", configured: Boolean(PROVIDER_ENV.manusKey), masked: mask(PROVIDER_ENV.manusKey) },
-        { id: "session", label: "Session signing secret", envVar: "SESSION_SECRET", location: "/etc/curialyai.env", configured: (process.env.SESSION_SECRET ?? "").length >= 32, masked: process.env.SESSION_SECRET ? "set" : null },
-        { id: "admin", label: "Admin password hash", envVar: "ADMIN_PASSWORD_HASH", location: "/etc/curialyai.env", configured: Boolean(process.env.ADMIN_PASSWORD_HASH), masked: process.env.ADMIN_PASSWORD_HASH ? "scrypt" : null },
+        { id: "tinker", label: "Thinking Machines Tinker key", envVar: "TINKER_API_KEY", location: "/etc/curialyai.env", configured: Boolean(env.TINKER_API_KEY), masked: mask(env.TINKER_API_KEY), note: "Stored for fine-tuning; no Tinker models are routable yet." },
+        { id: "session", label: "Session signing secret", envVar: "SESSION_SECRET", location: "/etc/curialyai.env", configured: (env.SESSION_SECRET ?? "").length >= 32, masked: env.SESSION_SECRET ? "set" : null },
+        { id: "admin", label: "Admin password hash", envVar: "ADMIN_PASSWORD_HASH", location: "/etc/curialyai.env", configured: Boolean(env.ADMIN_PASSWORD_HASH), masked: env.ADMIN_PASSWORD_HASH ? "scrypt" : null },
       ],
     });
   });
 
-  router.get("/stats", (_req, res) => res.json({ ...agentStats(), active: activeTaskCount() }));
+  router.get("/stats", handle(async (_req, res) => res.json({ ...(await agentStats()), active: activeTaskCount() })));
 
-  router.get("/tasks", (_req, res) => res.json({ tasks: listAgentTasks() }));
+  router.get("/tasks", handle(async (_req, res) => res.json({ tasks: await listAgentTasks() })));
 
-  router.post("/tasks", (req, res) => {
-    try {
-      const input = createSchema.parse(req.body);
-      const attachments = input.attachmentIds.map(id => {
-        const row = db.prepare("SELECT filename, storage_path AS storagePath FROM curialy_files WHERE id = ?").get(id) as { filename: string; storagePath: string } | undefined;
-        if (!row) throw new TaskRejected(`Attachment ${id} not found.`);
-        return row;
-      });
-      const taskId = startTask(input, attachments);
-      res.status(201).json({ taskId });
-    } catch (error) {
-      sendError(res, error);
+  router.post("/tasks", handle(async (req, res) => {
+    const input = createSchema.parse(req.body);
+    const attachments = [];
+    for (const id of input.attachmentIds) {
+      const media = await getMedia(id);
+      if (!media) throw new TaskRejected(`Attachment ${id} not found.`);
+      attachments.push({ filename: media.filename, stagePath: media.stage_path });
     }
-  });
+    const taskId = await startTask(input, attachments);
+    res.status(201).json({ taskId });
+  }));
 
-  router.get("/tasks/:id", (req, res) => {
-    const task = taskOr404(req, res);
+  router.get("/tasks/:id", handle(async (req, res) => {
+    const task = await taskOr404(req, res);
     if (task) res.json({ task, live: isLive(task.id) });
-  });
+  }));
 
-  router.delete("/tasks/:id", (req, res) => {
-    const task = taskOr404(req, res);
+  router.delete("/tasks/:id", handle(async (req, res) => {
+    const task = await taskOr404(req, res);
     if (!task) return;
-    if (isLive(task.id)) return res.status(409).json({ error: "Cancel the task before deleting it." });
-    const dir = workspacePath(task.id);
-    if (fs.existsSync(dir) && path.dirname(dir) === WORKSPACE_ROOT) {
-      // The sandbox user may own files here; remove with its privileges, never root.
-      spawnSync("sudo", ["-n", "-u", process.env.AGENT_SANDBOX_USER || "curialy-agent", "rm", "-rf", "--", dir], { stdio: "ignore" });
-      if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
-    }
-    res.json({ deleted: deleteAgentTask(task.id) });
-  });
+    if (isRunning(task.id) || isLive(task.id)) return res.status(409).json({ error: "Cancel the task before deleting it." });
+    removeWorkspace(task.id);
+    res.json({ deleted: await deleteAgentTask(task.id) });
+  }));
 
-  router.post("/tasks/:id/cancel", (req, res) => {
-    const task = taskOr404(req, res);
+  router.post("/tasks/:id/cancel", handle(async (req, res) => {
+    const task = await taskOr404(req, res);
     if (task) res.json({ cancelled: cancelTask(task.id) });
-  });
+  }));
 
-  router.post("/tasks/:id/messages", (req, res) => {
-    try {
-      const task = taskOr404(req, res);
-      if (!task) return;
-      followUp(task.id, followUpSchema.parse(req.body).prompt);
-      res.status(202).json({ ok: true });
-    } catch (error) {
-      sendError(res, error);
-    }
-  });
+  router.post("/tasks/:id/messages", handle(async (req, res) => {
+    const task = await taskOr404(req, res);
+    if (!task) return;
+    await followUp(task.id, followUpSchema.parse(req.body).prompt);
+    res.status(202).json({ ok: true });
+  }));
 
   // Server-sent events: replay everything after ?after=<seq>, then stream live until the run ends.
-  router.get("/tasks/:id/events", (req, res) => {
-    const task = taskOr404(req, res);
+  router.get("/tasks/:id/events", handle(async (req, res) => {
+    const task = await taskOr404(req, res);
     if (!task) return;
     const after = Number(req.query.after ?? req.headers["last-event-id"] ?? 0) || 0;
     res.writeHead(200, {
@@ -135,60 +152,105 @@ export function agentRouter() {
       lastSent = event.seq;
       res.write(`id: ${event.seq}\ndata: ${JSON.stringify(event)}\n\n`);
     };
-    const live = isLive(task.id) ? channel(task.id) : null;
-    const buffered: AgentEvent[] = [];
-    let replaying = true;
-    const onEvent = (event: AgentEvent) => (replaying ? buffered.push(event) : send(event));
-    const onClosed = () => {
+    const end = () => {
       res.write("event: end\ndata: {}\n\n");
       res.end();
     };
-    live?.emitter.on("event", onEvent);
-    live?.emitter.once("closed", onClosed);
-    for (const event of listEventsAfter(task.id, after)) send(event);
-    replaying = false;
-    for (const event of buffered) send(event);
-    if (!live) return onClosed();
+    const live = liveChannel(task.id);
+    if (!live) {
+      for (const event of await listEventsAfter(task.id, after)) send(event);
+      return end();
+    }
+    // Live run: everything committed so far is in memory (the database may still be catching up).
+    const onEvent = (event: AgentEvent) => send(event);
+    const onClosed = () => end();
+    live.emitter.on("event", onEvent);
+    live.emitter.once("closed", onClosed);
+    const firstLive = live.history[0]?.seq ?? Number.POSITIVE_INFINITY;
+    if (after + 1 < firstLive) for (const event of await listEventsAfter(task.id, after)) if (event.seq < firstLive) send(event);
+    for (const event of live.history) send(event);
     const heartbeat = setInterval(() => res.write(": keep-alive\n\n"), 15_000);
     req.on("close", () => {
       clearInterval(heartbeat);
       live.emitter.off("event", onEvent);
       live.emitter.off("closed", onClosed);
     });
-  });
+  }));
 
-  router.get("/tasks/:id/tree", (req, res) => {
-    const task = taskOr404(req, res);
+  router.get("/tasks/:id/tree", handle(async (req, res) => {
+    const task = await taskOr404(req, res);
     if (!task) return;
     const dir = workspacePath(task.id);
-    if (!fs.existsSync(dir)) return res.json({ entries: [] });
-    try {
-      res.json({ entries: listWorkspaceTree(dir, ".", 8, 2000) });
-    } catch (error) {
-      sendError(res, error);
+    if (fs.existsSync(dir)) return res.json({ source: "live", entries: listWorkspaceTree(dir, ".", 8, 2000) });
+    const files = await listWorkspaceSnapshot(task.id);
+    const dirs = new Set<string>();
+    for (const file of files) {
+      const parts = file.path.split("/");
+      for (let i = 1; i < parts.length; i++) dirs.add(parts.slice(0, i).join("/"));
     }
-  });
+    const entries = [
+      ...Array.from(dirs).map(dirPath => ({ path: dirPath, type: "dir" as const, size: 0 })),
+      ...files.map(file => ({ path: file.path, type: "file" as const, size: file.size_bytes })),
+    ].sort((a, b) => a.path.localeCompare(b.path));
+    res.json({ source: "archived", entries });
+  }));
 
-  router.get("/tasks/:id/file", (req, res) => {
-    const task = taskOr404(req, res);
+  router.get("/tasks/:id/file", handle(async (req, res) => {
+    const task = await taskOr404(req, res);
     if (!task) return;
-    try {
-      const dir = workspacePath(task.id);
-      const requested = String(req.query.path ?? "");
-      if (req.query.download === "1") {
-        const { absolute, relative } = resolveInWorkspace(dir, requested);
-        const stat = fs.lstatSync(absolute, { throwIfNoEntry: false });
-        if (!stat?.isFile()) return res.status(404).json({ error: "File not found." });
-        res.setHeader("Content-Type", "application/octet-stream");
-        return res.download(absolute, path.basename(relative), { dotfiles: "allow" });
+    const requested = String(req.query.path ?? "");
+    const dir = workspacePath(task.id);
+    let content: Buffer | undefined;
+    let relative = requested;
+    if (fs.existsSync(dir)) {
+      const { absolute, relative: rel } = resolveInWorkspace(dir, requested);
+      const stat = fs.lstatSync(absolute, { throwIfNoEntry: false });
+      if (!stat?.isFile()) return res.status(404).json({ error: "File not found." });
+      relative = rel;
+      if (req.query.download === "1") content = fs.readFileSync(absolute);
+      else {
+        const file = readWorkspaceFile(dir, requested);
+        content = Buffer.from(file.exists ? file.content : "");
       }
-      const file = readWorkspaceFile(dir, requested);
-      if (!file.exists) return res.status(404).json({ error: "File not found." });
-      res.json({ path: file.relative, content: file.content, bytes: Buffer.byteLength(file.content) });
-    } catch (error) {
-      sendError(res, error);
+    } else {
+      content = await readSnapshotFile(task.id, requested);
+      if (!content) return res.status(404).json({ error: "File not found." });
     }
-  });
+    if (req.query.download === "1") {
+      res.setHeader("Content-Type", "application/octet-stream");
+      res.setHeader("Content-Disposition", `attachment; filename="${path.basename(relative).replace(/"/g, "")}"`);
+      return res.end(content);
+    }
+    res.json({ path: relative, content: content.toString("utf8"), bytes: content.length });
+  }));
+
+  // ---- Media (Snowflake stage) ----
+
+  router.get("/media", handle(async (_req, res) => res.json({ files: await listMedia(), stage: await mediaStatus() })));
+
+  router.post("/media", upload.single("file"), handle(async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: "Attach a file up to 25 MB." });
+    const status = await mediaStatus();
+    if (!status.ok) return res.status(503).json({ error: `Media storage is not ready: ${status.detail}` });
+    const stored = await storeMedia({ buffer: req.file.buffer, filename: path.basename(req.file.originalname), mimeType: req.file.mimetype || "application/octet-stream", kind: "upload" });
+    res.status(201).json({ file: stored });
+  }));
+
+  // Redirect to a short-lived presigned URL so the browser loads bytes straight from Snowflake.
+  router.get("/media/:id", handle(async (req, res) => {
+    const media = await getMedia(String(req.params.id));
+    if (!media) return res.status(404).json({ error: "Not found." });
+    res.setHeader("Cache-Control", "private, max-age=600");
+    res.redirect(302, await presignedUrl(media.stage_path, 3600));
+  }));
+
+  router.delete("/media/:id", handle(async (req, res) => res.json({ deleted: await deleteMedia(String(req.params.id)) })));
+
+  // ---- Live previews ----
+
+  router.get("/deployments", handle(async (_req, res) => res.json({ deployments: await listDeployments(), configured: deployConfigured() })));
+
+  router.delete("/deployments/:id", handle(async (req, res) => res.json({ deleted: await destroyDeployment(String(req.params.id)) })));
 
   return router;
 }

@@ -9,6 +9,13 @@ export const PROVIDER_ENV = {
   get manusUrl() { return (process.env.MANUS_AGENT_API_URL || "https://api.manus.ai").replace(/\/+$/, ""); },
   get manusKey() { return process.env.MANUS_AGENT_API_KEY || ""; },
   get manusProfile() { return process.env.MANUS_AGENT_PROFILE || "lite"; },
+  get paperUrl() { return (process.env.PAPER_API_URL || "https://api.paperinstruments.com/v1").replace(/\/+$/, ""); },
+  get paperKey() { return process.env.PAPER_API_KEY || ""; },
+  get browserbaseKey() { return process.env.BROWSERBASE_API_KEY || ""; },
+  get browserbaseProject() { return process.env.BROWSERBASE_PROJECT_ID || ""; },
+  get renderKey() { return process.env.RENDER_API_KEY || ""; },
+  get renderOwner() { return process.env.RENDER_OWNER_ID || ""; },
+  get githubToken() { return process.env.GITHUB_TOKEN || ""; },
 };
 
 let cortexClient: Anthropic | null = null;
@@ -66,6 +73,63 @@ export async function* streamCortexInference(opts: { model: string; system: stri
     }
   }
   yield { usage };
+}
+
+// ---- OpenAI-compatible streaming (Paper Instruments Ultramarine) ----
+
+export type OpenAIChunk =
+  | { kind: "reasoning"; text: string }
+  | { kind: "text"; text: string }
+  | { kind: "tool_delta"; index: number; id?: string; name?: string; args: string }
+  | { kind: "finish"; reason: string }
+  | { kind: "usage"; inputTokens: number; outputTokens: number; reasoningTokens: number; cachedTokens: number };
+
+export async function* streamOpenAIChat(opts: { model: string; messages: Record<string, unknown>[]; tools?: Record<string, unknown>[]; maxTokens: number; signal: AbortSignal }): AsyncGenerator<OpenAIChunk> {
+  if (!PROVIDER_ENV.paperKey) throw new Error("PAPER_API_KEY is not configured.");
+  const response = await fetch(`${PROVIDER_ENV.paperUrl}/chat/completions`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${PROVIDER_ENV.paperKey}`, "content-type": "application/json", accept: "text/event-stream" },
+    body: JSON.stringify({
+      model: opts.model, stream: true, stream_options: { include_usage: true }, max_tokens: opts.maxTokens, messages: opts.messages,
+      ...(opts.tools?.length ? { tools: opts.tools, tool_choice: "auto" } : {}),
+    }),
+    signal: opts.signal,
+  });
+  if (!response.ok || !response.body) throw new Error(`Paper Instruments request failed (${response.status}): ${(await response.text()).slice(0, 400)}`);
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
+    buffer += decoder.decode(chunk, { stream: true });
+    let index: number;
+    while ((index = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, index).trim();
+      buffer = buffer.slice(index + 1);
+      if (!line.startsWith("data:")) continue;
+      const payload = line.slice(5).trim();
+      if (!payload || payload === "[DONE]") continue;
+      let data: any;
+      try { data = JSON.parse(payload); } catch { continue; }
+      if (data.error) throw new Error(`Paper Instruments error: ${data.error.message ?? JSON.stringify(data.error)}`);
+      if (data.usage) {
+        yield {
+          kind: "usage",
+          inputTokens: data.usage.prompt_tokens ?? 0,
+          outputTokens: data.usage.completion_tokens ?? 0,
+          reasoningTokens: data.usage.completion_tokens_details?.reasoning_tokens ?? 0,
+          cachedTokens: data.usage.prompt_tokens_details?.cached_tokens ?? 0,
+        };
+      }
+      for (const choice of data.choices ?? []) {
+        const delta = choice.delta ?? {};
+        if (typeof delta.reasoning_content === "string" && delta.reasoning_content) yield { kind: "reasoning", text: delta.reasoning_content };
+        if (typeof delta.content === "string" && delta.content) yield { kind: "text", text: delta.content };
+        for (const call of delta.tool_calls ?? []) {
+          yield { kind: "tool_delta", index: call.index ?? 0, id: call.id, name: call.function?.name, args: call.function?.arguments ?? "" };
+        }
+        if (choice.finish_reason) yield { kind: "finish", reason: choice.finish_reason };
+      }
+    }
+  }
 }
 
 // ---- Manus (remote autonomous agent, v2 API) ----
@@ -175,10 +239,27 @@ export async function probeProviders(deep = false): Promise<ProbeResult[]> {
       if (!response.ok) throw new Error(`Task list returned ${response.status}`);
       return "API key accepted";
     }),
+    timed("Paper Instruments", "paper", Boolean(PROVIDER_ENV.paperKey), async () => {
+      const response = await fetch(`${PROVIDER_ENV.paperUrl}/models`, { headers: { authorization: `Bearer ${PROVIDER_ENV.paperKey}` }, signal });
+      if (!response.ok) throw new Error(`Models endpoint returned ${response.status}`);
+      const data: any = await response.json();
+      return `${(data?.data ?? []).map((model: { id: string }) => model.id).join(", ") || "no models"}`;
+    }),
+    timed("Browserbase", "browserbase", Boolean(PROVIDER_ENV.browserbaseKey && PROVIDER_ENV.browserbaseProject), async () => {
+      const response = await fetch(`https://api.browserbase.com/v1/projects/${PROVIDER_ENV.browserbaseProject}`, { headers: { "X-BB-API-Key": PROVIDER_ENV.browserbaseKey }, signal });
+      if (!response.ok) throw new Error(`Project lookup returned ${response.status}`);
+      const data: any = await response.json();
+      return `Project "${data.name}" · concurrency ${data.concurrency}`;
+    }),
+    timed("Render", "render", Boolean(PROVIDER_ENV.renderKey && PROVIDER_ENV.renderOwner), async () => {
+      const response = await fetch(`https://api.render.com/v1/owners/${PROVIDER_ENV.renderOwner}`, { headers: { authorization: `Bearer ${PROVIDER_ENV.renderKey}`, accept: "application/json" }, signal });
+      if (!response.ok) throw new Error(`Owner lookup returned ${response.status}`);
+      return PROVIDER_ENV.githubToken ? "API key accepted · GitHub token set" : "API key accepted · GITHUB_TOKEN missing (deploys disabled)";
+    }),
     timed("Google Gemini (via RelayStation)", "gemini", Boolean(PROVIDER_ENV.relayKey), async () => {
       if (!deep) return "Routed through RelayStation (run a deep check to verify)";
       // RelayStation always answers with SSE, so even a probe has to stream.
-      const message = await anthropicClient("relay").messages.stream({ model: "r/gemini-3.7-flash-high", max_tokens: 8, messages: [{ role: "user", content: "Reply OK" }] }, { signal }).finalMessage();
+      const message = await anthropicClient("relay").messages.stream({ model: "r/gemini-3.8-flash-low", max_tokens: 8, messages: [{ role: "user", content: "Reply OK" }] }, { signal }).finalMessage();
       return `Answered (${message.usage.output_tokens} tokens)`;
     }),
   ]);

@@ -13,7 +13,10 @@ export type TimelineItem =
   | { kind: "verify"; id: string; ts: string; iteration: number; commands: string[]; results: Extract<AgentEvent, { type: "verify_result" }>[] }
   | { kind: "heal"; id: string; ts: string; iteration: number; reason: string; model: string }
   | { kind: "external"; id: string; ts: string; status: string; detail: string; url?: string }
-  | { kind: "notice"; id: string; ts: string; level: "info" | "warn" | "error"; message: string };
+  | { kind: "notice"; id: string; ts: string; level: "info" | "warn" | "error"; message: string }
+  | { kind: "media"; id: string; ts: string; mediaId: string | null; filename: string; mimeType: string; caption: string; src: string };
+
+export type DeploymentState = { id: string; status: string; url?: string; detail: string; expiresAt?: string; updatedAt: string };
 
 export type TurnUsage = Extract<AgentEvent, { type: "usage" }>;
 
@@ -23,6 +26,7 @@ export type StreamState = {
   plan: PlanStep[];
   changes: FileChange[];
   usage: TurnUsage[];
+  deployments: DeploymentState[];
   status: TaskStatus | null;
   model: string | null;
   answer: string;
@@ -35,7 +39,7 @@ export type StreamState = {
 const initialPhases = () => Object.fromEntries(PHASES.map(phase => [phase.id, { state: "pending" as PhaseState }])) as StreamState["phases"];
 
 export const initialStreamState = (): StreamState => ({
-  items: [], phases: initialPhases(), plan: [], changes: [], usage: [], status: null, model: null, answer: "", events: [], lastSeq: 0, connected: false, ended: false,
+  items: [], phases: initialPhases(), plan: [], changes: [], usage: [], deployments: [], status: null, model: null, answer: "", events: [], lastSeq: 0, connected: false, ended: false,
 });
 
 type Action = { type: "events"; events: AgentEvent[] } | { type: "connected"; value: boolean } | { type: "ended" } | { type: "reset" };
@@ -165,6 +169,16 @@ function apply(state: StreamState, event: AgentEvent) {
       state.status = event.status;
       if (event.answer) state.answer = event.answer;
       break;
+    case "media":
+      items.push({ kind: "media", id: `m${event.seq}`, ts: event.ts, mediaId: event.mediaId, filename: event.filename, mimeType: event.mimeType, caption: event.caption, src: event.mediaId ? `/api/agent/media/${event.mediaId}` : event.inlineDataUrl ?? "" });
+      break;
+    case "deployment": {
+      // Progress events are keyed by the tool call until Render returns a deployment id; merge them.
+      const current = state.deployments[state.deployments.length - 1];
+      const next: DeploymentState = { id: event.deploymentId, status: event.status, url: event.url ?? current?.url, detail: event.detail, expiresAt: event.expiresAt ?? current?.expiresAt, updatedAt: event.ts };
+      state.deployments = current && current.status !== "live" && current.status !== "failed" ? [...state.deployments.slice(0, -1), next] : [...state.deployments, next];
+      break;
+    }
     case "turn_start":
       break;
   }

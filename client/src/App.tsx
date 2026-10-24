@@ -11,6 +11,7 @@ import Sandbox from "./pages/Sandbox";
 import Integrations from "./pages/Integrations";
 import Skills from "./pages/Skills";
 import ApiKeys from "./pages/ApiKeys";
+import Media from "./pages/Media";
 import NotFound from "./pages/NotFound";
 
 export default function App() {
@@ -41,6 +42,7 @@ export default function App() {
         <Route path="/tasks" component={Tasks} />
         <Route path="/tasks/:id">{params => <TaskWorkspace key={params.id} id={params.id} />}</Route>
         <Route path="/sandbox" component={Sandbox} />
+        <Route path="/media" component={Media} />
         <Route path="/integrations" component={Integrations} />
         <Route path="/skills" component={Skills} />
         <Route path="/keys" component={ApiKeys} />

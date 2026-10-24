@@ -1,12 +1,13 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation } from "wouter";
-import { Activity, Boxes, ChevronsLeft, ChevronsRight, KeyRound, LayoutDashboard, LogOut, Menu, PlugZap, SquareTerminal, Store } from "lucide-react";
+import { Activity, Boxes, ChevronsLeft, ChevronsRight, Images, KeyRound, LayoutDashboard, LogOut, Menu, PlugZap, SquareTerminal, Store } from "lucide-react";
 import { agentApi, authApi, type ProviderProbe } from "@/lib/api";
 
 const NAV = [
   { href: "/", label: "Workspace Dashboard", icon: LayoutDashboard },
   { href: "/tasks", label: "Live Tasks", icon: Activity, badge: true },
   { href: "/sandbox", label: "Code Sandbox", icon: SquareTerminal },
+  { href: "/media", label: "Media Vault", icon: Images },
   { href: "/integrations", label: "System Integrations", icon: PlugZap },
   { href: "/skills", label: "Skill Store", icon: Store },
   { href: "/keys", label: "API Key Manager", icon: KeyRound },

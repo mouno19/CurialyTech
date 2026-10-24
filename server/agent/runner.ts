@@ -3,11 +3,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { getModel, PHASES, type CreateTaskRequest, type ModelSpec, type PhaseId, type PhaseState, type PlanStep, type TaskMode, type ThinkingLevel } from "@shared/agent";
-import { channel, closeChannel, type Emit } from "./bus";
-import { anthropicClient, PROVIDER_ENV, reasoningParams, runManusTask, streamCortexInference } from "./providers";
-import { clip, copyIntoWorkspace, ensureWorkspace, readWorkspaceFile, runCommand } from "./sandbox";
-import { createAgentTask, getAgentTask, getConversation, updateAgentTask } from "./store";
-import { executeTool, isVerificationCommand, shellQuote, toolsFor } from "./tools";
+import { closeChannel, openChannel, type Emit } from "./bus";
+import { anthropicClient, PROVIDER_ENV, reasoningParams, runManusTask, streamCortexInference, streamOpenAIChat } from "./providers";
+import { clip, ensureWorkspace, readWorkspaceFile, runCommand, writeWorkspaceBytes } from "./sandbox";
+import { addMessage, createAgentTask, getAgentTask, getConversation, settleTaskWrites, updateAgentTask, type ConversationFormat } from "./store";
+import { executeTool, isVerificationCommand, shellQuote, toolsFor, type ToolOutcome } from "./tools";
+import { materializeWorkspace, snapshotWorkspace } from "./workspaces";
+import { fetchMediaBytes } from "../media/snowflake";
 
 const MAX_TURNS = 60;
 const MAX_HEAL_ITERATIONS = 4;
@@ -29,7 +31,8 @@ export function dispatchModel(req: Pick<CreateTaskRequest, "prompt" | "model" | 
   if (req.model !== "auto") {
     const spec = getModel(req.model);
     if (!spec) throw new TaskRejected(`Unknown model: ${req.model}`);
-    if (req.mode === "agent" && !spec.tools && spec.provider !== "manus") throw new TaskRejected(`${spec.label} cannot call tools; choose it in Chat mode or pick a Claude model for Agent mode.`);
+    if (req.mode === "agent" && !spec.tools && spec.provider !== "manus") throw new TaskRejected(`${spec.label} cannot call tools; choose it in Chat mode or pick a tool-capable model for Agent mode.`);
+    if (spec.provider === "paper" && !PROVIDER_ENV.paperKey) throw new TaskRejected("Paper Instruments is not configured (PAPER_API_KEY).");
     return { spec, reason: "Selected manually." };
   }
   if (BROWSING.test(req.prompt) && PROVIDER_ENV.manusKey && (req.webSearch || req.mode === "chat")) {
@@ -169,35 +172,57 @@ export function activeTaskCount() {
   return running.size;
 }
 
-export function startTask(req: CreateTaskRequest, attachments: { filename: string; storagePath: string }[]) {
-  if (running.size >= MAX_CONCURRENT) throw new TaskRejected(`${MAX_CONCURRENT} tasks are already running. Wait for one to finish or cancel it.`);
-  const { spec, reason } = dispatchModel(req);
-  const id = randomUUID();
-  createAgentTask({ id, prompt: req.prompt, mode: req.mode, model: spec.id, effort: req.effort, webSearch: req.webSearch });
-  const root = ensureWorkspace(id);
-
-  let prompt = req.prompt;
-  if (attachments.length) {
-    for (const file of attachments) copyIntoWorkspace(root, file.storagePath, path.join("attachments", file.filename));
-    prompt += `\n\nAttached files (in the workspace): ${attachments.map(file => `attachments/${file.filename}`).join(", ")}`;
-  }
-  const conversation: Anthropic.MessageParam[] = [{ role: "user", content: prompt }];
-  updateAgentTask(id, { conversation });
-  void runTask(id, conversation, { mode: req.mode, effort: req.effort, webSearch: req.webSearch, spec, reason });
-  return id;
+export function isRunning(taskId: string) {
+  return running.has(taskId) || reserved.has(taskId);
 }
 
-export function followUp(taskId: string, prompt: string) {
-  const task = getAgentTask(taskId);
-  if (!task) throw new TaskRejected("Task not found.");
-  if (running.has(taskId)) throw new TaskRejected("This task is still running.");
-  if (running.size >= MAX_CONCURRENT) throw new TaskRejected(`${MAX_CONCURRENT} tasks are already running.`);
-  const spec = getModel(task.model);
-  if (!spec) throw new TaskRejected(`Unknown model ${task.model}.`);
-  const conversation = getConversation(taskId);
-  conversation.push({ role: "user", content: prompt });
-  updateAgentTask(taskId, { conversation, status: "queued", error: null });
-  void runTask(taskId, conversation, { mode: task.mode, effort: task.effort, webSearch: task.webSearch, spec, reason: "Follow-up on the same model." });
+const formatFor = (spec: ModelSpec): ConversationFormat => (spec.provider === "paper" ? "openai" : "anthropic");
+
+// Slots are reserved synchronously so concurrent requests cannot exceed MAX_CONCURRENT
+// while their database writes are in flight.
+const reserved = new Set<string>();
+
+export async function startTask(req: CreateTaskRequest, attachments: { filename: string; stagePath: string }[]) {
+  if (running.size + reserved.size >= MAX_CONCURRENT) throw new TaskRejected(`${MAX_CONCURRENT} tasks are already running. Wait for one to finish or cancel it.`);
+  const { spec, reason } = dispatchModel(req);
+  const id = randomUUID();
+  reserved.add(id);
+  try {
+    await createAgentTask({ id, prompt: req.prompt, mode: req.mode, model: spec.id, effort: req.effort, webSearch: req.webSearch, format: formatFor(spec) });
+    let prompt = req.prompt;
+    if (attachments.length) {
+      const root = ensureWorkspace(id);
+      for (const file of attachments) writeWorkspaceBytes(root, path.join("attachments", file.filename), await fetchMediaBytes(file.stagePath));
+      prompt += `\n\nAttached files (in the workspace): ${attachments.map(file => `attachments/${file.filename}`).join(", ")}`;
+    }
+    const conversation: Record<string, unknown>[] = [{ role: "user", content: prompt }];
+    await updateAgentTask(id, { conversation, workspaceState: "live" });
+    await addMessage(id, "user", req.prompt);
+    void runTask(id, conversation, { mode: req.mode, effort: req.effort, webSearch: req.webSearch, spec, reason });
+    return id;
+  } finally {
+    reserved.delete(id);
+  }
+}
+
+export async function followUp(taskId: string, prompt: string) {
+  if (running.has(taskId) || reserved.has(taskId)) throw new TaskRejected("This task is still running.");
+  if (running.size + reserved.size >= MAX_CONCURRENT) throw new TaskRejected(`${MAX_CONCURRENT} tasks are already running.`);
+  reserved.add(taskId);
+  try {
+    const task = await getAgentTask(taskId);
+    if (!task) throw new TaskRejected("Task not found.");
+    const spec = getModel(task.model);
+    if (!spec) throw new TaskRejected(`Unknown model ${task.model}.`);
+    const { messages } = await getConversation(taskId);
+    const conversation = messages as Record<string, unknown>[];
+    conversation.push({ role: "user", content: prompt });
+    await updateAgentTask(taskId, { conversation, status: "queued", error: null, workspaceState: "live" });
+    await addMessage(taskId, "user", prompt);
+    void runTask(taskId, conversation, { mode: task.mode, effort: task.effort, webSearch: task.webSearch, spec, reason: "Follow-up on the same model." });
+  } finally {
+    reserved.delete(taskId);
+  }
 }
 
 export function cancelTask(taskId: string) {
@@ -207,16 +232,28 @@ export function cancelTask(taskId: string) {
   return true;
 }
 
-async function runTask(taskId: string, conversation: Anthropic.MessageParam[], opts: { mode: TaskMode; effort: ThinkingLevel; webSearch: boolean; spec: ModelSpec; reason: string }) {
+async function runTask(taskId: string, conversation: Record<string, unknown>[], opts: { mode: TaskMode; effort: ThinkingLevel; webSearch: boolean; spec: ModelSpec; reason: string }) {
   const controller = new AbortController();
   running.set(taskId, controller);
-  const bus = channel(taskId);
+  let bus: Awaited<ReturnType<typeof openChannel>>;
+  let root: string;
+  let restored = 0;
+  let existing: Awaited<ReturnType<typeof getAgentTask>>;
+  try {
+    bus = await openChannel(taskId);
+    ({ dir: root, restored } = await materializeWorkspace(taskId));
+    existing = await getAgentTask(taskId);
+  } catch (error) {
+    running.delete(taskId);
+    console.error(`[agent] could not start ${taskId}:`, error);
+    await updateAgentTask(taskId, { status: "failed", error: `Could not start: ${describeError(error)}` });
+    return;
+  }
   const emit: Emit = body => bus.emit(body);
-  const existing = getAgentTask(taskId);
   const ctx: RunContext = {
     taskId,
     runId: randomUUID().slice(0, 8),
-    root: ensureWorkspace(taskId),
+    root,
     mode: opts.mode,
     effort: opts.effort,
     webSearch: opts.webSearch,
@@ -231,9 +268,10 @@ async function runTask(taskId: string, conversation: Anthropic.MessageParam[], o
   const filesBefore = existing?.filesChanged ?? 0;
   updateAgentTask(taskId, { status: "running" });
   const latest = conversation[conversation.length - 1];
-  if (latest?.role === "user") emit({ type: "user_message", text: plainText(latest.content) });
+  if (latest?.role === "user") emit({ type: "user_message", text: plainText(latest.content as Anthropic.MessageParam["content"]) });
   emit({ type: "status", status: "running" });
   emit({ type: "dispatch", model: opts.spec.id, provider: opts.spec.provider, reason: opts.reason });
+  if (restored) emit({ type: "notice", level: "info", message: `Workspace restored from Tiger (${restored} files).` });
   ctx.phases.advance("planning");
   if (opts.mode === "chat") {
     ctx.phases.set("implementation", "skipped");
@@ -242,11 +280,13 @@ async function runTask(taskId: string, conversation: Anthropic.MessageParam[], o
 
   try {
     let answer: string;
-    if (opts.spec.provider === "manus") answer = await runManus(ctx, conversation);
-    else if (opts.spec.provider === "cortex-inference") answer = await runInference(ctx, conversation);
-    else answer = await runAnthropicLoop(ctx, conversation);
+    if (opts.spec.provider === "manus") answer = await runManus(ctx, conversation as unknown as Anthropic.MessageParam[]);
+    else if (opts.spec.provider === "cortex-inference") answer = await runInference(ctx, conversation as unknown as Anthropic.MessageParam[]);
+    else if (opts.spec.provider === "paper") answer = await runOpenAILoop(ctx, conversation);
+    else answer = await runAnthropicLoop(ctx, conversation as unknown as Anthropic.MessageParam[]);
     ctx.phases.finish(true);
     updateAgentTask(taskId, { status: "completed", answer, conversation, usage: ctx.usage, filesChanged: filesBefore + ctx.changedFiles.size, model: ctx.spec.id });
+    void addMessage(taskId, "assistant", answer, ctx.spec.id).catch(() => undefined);
     emit({ type: "status", status: "completed" });
     emit({ type: "done", status: "completed", answer });
   } catch (error) {
@@ -259,8 +299,11 @@ async function runTask(taskId: string, conversation: Anthropic.MessageParam[], o
     emit({ type: "status", status });
     emit({ type: "done", status, answer: "" });
   } finally {
+    // Persist the durable copy of the workspace; the VPS directory is scratch and gets swept when idle.
+    await snapshotWorkspace(taskId).catch(error => console.error(`[agent] snapshot ${taskId} failed:`, error.message));
+    await settleTaskWrites(taskId);
     running.delete(taskId);
-    closeChannel(taskId);
+    await closeChannel(taskId).catch(error => console.error(`[agent] close ${taskId} failed:`, error.message));
   }
 }
 
@@ -368,43 +411,173 @@ async function runAnthropicLoop(ctx: RunContext, conversation: Anthropic.Message
     }
 
     // end_turn: the harness verifies coding work before accepting the answer.
-    if (!coding || ctx.changedFiles.size === 0) return lastText;
-    const failure = await verify(ctx, healIteration + 1);
-    if (!failure) return lastText;
-    healIteration++;
-    if (healIteration > MAX_HEAL_ITERATIONS) {
-      ctx.emit({ type: "notice", level: "warn", message: `Verification still failing after ${MAX_HEAL_ITERATIONS} self-healing iterations; delivering with failures reported.` });
-      return `${lastText}\n\n> **Verification failed** after ${MAX_HEAL_ITERATIONS} self-healing attempts: \`${failure.command}\` (exit ${failure.exitCode}).`;
+    const step = await verifyOrHeal(ctx, coding, healIteration, lastText);
+    if (step.done) return step.answer;
+    healIteration = step.healIteration;
+    conversation.push({ role: "user", content: step.message });
+  }
+  throw new Error(`Stopped after ${MAX_TURNS} model turns without finishing.`);
+}
+
+type HealStep = { done: true; answer: string } | { done: false; healIteration: number; message: string };
+
+async function verifyOrHeal(ctx: RunContext, coding: boolean, healIteration: number, lastText: string): Promise<HealStep> {
+  if (!coding || ctx.changedFiles.size === 0) return { done: true, answer: lastText };
+  const failure = await verify(ctx, healIteration + 1);
+  if (!failure) return { done: true, answer: lastText };
+  const iteration = healIteration + 1;
+  if (iteration > MAX_HEAL_ITERATIONS) {
+    ctx.emit({ type: "notice", level: "warn", message: `Verification still failing after ${MAX_HEAL_ITERATIONS} self-healing iterations; delivering with failures reported.` });
+    return { done: true, answer: `${lastText}\n\n> **Verification failed** after ${MAX_HEAL_ITERATIONS} self-healing attempts: \`${failure.command}\` (exit ${failure.exitCode}).` };
+  }
+  // Escalate within the same conversation format (Anthropic history cannot be replayed to an OpenAI-format model).
+  if (iteration >= 2 && ctx.spec.id === "claude-sonnet-4-5") {
+    ctx.spec = getModel("claude-opus-5-5")!;
+    ctx.emit({ type: "dispatch", model: ctx.spec.id, provider: ctx.spec.provider, reason: "Escalated: repeated verification failures → Opus 5.5 for debugging." });
+    updateAgentTask(ctx.taskId, { model: ctx.spec.id });
+  }
+  ctx.emit({ type: "heal", iteration, reason: `${failure.command} exited ${failure.exitCode}`, model: ctx.spec.id });
+  ctx.phases.set("verification", "active", `Self-healing iteration ${iteration}/${MAX_HEAL_ITERATIONS}`);
+  return {
+    done: false,
+    healIteration: iteration,
+    message: `Automated verification failed (self-healing iteration ${iteration}/${MAX_HEAL_ITERATIONS}).\n\n$ ${failure.command}\n[exit code ${failure.exitCode}]\n${clip(failure.output, 14_000)}\n\nInspect the error, locate the exact file and line, apply a targeted fix, and re-run the failing command. When everything passes, reply with the final summary.`,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// OpenAI-format streaming tool loop (Paper Instruments Ultramarine: reasoning_content + tool_calls)
+// ---------------------------------------------------------------------------
+
+function openAITools(tools: Anthropic.Tool[]) {
+  return tools.map(tool => ({ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.input_schema } }));
+}
+
+async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unknown>[]) {
+  const coding = ctx.mode === "agent";
+  const tools = openAITools(toolsFor({ coding, web: ctx.webSearch, eager: false }));
+  const system = { role: "system", content: coding ? AGENT_SYSTEM : CHAT_SYSTEM };
+  let healIteration = 0;
+  let lastText = "";
+
+  for (let turn = 1; turn <= MAX_TURNS; turn++) {
+    ctx.emit({ type: "turn_start", turn, model: ctx.spec.id });
+    const thinkingId = `${ctx.runId}-${turn}-think`;
+    const textId = `${ctx.runId}-${turn}-text`;
+    let thinkingStarted = 0;
+    let textOpen = false;
+    let text = "";
+    let reasoning = "";
+    let finish = "stop";
+    let usage = { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0 };
+    const calls = new Map<number, { id: string; name: string; args: string }>();
+
+    for await (const chunk of streamOpenAIChat({ model: ctx.spec.id, messages: [system, ...conversation], tools: tools.length ? tools : undefined, maxTokens: MAX_TOKENS, signal: ctx.signal })) {
+      if (chunk.kind === "reasoning") {
+        if (!thinkingStarted) {
+          thinkingStarted = Date.now();
+          if (ctx.phases.get("deliberation") === "pending") ctx.phases.advance("deliberation");
+          ctx.emit({ type: "thinking_start", blockId: thinkingId });
+        }
+        reasoning += chunk.text;
+        ctx.emit({ type: "thinking_delta", blockId: thinkingId, text: chunk.text });
+      } else if (chunk.kind === "text") {
+        if (!textOpen) { textOpen = true; ctx.emit({ type: "text_start", blockId: textId }); }
+        text += chunk.text;
+        ctx.emit({ type: "text_delta", blockId: textId, text: chunk.text });
+      } else if (chunk.kind === "tool_delta") {
+        let call = calls.get(chunk.index);
+        if (!call) {
+          call = { id: chunk.id || `${ctx.runId}-${turn}-call-${chunk.index}`, name: chunk.name ?? "", args: "" };
+          calls.set(chunk.index, call);
+          if (call.name) ctx.emit({ type: "tool_start", callId: call.id, name: call.name });
+        } else if (chunk.name && !call.name) {
+          call.name = chunk.name;
+          ctx.emit({ type: "tool_start", callId: call.id, name: call.name });
+        }
+        if (chunk.args) {
+          call.args += chunk.args;
+          ctx.emit({ type: "tool_input_delta", callId: call.id, partial: chunk.args });
+        }
+      } else if (chunk.kind === "finish") {
+        finish = chunk.reason;
+      } else if (chunk.kind === "usage") {
+        usage = chunk;
+      }
     }
-    if (healIteration >= 2 && ctx.spec.id === "claude-sonnet-4-5") {
-      ctx.spec = getModel("claude-opus-5-5")!;
-      ctx.emit({ type: "dispatch", model: ctx.spec.id, provider: ctx.spec.provider, reason: "Escalated: repeated verification failures → Opus 5.5 for debugging." });
-      updateAgentTask(ctx.taskId, { model: ctx.spec.id });
-    }
-    ctx.emit({ type: "heal", iteration: healIteration, reason: `${failure.command} exited ${failure.exitCode}`, model: ctx.spec.id });
-    ctx.phases.set("verification", "active", `Self-healing iteration ${healIteration}/${MAX_HEAL_ITERATIONS}`);
+    if (thinkingStarted) ctx.emit({ type: "thinking_end", blockId: thinkingId, ms: Date.now() - thinkingStarted });
+    if (textOpen) ctx.emit({ type: "text_end", blockId: textId });
+    ctx.usage.inputTokens += usage.inputTokens;
+    ctx.usage.outputTokens += usage.outputTokens;
+    ctx.usage.thinkingTokens += usage.reasoningTokens;
+    ctx.emit({ type: "usage", turn, model: ctx.spec.id, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, thinkingTokens: usage.reasoningTokens, cacheReadTokens: usage.cachedTokens });
+    lastText = text.trim() || lastText;
+
+    const toolCalls = Array.from(calls.values()).filter(call => call.name);
     conversation.push({
-      role: "user",
-      content: `Automated verification failed (self-healing iteration ${healIteration}/${MAX_HEAL_ITERATIONS}).\n\n$ ${failure.command}\n[exit code ${failure.exitCode}]\n${clip(failure.output, 14_000)}\n\nInspect the error, locate the exact file and line, apply a targeted fix, and re-run the failing command. When everything passes, reply with the final summary.`,
+      role: "assistant",
+      content: text || null,
+      ...(reasoning ? { reasoning_content: reasoning } : {}),
+      ...(toolCalls.length ? { tool_calls: toolCalls.map(call => ({ id: call.id, type: "function", function: { name: call.name, arguments: call.args || "{}" } })) } : {}),
     });
+    updateAgentTask(ctx.taskId, { conversation, usage: ctx.usage });
+
+    if (toolCalls.length) {
+      for (const call of toolCalls) {
+        let input: Record<string, unknown> = {};
+        let outcome: ToolOutcome;
+        try {
+          input = JSON.parse(call.args || "{}");
+          outcome = finish === "length"
+            ? { ok: false, content: "Your tool arguments were cut off by the output limit. Split the work into smaller pieces and try again.", summary: "Input truncated" }
+            : await trackedTool(ctx, call.id, call.name, input);
+        } catch (error) {
+          if (ctx.signal.aborted) throw error;
+          outcome = { ok: false, content: `INVALID_JSON: tool arguments were not valid JSON (${error instanceof Error ? error.message : error}). Re-issue the call.`, summary: "Invalid JSON" };
+          ctx.emit({ type: "tool_call", callId: call.id, name: call.name, input: { raw: call.args.slice(0, 2000) } });
+          ctx.emit({ type: "tool_result", callId: call.id, ok: false, summary: outcome.summary, durationMs: 0 });
+        }
+        conversation.push({ role: "tool", tool_call_id: call.id, content: outcome.content });
+      }
+      updateAgentTask(ctx.taskId, { conversation });
+      continue;
+    }
+    if (finish === "length") {
+      conversation.push({ role: "user", content: "Your previous reply was cut off by the output limit. Continue exactly where you stopped." });
+      continue;
+    }
+    const step = await verifyOrHeal(ctx, coding, healIteration, lastText);
+    if (step.done) return step.answer;
+    healIteration = step.healIteration;
+    conversation.push({ role: "user", content: step.message });
   }
   throw new Error(`Stopped after ${MAX_TURNS} model turns without finishing.`);
 }
 
 async function runToolCall(ctx: RunContext, use: Anthropic.ToolUseBlock): Promise<Anthropic.ToolResultBlockParam> {
-  const input = (use.input ?? {}) as Record<string, unknown>;
-  ctx.emit({ type: "tool_call", callId: use.id, name: use.name, input: redactLargeInput(input) });
-  if (use.name === "update_plan") {
+  const outcome = await trackedTool(ctx, use.id, use.name, (use.input ?? {}) as Record<string, unknown>);
+  const content: Anthropic.ToolResultBlockParam["content"] = outcome.image
+    ? [{ type: "text", text: outcome.content }, { type: "image", source: { type: "base64", media_type: outcome.image.mediaType, data: outcome.image.base64 } }]
+    : outcome.content;
+  return { type: "tool_result", tool_use_id: use.id, content, ...(outcome.ok ? {} : { is_error: true }) };
+}
+
+/** Execute one tool call with phase tracking and lifecycle events; shared by every provider loop. */
+async function trackedTool(ctx: RunContext, callId: string, name: string, input: Record<string, unknown>): Promise<ToolOutcome> {
+  ctx.emit({ type: "tool_call", callId, name, input: redactLargeInput(input) });
+  if (name === "update_plan") {
     if (ctx.phases.get("planning") === "active") ctx.phases.set("planning", "done");
-  } else if (use.name === "run_command" && typeof input.command === "string" && isVerificationCommand(input.command)) {
-    ctx.phases.advance("verification");
-  } else if (["write_file", "edit_file", "delete_file", "run_command"].includes(use.name)) {
+  } else if ((name === "run_command" && typeof input.command === "string" && isVerificationCommand(input.command)) || name === "browse") {
+    if (ctx.changedFiles.size || name !== "browse") ctx.phases.advance("verification");
+  } else if (["write_file", "edit_file", "delete_file", "run_command", "deploy_preview"].includes(name)) {
     if (ctx.phases.get("verification") !== "active") ctx.phases.advance("implementation");
   }
   const started = Date.now();
-  const outcome = await executeTool(use.name, input, {
+  const outcome = await executeTool(name, input, {
     root: ctx.root,
-    callId: use.id,
+    sessionId: ctx.taskId,
+    vision: ctx.spec.vision,
+    callId,
     signal: ctx.signal,
     emit: ctx.emit,
     onPlan: (_steps: PlanStep[]) => undefined,
@@ -414,8 +587,8 @@ async function runToolCall(ctx: RunContext, use: Anthropic.ToolUseBlock): Promis
     },
   });
   if (ctx.signal.aborted) throw new Error("Cancelled");
-  ctx.emit({ type: "tool_result", callId: use.id, ok: outcome.ok, summary: outcome.summary, exitCode: outcome.exitCode, durationMs: Date.now() - started });
-  return { type: "tool_result", tool_use_id: use.id, content: outcome.content, ...(outcome.ok ? {} : { is_error: true }) };
+  ctx.emit({ type: "tool_result", callId, ok: outcome.ok, summary: outcome.summary, exitCode: outcome.exitCode, durationMs: Date.now() - started });
+  return outcome;
 }
 
 /** File bodies already stream as diffs; keep the logged tool_call input readable. */

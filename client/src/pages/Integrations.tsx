@@ -4,7 +4,7 @@ import { MODELS } from "@shared/agent";
 import { AppShell } from "@/components/shell/AppShell";
 import { agentApi, type ProviderProbe } from "@/lib/api";
 
-const PROVIDER_FOR: Record<string, string[]> = { cortex: ["cortex", "cortex-inference"], relay: ["relay"], manus: ["manus"], gemini: [] };
+const PROVIDER_FOR: Record<string, string[]> = { cortex: ["cortex", "cortex-inference"], relay: ["relay"], paper: ["paper"], manus: ["manus"], gemini: [] };
 
 export default function Integrations() {
   const [providers, setProviders] = useState<ProviderProbe[] | null>(null);

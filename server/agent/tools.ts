@@ -4,10 +4,15 @@ import { z } from "zod";
 import type { PlanStep } from "@shared/agent";
 import type { Emit } from "./bus";
 import { PROVIDER_ENV, runManusTask } from "./providers";
+import { browse } from "./browser";
+import { deployConfigured, deployPreview } from "./deploy";
+import { mediaStatus, storeMedia } from "../media/snowflake";
 import { clip, deleteWorkspaceFile, listWorkspaceTree, readWorkspaceFile, runCommand, SandboxError, writeWorkspaceFile } from "./sandbox";
 
 export type ToolContext = {
   root: string;
+  sessionId: string;
+  vision: boolean;
   callId: string;
   signal: AbortSignal;
   emit: Emit;
@@ -16,7 +21,7 @@ export type ToolContext = {
   onCommand: (command: string) => void;
 };
 
-export type ToolOutcome = { ok: boolean; content: string; summary: string; exitCode?: number | null };
+export type ToolOutcome = { ok: boolean; content: string; summary: string; exitCode?: number | null; image?: { mediaType: "image/jpeg"; base64: string } };
 
 const VERIFY_PATTERN = /\b(tsc|vitest|jest|pytest|eslint|ruff|mypy|pyright|go (test|vet)|cargo (test|check)|node --test|(npm|pnpm|yarn)( run)? (test|lint|check|typecheck|build))\b/;
 export const isVerificationCommand = (command: string) => VERIFY_PATTERN.test(command);
@@ -62,6 +67,13 @@ const schemas = {
   run_command: z.object({ command: z.string().min(1).max(8000), timeout_sec: z.number().int().min(5).max(600).default(120) }),
   web_fetch: z.object({ url: z.string().url().max(2000) }),
   delegate_research: z.object({ task: z.string().min(10).max(12000) }),
+  browse: z.object({ url: z.string().url().max(2000), screenshot: z.boolean().default(true), full_page: z.boolean().default(false), wait_ms: z.number().int().min(0).max(15000).default(2000) }),
+  deploy_preview: z.object({
+    kind: z.enum(["static", "node"]),
+    build_command: z.string().max(500).default(""),
+    publish_path: z.string().max(200).default("."),
+    start_command: z.string().max(500).default(""),
+  }),
 };
 
 type ToolName = keyof typeof schemas;
@@ -123,9 +135,23 @@ const DELEGATE_TOOL: ToolDef = {
   input_schema: { type: "object", properties: { task: { type: "string", description: "Self-contained instructions for Manus, including the expected output." } }, required: ["task"] },
 };
 
+const BROWSE_TOOL: ToolDef = {
+  name: "browse",
+  description: "Open a URL in a real cloud browser (Browserbase Chromium) and return the rendered page text, HTTP status, console errors and a screenshot. Use it to check JavaScript-rendered pages and to verify live previews after deploy_preview.",
+  input_schema: { type: "object", properties: { url: { type: "string" }, screenshot: { type: "boolean", description: "Default true" }, full_page: { type: "boolean", description: "Full-page screenshot. Default false" }, wait_ms: { type: "integer", description: "Extra wait for network idle, 0-15000. Default 2000" } }, required: ["url"] },
+};
+
+const DEPLOY_TOOL: ToolDef = {
+  name: "deploy_preview",
+  description: "Deploy the current workspace as a temporary live preview on Render (auto-deleted after about 2 hours) and return its https://*.onrender.com URL. Use kind 'static' for plain HTML/CSS/JS or a static build (set build_command and publish_path, e.g. 'npm install && npm run build' and 'dist'); use kind 'node' for a server that listens on process.env.PORT (set start_command). Only call it when the user asks for a deploy or live preview. Building takes a few minutes.",
+  input_schema: { type: "object", properties: { kind: { type: "string", enum: ["static", "node"] }, build_command: { type: "string" }, publish_path: { type: "string" }, start_command: { type: "string" } }, required: ["kind"] },
+};
+
 export function toolsFor(opts: { coding: boolean; web: boolean; eager: boolean }): Anthropic.Tool[] {
   const tools: ToolDef[] = [];
   if (opts.coding) tools.push(...CODING_TOOLS);
+  if (opts.coding && deployConfigured().ok) tools.push(DEPLOY_TOOL);
+  if ((opts.web || opts.coding) && PROVIDER_ENV.browserbaseKey && PROVIDER_ENV.browserbaseProject) tools.push(BROWSE_TOOL);
   if (opts.web) {
     tools.push(WEB_FETCH_TOOL);
     if (PROVIDER_ENV.manusKey) tools.push(DELEGATE_TOOL);
@@ -235,6 +261,45 @@ async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOu
       const text = /html/i.test(meta) || /<html/i.test(body.slice(0, 500)) ? htmlToText(body) : body;
       const ok = result.exitCode === 0 && /^2/.test(meta);
       return { ok, content: clip(`HTTP ${meta}\n\n${text}`, 40_000), summary: `HTTP ${meta.split(" ")[0]} · ${text.length} chars` };
+    }
+    case "browse": {
+      const { url, screenshot, full_page, wait_ms } = input as z.infer<typeof schemas.browse>;
+      ctx.emit({ type: "tool_output", callId: ctx.callId, stream: "stdout", chunk: `Opening Browserbase session for ${url}\n` });
+      const page = await browse({ url, screenshot, fullPage: full_page, waitMs: wait_ms, signal: ctx.signal });
+      ctx.emit({ type: "tool_output", callId: ctx.callId, stream: "stdout", chunk: `HTTP ${page.status ?? "?"} · ${page.finalUrl}\ntitle: ${page.title}\nsession replay: ${page.replayUrl}\n${page.consoleErrors.length ? `console errors:\n${page.consoleErrors.join("\n")}\n` : ""}` });
+      let image: ToolOutcome["image"];
+      if (page.screenshot) {
+        const caption = `${page.title || page.finalUrl} (${page.finalUrl})`;
+        const stage = await mediaStatus();
+        let mediaId: string | null = null;
+        if (stage.ok) {
+          try {
+            mediaId = (await storeMedia({ buffer: page.screenshot, filename: "screenshot.jpg", mimeType: "image/jpeg", kind: "screenshot", sessionId: ctx.sessionId })).id;
+          } catch (error) {
+            ctx.emit({ type: "tool_output", callId: ctx.callId, stream: "stderr", chunk: `Could not store screenshot in Snowflake: ${error instanceof Error ? error.message : error}\n` });
+          }
+        }
+        // Without the media stage the screenshot travels only inside the event log (stored in Tiger).
+        ctx.emit({ type: "media", callId: ctx.callId, mediaId, filename: "screenshot.jpg", mimeType: "image/jpeg", caption, ...(mediaId ? {} : { inlineDataUrl: `data:image/jpeg;base64,${page.screenshot.toString("base64")}` }) });
+        if (ctx.vision) image = { mediaType: "image/jpeg", base64: page.screenshot.toString("base64") };
+      }
+      const ok = page.status === null || page.status < 400;
+      const body = [`HTTP ${page.status ?? "unknown"} · final URL ${page.finalUrl}`, `Title: ${page.title}`, page.consoleErrors.length ? `Console errors:\n${page.consoleErrors.join("\n")}` : "No console errors.", "", clip(page.text, 30_000)].join("\n");
+      return { ok, content: body, summary: `HTTP ${page.status ?? "?"} · ${page.title.slice(0, 60) || "page"}`, image };
+    }
+    case "deploy_preview": {
+      const { kind, build_command, publish_path, start_command } = input as z.infer<typeof schemas.deploy_preview>;
+      let deploymentId = "";
+      const result = await deployPreview({
+        sessionId: ctx.sessionId, root: ctx.root, kind, buildCommand: build_command, publishPath: publish_path, startCommand: start_command, signal: ctx.signal,
+        onProgress: (status, detail, url) => {
+          ctx.emit({ type: "tool_output", callId: ctx.callId, stream: status === "failed" ? "stderr" : "stdout", chunk: `[render:${status}] ${detail}${url ? ` ${url}` : ""}\n` });
+          ctx.emit({ type: "deployment", deploymentId: deploymentId || ctx.callId, status, url, detail });
+        },
+      });
+      deploymentId = result.id;
+      ctx.emit({ type: "deployment", deploymentId: result.id, status: "live", url: result.url, detail: `Live preview (repo ${result.repo})`, expiresAt: result.expiresAt });
+      return { ok: true, content: `Deployed: ${result.url}\nExpires: ${result.expiresAt}. Verify it with the browse tool before reporting success.`, summary: result.url };
     }
     case "delegate_research": {
       const { task } = input as z.infer<typeof schemas.delegate_research>;

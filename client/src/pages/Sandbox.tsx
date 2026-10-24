@@ -11,6 +11,7 @@ export default function Sandbox() {
   const [tasks, setTasks] = useState<AgentTaskSummary[]>([]);
   const [taskId, setTaskId] = useState<string | null>(initial);
   const [entries, setEntries] = useState<TreeEntry[] | null>(null);
+  const [source, setSource] = useState<"live" | "archived" | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [file, setFile] = useState<{ path: string; content: string; bytes: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -27,7 +28,7 @@ export default function Sandbox() {
   const loadTree = () => {
     if (!taskId) return;
     setEntries(null);
-    agentApi.tree(taskId).then(data => setEntries(data.entries)).catch(treeError => setError(treeError.message));
+    agentApi.tree(taskId).then(data => { setEntries(data.entries); setSource(data.source); }).catch(treeError => setError(treeError.message));
   };
   useEffect(() => { setSelected(null); setFile(null); loadTree(); }, [taskId]);
 
@@ -47,13 +48,14 @@ export default function Sandbox() {
   return (
     <AppShell title="Code Sandbox" actions={taskId ? <Link href={`/tasks/${taskId}`} className="btn sm"><SquareTerminal size={13} /> Open task</Link> : undefined}>
       <div className="page">
-        <p className="page-sub">Each agent task has an isolated workspace at <code>/srv/curialy-workspaces/&lt;task&gt;</code>. Commands run as the unprivileged <code>curialy-agent</code> user with memory, CPU and network limits.</p>
+        <p className="page-sub">While a task is active its files live in a scratch workspace on the server (unprivileged <code>curialy-agent</code> user, memory/CPU/network limits). After an hour idle the scratch copy is removed; the durable snapshot lives in Tiger and is restored on follow-up.</p>
         {tasks.length === 0 ? <div className="card"><EmptyState icon={FolderOpen} title="No workspaces yet">Run an Agent-mode task to create one.</EmptyState></div> : (
           <div className="card">
             <div className="card-head">
               <select className="input" style={{ maxWidth: 520, height: 30 }} value={taskId ?? ""} onChange={event => setTaskId(event.target.value)}>
                 {tasks.map(task => <option key={task.id} value={task.id}>{task.prompt.slice(0, 90)}</option>)}
               </select>
+              {source && <span className={`chip ${source === "live" ? "mint" : ""}`}>{source === "live" ? "live scratch" : "archived in Tiger"}</span>}
               <button className="icon-btn" onClick={loadTree} title="Refresh"><RefreshCcw size={14} /></button>
             </div>
             <div className="explorer">

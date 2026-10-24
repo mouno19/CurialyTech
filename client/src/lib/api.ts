@@ -26,6 +26,8 @@ export type ProviderProbe = { id: string; label: string; ok: boolean; latencyMs:
 export type KeyStatus = { id: string; label: string; envVar: string; location: string; configured: boolean; masked: string | null; note?: string };
 export type TreeEntry = { path: string; type: "file" | "dir"; size: number };
 export type UploadedFile = { id: string; filename: string; mimeType: string; sizeBytes: number };
+export type MediaFile = UploadedFile & { kind: string; sessionId: string | null; createdAt: string };
+export type Deployment = { id: string; sessionId: string | null; status: string; url: string | null; repo: string | null; serviceId: string | null; detail: string | null; expiresAt: string; createdAt: string; deletedAt: string | null };
 
 export const agentApi = {
   models: () => api<{ models: ModelSpec[] }>("/api/agent/models"),
@@ -38,15 +40,20 @@ export const agentApi = {
   followUp: (id: string, prompt: string) => api<{ ok: true }>(`/api/agent/tasks/${id}/messages`, { method: "POST", json: { prompt } }),
   cancel: (id: string) => api<{ cancelled: boolean }>(`/api/agent/tasks/${id}/cancel`, { method: "POST", json: {} }),
   remove: (id: string) => api<{ deleted: boolean }>(`/api/agent/tasks/${id}`, { method: "DELETE" }),
-  tree: (id: string) => api<{ entries: TreeEntry[] }>(`/api/agent/tasks/${id}/tree`),
+  tree: (id: string) => api<{ entries: TreeEntry[]; source: "live" | "archived" }>(`/api/agent/tasks/${id}/tree`),
   file: (id: string, path: string) => api<{ path: string; content: string; bytes: number }>(`/api/agent/tasks/${id}/file?path=${encodeURIComponent(path)}`),
   downloadUrl: (id: string, path: string) => `/api/agent/tasks/${id}/file?download=1&path=${encodeURIComponent(path)}`,
   upload: async (file: File) => {
     const form = new FormData();
     form.append("file", file);
-    const data = await api<{ file: UploadedFile }>("/api/files", { method: "POST", body: form });
+    const data = await api<{ file: UploadedFile }>("/api/agent/media", { method: "POST", body: form });
     return data.file;
   },
+  media: () => api<{ files: MediaFile[]; stage: { ok: boolean; detail: string } }>("/api/agent/media"),
+  mediaUrl: (id: string) => `/api/agent/media/${id}`,
+  removeMedia: (id: string) => api<{ deleted: boolean }>(`/api/agent/media/${id}`, { method: "DELETE" }),
+  deployments: () => api<{ deployments: Deployment[]; configured: { ok: boolean; missing: string[] } }>("/api/agent/deployments"),
+  removeDeployment: (id: string) => api<{ deleted: boolean }>(`/api/agent/deployments/${id}`, { method: "DELETE" }),
 };
 
 export const authApi = {

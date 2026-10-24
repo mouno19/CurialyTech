@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowUp, Bot, Check, ChevronDown, Globe, Loader2, MessageSquare, Paperclip, Sparkles, X } from "lucide-react";
-import { getModel, MODEL_GROUPS, MODELS, type CreateTaskRequest, type TaskMode, type ThinkingLevel } from "@shared/agent";
+import { CAPABILITIES, getModel, MODELS, type CreateTaskRequest, type TaskMode, type ThinkingLevel } from "@shared/agent";
 import { agentApi, type UploadedFile } from "@/lib/api";
 
 type Prefs = { model: string; mode: TaskMode; effort: ThinkingLevel; webSearch: boolean };
@@ -11,7 +11,7 @@ function readPrefs(): Prefs {
   try { return { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}") }; } catch { return DEFAULT_PREFS; }
 }
 
-const GROUP_COLORS: Record<string, string> = { "Snowflake Cortex": "#7cb7ff", RelayStation: "#8b75ff", Manus: "#f2bd72", "Google Gemini": "#52d6b1" };
+const GROUP_COLORS: Record<string, string> = { "Snowflake Cortex": "#7cb7ff", RelayStation: "#8b75ff", "Paper Instruments": "#f6b3bd", Manus: "#f2bd72", "Google Gemini": "#52d6b1" };
 
 export function ModelPicker({ value, onChange, mode, openDown = false }: { value: string; onChange: (id: string) => void; mode: TaskMode; openDown?: boolean }) {
   const [open, setOpen] = useState(false);
@@ -42,21 +42,23 @@ export function ModelPicker({ value, onChange, mode, openDown = false }: { value
             </span>
             {value === "auto" && <Check size={14} style={{ marginLeft: "auto" }} />}
           </button>
-          {MODEL_GROUPS.map(group => (
-            <div key={group}>
-              <div className="model-group">{group}</div>
-              {MODELS.filter(model => model.group === group).map(model => {
+          {CAPABILITIES.map(capability => (
+            <div key={capability}>
+              <div className="model-group">{capability}</div>
+              {MODELS.filter(model => model.capability === capability).map(model => {
                 const unusable = mode === "agent" && !model.tools && model.provider !== "manus";
                 return (
                   <button key={model.id} type="button" disabled={unusable} className={`model-option${value === model.id ? " on" : ""}`} onClick={() => { onChange(model.id); setOpen(false); }} title={unusable ? "Chat mode only (no tool calling)" : undefined}>
-                    <span className="dot" style={{ background: GROUP_COLORS[group] }} />
+                    <span className="dot" style={{ background: GROUP_COLORS[model.group] }} title={model.group} />
                     <span style={{ minWidth: 0 }}>
                       <strong>{model.label}</strong>
                       <small>{model.description}</small>
                       <span className="caps">
+                        <span>{model.group}</span>
                         <span className="mono">{model.id}</span>
                         {model.tools && <span>tools</span>}
-                        {model.thinking !== "none" && <span>thinking</span>}
+                        {model.thinking !== "none" && <span>{model.thinking === "reasoning-content" ? "reasoning stream" : "thinking"}</span>}
+                        {model.vision && <span>vision</span>}
                         {model.effort && <span>effort</span>}
                       </span>
                     </span>

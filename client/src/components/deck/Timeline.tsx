@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle, Bot, Brain, Check, CheckCircle2, ChevronDown, ChevronRight, Circle, CircleDashed, ExternalLink, FilePen, FileSearch, FolderTree,
-  Globe, ListChecks, Loader2, Route, Search, ShieldCheck, SquareTerminal, Trash2, Wrench, X, XCircle,
+  Globe, ListChecks, Loader2, Rocket, Route, Search, ShieldCheck, SquareTerminal, Trash2, Wrench, X, XCircle,
 } from "lucide-react";
 import { PHASES, type PlanStep } from "@shared/agent";
 import type { StreamState, TimelineItem, TurnUsage } from "@/lib/taskStream";
@@ -108,11 +108,12 @@ export function ThinkingBlock({ item, usage }: { item: Extract<TimelineItem, { k
 const TOOL_ICONS: Record<string, typeof Wrench> = {
   run_command: SquareTerminal, verify: ShieldCheck, read_file: FileSearch, write_file: FilePen, edit_file: FilePen, delete_file: Trash2,
   list_files: FolderTree, search_files: Search, web_fetch: Globe, delegate_research: Bot, manus: Bot, update_plan: ListChecks,
+  browse: Globe, deploy_preview: Rocket,
 };
 
 function toolSubtitle(item: Extract<TimelineItem, { kind: "tool" }>) {
   const input = item.input ?? {};
-  const value = input.command ?? input.path ?? input.url ?? input.pattern ?? input.task;
+  const value = input.command ?? input.path ?? input.url ?? input.pattern ?? input.task ?? (item.name === "deploy_preview" && typeof input.kind === "string" ? `${input.kind} preview` : undefined);
   if (typeof value === "string") return value;
   if (item.name === "update_plan" && Array.isArray(input.steps)) return `${input.steps.length} steps`;
   const partial = partialField(item.inputPartial, ["command", "path", "url", "pattern"]);
@@ -147,7 +148,7 @@ function Terminal({ command, segments, result, live }: { command?: string; segme
 }
 
 export function ToolCard({ item }: { item: Extract<TimelineItem, { kind: "tool" }> }) {
-  const isShell = item.name === "run_command" || item.name === "verify" || item.name === "manus" || item.name === "delegate_research";
+  const isShell = ["run_command", "verify", "manus", "delegate_research", "browse", "deploy_preview"].includes(item.name);
   const isWrite = item.name === "write_file" || item.name === "edit_file" || item.name === "delete_file";
   const running = !item.result;
   const [open, setOpen] = useState(isShell || isWrite);
@@ -227,6 +228,15 @@ export function TimelineEntry({ item, usageByTurn }: { item: TimelineItem; usage
             {item.url && <a className="icon-btn sm" href={item.url} target="_blank" rel="noreferrer" title="Open in Manus"><ExternalLink size={13} /></a>}
           </div>
         </div>
+      );
+    case "media":
+      return (
+        <figure className="tl media">
+          <a href={item.src} target="_blank" rel="noreferrer" title="Open full size">
+            {item.mimeType.startsWith("image/") ? <img src={item.src} alt={item.caption} loading="lazy" /> : <span className="chip">{item.filename}</span>}
+          </a>
+          <figcaption><Globe size={12} /> {item.caption}{item.mediaId ? " · Snowflake stage" : " · inline (media stage not configured)"}</figcaption>
+        </figure>
       );
     case "notice":
       return (

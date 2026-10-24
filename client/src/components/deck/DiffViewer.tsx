@@ -3,6 +3,7 @@ import { diffLines } from "diff";
 import { Check, Columns2, Copy, Download, FileMinus, FilePlus, FileText, Rows2 } from "lucide-react";
 import type { FileChange } from "@/lib/taskStream";
 import { formatBytes } from "@/lib/api";
+import { highlight, languageForPath } from "@/lib/highlight";
 
 type Row = { type: "ctx" | "add" | "del"; oldNo?: number; newNo?: number; text: string };
 type Block = { kind: "rows"; rows: Row[] } | { kind: "gap"; rows: Row[] };
@@ -79,6 +80,9 @@ export function DiffViewer({ change, defaultMode = "unified" }: { change: FileCh
   const grouped = useMemo(() => blocks(rows), [rows]);
   const delta = change.bytesAfter - change.bytesBefore;
   const Icon = change.kind === "create" ? FilePlus : change.kind === "delete" ? FileMinus : FileText;
+  const language = languageForPath(change.path);
+  // Lines are highlighted one at a time; multi-line constructs may lose colour but never break layout.
+  const code = (text: string | undefined) => ({ __html: text ? highlight(text, language) : " " });
 
   const copy = async () => {
     await navigator.clipboard.writeText(change.after);
@@ -91,16 +95,16 @@ export function DiffViewer({ change, defaultMode = "unified" }: { change: FileCh
       <td className="ln">{row.oldNo ?? ""}</td>
       <td className="ln">{row.newNo ?? ""}</td>
       <td className="sign">{row.type === "add" ? "+" : row.type === "del" ? "−" : " "}</td>
-      <td className="code">{row.text || " "}</td>
+      <td className="code" dangerouslySetInnerHTML={code(row.text)} />
     </tr>
   );
 
   const renderSplit = (pair: { left?: Row; right?: Row }, key: string) => (
     <tr key={key}>
       <td className="ln">{pair.left?.oldNo ?? ""}</td>
-      <td className={`code ${pair.left ? (pair.left.type === "del" ? "del" : "") : "empty-side"}`}>{pair.left?.text ?? ""}</td>
+      <td className={`code ${pair.left ? (pair.left.type === "del" ? "del" : "") : "empty-side"}`} dangerouslySetInnerHTML={code(pair.left?.text)} />
       <td className="ln">{pair.right?.newNo ?? ""}</td>
-      <td className={`code ${pair.right ? (pair.right.type === "add" ? "add" : "") : "empty-side"}`}>{pair.right?.text ?? ""}</td>
+      <td className={`code ${pair.right ? (pair.right.type === "add" ? "add" : "") : "empty-side"}`} dangerouslySetInnerHTML={code(pair.right?.text)} />
     </tr>
   );
 

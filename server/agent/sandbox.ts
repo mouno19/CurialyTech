@@ -79,6 +79,28 @@ export function writeWorkspaceFile(root: string, requested: string, content: str
   return { absolute, relative };
 }
 
+export function writeWorkspaceBytes(root: string, requested: string, content: Buffer) {
+  if (content.length > MAX_FILE_BYTES * 4) throw new SandboxError(`Refusing to write more than ${MAX_FILE_BYTES * 4} bytes.`);
+  const { absolute, relative } = resolveInWorkspace(root, requested);
+  fs.mkdirSync(path.dirname(absolute), { recursive: true, mode: 0o2775 });
+  resolveInWorkspace(root, requested);
+  const fd = fs.openSync(absolute, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_TRUNC | fs.constants.O_NOFOLLOW, 0o664);
+  try {
+    fs.writeFileSync(fd, content);
+  } finally {
+    fs.closeSync(fd);
+  }
+  return { absolute, relative };
+}
+
+/** Remove a task's scratch directory with the sandbox user's privileges (it owns files created by commands). */
+export function removeWorkspace(taskId: string) {
+  const dir = workspacePath(taskId);
+  if (!fs.existsSync(dir) || path.dirname(dir) !== WORKSPACE_ROOT) return;
+  if (SANDBOX_MODE === "systemd") spawnSync("sudo", ["-n", "-u", SANDBOX_USER, "rm", "-rf", "--", dir], { stdio: "ignore" });
+  if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+}
+
 export function copyIntoWorkspace(root: string, source: string, requested: string) {
   const { absolute } = resolveInWorkspace(root, requested);
   fs.mkdirSync(path.dirname(absolute), { recursive: true, mode: 0o2775 });
