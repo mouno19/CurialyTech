@@ -9,7 +9,7 @@ import { isLive, liveChannel } from "./bus";
 import { deployConfigured, destroyDeployment, listDeployments } from "./deploy";
 import { PROVIDER_ENV, probeProviders } from "./providers";
 import { activeTaskCount, cancelTask, followUp, isRunning, startTask, TaskRejected } from "./runner";
-import { listWorkspaceTree, readWorkspaceFile, removeWorkspace, resolveInWorkspace, SandboxError, workspacePath } from "./sandbox";
+import { listWorkspaceTree, removeWorkspace, resolveInWorkspace, SandboxError, workspacePath } from "./sandbox";
 import { agentStats, deleteAgentTask, getAgentTask, listAgentTasks, listEventsAfter, listWorkspaceSnapshot, loadWorkspaceSnapshot, readSnapshotFile } from "./store";
 import { collectWorkspaceFiles } from "./workspaces";
 import { query } from "../db/pg";
@@ -66,6 +66,12 @@ async function taskOr404(req: Request, res: Response) {
   if (!task) res.status(404).json({ error: "Task not found." });
   return task;
 }
+
+const MAX_VIEW_BYTES = 25 * 1024 * 1024;
+const IMAGE_TYPES: Record<string, string> = {
+  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", avif: "image/avif",
+  bmp: "image/bmp", ico: "image/x-icon", svg: "image/svg+xml",
+};
 
 let healthCache: { at: number; result: Awaited<ReturnType<typeof probeProviders>> } | null = null;
 
@@ -221,6 +227,7 @@ export function agentRouter() {
     const task = await taskOr404(req, res);
     if (!task) return;
     const requested = String(req.query.path ?? "");
+    const mode = req.query.raw === "1" ? "raw" : req.query.download === "1" ? "download" : "json";
     const dir = workspacePath(task.id);
     let content: Buffer | undefined;
     let relative = requested;
@@ -228,21 +235,35 @@ export function agentRouter() {
       const { absolute, relative: rel } = resolveInWorkspace(dir, requested);
       const stat = fs.lstatSync(absolute, { throwIfNoEntry: false });
       if (!stat?.isFile()) return res.status(404).json({ error: "File not found." });
+      if (stat.size > MAX_VIEW_BYTES) return res.status(413).json({ error: `File is larger than ${MAX_VIEW_BYTES / 1024 / 1024} MB.` });
       relative = rel;
-      if (req.query.download === "1") content = fs.readFileSync(absolute);
-      else {
-        const file = readWorkspaceFile(dir, requested);
-        content = Buffer.from(file.exists ? file.content : "");
-      }
+      const fd = fs.openSync(absolute, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      try { content = fs.readFileSync(fd); } finally { fs.closeSync(fd); }
     } else {
       content = await readSnapshotFile(task.id, requested);
       if (!content) return res.status(404).json({ error: "File not found." });
     }
-    if (req.query.download === "1") {
+    const name = path.basename(relative).replace(/["\\\r\n]/g, "");
+    if (mode === "download") {
       res.setHeader("Content-Type", "application/octet-stream");
-      res.setHeader("Content-Disposition", `attachment; filename="${path.basename(relative).replace(/"/g, "")}"`);
+      res.setHeader("Content-Disposition", `attachment; filename="${name}"`);
       return res.end(content);
     }
+    if (mode === "raw") {
+      // Inline rendering is limited to image types; anything else is offered as a download.
+      // Workspace files are agent-controlled (an SVG can carry script), so the response is
+      // sandboxed: no script execution, no same-origin access to this app.
+      const mime = IMAGE_TYPES[path.extname(relative).slice(1).toLowerCase()];
+      res.setHeader("Content-Type", mime ?? "application/octet-stream");
+      res.setHeader("Content-Disposition", `${mime ? "inline" : "attachment"}; filename="${name}"`);
+      res.setHeader("Content-Security-Policy", "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'");
+      res.setHeader("Cache-Control", "private, max-age=300");
+      return res.end(content);
+    }
+    // Text view: report binary content instead of returning mojibake.
+    const binary = content.subarray(0, 8000).includes(0);
+    if (binary) return res.json({ path: relative, content: "", bytes: content.length, binary: true });
+    if (content.length > 2 * 1024 * 1024) return res.json({ path: relative, content: content.subarray(0, 2 * 1024 * 1024).toString("utf8"), bytes: content.length, truncated: true });
     res.json({ path: relative, content: content.toString("utf8"), bytes: content.length });
   }));
 

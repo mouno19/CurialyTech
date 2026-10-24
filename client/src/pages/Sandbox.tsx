@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearch } from "wouter";
-import { Download, File, Folder, FolderOpen, RefreshCcw, SquareTerminal } from "lucide-react";
+import { Download, File, FileImage, Folder, FolderOpen, Maximize2, Minimize2, RefreshCcw, SquareTerminal } from "lucide-react";
+import { highlight, languageForPath } from "@/lib/highlight";
+
+const IMAGE_FILE = /\.(png|jpe?g|gif|webp|avif|bmp|ico|svg)$/i;
+
+type ViewedFile = { path: string; bytes: number; kind: "text" | "image" | "binary"; content: string; truncated?: boolean };
 import type { AgentTaskSummary } from "@shared/agent";
 import { AppShell, EmptyState } from "@/components/shell/AppShell";
 import { agentApi, formatBytes, type TreeEntry } from "@/lib/api";
@@ -13,7 +18,9 @@ export default function Sandbox() {
   const [entries, setEntries] = useState<TreeEntry[] | null>(null);
   const [source, setSource] = useState<"live" | "archived" | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
-  const [file, setFile] = useState<{ path: string; content: string; bytes: number } | null>(null);
+  const [file, setFile] = useState<ViewedFile | null>(null);
+  const [actualSize, setActualSize] = useState(false);
+  const [imageError, setImageError] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
@@ -35,7 +42,17 @@ export default function Sandbox() {
   useEffect(() => {
     if (!taskId || !selected) return;
     setError(null);
-    agentApi.file(taskId, selected).then(setFile).catch(fileError => { setFile(null); setError(fileError.message); });
+    setImageError(false);
+    setActualSize(false);
+    // Images are rendered from the raw endpoint; only text is fetched as JSON.
+    if (IMAGE_FILE.test(selected)) {
+      const entry = entries?.find(item => item.path === selected);
+      setFile({ path: selected, bytes: entry?.size ?? 0, kind: "image", content: "" });
+      return;
+    }
+    agentApi.file(taskId, selected)
+      .then(data => setFile({ path: data.path, bytes: data.bytes, kind: data.binary ? "binary" : "text", content: data.content, truncated: data.truncated }))
+      .catch(fileError => { setFile(null); setError(fileError.message); });
   }, [taskId, selected]);
 
   const visible = useMemo(() => (entries ?? []).filter(entry => !Array.from(collapsed).some(dir => entry.path.startsWith(`${dir}/`))), [entries, collapsed]);
@@ -86,9 +103,26 @@ export default function Sandbox() {
                       <span className="spacer" />
                       <a className="btn sm" href={agentApi.downloadUrl(taskId!, file.path)}><Download size={13} /> Download</a>
                     </div>
-                    <div className="code-view">
-                      <table><tbody>{file.content.split("\n").map((line, index) => <tr key={index}><td className="ln">{index + 1}</td><td>{line || " "}</td></tr>)}</tbody></table>
-                    </div>
+                    {file.kind === "image" && (
+                      <div className={`image-view${actualSize ? " actual" : ""}`}>
+                        {imageError ? (
+                          <EmptyState icon={FileImage} title="This image could not be displayed">It may be corrupt or in a format the browser cannot render. Use Download to inspect it.</EmptyState>
+                        ) : (
+                          <img src={agentApi.rawFileUrl(taskId!, file.path)} alt={file.path.split("/").pop()} onError={() => setImageError(true)} onClick={() => setActualSize(value => !value)} title={actualSize ? "Click to fit" : "Click for actual size"} />
+                        )}
+                        <div className="image-meta">
+                          {file.path.split("/").pop()} · {formatBytes(file.bytes)}
+                          {!imageError && <button className="icon-btn sm" onClick={() => setActualSize(value => !value)} title={actualSize ? "Fit to panel" : "Actual size"}>{actualSize ? <Minimize2 size={13} /> : <Maximize2 size={13} />}</button>}
+                        </div>
+                      </div>
+                    )}
+                    {file.kind === "binary" && <EmptyState icon={File} title="Binary file">{formatBytes(file.bytes)} of binary data can't be shown as text. Use Download to open it.</EmptyState>}
+                    {file.kind === "text" && (
+                      <div className="code-view">
+                        {file.truncated && <div className="alert warn" style={{ borderRadius: 0 }}>Showing the first 2 MB.</div>}
+                        <table><tbody>{file.content.split("\n").map((line, index) => <tr key={index}><td className="ln">{index + 1}</td><td dangerouslySetInnerHTML={{ __html: line ? highlight(line, languageForPath(file.path)) : " " }} /></tr>)}</tbody></table>
+                      </div>
+                    )}
                   </>
                 ) : !error && <EmptyState icon={File} title="Select a file">Pick a file from the tree to inspect it.</EmptyState>}
               </div>

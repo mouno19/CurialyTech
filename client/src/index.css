@@ -393,3 +393,11 @@ code, pre, kbd, .mono { font-family: var(--mono); }
 .repo-search input { flex: 1; min-width: 0; height: 28px; border: 1px solid var(--line-strong); border-radius: 7px; background: var(--inset); padding: 0 9px; outline: none; font-size: 12.5px; }
 .repo-search input:focus { border-color: var(--violet-line); }
 @media (max-width: 860px) { .repo-menu { width: min(380px, calc(100vw - 32px)); } }
+
+/* Sandbox image viewer: fit by default, click for actual size; checkerboard shows transparency. */
+.image-view { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; min-height: 420px; max-height: 70vh; overflow: auto; background: var(--inset); }
+.image-view img { max-width: 100%; max-height: calc(70vh - 90px); object-fit: contain; border-radius: 8px; border: 1px solid var(--line-strong); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35); cursor: zoom-in;
+  background: repeating-conic-gradient(#2a2f3a 0% 25%, #1f232c 0% 50%) 50% / 16px 16px; }
+.image-view.actual { align-items: flex-start; justify-content: flex-start; }
+.image-view.actual img { max-width: none; max-height: none; cursor: zoom-out; }
+.image-meta { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }

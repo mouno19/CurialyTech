@@ -43,7 +43,8 @@ export const agentApi = {
   cancel: (id: string) => api<{ cancelled: boolean }>(`/api/agent/tasks/${id}/cancel`, { method: "POST", json: {} }),
   remove: (id: string) => api<{ deleted: boolean }>(`/api/agent/tasks/${id}`, { method: "DELETE" }),
   tree: (id: string) => api<{ entries: TreeEntry[]; source: "live" | "archived" }>(`/api/agent/tasks/${id}/tree`),
-  file: (id: string, path: string) => api<{ path: string; content: string; bytes: number }>(`/api/agent/tasks/${id}/file?path=${encodeURIComponent(path)}`),
+  file: (id: string, path: string) => api<{ path: string; content: string; bytes: number; binary?: boolean; truncated?: boolean }>(`/api/agent/tasks/${id}/file?path=${encodeURIComponent(path)}`),
+  rawFileUrl: (id: string, path: string) => `/api/agent/tasks/${id}/file?raw=1&path=${encodeURIComponent(path)}`,
   downloadUrl: (id: string, path: string) => `/api/agent/tasks/${id}/file?download=1&path=${encodeURIComponent(path)}`,
   upload: async (file: File) => {
     const form = new FormData();
