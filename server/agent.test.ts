@@ -322,3 +322,137 @@ describe("attachment limits (review fixes)", () => {
     expect(calls).toBe(2); // one immediate retry
   });
 });
+
+describe("self-healing recovery", () => {
+  const apiError = async (status: number, message: string, headers: Record<string, string> = {}) => {
+    const Anthropic = (await import("@anthropic-ai/sdk")).default;
+    return Anthropic.APIError.generate(status, { error: { message } }, message, new Headers(headers));
+  };
+
+  it("classifies failures into repairable kinds", async () => {
+    const { diagnose } = await import("./agent/recovery");
+    expect(diagnose(await apiError(429, "rate limited", { "retry-after": "7" }), false)).toMatchObject({ kind: "rate_limit", retryAfterMs: 7000 });
+    expect(diagnose(await apiError(529, "Overloaded"), false).kind).toBe("transient");
+    expect(diagnose(await apiError(400, "prompt is too long: 250000 tokens > 200000 maximum"), false).kind).toBe("context_overflow");
+    expect(diagnose(await apiError(400, "messages.3: `tool_use` ids were found without `tool_result` blocks immediately after"), false).kind).toBe("tool_pairing");
+    expect(diagnose(await apiError(400, "messages.1.content.0: Invalid `signature` in `thinking` block"), false).kind).toBe("thinking_history");
+    expect(diagnose(await apiError(400, "tools.0.custom.eager_input_streaming: Extra inputs are not permitted"), false)).toMatchObject({ kind: "unsupported_param", param: "eager_input_streaming" });
+    expect(diagnose(await apiError(400, "messages.2.content.0.image.source.base64: image exceeds 5 MB maximum"), false).kind).toBe("bad_image");
+    expect(diagnose(await apiError(400, "messages.40.content.0.tool_result: all content must be type `text` if `is_error` is true"), false).kind).toBe("error_result_content");
+    expect(diagnose(await apiError(404, "model: claude-x not found"), false).kind).toBe("model_unavailable");
+    expect(diagnose(await apiError(401, "invalid x-api-key"), false).kind).toBe("auth");
+    expect(diagnose(new Error("fetch failed"), false).kind).toBe("transient");
+    expect(diagnose(new Error("Fast engine request failed (503): busy"), false).kind).toBe("transient");
+    expect(diagnose(new Error("anything"), true).kind).toBe("cancelled");
+  });
+
+  it("repairs broken histories: unpaired tool calls, thinking blocks, oversized context", async () => {
+    const { repairToolPairing, stripThinking, compactHistory } = await import("./agent/recovery");
+    const convo: any[] = [
+      { role: "user", content: "build it" },
+      { role: "assistant", content: [{ type: "thinking", thinking: "x", signature: "s" }, { type: "tool_use", id: "a", name: "run_command", input: {} }, { type: "tool_use", id: "b", name: "read_file", input: {} }] },
+      { role: "user", content: [{ type: "text", text: "note" }, { type: "tool_result", tool_use_id: "a", content: "ok" }, { type: "tool_result", tool_use_id: "zzz", content: "orphan" }] },
+    ];
+    expect(repairToolPairing(convo)).toBeGreaterThan(0);
+    expect(convo[2].content.map((block: any) => block.tool_use_id ?? block.type)).toEqual(["b", "a", "text"]);
+    expect(stripThinking(convo)).toBe(1);
+    const long: any[] = [{ role: "user", content: "start" }];
+    for (let i = 0; i < 12; i++) {
+      long.push({ role: "assistant", content: [{ type: "tool_use", id: `t${i}`, name: "read_file", input: {} }] });
+      long.push({ role: "user", content: [{ type: "tool_result", tool_use_id: `t${i}`, content: "x".repeat(10_000) }] });
+    }
+    compactHistory(long, 1);
+    expect(long[2].content[0].content.length).toBeLessThan(2200);
+    expect(long[long.length - 1].content[0].content.length).toBe(10_000); // recent tail untouched
+    compactHistory(long, 3);
+    expect(long.length).toBeLessThan(10);
+    expect(long[0].content).toMatch(/earlier messages were removed/);
+    expect(repairToolPairing(long)).toBe(0); // still valid after dropping turns
+  });
+
+  it("drives retries, repairs and failover through the engine, within budget", async () => {
+    const { RecoveryEngine } = await import("./agent/recovery");
+    const { getModel } = await import("../shared/agent");
+    const events: any[] = [];
+    let spec = getModel("claude-sonnet-4-5")!;
+    const conversation: any[] = [{ role: "user", content: "hi" }, { role: "assistant", content: [{ type: "tool_use", id: "q", name: "x", input: {} }] }];
+    const engine = new RecoveryEngine({
+      signal: new AbortController().signal, format: "anthropic", conversation, get spec() { return spec; }, flags: { noEager: false, noThinking: false, noEffort: false },
+      switchModel: next => { spec = next; }, persist: () => undefined, emit: event => events.push(event), sleep: async () => undefined,
+    });
+    expect(await engine.handle(await apiError(429, "slow down"))).toBe(true);
+    expect(await engine.handle(await apiError(400, "`tool_use` ids were found without `tool_result` blocks"))).toBe(true);
+    expect(conversation).toHaveLength(3); // missing tool_result inserted
+    expect(await engine.handle(await apiError(400, "tools.0.custom.eager_input_streaming: Extra inputs are not permitted"))).toBe(true);
+    expect(await engine.handle(await apiError(400, "tools.0.custom.eager_input_streaming: Extra inputs are not permitted"))).toBe(false); // already disabled
+    engine.succeeded();
+    expect(await engine.handle(await apiError(404, "model not found"))).toBe(true);
+    expect(spec.id).not.toBe("claude-sonnet-4-5");
+    expect(await engine.handle(await apiError(401, "bad key"))).toBe(false);
+    expect(events.map(event => event.kind)).toEqual(["rate_limit", "tool_pairing", "unsupported_param", "model_unavailable"]);
+    // transient retries are bounded, then fail over
+    engine.succeeded();
+    for (let i = 0; i < 4; i++) expect(await engine.handle(await apiError(529, "Overloaded"))).toBe(true);
+    const before = spec.id;
+    expect(await engine.handle(await apiError(529, "Overloaded"))).toBe(true);
+    expect(spec.id).not.toBe(before);
+  });
+
+  it("nudges the agent after repeated identical tool failures", async () => {
+    const { ToolFailureWatch } = await import("./agent/recovery");
+    const watch = new ToolFailureWatch();
+    expect(watch.note("run_command", false, "exit code 1")).toBeNull();
+    expect(watch.note("run_command", false, "exit code 1")).toBeNull();
+    expect(watch.note("run_command", false, "exit code 1")).toMatch(/different approach/);
+    expect(watch.note("run_command", true, "exit code 0")).toBeNull();
+  });
+});
+
+describe("self-healing regressions (review findings)", () => {
+  it("treats overload errors sent inside the stream (no HTTP status) as transient", async () => {
+    const Anthropic = (await import("@anthropic-ai/sdk")).default;
+    const { diagnose } = await import("./agent/recovery");
+    const sse = new Anthropic.APIError(undefined, { type: "error", error: { type: "overloaded_error", message: "Overloaded" } }, undefined, new Headers());
+    expect(diagnose(sse, false).kind).toBe("transient");
+    expect(diagnose(new Error("Fast engine error: Internal server error"), false).kind).toBe("transient");
+    expect(diagnose(new Error("Too many requests, slow down"), false).kind).toBe("rate_limit");
+  });
+
+  it("level-3 compaction keeps the user's latest request and trims the recent tail", async () => {
+    const { compactHistory } = await import("./agent/recovery");
+    const convo: any[] = [{ role: "user", content: "original task" }];
+    for (let i = 0; i < 6; i++) {
+      convo.push({ role: "assistant", content: [{ type: "tool_use", id: `a${i}`, name: "read_file", input: {} }] });
+      convo.push({ role: "user", content: [{ type: "tool_result", tool_use_id: `a${i}`, content: "y".repeat(500) }] });
+    }
+    convo.push({ role: "assistant", content: [{ type: "text", text: "done with part one" }] });
+    convo.push({ role: "user", content: [{ type: "image", source: { type: "curialy_vault", media_id: "m", media_type: "image/png" } }, { type: "text", text: "NOW FIX THE HEADER" }] });
+    for (let i = 0; i < 3; i++) {
+      convo.push({ role: "assistant", content: [{ type: "tool_use", id: `b${i}`, name: "run_command", input: {} }] });
+      convo.push({ role: "user", content: [{ type: "tool_result", tool_use_id: `b${i}`, content: "z".repeat(50_000) }] });
+    }
+    compactHistory(convo, 2);
+    expect(convo[convo.length - 1].content[0].content.length).toBeLessThan(4200); // tail trimmed at level 2
+    compactHistory(convo, 3);
+    const texts = JSON.stringify(convo);
+    expect(texts).toContain("NOW FIX THE HEADER");
+    expect(texts).toContain("curialy_vault"); // the request's screenshot survives
+    expect(convo[0].content).toMatch(/^original task/);
+  });
+
+  it("fails over to a different route on outages and gives the new model its own attempts", async () => {
+    const Anthropic = (await import("@anthropic-ai/sdk")).default;
+    const { RecoveryEngine } = await import("./agent/recovery");
+    const { getModel } = await import("../shared/agent");
+    let spec = getModel("claude-opus-5-5")!;
+    const engine = new RecoveryEngine({
+      signal: new AbortController().signal, format: "anthropic", conversation: [{ role: "user", content: "x" }], get spec() { return spec; },
+      flags: { noEager: false, noThinking: false, noEffort: false }, switchModel: next => { spec = next; }, persist: () => undefined, emit: () => undefined, sleep: async () => undefined,
+    });
+    const overload = () => Anthropic.APIError.generate(529, { error: { message: "Overloaded" } }, "Overloaded", new Headers());
+    for (let i = 0; i < 4; i++) await engine.handle(overload());
+    expect(await engine.handle(overload())).toBe(true);
+    expect(spec.provider).not.toBe("core"); // escaped the failing route
+    expect(await engine.handle(overload())).toBe(true); // new model retries rather than ending the run
+  });
+});

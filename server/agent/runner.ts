@@ -14,6 +14,7 @@ import { getConnection } from "../services/github";
 import { linkedRepo } from "./repos";
 import { brandText, ENGINE_ALIAS } from "@shared/brand";
 import { closeLiveBrowser } from "./browser";
+import { diagnose, RecoveryEngine, ToolFailureWatch, type RecoveryFlags } from "./recovery";
 import { hydrateImages, stageAttachments, userContent, type AttachmentDisplay, type AttachmentRef } from "./attachments";
 import { getMedia } from "../media/snowflake";
 import { changedSince, MAX_AUTO_ARTIFACTS, storeArtifacts, workspaceManifest, type Manifest } from "./artifacts";
@@ -191,6 +192,10 @@ type RunContext = {
   attached: Map<string, number>;
   /** Base64 of attached images for this run (conversation stores Vault references only). */
   images: Map<string, string>;
+  /** Self-healing around model turns (see recovery.ts). */
+  recovery: RecoveryEngine;
+  flags: RecoveryFlags;
+  toolWatch: ToolFailureWatch;
 };
 
 export function activeTaskCount() {
@@ -285,16 +290,25 @@ async function githubContext(taskId: string) {
 async function runTask(taskId: string, conversation: Record<string, unknown>[], opts: { mode: TaskMode; effort: ThinkingLevel; webSearch: boolean; spec: ModelSpec; reason: string; userText?: string; userAttachments?: AttachmentDisplay[]; restoredFiles?: number; cloneRepo?: { repo: string; branch?: string } }) {
   const controller = new AbortController();
   running.set(taskId, controller);
-  let bus: Awaited<ReturnType<typeof openChannel>>;
-  let root: string;
+  let bus!: Awaited<ReturnType<typeof openChannel>>;
+  let root!: string;
   let restored = 0;
-  let existing: Awaited<ReturnType<typeof getAgentTask>>;
+  let existing!: Awaited<ReturnType<typeof getAgentTask>>;
   let gh = { github: false, context: "" };
-  try {
+  const setup = async () => {
     bus = await openChannel(taskId);
     ({ dir: root, restored } = await materializeWorkspace(taskId));
     existing = await getAgentTask(taskId);
     gh = await githubContext(taskId);
+  };
+  try {
+    // Database/vault hiccups at start-up get one retry before the run is given up.
+    try { await setup(); } catch (first) {
+      const kind = diagnose(first, false).kind;
+      if (kind !== "transient" && kind !== "rate_limit") throw first;
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      await setup();
+    }
   } catch (error) {
     running.delete(taskId);
     console.error(`[agent] could not start ${taskId}:`, error);
@@ -321,7 +335,26 @@ async function runTask(taskId: string, conversation: Record<string, unknown>[], 
     manifest: workspaceManifest(root),
     attached: new Map(),
     images: new Map(),
+    recovery: undefined as unknown as RecoveryEngine,
+    flags: { noEager: false, noThinking: false, noEffort: false },
+    toolWatch: new ToolFailureWatch(),
   };
+  ctx.recovery = new RecoveryEngine({
+    signal: controller.signal,
+    format: formatFor(opts.spec),
+    conversation: conversation as never,
+    get spec() { return ctx.spec; },
+    flags: ctx.flags,
+    switchModel: (spec, reason) => {
+      ctx.spec = spec;
+      emit({ type: "dispatch", model: spec.id, provider: ENGINE_ALIAS[spec.provider] ?? "core", reason });
+      updateAgentTask(taskId, { model: spec.id });
+    },
+    persist: () => { updateAgentTask(taskId, { conversation }); },
+    dropImageCache: () => ctx.images.clear(),
+    available: spec => spec.provider !== "relay" || Boolean(PROVIDER_ENV.relayKey),
+    emit: event => emit({ type: "recovery", ...event }),
+  });
   const filesBefore = existing?.filesChanged ?? 0;
   updateAgentTask(taskId, { status: "running" });
   const latest = conversation[conversation.length - 1];
@@ -386,6 +419,27 @@ async function runTask(taskId: string, conversation: Record<string, unknown>[], 
   }
 }
 
+/** Thinking/effort parameters for the current model, minus anything the recovery engine disabled. */
+function reasoning(ctx: RunContext) {
+  const params = reasoningParams(ctx.spec, ctx.effort);
+  if (ctx.flags.noThinking) delete params.thinking;
+  if (ctx.flags.noEffort) delete params.output_config;
+  return params;
+}
+
+/** Run one model call, letting the recovery engine repair and retry it until it succeeds or gives up. */
+async function healing<T>(ctx: RunContext, attempt: () => Promise<T>): Promise<T> {
+  for (;;) {
+    try {
+      const result = await attempt();
+      ctx.recovery.succeeded();
+      return result;
+    } catch (error) {
+      if (ctx.signal.aborted || !(await ctx.recovery.handle(error))) throw error;
+    }
+  }
+}
+
 /** Attach everything this run created or changed (beyond what the agent attached itself). */
 async function deliverArtifacts(ctx: RunContext) {
   try {
@@ -436,24 +490,28 @@ async function streamTurn(ctx: RunContext, conversation: Anthropic.MessageParam[
     system: [{ type: "text", text: ctx.mode === "agent" ? AGENT_SYSTEM : CHAT_SYSTEM }, ...(ctx.context ? [{ type: "text" as const, text: ctx.context }] : [])],
     messages,
     ...(tools.length ? { tools } : {}),
-    ...reasoningParams(ctx.spec, ctx.effort),
+    ...reasoning(ctx),
   }, { signal: ctx.signal });
 
   const blocks = new Map<number, OpenBlock>();
+  // tool_use blocks whose card is shown but whose tool has not run yet (closed when the turn fails).
+  const pendingTools = new Map<string, number>();
+  try {
   for await (const event of stream) {
     if (event.type === "content_block_start") {
       const block = event.content_block;
       if (block.type === "thinking" || block.type === "redacted_thinking") {
-        const id = `${ctx.runId}-${turn}-${event.index}-think`;
+        const id = `${ctx.runId}-${turn}.${ctx.recovery.count}-${event.index}-think`;
         blocks.set(event.index, { kind: "thinking", id, started: Date.now() });
         if (ctx.phases.get("deliberation") === "pending") ctx.phases.advance("deliberation");
         ctx.emit({ type: "thinking_start", blockId: id });
       } else if (block.type === "text") {
-        const id = `${ctx.runId}-${turn}-${event.index}-text`;
+        const id = `${ctx.runId}-${turn}.${ctx.recovery.count}-${event.index}-text`;
         blocks.set(event.index, { kind: "text", id, started: Date.now() });
         ctx.emit({ type: "text_start", blockId: id });
       } else if (block.type === "tool_use") {
         blocks.set(event.index, { kind: "tool_use", id: block.id, started: Date.now() });
+        pendingTools.set(block.id, Date.now());
         ctx.emit({ type: "tool_start", callId: block.id, name: block.name });
       }
     } else if (event.type === "content_block_delta") {
@@ -467,7 +525,17 @@ async function streamTurn(ctx: RunContext, conversation: Anthropic.MessageParam[
       const open = blocks.get(event.index);
       if (open?.kind === "thinking") ctx.emit({ type: "thinking_end", blockId: open.id, ms: Date.now() - open.started });
       if (open?.kind === "text") ctx.emit({ type: "text_end", blockId: open.id });
+      blocks.delete(event.index);
     }
+  }
+  } catch (error) {
+    // The turn failed mid-stream: close what was open so the UI shows it as interrupted, not live.
+    for (const open of Array.from(blocks.values())) {
+      if (open.kind === "thinking") ctx.emit({ type: "thinking_end", blockId: open.id, ms: Date.now() - open.started });
+      if (open.kind === "text") ctx.emit({ type: "text_end", blockId: open.id });
+    }
+    for (const [callId, started] of Array.from(pendingTools.entries())) ctx.emit({ type: "tool_result", callId, ok: false, summary: "Interrupted", durationMs: Date.now() - started });
+    throw error;
   }
   const message = await stream.finalMessage();
   const usage = message.usage as Anthropic.Usage & { output_tokens_details?: { thinking_tokens?: number } };
@@ -485,12 +553,12 @@ const textOf = (message: Anthropic.Message) => message.content.filter((block): b
 async function runAnthropicLoop(ctx: RunContext, conversation: Anthropic.MessageParam[]) {
   const coding = ctx.mode === "agent";
   // Eager input streaming lets file bodies stream into the UI as they are generated.
-  const tools = () => toolsFor({ coding, web: ctx.webSearch, eager: ctx.spec.eagerInput, github: ctx.github });
+  const tools = () => toolsFor({ coding, web: ctx.webSearch, eager: ctx.spec.eagerInput && !ctx.flags.noEager, github: ctx.github });
   let healIteration = 0;
   let lastText = "";
 
   for (let turn = 1; turn <= MAX_TURNS; turn++) {
-    const message = await streamTurn(ctx, conversation, turn, ctx.spec.tools ? tools() : []);
+    const message = await healing(ctx, () => streamTurn(ctx, conversation, turn, ctx.spec.tools ? tools() : []));
     conversation.push({ role: "assistant", content: message.content });
     updateAgentTask(ctx.taskId, { conversation });
     lastText = textOf(message) || lastText;
@@ -570,9 +638,10 @@ async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unkno
   let lastText = "";
 
   for (let turn = 1; turn <= MAX_TURNS; turn++) {
+    const streamed = await healing(ctx, async () => {
     ctx.emit({ type: "turn_start", turn, model: ctx.spec.id });
-    const thinkingId = `${ctx.runId}-${turn}-think`;
-    const textId = `${ctx.runId}-${turn}-text`;
+    const thinkingId = `${ctx.runId}-${turn}.${ctx.recovery.count}-think`;
+    const textId = `${ctx.runId}-${turn}.${ctx.recovery.count}-text`;
     let thinkingStarted = 0;
     let textOpen = false;
     let text = "";
@@ -581,6 +650,8 @@ async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unkno
     let usage = { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0 };
     const calls = new Map<number, { id: string; name: string; args: string }>();
 
+    let finished = false;
+    try {
     for await (const chunk of streamOpenAIChat({ model: ctx.spec.id, messages: [system(), ...conversation], tools: tools.length ? tools : undefined, maxTokens: MAX_TOKENS, signal: ctx.signal })) {
       if (chunk.kind === "reasoning") {
         if (!thinkingStarted) {
@@ -597,7 +668,7 @@ async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unkno
       } else if (chunk.kind === "tool_delta") {
         let call = calls.get(chunk.index);
         if (!call) {
-          call = { id: chunk.id || `${ctx.runId}-${turn}-call-${chunk.index}`, name: chunk.name ?? "", args: "" };
+          call = { id: chunk.id || `${ctx.runId}-${turn}.${ctx.recovery.count}-call-${chunk.index}`, name: chunk.name ?? "", args: "" };
           calls.set(chunk.index, call);
           if (call.name) ctx.emit({ type: "tool_start", callId: call.id, name: call.name });
         } else if (chunk.name && !call.name) {
@@ -614,8 +685,16 @@ async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unkno
         usage = chunk;
       }
     }
-    if (thinkingStarted) ctx.emit({ type: "thinking_end", blockId: thinkingId, ms: Date.now() - thinkingStarted });
-    if (textOpen) ctx.emit({ type: "text_end", blockId: textId });
+    finished = true;
+    } finally {
+      if (!finished) for (const call of Array.from(calls.values())) if (call.name) ctx.emit({ type: "tool_result", callId: call.id, ok: false, summary: "Interrupted", durationMs: 0 });
+      // Close streamed blocks whether the turn finished or failed mid-stream.
+      if (thinkingStarted) ctx.emit({ type: "thinking_end", blockId: thinkingId, ms: Date.now() - thinkingStarted });
+      if (textOpen) ctx.emit({ type: "text_end", blockId: textId });
+    }
+    return { text, reasoning, finish, usage, calls };
+    });
+    const { text, reasoning, finish, usage, calls } = streamed;
     ctx.usage.inputTokens += usage.inputTokens;
     ctx.usage.outputTokens += usage.outputTokens;
     ctx.usage.thinkingTokens += usage.reasoningTokens;
@@ -646,7 +725,8 @@ async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unkno
           ctx.emit({ type: "tool_call", callId: call.id, name: call.name, input: { raw: call.args.slice(0, 2000) } });
           ctx.emit({ type: "tool_result", callId: call.id, ok: false, summary: outcome.summary, durationMs: 0 });
         }
-        conversation.push({ role: "tool", tool_call_id: call.id, content: outcome.content });
+        const nudge = ctx.toolWatch.note(call.name, outcome.ok, outcome.summary);
+        conversation.push({ role: "tool", tool_call_id: call.id, content: outcome.content + (nudge ?? "") });
       }
       updateAgentTask(ctx.taskId, { conversation });
       continue;
@@ -665,6 +745,8 @@ async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unkno
 
 async function runToolCall(ctx: RunContext, use: Anthropic.ToolUseBlock): Promise<Anthropic.ToolResultBlockParam> {
   const outcome = await trackedTool(ctx, use.id, use.name, (use.input ?? {}) as Record<string, unknown>);
+  const nudge = ctx.toolWatch.note(use.name, outcome.ok, outcome.summary);
+  if (nudge) outcome.content += nudge;
   // The Messages API rejects is_error results whose content is not all text, so a failed tool
   // (e.g. browse on a 404 page) sends only its text; the screenshot is still shown in the UI.
   if (!outcome.ok) {
@@ -772,30 +854,35 @@ function plainText(content: Anthropic.MessageParam["content"]) {
 async function emitText(ctx: RunContext, blockId: string, chunks: AsyncIterable<string>) {
   ctx.emit({ type: "text_start", blockId });
   let text = "";
-  for await (const chunk of chunks) {
-    text += chunk;
-    ctx.emit({ type: "text_delta", blockId, text: chunk });
+  try {
+    for await (const chunk of chunks) {
+      text += chunk;
+      ctx.emit({ type: "text_delta", blockId, text: chunk });
+    }
+  } finally {
+    ctx.emit({ type: "text_end", blockId });
   }
-  ctx.emit({ type: "text_end", blockId });
   return text;
 }
 
 async function runInference(ctx: RunContext, conversation: Anthropic.MessageParam[]) {
   ctx.phases.advance("deliberation", "Open-weight model; no visible thinking stream");
   ctx.emit({ type: "turn_start", turn: 1, model: ctx.spec.id });
-  const messages = conversation
-    .filter((message): message is Anthropic.MessageParam & { role: "user" | "assistant" } => message.role !== "system")
-    .map(message => ({ role: message.role, content: plainText(message.content) }))
-    .filter(message => message.content);
   let usage = { inputTokens: 0, outputTokens: 0 };
-  const stream = streamCortexInference({ model: ctx.spec.id, system: CHAT_SYSTEM, messages, maxTokens: 4096, signal: ctx.signal });
-  async function* texts() {
-    for await (const part of stream) {
-      if ("text" in part && part.text) yield part.text;
-      if ("usage" in part && part.usage) usage = part.usage;
+  const answer = await healing(ctx, async () => {
+    const messages = conversation
+      .filter((message): message is Anthropic.MessageParam & { role: "user" | "assistant" } => message.role !== "system")
+      .map(message => ({ role: message.role, content: plainText(message.content) }))
+      .filter(message => message.content);
+    const stream = streamCortexInference({ model: ctx.spec.id, system: CHAT_SYSTEM, messages, maxTokens: 4096, signal: ctx.signal });
+    async function* texts() {
+      for await (const part of stream) {
+        if ("text" in part && part.text) yield part.text;
+        if ("usage" in part && part.usage) usage = part.usage;
+      }
     }
-  }
-  const answer = await emitText(ctx, `${ctx.runId}-text`, texts());
+    return emitText(ctx, `${ctx.runId}-text.${ctx.recovery.count}`, texts());
+  });
   ctx.usage.inputTokens += usage.inputTokens;
   ctx.usage.outputTokens += usage.outputTokens;
   ctx.emit({ type: "usage", turn: 1, model: ctx.spec.id, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, thinkingTokens: 0, cacheReadTokens: 0 });
@@ -810,6 +897,8 @@ async function runManus(ctx: RunContext, conversation: Anthropic.MessageParam[])
   ctx.emit({ type: "tool_start", callId, name: "research_agent" });
   ctx.emit({ type: "tool_call", callId, name: "research_agent", input: { mode: "autonomous research" } });
   const started = Date.now();
+  // Not wrapped in healing(): a retry would create (and bill) a new remote task. runManusTask
+  // retries its own idempotent polling on the existing task instead.
   const result = await runManusTask(prompt, {
     signal: ctx.signal,
     onProgress: update => {

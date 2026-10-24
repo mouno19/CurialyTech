@@ -180,9 +180,22 @@ export async function runManusTask(prompt: string, opts: { signal: AbortSignal; 
   const seen = new Set<string>();
   const deadline = Date.now() + (opts.timeoutMs ?? 15 * 60_000);
   let answer = "";
+  let pollFailures = 0;
   while (Date.now() < deadline) {
     await sleep(5000, opts.signal);
-    const [detail, messages] = await Promise.all([manusDetail(taskId, opts.signal), manusMessages(taskId, opts.signal)]);
+    // Polling is idempotent: transient errors are retried on the same remote task (never re-created).
+    let detail: Awaited<ReturnType<typeof manusDetail>>;
+    let messages: ManusMessage[];
+    try {
+      [detail, messages] = await Promise.all([manusDetail(taskId, opts.signal), manusMessages(taskId, opts.signal)]);
+      pollFailures = 0;
+    } catch (error) {
+      if (opts.signal.aborted) throw error;
+      if (++pollFailures > 6) return { answer: answer || "The research task stopped responding.", url, status: "failed" as const };
+      opts.onProgress({ status: "retrying", detail: "Lost contact with the research task; retrying…", url });
+      await sleep(Math.min(30_000, 2000 * 2 ** pollFailures), opts.signal);
+      continue;
+    }
     for (const message of messages) {
       if (seen.has(message.id)) continue;
       seen.add(message.id);

@@ -12,6 +12,7 @@ export type TimelineItem =
   | { kind: "dispatch"; id: string; ts: string; model: string; provider: string; reason: string }
   | { kind: "verify"; id: string; ts: string; iteration: number; commands: string[]; results: Extract<AgentEvent, { type: "verify_result" }>[] }
   | { kind: "heal"; id: string; ts: string; iteration: number; reason: string; model: string }
+  | { kind: "recovery"; id: string; ts: string; failure: string; action: string; detail: string; attempt: number; delayMs?: number }
   | { kind: "external"; id: string; ts: string; status: string; detail: string; url?: string }
   | { kind: "notice"; id: string; ts: string; level: "info" | "warn" | "error"; message: string }
   | { kind: "repo"; id: string; ts: string; label: string; detail: string; url: string }
@@ -158,6 +159,9 @@ function apply(state: StreamState, event: AgentEvent) {
       }
       break;
     }
+    case "recovery":
+      items.push({ kind: "recovery", id: `rc${event.seq}`, ts: event.ts, failure: event.kind, action: event.action, detail: event.detail, attempt: event.attempt, delayMs: event.delayMs });
+      break;
     case "heal":
       items.push({ kind: "heal", id: `h${event.seq}`, ts: event.ts, iteration: event.iteration, reason: event.reason, model: event.model });
       break;

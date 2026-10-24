@@ -67,15 +67,21 @@ export async function materializeWorkspace(taskId: string) {
   const dir = workspacePath(taskId);
   if (fs.existsSync(dir)) return { dir, restored: 0 };
   const root = ensureWorkspace(taskId);
-  const repo = await linkedRepo(taskId);
-  if (repo) {
-    const connection = await getConnection().catch(() => null);
-    if (!connection) throw new Error(`Reconnect GitHub to restore ${repo.fullName} into this workspace.`);
-    await restoreLinkedRepo(root, repo, connection.token);
+  try {
+    const repo = await linkedRepo(taskId);
+    if (repo) {
+      const connection = await getConnection().catch(() => null);
+      if (!connection) throw new Error(`Reconnect GitHub to restore ${repo.fullName} into this workspace.`);
+      await restoreLinkedRepo(root, repo, connection.token);
+    }
+    const files = await loadWorkspaceSnapshot(taskId);
+    for (const file of files) writeWorkspaceBytes(root, file.path, file.content);
+    return { dir: root, restored: files.length };
+  } catch (error) {
+    // Never leave a half-restored directory: it would later be snapshotted over the good vault copy.
+    removeWorkspace(taskId);
+    throw error;
   }
-  const files = await loadWorkspaceSnapshot(taskId);
-  for (const file of files) writeWorkspaceBytes(root, file.path, file.content);
-  return { dir: root, restored: files.length };
 }
 
 export async function archiveWorkspace(taskId: string) {

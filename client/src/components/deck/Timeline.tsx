@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle, Bot, Brain, Check, CheckCircle2, ChevronDown, ChevronRight, Circle, CircleDashed, ExternalLink, FilePen, FileSearch, FolderTree,
-  GitBranch, Globe, ListChecks, Loader2, Paperclip, Rocket, Route, Search, ShieldCheck, SquareTerminal, Trash2, Wrench, X, XCircle,
+  GitBranch, Globe, ListChecks, Loader2, Paperclip, RefreshCw, Rocket, Route, Search, ShieldCheck, SquareTerminal, Trash2, Wrench, X, XCircle,
 } from "lucide-react";
 import { PHASES, type PlanStep } from "@shared/agent";
 import type { BrowserState, StreamState, TimelineItem, TurnUsage } from "@/lib/taskStream";
@@ -220,6 +220,12 @@ export function TimelineEntry({ item, usageByTurn, browsers }: { item: TimelineI
         </div>
       );
     }
+    case "recovery":
+      return (
+        <div className="tl heal" title={`${item.failure} · attempt ${item.attempt}`}>
+          <div className="tl-head"><RefreshCw size={15} color="var(--amber)" /><span className="title">Self-healing</span><span className="sub" style={{ whiteSpace: "normal" }}>{item.detail} → {item.action}</span></div>
+        </div>
+      );
     case "heal":
       return (
         <div className="tl heal">

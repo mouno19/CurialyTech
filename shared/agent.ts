@@ -92,6 +92,8 @@ export type AgentEventBody =
   | { type: "verify_start"; iteration: number; commands: string[] }
   | { type: "verify_result"; iteration: number; command: string; ok: boolean; exitCode: number | null; output: string; durationMs: number }
   | { type: "heal"; iteration: number; reason: string; model: string }
+  /** Self-healing around a model turn: what failed and what was done about it. */
+  | { type: "recovery"; kind: string; action: string; detail: string; attempt: number; delayMs?: number; model?: string }
   | { type: "usage"; turn: number; model: string; inputTokens: number; outputTokens: number; thinkingTokens: number; cacheReadTokens: number }
   | { type: "external"; source: "research" | "research"; status: string; detail: string; url?: string }
   | { type: "media"; callId: string; mediaId: string | null; filename: string; mimeType: string; caption: string; inlineDataUrl?: string }
