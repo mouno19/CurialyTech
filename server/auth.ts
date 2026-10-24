@@ -79,7 +79,8 @@ export async function loginHandler(req: Request, res: Response) {
   if (!authConfigured()) return res.status(503).json({ error: "Admin login is not configured on this server." });
   const ip = req.ip ?? "unknown";
   if (rateLimited(ip)) return res.status(429).json({ error: "Too many attempts. Try again in a few minutes." });
-  const password = typeof req.body?.password === "string" ? req.body.password : "";
+  // Copy/paste and mobile keyboards often add surrounding whitespace.
+  const password = typeof req.body?.password === "string" ? req.body.password.trim() : "";
   if (!password || !verifyPassword(password, process.env.ADMIN_PASSWORD_HASH!)) {
     return res.status(401).json({ error: "Incorrect password." });
   }
