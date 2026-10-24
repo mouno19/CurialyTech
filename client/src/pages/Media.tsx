@@ -32,11 +32,11 @@ export default function Media() {
       <input ref={input} type="file" multiple hidden onChange={event => { void upload(event.target.files); event.target.value = ""; }} />
       <div className="page">
         <div className="page-narrow">
-          <p className="page-sub">Uploads, screenshots and artifacts live in the Snowflake stage <code>@CURIALY_DB.PUBLIC.USER_MEDIA_STAGE</code>. Bytes stream from memory to Snowflake and are viewed through short-lived presigned URLs; nothing is kept on the server's disk.</p>
-          {stage && !stage.ok && <div className="alert warn" style={{ marginBottom: 16 }}>Media stage not ready: {stage.detail}. Run the setup SQL as ACCOUNTADMIN, then reload.</div>}
+          <p className="page-sub">Uploads, screenshots and artifacts live in Curialy Vault cloud storage. Files stream straight to the vault and are viewed through short-lived signed links; nothing is kept on the server's disk.</p>
+          {stage && !stage.ok && <div className="alert warn" style={{ marginBottom: 16 }}>Curialy Vault is not ready: {stage.detail}.</div>}
           {error && <div className="alert error" style={{ marginBottom: 16 }}>{error}</div>}
           {files === null ? <div className="empty">Loading…</div> : files.length === 0 ? (
-            <div className="card"><EmptyState icon={ImageIcon} title="No media yet">Attach files in the composer, or let the agent take Browserbase screenshots.</EmptyState></div>
+            <div className="card"><EmptyState icon={ImageIcon} title="No media yet">Attach files in the composer, or let the agent take screenshots with the Live Browser.</EmptyState></div>
           ) : (
             <div className="media-grid">
               {files.map(file => (

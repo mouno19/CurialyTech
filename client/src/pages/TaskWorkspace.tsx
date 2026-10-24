@@ -132,7 +132,7 @@ function WorkspacePreview({ taskId, refreshKey, running }: { taskId: string; ref
         <span className="spacer" />
         <button className="icon-btn sm" title="Reload" onClick={() => { setFrame(value => value + 1); void agentApi.preview(taskId).then(setInfo); }}><RefreshCcw size={13} /></button>
         <a className="icon-btn sm" href={info.url} target="_blank" rel="noreferrer" title="Open in a new tab"><ExternalLink size={13} /></a>
-        <button className="btn sm" disabled={shooting || running} onClick={() => void screenshot()} title="Render in a Browserbase cloud Chromium">{shooting ? <Loader2 size={13} className="spin" /> : <Globe size={13} />} Screenshot in Browserbase</button>
+        <button className="btn sm" disabled={shooting || running} onClick={() => void screenshot()} title="Capture this preview in the Curialy Live Browser">{shooting ? <Loader2 size={13} className="spin" /> : <Globe size={13} />} Capture in Live Browser</button>
       </div>
       {info.warnings && info.warnings.length > 0 && <div className="alert warn">index.html uses absolute asset paths ({info.warnings.join(", ")}), which won't load in the preview. Ask the agent to build with relative paths (Vite: base: './').</div>}
       <iframe key={`${frame}-${refreshKey}`} className="preview-frame" src={info.url} title="Workspace preview" sandbox="allow-scripts allow-forms allow-popups allow-modals" />
@@ -140,10 +140,9 @@ function WorkspacePreview({ taskId, refreshKey, running }: { taskId: string; ref
       {error && <div className="alert error">{error}</div>}
       {shot && (
         <figure className="tl media">
-          {shot.image && <a href={shot.image} target="_blank" rel="noreferrer"><img src={shot.image} alt="Browserbase screenshot" /></a>}
+          {shot.image && <a href={shot.image} target="_blank" rel="noreferrer"><img src={shot.image} alt="Live Browser capture" /></a>}
           <figcaption>
-            <Globe size={12} /> HTTP {shot.status ?? "?"} · {shot.title || "untitled"} · {shot.consoleErrors.length ? `${shot.consoleErrors.length} console error(s)` : "no console errors"} ·{" "}
-            <a href={shot.replayUrl} target="_blank" rel="noreferrer" style={{ textDecoration: "underline" }}>session replay</a>
+            <Globe size={12} /> HTTP {shot.status ?? "?"} · {shot.title || "untitled"} · {shot.consoleErrors.length ? `${shot.consoleErrors.length} console error(s)` : "no console errors"}
           </figcaption>
           {shot.consoleErrors.length > 0 && <div className="kv">{shot.consoleErrors.join("\n")}</div>}
         </figure>
@@ -158,7 +157,7 @@ function Deck({ state, task, onDeploy, deploying }: { state: StreamState; task: 
   const usageByTurn = useMemo(() => new Map<number, TurnUsage>(state.usage.map((turn, index) => [index + 1, turn])), [state.usage]);
   const activity = state.items.filter(item => item.kind !== "user" && item.kind !== "text");
   const thinking = state.items.filter((item): item is Extract<TimelineItem, { kind: "thinking" }> => item.kind === "thinking");
-  const tools = state.items.filter((item): item is Extract<TimelineItem, { kind: "tool" }> => item.kind === "tool" && ["run_command", "verify", "manus", "delegate_research", "browse", "deploy_preview"].includes(item.name));
+  const tools = state.items.filter((item): item is Extract<TimelineItem, { kind: "tool" }> => item.kind === "tool" && ["run_command", "verify", "research", "research_agent", "delegate_research", "browse", "deploy_preview"].includes(item.name));
   const live = [...state.deployments].reverse().find(deployment => deployment.status === "live" && deployment.url);
   const latestDeploy = state.deployments[state.deployments.length - 1];
   const [frameKey, setFrameKey] = useState(0);
@@ -229,9 +228,9 @@ function Deck({ state, task, onDeploy, deploying }: { state: StreamState; task: 
               <div className="eyebrow">Workspace preview</div>
               <WorkspacePreview taskId={task?.id ?? ""} refreshKey={previewKey} running={state.status === "running"} />
               <div className="row" style={{ marginTop: 14 }}>
-                <span className="eyebrow">Live deployment (Render)</span>
+                <span className="eyebrow">Curialy Cloud Deploy</span>
                 <span className="spacer" />
-                {onDeploy && <button className="btn sm" disabled={state.status === "running" || deploying} onClick={onDeploy}><Rocket size={13} /> Deploy Live to Render</button>}
+                {onDeploy && <button className="btn sm" disabled={state.status === "running" || deploying} onClick={onDeploy}><Rocket size={13} /> Deploy Live</button>}
               </div>
               {latestDeploy ? (
             <>
@@ -243,9 +242,9 @@ function Deck({ state, task, onDeploy, deploying }: { state: StreamState; task: 
                 {latestDeploy.url && <a className="icon-btn sm" href={latestDeploy.url} target="_blank" rel="noreferrer" title="Open in new tab"><ExternalLink size={13} /></a>}
               </div>
               <div className="muted" style={{ fontSize: 12 }}>{latestDeploy.detail}{latestDeploy.expiresAt ? ` · auto-deletes ${new Date(latestDeploy.expiresAt).toLocaleTimeString()}` : ""}</div>
-              {live ? <iframe key={frameKey} className="preview-frame" src={live.url} title="Live preview" sandbox="allow-scripts allow-forms allow-same-origin allow-popups" /> : latestDeploy.status !== "failed" && <EmptyState icon={Loader2} title="Render is building">The preview appears here as soon as the deploy is live.</EmptyState>}
+              {live ? <iframe key={frameKey} className="preview-frame" src={live.url} title="Live preview" sandbox="allow-scripts allow-forms allow-same-origin allow-popups" /> : latestDeploy.status !== "failed" && <EmptyState icon={Loader2} title="Building the live preview">The preview appears here as soon as the deploy is live.</EmptyState>}
             </>
-              ) : <div className="faint" style={{ fontSize: 12 }}>Not deployed. Deploy publishes this workspace to a temporary public *.onrender.com URL (needs GitHub connected).</div>}
+              ) : <div className="faint" style={{ fontSize: 12 }}>Not deployed. Deploy publishes this workspace to a temporary public URL (needs GitHub connected).</div>}
             </>
           )}
           {tab === "raw" && (
@@ -355,7 +354,7 @@ export default function TaskWorkspace({ id }: { id: string }) {
         <a className="btn sm" href="/api/auth/github/start" title="Connect GitHub to export and deploy"><GitHubMark size={13} /> Connect GitHub</a>
       ))}
       {task?.mode === "agent" && (
-        <button className="btn sm" disabled={running || deploying} title="Publish this workspace as a temporary Render preview" onClick={deploy}><Rocket size={13} /> Deploy</button>
+        <button className="btn sm" disabled={running || deploying} title="Publish this workspace with Curialy Cloud Deploy" onClick={deploy}><Rocket size={13} /> Deploy</button>
       )}
       {running ? (
         <button className="btn danger sm" onClick={() => void agentApi.cancel(id)}><CircleStop size={13} /> Cancel</button>

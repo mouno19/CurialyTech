@@ -1,3 +1,4 @@
+import { brandText } from "@shared/brand";
 import Anthropic from "@anthropic-ai/sdk";
 import type { ModelSpec, ProviderId, ThinkingLevel } from "@shared/agent";
 
@@ -23,7 +24,7 @@ let relayClient: Anthropic | null = null;
 
 /** Anthropic-compatible client for a provider. The Cortex bridge injects the Snowflake PAT itself. */
 export function anthropicClient(provider: ProviderId) {
-  if (provider === "cortex") {
+  if (provider === "core") {
     cortexClient ??= new Anthropic({ baseURL: PROVIDER_ENV.cortexBridgeUrl, apiKey: "cortex-bridge", maxRetries: 2, timeout: 15 * 60_000 });
     return cortexClient;
   }
@@ -212,55 +213,55 @@ async function timed(label: string, id: string, configured: boolean, fn: () => P
     const detail = await fn();
     return { id, label, ok: true, latencyMs: Date.now() - started, detail, configured };
   } catch (error) {
-    return { id, label, ok: false, latencyMs: Date.now() - started, detail: error instanceof Error ? error.message.slice(0, 200) : "Probe failed", configured };
+    return { id, label, ok: false, latencyMs: Date.now() - started, detail: error instanceof Error ? brandText(error.message).slice(0, 200) : "Probe failed", configured };
   }
 }
 
 export async function probeProviders(deep = false): Promise<ProbeResult[]> {
   const signal = AbortSignal.timeout(deep ? 45_000 : 8000);
   return Promise.all([
-    timed("Snowflake Cortex", "cortex", true, async () => {
+    timed("Curialy Core", "core", true, async () => {
       if (!deep) {
         const response = await fetch(`${PROVIDER_ENV.cortexBridgeUrl}/health`, { signal });
         if (!response.ok) throw new Error(`Bridge returned ${response.status}`);
-        return "Bridge reachable";
+        return "Reasoning engine reachable";
       }
-      const message = await anthropicClient("cortex").messages.create({ model: "claude-sonnet-4-5", max_tokens: 8, messages: [{ role: "user", content: "Reply OK" }] }, { signal });
-      return `claude-sonnet-4-5 answered (${message.usage.output_tokens} tokens)`;
+      const message = await anthropicClient("core").messages.create({ model: "claude-sonnet-4-5", max_tokens: 8, messages: [{ role: "user", content: "Reply OK" }] }, { signal });
+      return `Live completion OK (${message.usage.output_tokens} tokens)`;
     }),
-    timed("RelayStation", "relay", Boolean(PROVIDER_ENV.relayKey), async () => {
+    timed("Curialy Relay", "relay", Boolean(PROVIDER_ENV.relayKey), async () => {
       const response = await fetch(`${PROVIDER_ENV.relayUrl}/v1/models`, { headers: { authorization: `Bearer ${PROVIDER_ENV.relayKey}` }, signal });
       if (!response.ok) throw new Error(`Models endpoint returned ${response.status}`);
       const data: any = await response.json();
-      return `${data?.data?.length ?? 0} models available`;
+      return `${data?.data?.length ?? 0} model routes available`;
     }),
-    timed("Manus", "manus", Boolean(PROVIDER_ENV.manusKey), async () => {
+    timed("Curialy Research Agent", "research", Boolean(PROVIDER_ENV.manusKey), async () => {
       const response = await fetch(`${PROVIDER_ENV.manusUrl}/v1/tasks?limit=1`, { headers: { API_KEY: PROVIDER_ENV.manusKey }, signal });
       if (!response.ok) throw new Error(`Task list returned ${response.status}`);
-      return "API key accepted";
+      return "Agent service reachable";
     }),
-    timed("Paper Instruments", "paper", Boolean(PROVIDER_ENV.paperKey), async () => {
+    timed("Curialy Fast Reasoning", "fast", Boolean(PROVIDER_ENV.paperKey), async () => {
       const response = await fetch(`${PROVIDER_ENV.paperUrl}/models`, { headers: { authorization: `Bearer ${PROVIDER_ENV.paperKey}` }, signal });
       if (!response.ok) throw new Error(`Models endpoint returned ${response.status}`);
       const data: any = await response.json();
-      return `${(data?.data ?? []).map((model: { id: string }) => model.id).join(", ") || "no models"}`;
+      return `${(data?.data ?? []).length} model(s) ready`;
     }),
-    timed("Browserbase", "browserbase", Boolean(PROVIDER_ENV.browserbaseKey && PROVIDER_ENV.browserbaseProject), async () => {
+    timed("Curialy Live Browser", "browser", Boolean(PROVIDER_ENV.browserbaseKey && PROVIDER_ENV.browserbaseProject), async () => {
       const response = await fetch(`https://api.browserbase.com/v1/projects/${PROVIDER_ENV.browserbaseProject}`, { headers: { "X-BB-API-Key": PROVIDER_ENV.browserbaseKey }, signal });
       if (!response.ok) throw new Error(`Project lookup returned ${response.status}`);
       const data: any = await response.json();
-      return `Project "${data.name}" · concurrency ${data.concurrency}`;
+      return `Ready · up to ${data.concurrency} concurrent sessions`;
     }),
-    timed("Render", "render", Boolean(PROVIDER_ENV.renderKey && PROVIDER_ENV.renderOwner), async () => {
+    timed("Curialy Cloud Deploy", "deploy", Boolean(PROVIDER_ENV.renderKey && PROVIDER_ENV.renderOwner), async () => {
       const response = await fetch(`https://api.render.com/v1/owners/${PROVIDER_ENV.renderOwner}`, { headers: { authorization: `Bearer ${PROVIDER_ENV.renderKey}`, accept: "application/json" }, signal });
       if (!response.ok) throw new Error(`Owner lookup returned ${response.status}`);
-      return PROVIDER_ENV.githubToken ? "API key accepted · GitHub token set" : "API key accepted · GITHUB_TOKEN missing (deploys disabled)";
+      return "Ready (deploys need GitHub connected)";
     }),
-    timed("Google Gemini (via RelayStation)", "gemini", Boolean(PROVIDER_ENV.relayKey), async () => {
-      if (!deep) return "Routed through RelayStation (run a deep check to verify)";
+    timed("Gemini engine", "gemini", Boolean(PROVIDER_ENV.relayKey), async () => {
+      if (!deep) return "Routed (run the live check to verify)";
       // RelayStation always answers with SSE, so even a probe has to stream.
       const message = await anthropicClient("relay").messages.stream({ model: "r/gemini-3.8-flash-low", max_tokens: 8, messages: [{ role: "user", content: "Reply OK" }] }, { signal }).finalMessage();
-      return `Answered (${message.usage.output_tokens} tokens)`;
+      return `Live completion OK (${message.usage.output_tokens} tokens)`;
     }),
   ]);
 }

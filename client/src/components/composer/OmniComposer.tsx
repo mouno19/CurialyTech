@@ -13,7 +13,7 @@ function readPrefs(): Prefs {
   try { return { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}") }; } catch { return DEFAULT_PREFS; }
 }
 
-const GROUP_COLORS: Record<string, string> = { "Snowflake Cortex": "#7cb7ff", RelayStation: "#8b75ff", "Paper Instruments": "#f6b3bd", Manus: "#f2bd72", "Google Gemini": "#52d6b1" };
+const GROUP_COLORS: Record<string, string> = { Core: "#7cb7ff", Relay: "#8b75ff", Fast: "#f6b3bd", Research: "#f2bd72", Gemini: "#52d6b1" };
 
 export function ModelPicker({ value, onChange, mode, openDown = false }: { value: string; onChange: (id: string) => void; mode: TaskMode; openDown?: boolean }) {
   const [open, setOpen] = useState(false);
@@ -40,7 +40,7 @@ export function ModelPicker({ value, onChange, mode, openDown = false }: { value
             <span className="dot" style={{ background: "var(--violet)" }} />
             <span>
               <strong>Auto dispatch</strong>
-              <small>Opus 5.5 for architecture & debugging, Sonnet 4.5 for routine edits, Manus for browsing. Escalates to Opus when self-healing stalls.</small>
+              <small>Opus 5.5 for architecture & debugging, Sonnet 4.5 for routine edits, the Research Agent for browsing. Escalates to Opus when self-healing stalls.</small>
             </span>
             {value === "auto" && <Check size={14} style={{ marginLeft: "auto" }} />}
           </button>
@@ -48,16 +48,14 @@ export function ModelPicker({ value, onChange, mode, openDown = false }: { value
             <div key={capability}>
               <div className="model-group">{capability}</div>
               {MODELS.filter(model => model.capability === capability).map(model => {
-                const unusable = mode === "agent" && !model.tools && model.provider !== "manus";
+                const unusable = mode === "agent" && !model.tools && model.provider !== "research";
                 return (
                   <button key={model.id} type="button" disabled={unusable} className={`model-option${value === model.id ? " on" : ""}`} onClick={() => { onChange(model.id); setOpen(false); }} title={unusable ? "Chat mode only (no tool calling)" : undefined}>
-                    <span className="dot" style={{ background: GROUP_COLORS[model.group] }} title={model.group} />
+                    <span className="dot" style={{ background: GROUP_COLORS[model.group] }} />
                     <span style={{ minWidth: 0 }}>
                       <strong>{model.label}</strong>
                       <small>{model.description}</small>
                       <span className="caps">
-                        <span>{model.group}</span>
-                        <span className="mono">{model.id}</span>
                         {model.tools && <span>tools</span>}
                         {model.thinking !== "none" && <span>{model.thinking === "reasoning-content" ? "reasoning stream" : "thinking"}</span>}
                         {model.vision && <span>vision</span>}
@@ -103,7 +101,7 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed }: { onSubmit: (r
   const update = (patch: Partial<Prefs>) => setPrefs(current => {
     const next = { ...current, ...patch };
     const spec = getModel(next.model);
-    if (next.mode === "agent" && spec && !spec.tools && spec.provider !== "manus") next.model = "auto";
+    if (next.mode === "agent" && spec && !spec.tools && spec.provider !== "research") next.model = "auto";
     return next;
   });
 
@@ -184,7 +182,7 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed }: { onSubmit: (r
               </button>
             ))}
           </div>
-          <button type="button" className={`toggle${prefs.webSearch ? " on" : ""}`} onClick={() => update({ webSearch: !prefs.webSearch })} aria-pressed={prefs.webSearch} title="Give the model web_fetch and Manus research delegation">
+          <button type="button" className={`toggle${prefs.webSearch ? " on" : ""}`} onClick={() => update({ webSearch: !prefs.webSearch })} aria-pressed={prefs.webSearch} title="Let the agent fetch pages, use the Live Browser and the Research Agent">
             <Globe size={14} /> Web
           </button>
           <button type="button" className="toggle" onClick={() => fileInput.current?.click()} disabled={files.length >= 10} title="Attach files (copied into the task workspace)">

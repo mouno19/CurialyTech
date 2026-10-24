@@ -29,7 +29,10 @@ async function render(path: string, init: RequestInit = {}) {
     headers: { authorization: `Bearer ${PROVIDER_ENV.renderKey}`, accept: "application/json", "content-type": "application/json", ...(init.headers ?? {}) },
   });
   const data: any = response.status === 204 ? null : await response.json().catch(() => null);
-  if (!response.ok) throw new Error(`Render ${init.method ?? "GET"} ${path} failed (${response.status}): ${data?.message ?? "error"}`);
+  if (!response.ok) {
+    console.error(`[deploy] hosting API ${init.method ?? "GET"} ${path} failed (${response.status}): ${data?.message ?? "error"}`);
+    throw new Error(`Deploy engine request failed (${response.status}): ${data?.message ?? "error"}`);
+  }
   return data;
 }
 
@@ -48,7 +51,7 @@ export async function deployPreview(req: DeployRequest) {
   const config = deployConfigured();
   if (!config.ok) throw new Error(`Live previews are not configured: missing ${config.missing.join(", ")}.`);
   const github = await repoToken();
-  if (!github) throw new Error("Connect GitHub first (sidebar → Connect GitHub): Render deploys from a Git repository.");
+  if (!github) throw new Error("Connect GitHub first (sidebar → Connect GitHub): live previews are built from a Git repository.");
   const { files } = collectWorkspaceFiles(req.root);
   if (!files.length) throw new Error("The workspace is empty; nothing to deploy.");
 
@@ -80,7 +83,7 @@ export async function deployPreview(req: DeployRequest) {
     }
     await query("UPDATE curialy.deployments SET repo = $2 WHERE id = $1", [id, repoFullName]);
 
-    req.onProgress("creating", `Creating Render ${req.kind === "static" ? "static site" : "web service"} ${name} from ${repoFullName}…`);
+    req.onProgress("creating", `Creating ${req.kind === "static" ? "static site" : "web service"} ${name} from ${repoFullName}…`);
     const body = req.kind === "static"
       ? { type: "static_site", name, ownerId: PROVIDER_ENV.renderOwner, repo: repoUrl, branch, autoDeploy: "no", serviceDetails: { buildCommand: req.buildCommand || "", publishPath: req.publishPath || ".", pullRequestPreviewsEnabled: "no" } }
       : { type: "web_service", name, ownerId: PROVIDER_ENV.renderOwner, repo: repoUrl, branch, autoDeploy: "no", serviceDetails: { runtime: "node", plan: "free", region: "oregon", envSpecificDetails: { buildCommand: req.buildCommand || "npm install", startCommand: req.startCommand || "npm start" } } };
@@ -90,13 +93,16 @@ export async function deployPreview(req: DeployRequest) {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       // Render reads repos through its own GitHub App, which must be granted access separately.
-      if (/repo|git|access|permission|not found/i.test(message)) throw new Error(`${message}. Make sure Render's GitHub App can access ${repoFullName} (Render dashboard → Account settings → Git providers → GitHub: grant "All repositories").`);
+      if (/repo|git|access|permission|not found/i.test(message)) {
+        console.error(`[deploy] service creation failed for ${repoFullName}: ${message}. Grant the hosting provider's GitHub App access to all repositories.`);
+        throw new Error(`The deploy engine could not read ${repoFullName}. Its GitHub access must include this repository (operator setting).`);
+      }
       throw error;
     }
     const service = created.service ?? created;
     const url: string = service.serviceDetails?.url ?? `https://${name}.onrender.com`;
     await query("UPDATE curialy.deployments SET service_id = $2, url = $3, status = 'building' WHERE id = $1", [id, service.id, url]);
-    req.onProgress("building", "Render is building the preview…", url);
+    req.onProgress("building", "Building the live preview…", url);
 
     const deadline = Date.now() + 12 * 60_000;
     let last = "";
@@ -104,18 +110,18 @@ export async function deployPreview(req: DeployRequest) {
       await sleep(8000, req.signal);
       const deploys = await render(`/services/${service.id}/deploys?limit=1`);
       const status: string = deploys?.[0]?.deploy?.status ?? "unknown";
-      if (status !== last) req.onProgress("building", `Render deploy status: ${status}`, url);
+      if (status !== last) req.onProgress("building", `Deploy status: ${status.replace(/_/g, " ")}`, url);
       last = status;
       if (status === "live") {
         await query("UPDATE curialy.deployments SET status = 'live' WHERE id = $1", [id]);
-        req.onProgress("live", `Live until ${expiresAt.toISOString()} (Render service deleted after ${PREVIEW_TTL_MINUTES} min).`, url);
+        req.onProgress("live", `Live until ${expiresAt.toISOString()} (removed automatically after ${PREVIEW_TTL_MINUTES} min).`, url);
         return { id, url, serviceId: service.id, repo: repoFullName, expiresAt: expiresAt.toISOString() };
       }
       if (["build_failed", "update_failed", "canceled", "deactivated", "pre_deploy_failed"].includes(status)) {
-        throw new Error(`Render deploy ${status}. Check build/start commands. Service ${service.id}.`);
+        throw new Error(`Deploy ${status.replace(/_/g, " ")}. Check the build and start commands.`);
       }
     }
-    throw new Error("Render did not finish the deploy within 12 minutes.");
+    throw new Error("The deploy did not finish within 12 minutes.");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await query("UPDATE curialy.deployments SET status = 'failed', detail = $2 WHERE id = $1", [id, message.slice(0, 1000)]);
@@ -136,7 +142,7 @@ export async function destroyDeployment(id: string) {
     const github = await repoToken();
     if (github) repoOutcome = await retireRepo(github.token, row.repo).catch(error => `cleanup failed: ${error.message}`);
   }
-  await query("UPDATE curialy.deployments SET deleted_at = now(), status = 'deleted', detail = $2 WHERE id = $1", [id, `Render service deleted; repo ${repoOutcome}`]);
+  await query("UPDATE curialy.deployments SET deleted_at = now(), status = 'deleted', detail = $2 WHERE id = $1", [id, `Preview removed; repo ${repoOutcome}`]);
   return true;
 }
 

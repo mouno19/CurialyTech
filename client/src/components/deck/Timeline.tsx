@@ -6,6 +6,7 @@ import {
 import { PHASES, type PlanStep } from "@shared/agent";
 import type { BrowserState, StreamState, TimelineItem, TurnUsage } from "@/lib/taskStream";
 import { LiveBrowser } from "@/components/LiveBrowser";
+import { getModel } from "@shared/agent";
 import { formatDuration, formatTokens } from "@/lib/api";
 import { DiffViewer } from "./DiffViewer";
 
@@ -108,7 +109,7 @@ export function ThinkingBlock({ item, usage }: { item: Extract<TimelineItem, { k
 
 const TOOL_ICONS: Record<string, typeof Wrench> = {
   run_command: SquareTerminal, verify: ShieldCheck, read_file: FileSearch, write_file: FilePen, edit_file: FilePen, delete_file: Trash2,
-  list_files: FolderTree, search_files: Search, web_fetch: Globe, delegate_research: Bot, manus: Bot, update_plan: ListChecks,
+  list_files: FolderTree, search_files: Search, web_fetch: Globe, delegate_research: Bot, research_agent: Bot, update_plan: ListChecks,
   browse: Globe, deploy_preview: Rocket, browser_click: Globe, browser_type: Globe, browser_scroll: Globe, browser_extract: Globe, browser_screenshot: Globe, browser_close: Globe,
   github_list_repos: GitBranch, github_get_repo: GitBranch, github_clone_to_workspace: GitBranch, github_commit_and_push: GitBranch, github_create_pr: GitBranch,
 };
@@ -150,7 +151,7 @@ function Terminal({ command, segments, result, live }: { command?: string; segme
 }
 
 export function ToolCard({ item }: { item: Extract<TimelineItem, { kind: "tool" }> }) {
-  const isShell = ["run_command", "verify", "manus", "delegate_research", "browse", "deploy_preview", "github_clone_to_workspace", "github_commit_and_push"].includes(item.name);
+  const isShell = ["run_command", "verify", "research", "research_agent", "delegate_research", "browse", "deploy_preview", "github_clone_to_workspace", "github_commit_and_push"].includes(item.name);
   const isWrite = item.name === "write_file" || item.name === "edit_file" || item.name === "delete_file";
   const running = !item.result;
   const [open, setOpen] = useState(isShell || isWrite);
@@ -200,7 +201,7 @@ export function TimelineEntry({ item, usageByTurn, browsers }: { item: TimelineI
     case "dispatch":
       return (
         <div className="tl dispatch">
-          <div className="tl-head"><Route size={15} color="var(--violet)" /><span className="title mono" style={{ fontSize: 12 }}>{item.model}</span><span className="sub">{item.reason}</span><span className="chip">{item.provider}</span></div>
+          <div className="tl-head"><Route size={15} color="var(--violet)" /><span className="title" style={{ fontSize: 12.5 }}>{getModel(item.model)?.label ?? item.model}</span><span className="sub">{item.reason}</span></div>
         </div>
       );
     case "verify": {
@@ -227,9 +228,8 @@ export function TimelineEntry({ item, usageByTurn, browsers }: { item: TimelineI
         <div className="tl">
           <div className="tl-head">
             <Bot size={15} color="var(--amber)" />
-            <span className="title">Manus · {item.status}</span>
+            <span className="title">Research Agent · {item.status}</span>
             <span className="sub">{item.detail}</span>
-            {item.url && <a className="icon-btn sm" href={item.url} target="_blank" rel="noreferrer" title="Open in Manus"><ExternalLink size={13} /></a>}
           </div>
         </div>
       );
@@ -250,7 +250,7 @@ export function TimelineEntry({ item, usageByTurn, browsers }: { item: TimelineI
           <a href={item.src} target="_blank" rel="noreferrer" title="Open full size">
             {item.mimeType.startsWith("image/") ? <img src={item.src} alt={item.caption} loading="lazy" /> : <span className="chip">{item.filename}</span>}
           </a>
-          <figcaption><Globe size={12} /> {item.caption}{item.mediaId ? " · Snowflake stage" : " · inline (media stage not configured)"}</figcaption>
+          <figcaption><Globe size={12} /> {item.caption}{item.mediaId ? " · Curialy Vault" : ""}</figcaption>
         </figure>
       );
     case "notice":

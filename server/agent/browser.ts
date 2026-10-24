@@ -33,10 +33,10 @@ export const browserConfigured = () => Boolean(PROVIDER_ENV.browserbaseKey && PR
 export const replayUrl = (sessionId: string) => `https://www.browserbase.com/sessions/${sessionId}`;
 
 async function createSession(signal?: AbortSignal) {
-  if (!browserConfigured()) throw new Error("Browserbase is not configured (BROWSERBASE_API_KEY / BROWSERBASE_PROJECT_ID).");
+  if (!browserConfigured()) throw new Error("The live browser is not configured on this server.");
   const response = await bb("/sessions", { method: "POST", body: JSON.stringify({ projectId: PROVIDER_ENV.browserbaseProject, keepAlive: false, timeout: SESSION_TIMEOUT_S }), signal });
   const data: any = await response.json().catch(() => null);
-  if (!response.ok || !data?.connectUrl) throw new Error(`Browserbase session failed (${response.status}): ${data?.message ?? data?.error ?? "no connectUrl"}`);
+  if (!response.ok || !data?.connectUrl) throw new Error(`Could not start a live browser session (${response.status}): ${data?.message ?? data?.error ?? "no connection URL"}`);
   return { id: data.id as string, connectUrl: data.connectUrl as string };
 }
 
@@ -86,7 +86,7 @@ class LiveSession {
     this.onClose();
     await this.browser.close().catch(() => undefined);
     await release(this.sessionId);
-    this.emit({ type: "browser_session", sessionId: this.sessionId, status: "ended", liveUrl: null, replayUrl: replayUrl(this.sessionId), reason });
+    this.emit({ type: "browser_session", sessionId: this.sessionId, status: "ended", liveUrl: null, replayUrl: "", reason });
   }
 }
 
@@ -113,7 +113,8 @@ export function liveBrowser(taskId: string, emit: Emit, signal?: AbortSignal): P
       const liveUrl = await liveViewUrl(session.id).catch(() => null);
       const live = new LiveSession(taskId, session.id, browser, page, liveUrl, emit, () => sessions.delete(taskId));
       sessions.set(taskId, live);
-      emit({ type: "browser_session", sessionId: session.id, status: "live", liveUrl, replayUrl: replayUrl(session.id) });
+      console.log(`[browser] ${taskId} session ${session.id} replay: ${replayUrl(session.id)}`);
+      emit({ type: "browser_session", sessionId: session.id, status: "live", liveUrl, replayUrl: "" });
       return live;
     } catch (error) {
       await browser?.close().catch(() => undefined);

@@ -1,3 +1,4 @@
+import { brandText } from "@shared/brand";
 import fs from "node:fs";
 import path from "node:path";
 import multer from "multer";
@@ -49,11 +50,11 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 
 
 function sendError(res: Response, error: unknown) {
   if (error instanceof z.ZodError) return res.status(400).json({ error: error.issues.map(issue => issue.message).join("; ") });
-  if (error instanceof TaskRejected) return res.status(409).json({ error: error.message });
+  if (error instanceof TaskRejected) return res.status(409).json({ error: brandText(error.message) });
   if (error instanceof SandboxError) return res.status(400).json({ error: error.message });
-  if (error instanceof GitHubError) return res.status(error.status === 422 ? 422 : 502).json({ error: error.message });
+  if (error instanceof GitHubError) return res.status(error.status === 422 ? 422 : 502).json({ error: brandText(error.message) });
   console.error("[agent]", error);
-  return res.status(500).json({ error: error instanceof Error ? error.message : "Unexpected error" });
+  return res.status(500).json({ error: error instanceof Error ? `Execution Error: ${brandText(error.message)}` : "Unexpected error" });
 }
 
 /** Wrap async handlers so rejections become JSON errors instead of hanging requests. */
@@ -85,14 +86,14 @@ export function agentRouter() {
     if (!deep && healthCache && Date.now() - healthCache.at < 20_000) return res.json({ providers: healthCache.result, activeTasks: activeTaskCount() });
     const [providers, media, database] = await Promise.all([
       probeProviders(deep),
-      mediaStatus(deep).then(status => ({ id: "media", label: "Snowflake media stage", ok: status.ok, latencyMs: 0, detail: status.detail, configured: Boolean(process.env.SNOWFLAKE_PAT) })),
+      mediaStatus(deep).then(status => ({ id: "vault", label: "Curialy Vault (media)", ok: status.ok, latencyMs: 0, detail: status.ok ? "Media storage reachable" : brandText(status.detail), configured: Boolean(process.env.SNOWFLAKE_PAT) })),
       (async () => {
         const started = Date.now();
         try {
           await agentStats();
-          return { id: "tiger", label: "Tiger Cloud (PostgreSQL)", ok: true, latencyMs: Date.now() - started, detail: "Connected", configured: true };
+          return { id: "data", label: "Curialy Data", ok: true, latencyMs: Date.now() - started, detail: "Database connected", configured: true };
         } catch (error) {
-          return { id: "tiger", label: "Tiger Cloud (PostgreSQL)", ok: false, latencyMs: Date.now() - started, detail: error instanceof Error ? error.message : "error", configured: Boolean(process.env.TIGER_DATABASE_URL) };
+          return { id: "data", label: "Curialy Data", ok: false, latencyMs: Date.now() - started, detail: error instanceof Error ? brandText(error.message) : "error", configured: Boolean(process.env.TIGER_DATABASE_URL) };
         }
       })(),
     ]);
@@ -106,17 +107,18 @@ export function agentRouter() {
     const env = process.env;
     res.json({
       keys: [
-        { id: "tiger", label: "Tiger Cloud connection", envVar: "TIGER_DATABASE_URL", location: "/etc/curialyai.env", configured: Boolean(env.TIGER_DATABASE_URL), masked: env.TIGER_DATABASE_URL ? new URL(env.TIGER_DATABASE_URL).host : null },
-        { id: "cortex", label: "Snowflake PAT", envVar: "SNOWFLAKE_PAT", location: "/etc/curialyai.env + /etc/snowflake-proxy.env", configured: Boolean(env.SNOWFLAKE_PAT), masked: mask(env.SNOWFLAKE_PAT), note: "Model calls go through the local bridge; the app uses the PAT directly only for the media stage." },
-        { id: "paper", label: "Paper Instruments API key", envVar: "PAPER_API_KEY", location: "/etc/curialyai.env", configured: Boolean(PROVIDER_ENV.paperKey), masked: mask(PROVIDER_ENV.paperKey) },
-        { id: "relay", label: "RelayStation API key", envVar: "RELAY_API_KEY", location: "/etc/curialyai.env", configured: Boolean(PROVIDER_ENV.relayKey), masked: mask(PROVIDER_ENV.relayKey) },
-        { id: "browserbase", label: "Browserbase API key", envVar: "BROWSERBASE_API_KEY", location: "/etc/curialyai.env", configured: Boolean(PROVIDER_ENV.browserbaseKey), masked: mask(PROVIDER_ENV.browserbaseKey) },
-        { id: "render", label: "Render API key", envVar: "RENDER_API_KEY", location: "/etc/curialyai.env", configured: Boolean(PROVIDER_ENV.renderKey), masked: mask(PROVIDER_ENV.renderKey) },
-        { id: "github-oauth", label: "GitHub OAuth app", envVar: "GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET", location: "/etc/curialyai.env", configured: oauthConfigured(), masked: env.GITHUB_CLIENT_ID ?? null, note: "The connected account's token is stored AES-256-GCM encrypted in Tiger (key: GITHUB_TOKEN_KEY)." },
-        { id: "manus", label: "Manus API key", envVar: "MANUS_AGENT_API_KEY", location: "/etc/curialyai.env", configured: Boolean(PROVIDER_ENV.manusKey), masked: mask(PROVIDER_ENV.manusKey) },
-        { id: "tinker", label: "Thinking Machines Tinker key", envVar: "TINKER_API_KEY", location: "/etc/curialyai.env", configured: Boolean(env.TINKER_API_KEY), masked: mask(env.TINKER_API_KEY), note: "Stored for fine-tuning; no Tinker models are routable yet." },
-        { id: "session", label: "Session signing secret", envVar: "SESSION_SECRET", location: "/etc/curialyai.env", configured: (env.SESSION_SECRET ?? "").length >= 32, masked: env.SESSION_SECRET ? "set" : null },
-        { id: "admin", label: "Admin password hash", envVar: "ADMIN_PASSWORD_HASH", location: "/etc/curialyai.env", configured: Boolean(env.ADMIN_PASSWORD_HASH), masked: env.ADMIN_PASSWORD_HASH ? "scrypt" : null },
+        { id: "core", label: "Curialy Core engine", configured: Boolean(env.SNOWFLAKE_PAT), masked: mask(env.SNOWFLAKE_PAT) },
+        { id: "fast", label: "Fast Reasoning engine", configured: Boolean(PROVIDER_ENV.paperKey), masked: mask(PROVIDER_ENV.paperKey) },
+        { id: "relay", label: "Relay engine (Claude & Gemini routes)", configured: Boolean(PROVIDER_ENV.relayKey), masked: mask(PROVIDER_ENV.relayKey) },
+        { id: "research", label: "Research Agent", configured: Boolean(PROVIDER_ENV.manusKey), masked: mask(PROVIDER_ENV.manusKey) },
+        { id: "browser", label: "Live Browser", configured: Boolean(PROVIDER_ENV.browserbaseKey), masked: mask(PROVIDER_ENV.browserbaseKey) },
+        { id: "deploy", label: "Cloud Deploy", configured: Boolean(PROVIDER_ENV.renderKey), masked: mask(PROVIDER_ENV.renderKey) },
+        { id: "data", label: "Curialy Data (database)", configured: Boolean(env.TIGER_DATABASE_URL), masked: env.TIGER_DATABASE_URL ? "connected" : null },
+        { id: "vault", label: "Curialy Vault (media storage)", configured: Boolean(env.SNOWFLAKE_PAT), masked: env.SNOWFLAKE_PAT ? "set" : null },
+        { id: "tuning", label: "Model tuning", configured: Boolean(env.TINKER_API_KEY), masked: mask(env.TINKER_API_KEY), note: "Stored for fine-tuning; no tuned models are routable yet." },
+        { id: "github-oauth", label: "GitHub app", configured: oauthConfigured(), masked: env.GITHUB_CLIENT_ID ? `••••${env.GITHUB_CLIENT_ID.slice(-4)}` : null, note: "Connected-account tokens are stored encrypted (AES-256-GCM)." },
+        { id: "session", label: "Session signing secret", configured: (env.SESSION_SECRET ?? "").length >= 32, masked: env.SESSION_SECRET ? "set" : null },
+        { id: "admin", label: "Admin password", configured: Boolean(env.ADMIN_PASSWORD_HASH), masked: env.ADMIN_PASSWORD_HASH ? "scrypt hash" : null },
       ],
     });
   });
@@ -269,22 +271,32 @@ export function agentRouter() {
 
   // ---- Media (Snowflake stage) ----
 
-  router.get("/media", handle(async (_req, res) => res.json({ files: await listMedia(), stage: await mediaStatus() })));
+  router.get("/media", handle(async (_req, res) => res.json({ files: await listMedia(), stage: await mediaStatus().then(status => ({ ok: status.ok, detail: status.ok ? "ready" : brandText(status.detail) })) })));
 
   router.post("/media", upload.single("file"), handle(async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "Attach a file up to 25 MB." });
     const status = await mediaStatus();
-    if (!status.ok) return res.status(503).json({ error: `Media storage is not ready: ${status.detail}` });
+    if (!status.ok) return res.status(503).json({ error: `Curialy Vault is not ready: ${brandText(status.detail)}` });
     const stored = await storeMedia({ buffer: req.file.buffer, filename: path.basename(req.file.originalname), mimeType: req.file.mimetype || "application/octet-stream", kind: "upload" });
     res.status(201).json({ file: stored });
   }));
 
-  // Redirect to a short-lived presigned URL so the browser loads bytes straight from Snowflake.
+  // Stream through this origin (white-label: the storage host never appears in the browser).
+  // Bytes are piped, not buffered or written to disk.
   router.get("/media/:id", handle(async (req, res) => {
     const media = await getMedia(String(req.params.id));
     if (!media) return res.status(404).json({ error: "Not found." });
+    const upstream = await fetch(await presignedUrl(media.stage_path, 300));
+    if (!upstream.ok || !upstream.body) return res.status(502).json({ error: "Curialy Vault could not return this file." });
+    const inline = /^image\/(png|jpe?g|gif|webp|avif)$/.test(media.mime_type);
+    res.setHeader("Content-Type", inline ? media.mime_type : "application/octet-stream");
+    res.setHeader("Content-Disposition", `${inline ? "inline" : "attachment"}; filename="${media.filename.replace(/["\\\r\n]/g, "")}"`);
+    res.setHeader("Content-Security-Policy", "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'");
     res.setHeader("Cache-Control", "private, max-age=600");
-    res.redirect(302, await presignedUrl(media.stage_path, 3600));
+    const length = upstream.headers.get("content-length");
+    if (length) res.setHeader("Content-Length", length);
+    const { Readable } = await import("node:stream");
+    Readable.fromWeb(upstream.body as never).pipe(res);
   }));
 
   router.delete("/media/:id", handle(async (req, res) => res.json({ deleted: await deleteMedia(String(req.params.id)) })));

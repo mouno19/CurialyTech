@@ -65,14 +65,14 @@ export default function Sandbox() {
   return (
     <AppShell title="Code Sandbox" actions={taskId ? <Link href={`/tasks/${taskId}`} className="btn sm"><SquareTerminal size={13} /> Open task</Link> : undefined}>
       <div className="page">
-        <p className="page-sub">While a task is active its files live in a scratch workspace on the server (unprivileged <code>curialy-agent</code> user, memory/CPU/network limits). After an hour idle the scratch copy is removed; the durable snapshot lives in Tiger and is restored on follow-up.</p>
+        <p className="page-sub">While a task is active its files live in a scratch workspace on the server (unprivileged <code>curialy-agent</code> user, memory/CPU/network limits). After an hour idle the scratch copy is removed; the durable snapshot lives in Curialy Vault and is restored on follow-up.</p>
         {tasks.length === 0 ? <div className="card"><EmptyState icon={FolderOpen} title="No workspaces yet">Run an Agent-mode task to create one.</EmptyState></div> : (
           <div className="card">
             <div className="card-head">
               <select className="input" style={{ maxWidth: 520, height: 30 }} value={taskId ?? ""} onChange={event => setTaskId(event.target.value)}>
                 {tasks.map(task => <option key={task.id} value={task.id}>{task.prompt.slice(0, 90)}</option>)}
               </select>
-              {source && <span className={`chip ${source === "live" ? "mint" : ""}`}>{source === "live" ? "live scratch" : "archived in Tiger"}</span>}
+              {source && <span className={`chip ${source === "live" ? "mint" : ""}`}>{source === "live" ? "live scratch" : "archived in Curialy Vault"}</span>}
               <button className="icon-btn" onClick={loadTree} title="Refresh"><RefreshCcw size={14} /></button>
             </div>
             <div className="explorer">

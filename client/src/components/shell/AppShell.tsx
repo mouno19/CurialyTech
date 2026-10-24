@@ -66,8 +66,11 @@ export function AppShell({ title, crumb, actions, children }: { title: string; c
 
   const healthy = providers?.filter(probe => probe.configured && probe.ok).length ?? 0;
   const configured = providers?.filter(probe => probe.configured).length ?? 0;
-  const cortex = providers?.find(probe => probe.id === "cortex");
-  const pillState = providers === null ? "" : cortex?.ok && healthy === configured ? "ok" : cortex?.ok ? "warn" : "bad";
+  const core = providers?.find(probe => probe.id === "core");
+  const allUp = Boolean(core?.ok) && healthy === configured;
+  const pillState = providers === null ? "" : allUp ? "ok" : core?.ok ? "warn" : "bad";
+  const pillTitle = providers === null ? "Checking engines…" : allUp ? "All Engines Operational" : core?.ok ? "Curialy Core Online" : "Curialy Core Offline";
+  const pillDetail = providers === null ? "Engine status" : core?.ok ? `${allUp ? "" : `${configured - healthy} degraded • `}Latency ${core.latencyMs}ms` : "Reconnecting…";
 
   const isActive = (href: string) => (href === "/" ? location === "/" : location.startsWith(href));
 
@@ -99,8 +102,8 @@ export function AppShell({ title, crumb, actions, children }: { title: string; c
               {(providers ?? [{ id: "x" } as ProviderProbe]).map(probe => <span key={probe.id} className={`dot ${providers === null ? "" : !probe.configured ? "" : probe.ok ? "ok" : "bad"}`} />)}
             </span>
             <span className="health-text">
-              <span>{providers === null ? "Checking providers…" : `${healthy}/${configured} providers online`}</span>
-              <small>{cortex ? `Cortex ${cortex.ok ? `${cortex.latencyMs} ms` : "unreachable"}` : "Model connections"}</small>
+              <span>{pillTitle}</span>
+              <small>{pillDetail}</small>
             </span>
             <span className={`dot ${pillState}`} style={{ marginLeft: "auto" }} />
           </Link>

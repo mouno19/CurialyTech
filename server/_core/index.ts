@@ -2,7 +2,6 @@ import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { publicPlatformScript } from "./publicConfig";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
@@ -52,9 +51,6 @@ async function startServer() {
   registerGitHubAuth(app);
   app.use("/api/agent", requireAdmin, agentRouter());
   app.get("/api/github/repos", requireAdmin, (req, res) => void githubReposHandler(req, res).catch(error => res.status(502).json({ error: error instanceof Error ? error.message : "GitHub request failed" })));
-  app.get("/api/platform/config.js", (_req, res) => {
-    res.set("Cache-Control", "no-store").type("application/javascript").send(publicPlatformScript());
-  });
   // tRPC API
   app.use(
     "/api/trpc",

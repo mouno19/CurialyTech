@@ -109,7 +109,7 @@ describe("model dispatch", () => {
 
   it("rejects tool-less models in agent mode", () => {
     expect(() => dispatchModel({ ...base, model: "llama3.1-70b", prompt: "Build a CLI" })).toThrow(/cannot call tools/);
-    expect(dispatchModel({ ...base, mode: "chat", model: "llama3.1-70b", prompt: "Hi" }).spec.provider).toBe("cortex-inference");
+    expect(dispatchModel({ ...base, mode: "chat", model: "llama3.1-70b", prompt: "Hi" }).spec.provider).toBe("core-inference");
   });
 });
 
@@ -201,5 +201,16 @@ describe("tool_result error content", () => {
     expect(history[1].content[0].content).toBe("HTTP 404");
     expect(history[1].content[1].content).toHaveLength(2); // successful results keep their screenshot
     expect(history[1].content[2].content).toBe("plain");
+  });
+});
+
+describe("white-label scrubbing", () => {
+  it("replaces vendor names, endpoints and credential names in platform messages", async () => {
+    const { brandText } = await import("../shared/brand");
+    expect(brandText("Snowflake Cortex returned 500 via https://kxjnkhs-lk29580.snowflakecomputing.com/api/v2/cortex/v1/messages"))
+      .toBe("Curialy Core returned 500 via [internal endpoint]");
+    expect(brandText("Browserbase session failed; set BROWSERBASE_API_KEY")).toBe("Curialy Live Browser session failed; set engine credential");
+    expect(brandText("Render POST /services failed")).toBe("Curialy Cloud Deploy POST /services failed");
+    expect(brandText("Manus task stopped")).toBe("Curialy Research Agent task stopped");
   });
 });

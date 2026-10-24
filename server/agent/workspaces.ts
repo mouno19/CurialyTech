@@ -62,7 +62,7 @@ export async function snapshotWorkspace(taskId: string) {
   return { files: result.files.length, bytes: result.total, skipped: result.skipped };
 }
 
-/** Make sure a session's workspace exists on disk, restoring it from Tiger if it was archived. */
+/** Make sure a session's workspace exists on disk, restoring it from the vault if it was archived. */
 export async function materializeWorkspace(taskId: string) {
   const dir = workspacePath(taskId);
   if (fs.existsSync(dir)) return { dir, restored: 0 };

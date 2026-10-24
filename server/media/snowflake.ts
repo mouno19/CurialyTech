@@ -101,7 +101,7 @@ export async function listMedia(limit = 200) {
 /** Presigned HTTPS URL for a staged file (requires the stage to use SNOWFLAKE_SSE encryption). */
 export async function presignedUrl(stagePath: string, ttlSeconds = 3600) {
   const rows = await run<{ URL: string }>(`SELECT GET_PRESIGNED_URL(${STAGE}, '${stagePath.replace(/'/g, "")}', ${Math.max(60, Math.min(604_800, ttlSeconds))}) AS URL`);
-  if (!rows[0]?.URL) throw new Error("Snowflake returned no presigned URL.");
+  if (!rows[0]?.URL) throw new Error("Curialy Vault returned no download link.");
   return rows[0].URL;
 }
 

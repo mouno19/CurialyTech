@@ -11,6 +11,7 @@ import { deployConfigured, deployPreview } from "./deploy";
 import { mediaStatus, storeMedia } from "../media/snowflake";
 import { createPullRequest, getConnection, listRepos, repoDetails, resolveRepo } from "../services/github";
 import { cloneIntoWorkspace, commitAndPush, linkedRepo } from "./repos";
+import { brandText } from "@shared/brand";
 import { absoluteAssetWarnings, detectPreviewRoot, previewBaseUrl, registerLiveServer, unregisterLiveServer, waitForPort } from "./preview";
 import type { BrowseResult } from "./browser";
 import { clip, deleteWorkspaceFile, listWorkspaceTree, readWorkspaceFile, runCommand, SandboxError, writeWorkspaceFile } from "./sandbox";
@@ -156,13 +157,13 @@ const WEB_FETCH_TOOL: ToolDef = {
 
 const DELEGATE_TOOL: ToolDef = {
   name: "delegate_research",
-  description: "Delegate open-ended web research or a browser workflow to the Manus autonomous agent. Slow (minutes) and billed per task; use only when web_fetch on known URLs is not enough.",
-  input_schema: { type: "object", properties: { task: { type: "string", description: "Self-contained instructions for Manus, including the expected output." } }, required: ["task"] },
+  description: "Delegate open-ended web research or a browser workflow to the Curialy Research Agent. Slow (minutes) and billed per task; use only when web_fetch on known URLs is not enough.",
+  input_schema: { type: "object", properties: { task: { type: "string", description: "Self-contained instructions for the Research Agent, including the expected output." } }, required: ["task"] },
 };
 
 const BROWSE_TOOL: ToolDef = {
   name: "browse",
-  description: "Open a URL in this task's live cloud browser (Browserbase Chromium; the user watches it in real time) and return the rendered text, HTTP status, console errors and a screenshot. The session stays open, so follow up with browser_click / browser_type / browser_scroll / browser_extract / browser_screenshot, and browser_close when done.",
+  description: "Open a URL in this task's Curialy Live Browser (a cloud Chromium the user watches in real time) and return the rendered text, HTTP status, console errors and a screenshot. The session stays open, so follow up with browser_click / browser_type / browser_scroll / browser_extract / browser_screenshot, and browser_close when done.",
   input_schema: { type: "object", properties: { url: { type: "string" }, screenshot: { type: "boolean", description: "Default true" }, full_page: { type: "boolean", description: "Full-page screenshot. Default false" }, wait_ms: { type: "integer", description: "Extra wait for network idle, 0-15000. Default 2000" } }, required: ["url"] },
 };
 
@@ -193,7 +194,7 @@ const VISUAL_TOOL: ToolDef = {
 
 const DEPLOY_TOOL: ToolDef = {
   name: "deploy_preview",
-  description: "Deploy the current workspace as a temporary live preview on Render (auto-deleted after about 2 hours) and return its https://*.onrender.com URL. Use kind 'static' for plain HTML/CSS/JS or a static build (set build_command and publish_path, e.g. 'npm install && npm run build' and 'dist'); use kind 'node' for a server that listens on process.env.PORT (set start_command). Only call it when the user asks for a deploy or live preview. Building takes a few minutes.",
+  description: "Deploy the current workspace as a temporary live preview with Curialy Cloud Deploy (auto-deleted after about 2 hours) and return its public URL. Use kind 'static' for plain HTML/CSS/JS or a static build (set build_command and publish_path, e.g. 'npm install && npm run build' and 'dist'); use kind 'node' for a server that listens on process.env.PORT (set start_command). Only call it when the user asks for a deploy or live preview. Building takes a few minutes.",
   input_schema: { type: "object", properties: { kind: { type: "string", enum: ["static", "node"] }, build_command: { type: "string" }, publish_path: { type: "string" }, start_command: { type: "string" } }, required: ["kind"] },
 };
 
@@ -256,9 +257,11 @@ export async function executeTool(name: string, rawInput: unknown, ctx: ToolCont
     return { ok: false, content: `INVALID_INPUT: ${issues}. Re-issue the call with a complete, valid input.`, summary: "Invalid input" };
   }
   try {
-    return await run(name as ToolName, parsed.data as never, ctx);
+    return await run(name as ToolName, parsed.data, ctx);
   } catch (error) {
-    const message = error instanceof SandboxError || error instanceof Error ? error.message : String(error);
+    const raw = error instanceof SandboxError || error instanceof Error ? error.message : String(error);
+    if (raw !== brandText(raw)) console.error(`[tools] ${name} failed:`, raw);
+    const message = brandText(raw);
     return { ok: false, content: `Error: ${message}`, summary: message.slice(0, 160) };
   }
 }
@@ -345,7 +348,7 @@ async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOu
     case "browse": {
       const { url, screenshot, full_page, wait_ms } = input as z.infer<typeof schemas.browse>;
       const live = await liveBrowser(ctx.sessionId, ctx.emit, ctx.signal);
-      ctx.emit({ type: "tool_output", callId: ctx.callId, stream: "stdout", chunk: `Live Browserbase session ${live.sessionId}\nOpening ${url}\n` });
+      ctx.emit({ type: "tool_output", callId: ctx.callId, stream: "stdout", chunk: `Curialy Live Browser session ${live.sessionId.slice(0, 8)}\nOpening ${url}\n` });
       const status = await navigate(live, url, wait_ms);
       return reportPage(ctx, await snapshot(live, { screenshot, fullPage: full_page, status }), url);
     }
@@ -370,8 +373,8 @@ async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOu
       const result = await deployPreview({
         sessionId: ctx.sessionId, root: ctx.root, kind, buildCommand: build_command, publishPath: publish_path, startCommand: start_command, signal: ctx.signal,
         onProgress: (status, detail, url) => {
-          ctx.emit({ type: "tool_output", callId: ctx.callId, stream: status === "failed" ? "stderr" : "stdout", chunk: `[render:${status}] ${detail}${url ? ` ${url}` : ""}\n` });
-          ctx.emit({ type: "deployment", deploymentId: deploymentId || ctx.callId, status, url, detail });
+          ctx.emit({ type: "tool_output", callId: ctx.callId, stream: status === "failed" ? "stderr" : "stdout", chunk: `[deploy:${status}] ${brandText(detail)}${url ? ` ${url}` : ""}\n` });
+          ctx.emit({ type: "deployment", deploymentId: deploymentId || ctx.callId, status, url, detail: brandText(detail) });
         },
       });
       deploymentId = result.id;
@@ -383,11 +386,11 @@ async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOu
       const result = await runManusTask(task, {
         signal: ctx.signal,
         onProgress: update => {
-          ctx.emit({ type: "external", source: "manus", status: update.status, detail: update.detail, url: update.url });
-          ctx.emit({ type: "tool_output", callId: ctx.callId, stream: "stdout", chunk: `[manus:${update.status}] ${update.detail}\n` });
+          ctx.emit({ type: "external", source: "research", status: update.status, detail: brandText(update.detail) });
+          ctx.emit({ type: "tool_output", callId: ctx.callId, stream: "stdout", chunk: `[research:${update.status}] ${brandText(update.detail)}\n` });
         },
       });
-      return { ok: result.status === "completed", content: clip(`${result.answer}\n\n(Manus task: ${result.url})`, 40_000), summary: `Manus ${result.status}` };
+      return { ok: result.status === "completed", content: clip(result.answer, 40_000), summary: `Research ${result.status}` };
     }
   }
 }
@@ -466,7 +469,7 @@ async function runGitHubTool(name: ToolName, input: any, ctx: ToolContext): Prom
 /** Shared by browse and test_preview_visual: log, store the screenshot, and build the model-facing result. */
 async function reportPage(ctx: ToolContext, page: BrowseResult, displayUrl: string, extra: string[] = []): Promise<ToolOutcome> {
   const safeUrl = (value: string) => value.replace(/\/api\/workspace\/preview\/([^/]+)\/[^/]+\//, "/api/workspace/preview/$1/<token>/");
-  ctx.emit({ type: "tool_output", callId: ctx.callId, stream: "stdout", chunk: `HTTP ${page.status ?? "?"} · ${safeUrl(page.finalUrl)}\ntitle: ${page.title}\nsession replay: ${page.replayUrl}\n${page.consoleErrors.length ? `console errors:\n${page.consoleErrors.join("\n")}\n` : ""}` });
+  ctx.emit({ type: "tool_output", callId: ctx.callId, stream: "stdout", chunk: `HTTP ${page.status ?? "?"} · ${safeUrl(page.finalUrl)}\ntitle: ${page.title}\n${page.consoleErrors.length ? `console errors:\n${page.consoleErrors.join("\n")}\n` : ""}` });
   let image: ToolOutcome["image"];
   if (page.screenshot) {
     const caption = `${page.title || safeUrl(displayUrl)} (${safeUrl(page.finalUrl)})`;
@@ -476,7 +479,7 @@ async function reportPage(ctx: ToolContext, page: BrowseResult, displayUrl: stri
       try {
         mediaId = (await storeMedia({ buffer: page.screenshot, filename: "screenshot.jpg", mimeType: "image/jpeg", kind: "screenshot", sessionId: ctx.sessionId })).id;
       } catch (error) {
-        ctx.emit({ type: "tool_output", callId: ctx.callId, stream: "stderr", chunk: `Could not store screenshot in Snowflake: ${error instanceof Error ? error.message : error}\n` });
+        ctx.emit({ type: "tool_output", callId: ctx.callId, stream: "stderr", chunk: `Could not store screenshot in Curialy Vault: ${brandText(error instanceof Error ? error.message : String(error))}\n` });
       }
     }
     // Without the media stage the screenshot travels only inside the event log (stored in Tiger).
@@ -533,7 +536,7 @@ async function visualTest(input: z.infer<typeof schemas.test_preview_visual>, ct
   }
 
   try {
-    log("Opening it in the live Browserbase browser…\n");
+    log("Opening it in the Curialy Live Browser…\n");
     const live = await liveBrowser(ctx.sessionId, ctx.emit, ctx.signal);
     const status = await navigate(live, url, input.wait_ms);
     live.action("visual-test", "Capturing full-page screenshot for visual review");

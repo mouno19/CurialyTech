@@ -23,7 +23,7 @@ export async function api<T>(path: string, init?: RequestInit & { json?: unknown
 }
 
 export type ProviderProbe = { id: string; label: string; ok: boolean; latencyMs: number; detail: string; configured: boolean };
-export type KeyStatus = { id: string; label: string; envVar: string; location: string; configured: boolean; masked: string | null; note?: string };
+export type KeyStatus = { id: string; label: string; configured: boolean; masked: string | null; note?: string };
 export type TreeEntry = { path: string; type: "file" | "dir"; size: number };
 export type UploadedFile = { id: string; filename: string; mimeType: string; sizeBytes: number };
 export type MediaFile = UploadedFile & { kind: string; sessionId: string | null; createdAt: string };

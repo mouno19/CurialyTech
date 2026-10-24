@@ -4,7 +4,8 @@ import { MODELS } from "@shared/agent";
 import { AppShell } from "@/components/shell/AppShell";
 import { agentApi, type ProviderProbe } from "@/lib/api";
 
-const PROVIDER_FOR: Record<string, string[]> = { cortex: ["cortex", "cortex-inference"], relay: ["relay"], paper: ["paper"], manus: ["manus"], gemini: [] };
+const PROVIDER_FOR: Record<string, string[]> = { core: ["core", "core-inference"], relay: ["relay"], fast: ["fast"], research: ["research"], gemini: [] };
+const NON_GEMINI = (group: string) => group !== "Gemini";
 
 export default function Integrations() {
   const [providers, setProviders] = useState<ProviderProbe[] | null>(null);
@@ -29,10 +30,10 @@ export default function Integrations() {
     <AppShell title="System Integrations" actions={<button className="btn sm" disabled={deepRunning} onClick={() => void load(true)}>{deepRunning ? <Loader2 size={13} className="spin" /> : <RefreshCcw size={13} />} Run live model check</button>}>
       <div className="page">
         <div className="page-narrow">
-          <p className="page-sub">Provider connections used by the agent. A quick check pings each endpoint; the live check sends a tiny real completion to verify end-to-end.{checkedAt && ` Last ${deep ? "live" : "quick"} check ${checkedAt.toLocaleTimeString()}.`}</p>
+          <p className="page-sub">Curialy engines and services used by the agent. A quick check pings each endpoint; the live check sends a tiny real completion to verify end-to-end.{checkedAt && ` Last ${deep ? "live" : "quick"} check ${checkedAt.toLocaleTimeString()}.`}</p>
           <div className="grid grid-2">
             {(providers ?? []).map(probe => {
-              const models = probe.id === "gemini" ? MODELS.filter(model => model.group === "Google Gemini") : MODELS.filter(model => PROVIDER_FOR[probe.id]?.includes(model.provider) && model.group !== "Google Gemini");
+              const models = probe.id === "gemini" ? MODELS.filter(model => model.group === "Gemini") : MODELS.filter(model => PROVIDER_FOR[probe.id]?.includes(model.provider) && NON_GEMINI(model.group));
               return (
                 <div key={probe.id} className="card">
                   <div className="card-head">
@@ -41,7 +42,7 @@ export default function Integrations() {
                   </div>
                   <div className="card-pad">
                     <div className="muted" style={{ fontSize: 12.5, marginBottom: 10, wordBreak: "break-word" }}>{probe.detail}</div>
-                    <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>{models.map(model => <span key={model.id} className="chip mono">{model.id}</span>)}</div>
+                    <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>{models.map(model => <span key={model.id} className="chip">{model.label}</span>)}</div>
                   </div>
                 </div>
               );
