@@ -16,6 +16,8 @@ import { query } from "../db/pg";
 import { createRepo, disconnect, getConnection, GITHUB_SCOPES, GitHubError, isValidRepoName, listRepos, oauthConfigured, pushProjectToRepo } from "../services/github";
 import { cloneIntoWorkspace, commitAndPush, linkedRepo } from "./repos";
 import { materializeWorkspace } from "./workspaces";
+import { absoluteAssetWarnings, detectPreviewRoot, previewBaseUrl } from "./preview";
+import { browse } from "./browser";
 
 const createSchema = z.object({
   prompt: z.string().trim().min(2, "Describe what you want to accomplish.").max(20_000),
@@ -335,6 +337,45 @@ export function agentRouter() {
     const pushed = await pushProjectToRepo(connection.token, fullName, files, created ? "Initial export from Curialy AI" : "Update from Curialy AI");
     await query("UPDATE curialy.chat_sessions SET github_repo = $2, github_repo_url = $3, github_pushed_at = now(), updated_at = now() WHERE id = $1", [task.id, fullName, pushed.repoUrl]);
     res.json({ repo: fullName, url: pushed.repoUrl, commitUrl: pushed.commitUrl, files: files.length, created });
+  }));
+
+  // ---- Workspace preview (served by this app; see preview.ts) ----
+
+  async function findPreview(taskId: string, dir?: string) {
+    if (dir) return detectPreviewRoot(taskId, dir);
+    const repo = await linkedRepo(taskId);
+    if (repo && repo.repoPath !== ".") {
+      for (const candidate of ["dist", "build", "out", "public", "."]) {
+        const found = detectPreviewRoot(taskId, path.join(repo.repoPath, candidate));
+        if (found) return found;
+      }
+    }
+    return detectPreviewRoot(taskId);
+  }
+
+  router.get("/tasks/:id/preview", handle(async (req, res) => {
+    const task = await taskOr404(req, res);
+    if (!task) return;
+    const site = await findPreview(task.id, typeof req.query.dir === "string" ? req.query.dir : undefined);
+    if (!site) return res.json({ available: false, workspace: fs.existsSync(workspacePath(task.id)) });
+    const warnings = absoluteAssetWarnings(fs.readFileSync(path.join(site.absolute, "index.html"), "utf8"));
+    const query = site.dir === "." ? "" : `?dir=${encodeURIComponent(site.dir)}`;
+    // Relative URL for the iframe (same origin as the UI); the token is short-lived and task-scoped.
+    const url = new URL(previewBaseUrl(task.id)).pathname + query;
+    res.json({ available: true, dir: site.dir, url, warnings });
+  }));
+
+  router.post("/tasks/:id/preview/screenshot", handle(async (req, res) => {
+    const task = await taskOr404(req, res);
+    if (!task) return;
+    const site = await findPreview(task.id);
+    if (!site) return res.status(404).json({ error: "No built web output to screenshot." });
+    const query = site.dir === "." ? "" : `?dir=${encodeURIComponent(site.dir)}`;
+    const result = await browse({ url: `${previewBaseUrl(task.id)}${query}`, screenshot: true, fullPage: true, waitMs: 1500, signal: AbortSignal.timeout(120_000) });
+    res.json({
+      status: result.status, title: result.title, consoleErrors: result.consoleErrors, replayUrl: result.replayUrl,
+      image: result.screenshot ? `data:image/jpeg;base64,${result.screenshot.toString("base64")}` : null,
+    });
   }));
 
   // ---- Live previews ----

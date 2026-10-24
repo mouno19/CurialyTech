@@ -1,5 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { diffLines } from "diff";
+import fs from "node:fs";
+import path from "node:path";
 import { z } from "zod";
 import type { PlanStep } from "@shared/agent";
 import type { Emit } from "./bus";
@@ -9,6 +11,8 @@ import { deployConfigured, deployPreview } from "./deploy";
 import { mediaStatus, storeMedia } from "../media/snowflake";
 import { createPullRequest, getConnection, listRepos, repoDetails, resolveRepo } from "../services/github";
 import { cloneIntoWorkspace, commitAndPush, linkedRepo } from "./repos";
+import { absoluteAssetWarnings, detectPreviewRoot, previewBaseUrl, registerLiveServer, unregisterLiveServer, waitForPort } from "./preview";
+import type { BrowseResult } from "./browser";
 import { clip, deleteWorkspaceFile, listWorkspaceTree, readWorkspaceFile, runCommand, SandboxError, writeWorkspaceFile } from "./sandbox";
 
 export type ToolContext = {
@@ -70,6 +74,14 @@ const schemas = {
   web_fetch: z.object({ url: z.string().url().max(2000) }),
   delegate_research: z.object({ task: z.string().min(10).max(12000) }),
   browse: z.object({ url: z.string().url().max(2000), screenshot: z.boolean().default(true), full_page: z.boolean().default(false), wait_ms: z.number().int().min(0).max(15000).default(2000) }),
+  test_preview_visual: z.object({
+    dir: z.string().max(300).optional(),
+    page: z.string().max(500).default("/"),
+    start_command: z.string().max(2000).optional(),
+    port: z.number().int().min(1024).max(65535).refine(port => ![3000, 3100, 8082].includes(port), "That port is reserved").default(4173),
+    full_page: z.boolean().default(true),
+    wait_ms: z.number().int().min(0).max(15000).default(1500),
+  }),
   github_list_repos: z.object({ query: z.string().max(100).default("") }),
   github_get_repo: z.object({ repo: z.string().min(1).max(200) }),
   github_clone_to_workspace: z.object({ repo: z.string().min(1).max(200), branch: z.string().max(200).optional() }),
@@ -148,6 +160,22 @@ const BROWSE_TOOL: ToolDef = {
   input_schema: { type: "object", properties: { url: { type: "string" }, screenshot: { type: "boolean", description: "Default true" }, full_page: { type: "boolean", description: "Full-page screenshot. Default false" }, wait_ms: { type: "integer", description: "Extra wait for network idle, 0-15000. Default 2000" } }, required: ["url"] },
 };
 
+const VISUAL_TOOL: ToolDef = {
+  name: "test_preview_visual",
+  description: "Visually test the web app you built: serve it, open it in a real Chromium (cloud browser), and get back a full-page screenshot plus HTTP status, console errors and the rendered text. Static mode (default) serves the build output: index.html in dir, else dist/, build/, out/, public/ or the workspace root, so run the build first and use relative asset paths (Vite: base: './', CRA: \"homepage\": \".\"). Server mode: pass start_command (e.g. 'npm run dev -- --host 127.0.0.1 --port 4173' or 'node server.js') and the port it listens on; the server runs only for the duration of the test. Inspect the screenshot and fix layout or styling problems before finishing.",
+  input_schema: {
+    type: "object",
+    properties: {
+      dir: { type: "string", description: "Directory containing index.html (static mode)" },
+      page: { type: "string", description: "Path to open, default /" },
+      start_command: { type: "string", description: "Server mode: command that starts the app" },
+      port: { type: "integer", description: "Server mode: port the app listens on (default 4173)" },
+      full_page: { type: "boolean", description: "Full-page screenshot, default true" },
+      wait_ms: { type: "integer", description: "Extra wait for network idle, default 1500" },
+    },
+  },
+};
+
 const DEPLOY_TOOL: ToolDef = {
   name: "deploy_preview",
   description: "Deploy the current workspace as a temporary live preview on Render (auto-deleted after about 2 hours) and return its https://*.onrender.com URL. Use kind 'static' for plain HTML/CSS/JS or a static build (set build_command and publish_path, e.g. 'npm install && npm run build' and 'dist'); use kind 'node' for a server that listens on process.env.PORT (set start_command). Only call it when the user asks for a deploy or live preview. Building takes a few minutes.",
@@ -188,6 +216,7 @@ export function toolsFor(opts: { coding: boolean; web: boolean; eager: boolean; 
   if (opts.github) tools.push(...(opts.coding ? GITHUB_TOOLS : GITHUB_TOOLS.slice(0, 2)));
   if (opts.coding && deployConfigured().ok) tools.push(DEPLOY_TOOL);
   if ((opts.web || opts.coding) && PROVIDER_ENV.browserbaseKey && PROVIDER_ENV.browserbaseProject) tools.push(BROWSE_TOOL);
+  if (opts.coding && PROVIDER_ENV.browserbaseKey && PROVIDER_ENV.browserbaseProject) tools.push(VISUAL_TOOL);
   if (opts.web) {
     tools.push(WEB_FETCH_TOOL);
     if (PROVIDER_ENV.manusKey) tools.push(DELEGATE_TOOL);
@@ -302,27 +331,10 @@ async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOu
       const { url, screenshot, full_page, wait_ms } = input as z.infer<typeof schemas.browse>;
       ctx.emit({ type: "tool_output", callId: ctx.callId, stream: "stdout", chunk: `Opening Browserbase session for ${url}\n` });
       const page = await browse({ url, screenshot, fullPage: full_page, waitMs: wait_ms, signal: ctx.signal });
-      ctx.emit({ type: "tool_output", callId: ctx.callId, stream: "stdout", chunk: `HTTP ${page.status ?? "?"} · ${page.finalUrl}\ntitle: ${page.title}\nsession replay: ${page.replayUrl}\n${page.consoleErrors.length ? `console errors:\n${page.consoleErrors.join("\n")}\n` : ""}` });
-      let image: ToolOutcome["image"];
-      if (page.screenshot) {
-        const caption = `${page.title || page.finalUrl} (${page.finalUrl})`;
-        const stage = await mediaStatus();
-        let mediaId: string | null = null;
-        if (stage.ok) {
-          try {
-            mediaId = (await storeMedia({ buffer: page.screenshot, filename: "screenshot.jpg", mimeType: "image/jpeg", kind: "screenshot", sessionId: ctx.sessionId })).id;
-          } catch (error) {
-            ctx.emit({ type: "tool_output", callId: ctx.callId, stream: "stderr", chunk: `Could not store screenshot in Snowflake: ${error instanceof Error ? error.message : error}\n` });
-          }
-        }
-        // Without the media stage the screenshot travels only inside the event log (stored in Tiger).
-        ctx.emit({ type: "media", callId: ctx.callId, mediaId, filename: "screenshot.jpg", mimeType: "image/jpeg", caption, ...(mediaId ? {} : { inlineDataUrl: `data:image/jpeg;base64,${page.screenshot.toString("base64")}` }) });
-        if (ctx.vision) image = { mediaType: "image/jpeg", base64: page.screenshot.toString("base64") };
-      }
-      const ok = page.status === null || page.status < 400;
-      const body = [`HTTP ${page.status ?? "unknown"} · final URL ${page.finalUrl}`, `Title: ${page.title}`, page.consoleErrors.length ? `Console errors:\n${page.consoleErrors.join("\n")}` : "No console errors.", "", clip(page.text, 30_000)].join("\n");
-      return { ok, content: body, summary: `HTTP ${page.status ?? "?"} · ${page.title.slice(0, 60) || "page"}`, image };
+      return reportPage(ctx, page, url);
     }
+    case "test_preview_visual":
+      return visualTest(input as z.infer<typeof schemas.test_preview_visual>, ctx);
     case "github_list_repos":
     case "github_get_repo":
     case "github_clone_to_workspace":
@@ -425,5 +437,88 @@ async function runGitHubTool(name: ToolName, input: any, ctx: ToolContext): Prom
     }
     default:
       return { ok: false, content: `Unknown GitHub tool ${name}`, summary: "Unknown tool" };
+  }
+}
+
+/** Shared by browse and test_preview_visual: log, store the screenshot, and build the model-facing result. */
+async function reportPage(ctx: ToolContext, page: BrowseResult, displayUrl: string, extra: string[] = []): Promise<ToolOutcome> {
+  const safeUrl = (value: string) => value.replace(/\/api\/workspace\/preview\/([^/]+)\/[^/]+\//, "/api/workspace/preview/$1/<token>/");
+  ctx.emit({ type: "tool_output", callId: ctx.callId, stream: "stdout", chunk: `HTTP ${page.status ?? "?"} · ${safeUrl(page.finalUrl)}\ntitle: ${page.title}\nsession replay: ${page.replayUrl}\n${page.consoleErrors.length ? `console errors:\n${page.consoleErrors.join("\n")}\n` : ""}` });
+  let image: ToolOutcome["image"];
+  if (page.screenshot) {
+    const caption = `${page.title || safeUrl(displayUrl)} (${safeUrl(page.finalUrl)})`;
+    const stage = await mediaStatus();
+    let mediaId: string | null = null;
+    if (stage.ok) {
+      try {
+        mediaId = (await storeMedia({ buffer: page.screenshot, filename: "screenshot.jpg", mimeType: "image/jpeg", kind: "screenshot", sessionId: ctx.sessionId })).id;
+      } catch (error) {
+        ctx.emit({ type: "tool_output", callId: ctx.callId, stream: "stderr", chunk: `Could not store screenshot in Snowflake: ${error instanceof Error ? error.message : error}\n` });
+      }
+    }
+    // Without the media stage the screenshot travels only inside the event log (stored in Tiger).
+    ctx.emit({ type: "media", callId: ctx.callId, mediaId, filename: "screenshot.jpg", mimeType: "image/jpeg", caption, ...(mediaId ? {} : { inlineDataUrl: `data:image/jpeg;base64,${page.screenshot.toString("base64")}` }) });
+    if (ctx.vision) image = { mediaType: "image/jpeg", base64: page.screenshot.toString("base64") };
+  }
+  const ok = page.status === null || page.status < 400;
+  const body = [
+    `HTTP ${page.status ?? "unknown"} · final URL ${safeUrl(page.finalUrl)}`,
+    `Title: ${page.title}`,
+    page.consoleErrors.length ? `Console errors:\n${page.consoleErrors.join("\n")}` : "No console errors.",
+    ...extra,
+    image ? "The screenshot is attached: check layout, spacing, colours, fonts and that key controls are visible." : page.screenshot ? "(This model cannot view images; rely on the text and console output.)" : "",
+    "",
+    clip(page.text, 30_000),
+  ].filter(line => line !== "").join("\n");
+  return { ok, content: body, summary: `HTTP ${page.status ?? "?"} · ${page.title.slice(0, 60) || "page"}`, image };
+}
+
+async function visualTest(input: z.infer<typeof schemas.test_preview_visual>, ctx: ToolContext): Promise<ToolOutcome> {
+  const log = (chunk: string, stream: "stdout" | "stderr" = "stdout") => ctx.emit({ type: "tool_output", callId: ctx.callId, stream, chunk });
+  const page = input.page.startsWith("/") ? input.page.slice(1) : input.page;
+  const extra: string[] = [];
+  let url: string;
+  let server: { controller: AbortController; done: Promise<unknown> } | null = null;
+
+  if (input.start_command) {
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    ctx.signal.addEventListener("abort", abort, { once: true });
+    log(`$ ${input.start_command}\n`);
+    let serverOutput = "";
+    const done = runCommand({ root: ctx.root, command: input.start_command, timeoutSec: 600, signal: controller.signal, onOutput: (stream, chunk) => { serverOutput += chunk; log(chunk, stream); } });
+    server = { controller, done };
+    const up = await Promise.race([waitForPort(input.port, 90_000, controller.signal), done.then(() => false)]);
+    if (!up) {
+      controller.abort();
+      await done.catch(() => undefined);
+      ctx.signal.removeEventListener("abort", abort);
+      return { ok: false, content: `The server never started listening on port ${input.port}.\n${clip(serverOutput, 8000)}`, summary: `Port ${input.port} never opened` };
+    }
+    registerLiveServer(ctx.sessionId, input.port);
+    url = `${previewBaseUrl(ctx.sessionId)}${page}`;
+    ctx.emit({ type: "preview", url: previewBaseUrl(ctx.sessionId), dir: null, mode: "server" });
+  } else {
+    const site = detectPreviewRoot(ctx.sessionId, input.dir);
+    if (!site) return { ok: false, content: `No index.html found${input.dir ? ` in ${input.dir}` : " in dist/, build/, out/, public/ or the workspace root"}. Build the project first (e.g. npm run build), or pass start_command to test a running server.`, summary: "Nothing to preview" };
+    const warnings = absoluteAssetWarnings(fs.readFileSync(path.join(site.absolute, "index.html"), "utf8"));
+    if (warnings.length) extra.push(`Warning: index.html references absolute paths (${warnings.join(", ")}); they resolve outside the preview. Rebuild with relative asset paths (Vite: base: './').`);
+    const query = site.dir === "." ? "" : `?dir=${encodeURIComponent(site.dir)}`;
+    url = `${previewBaseUrl(ctx.sessionId)}${page}${query}`;
+    log(`Serving ${site.dir === "." ? "the workspace root" : `${site.dir}/`} as a static preview.\n`);
+    ctx.emit({ type: "preview", url: `${previewBaseUrl(ctx.sessionId)}${query}`, dir: site.dir, mode: "static" });
+  }
+
+  try {
+    log("Opening it in a Browserbase cloud Chromium…\n");
+    const result = await browse({ url, screenshot: true, fullPage: input.full_page, waitMs: input.wait_ms, signal: ctx.signal });
+    return await reportPage(ctx, result, url, extra);
+  } finally {
+    if (server) {
+      unregisterLiveServer(ctx.sessionId);
+      server.controller.abort();
+      await server.done.catch(() => undefined);
+      log("Test server stopped.\n");
+    }
   }
 }

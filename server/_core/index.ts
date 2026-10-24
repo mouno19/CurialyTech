@@ -14,6 +14,7 @@ import { startWorkspaceSweeper } from "../agent/workspaces";
 import { startDeploymentSweeper } from "../agent/deploy";
 import { migrate } from "../db/pg";
 import { registerGitHubAuth } from "../auth-github";
+import { previewHandler } from "../agent/preview";
 
 async function startServer() {
   const app = express();
@@ -28,6 +29,13 @@ async function startServer() {
   if (!authConfigured()) console.warn("[auth] ADMIN_PASSWORD_HASH / SESSION_SECRET missing: the workspace is locked until they are set.");
   startWorkspaceSweeper(isRunning);
   startDeploymentSweeper();
+  // Agent previews: token-authenticated, sandboxed (CSP), and mounted before the body parsers so
+  // requests can be streamed untouched to a dev server running in the sandbox.
+  app.use("/api/workspace/preview/:taskId/:token", (req, res) => {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Referrer-Policy", "no-referrer");
+    previewHandler(req, res);
+  });
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "2mb" }));
   app.use(express.urlencoded({ limit: "2mb", extended: true }));

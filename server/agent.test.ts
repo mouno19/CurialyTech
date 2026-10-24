@@ -167,3 +167,21 @@ describe("linked repo change detection", () => {
     await expect(computeChanges(repoRoot, { fullName: "o/r", url: "", branch: "main", baseSha: "not-a-sha; rm -rf /", repoPath: ".", pushed: {}, deleted: [] })).rejects.toThrow(/Invalid base sha/);
   });
 });
+
+describe("workspace previews", () => {
+  it("signs task-scoped, expiring tokens", async () => {
+    process.env.SESSION_SECRET = "x".repeat(40);
+    const preview = await import("./agent/preview");
+    const id = "2b1c9f4e-1111-4222-8333-944455556666";
+    const token = preview.previewToken(id);
+    expect(preview.verifyPreviewToken(id, token)).toBe(true);
+    expect(preview.verifyPreviewToken("3b1c9f4e-1111-4222-8333-944455556666", token)).toBe(false);
+    expect(preview.verifyPreviewToken(id, preview.previewToken(id, -10))).toBe(false);
+    expect(preview.verifyPreviewToken(id, "abc.def")).toBe(false);
+  });
+
+  it("flags absolute asset paths that would escape the preview", async () => {
+    const { absoluteAssetWarnings } = await import("./agent/preview");
+    expect(absoluteAssetWarnings('<script src="/assets/index.js"></script><link href="./a.css"><a href="//cdn.x/y">')).toEqual(["/assets/index.js"]);
+  });
+});

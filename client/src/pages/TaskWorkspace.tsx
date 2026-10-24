@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { Markdown } from "@/components/Markdown";
-import { ArrowUp, Bot, Brain, CircleStop, Copy, ExternalLink, FileDiff, Loader2, RefreshCcw, Rocket, ScrollText, SquareTerminal, Trash2, User, Workflow } from "lucide-react";
+import { ArrowUp, Bot, Brain, CircleStop, Copy, ExternalLink, FileDiff, Globe, Loader2, RefreshCcw, Rocket, ScrollText, SquareTerminal, Trash2, User, Workflow } from "lucide-react";
 import { getModel, type AgentTaskSummary } from "@shared/agent";
 import { AppShell, EmptyState, GitHubMark, useGitHub } from "@/components/shell/AppShell";
 import { RepoSelector } from "@/components/RepoSelector";
@@ -106,7 +106,51 @@ function FollowUp({ taskId, disabled, onSent }: { taskId: string; disabled: bool
   );
 }
 
-function Deck({ state, task }: { state: StreamState; task: AgentTaskSummary | null }) {
+function WorkspacePreview({ taskId, refreshKey, running }: { taskId: string; refreshKey: number; running: boolean }) {
+  const [info, setInfo] = useState<Awaited<ReturnType<typeof agentApi.preview>> | null>(null);
+  const [frame, setFrame] = useState(0);
+  const [shot, setShot] = useState<Awaited<ReturnType<typeof agentApi.previewScreenshot>> | null>(null);
+  const [shooting, setShooting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => { agentApi.preview(taskId).then(setInfo).catch(() => setInfo({ available: false })); }, [taskId, refreshKey]);
+  if (!info) return <div className="faint" style={{ fontSize: 12 }}>Checking the workspace for a web build…</div>;
+  if (!info.available) {
+    return <EmptyState icon={Rocket} title="No web build in the workspace yet">When the agent builds a site (index.html in dist/, build/, out/, public/ or the root) it appears here. {info.workspace === false ? "This workspace is archived; send a follow-up to restore it." : ""}</EmptyState>;
+  }
+  const screenshot = async () => {
+    setShooting(true);
+    setError(null);
+    try { setShot(await agentApi.previewScreenshot(taskId)); } catch (shotError) { setError(shotError instanceof Error ? shotError.message : "Screenshot failed"); } finally { setShooting(false); }
+  };
+  return (
+    <>
+      <div className="preview-bar">
+        <span className="chip mint">workspace preview</span>
+        <span className="mono faint" style={{ fontSize: 12 }}>{info.dir === "." ? "./" : `${info.dir}/`}</span>
+        <span className="spacer" />
+        <button className="icon-btn sm" title="Reload" onClick={() => { setFrame(value => value + 1); void agentApi.preview(taskId).then(setInfo); }}><RefreshCcw size={13} /></button>
+        <a className="icon-btn sm" href={info.url} target="_blank" rel="noreferrer" title="Open in a new tab"><ExternalLink size={13} /></a>
+        <button className="btn sm" disabled={shooting || running} onClick={() => void screenshot()} title="Render in a Browserbase cloud Chromium">{shooting ? <Loader2 size={13} className="spin" /> : <Globe size={13} />} Screenshot in Browserbase</button>
+      </div>
+      {info.warnings && info.warnings.length > 0 && <div className="alert warn">index.html uses absolute asset paths ({info.warnings.join(", ")}), which won't load in the preview. Ask the agent to build with relative paths (Vite: base: './').</div>}
+      <iframe key={`${frame}-${refreshKey}`} className="preview-frame" src={info.url} title="Workspace preview" sandbox="allow-scripts allow-forms allow-popups allow-modals" />
+      <div className="faint" style={{ fontSize: 11.5 }}>Sandboxed: the page runs with an isolated origin (no cookies or localStorage). Use Deploy for a full-fidelity public URL.</div>
+      {error && <div className="alert error">{error}</div>}
+      {shot && (
+        <figure className="tl media">
+          {shot.image && <a href={shot.image} target="_blank" rel="noreferrer"><img src={shot.image} alt="Browserbase screenshot" /></a>}
+          <figcaption>
+            <Globe size={12} /> HTTP {shot.status ?? "?"} · {shot.title || "untitled"} · {shot.consoleErrors.length ? `${shot.consoleErrors.length} console error(s)` : "no console errors"} ·{" "}
+            <a href={shot.replayUrl} target="_blank" rel="noreferrer" style={{ textDecoration: "underline" }}>session replay</a>
+          </figcaption>
+          {shot.consoleErrors.length > 0 && <div className="kv">{shot.consoleErrors.join("\n")}</div>}
+        </figure>
+      )}
+    </>
+  );
+}
+
+function Deck({ state, task, onDeploy, deploying }: { state: StreamState; task: AgentTaskSummary | null; onDeploy?: () => void; deploying?: boolean }) {
   const [tab, setTab] = useState<DeckTab>("activity");
   const sum = totals(state.usage);
   const usageByTurn = useMemo(() => new Map<number, TurnUsage>(state.usage.map((turn, index) => [index + 1, turn])), [state.usage]);
@@ -116,6 +160,10 @@ function Deck({ state, task }: { state: StreamState; task: AgentTaskSummary | nu
   const live = [...state.deployments].reverse().find(deployment => deployment.status === "live" && deployment.url);
   const latestDeploy = state.deployments[state.deployments.length - 1];
   const [frameKey, setFrameKey] = useState(0);
+  // Re-check the workspace build whenever the agent opens a preview or changes files.
+  const lastPreview = [...state.events].reverse().find(event => event.type === "preview");
+  const previewKey = (lastPreview?.seq ?? 0) + state.changes.length * 100000 + (state.ended ? 1 : 0);
+  useEffect(() => { if (lastPreview) setTab(current => (current === "activity" ? "preview" : current)); }, [lastPreview?.seq]);
   useEffect(() => { if (live) setTab(current => (current === "activity" ? "preview" : current)); }, [live?.url]);
   const bottom = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
@@ -128,7 +176,7 @@ function Deck({ state, task }: { state: StreamState; task: AgentTaskSummary | nu
     { id: "thinking", label: "Thinking", icon: Brain, count: thinking.length },
     { id: "terminal", label: "Terminal", icon: SquareTerminal, count: tools.length },
     { id: "changes", label: "Changes", icon: FileDiff, count: state.changes.length },
-    { id: "preview", label: "Preview", icon: Rocket, count: state.deployments.length },
+    { id: "preview", label: "Preview", icon: Rocket, count: state.deployments.length || undefined },
     { id: "raw", label: "Raw log", icon: ScrollText, count: state.events.length },
   ];
 
@@ -174,7 +222,16 @@ function Deck({ state, task }: { state: StreamState; task: AgentTaskSummary | nu
               {state.changes.map(change => <DiffViewer key={change.seq} change={change} />)}
             </>
           ) : <EmptyState icon={FileDiff} title="No file changes">Every file the agent creates, edits or deletes appears here as a diff.</EmptyState>)}
-          {tab === "preview" && (latestDeploy ? (
+          {tab === "preview" && (
+            <>
+              <div className="eyebrow">Workspace preview</div>
+              <WorkspacePreview taskId={task?.id ?? ""} refreshKey={previewKey} running={state.status === "running"} />
+              <div className="row" style={{ marginTop: 14 }}>
+                <span className="eyebrow">Live deployment (Render)</span>
+                <span className="spacer" />
+                {onDeploy && <button className="btn sm" disabled={state.status === "running" || deploying} onClick={onDeploy}><Rocket size={13} /> Deploy Live to Render</button>}
+              </div>
+              {latestDeploy ? (
             <>
               <div className="preview-bar">
                 <span className={`chip ${latestDeploy.status === "live" ? "mint" : latestDeploy.status === "failed" ? "red" : "violet"}`}>{latestDeploy.status === "building" || latestDeploy.status === "creating" ? <Loader2 size={11} className="spin" /> : null}{latestDeploy.status}</span>
@@ -186,7 +243,9 @@ function Deck({ state, task }: { state: StreamState; task: AgentTaskSummary | nu
               <div className="muted" style={{ fontSize: 12 }}>{latestDeploy.detail}{latestDeploy.expiresAt ? ` · auto-deletes ${new Date(latestDeploy.expiresAt).toLocaleTimeString()}` : ""}</div>
               {live ? <iframe key={frameKey} className="preview-frame" src={live.url} title="Live preview" sandbox="allow-scripts allow-forms allow-same-origin allow-popups" /> : latestDeploy.status !== "failed" && <EmptyState icon={Loader2} title="Render is building">The preview appears here as soon as the deploy is live.</EmptyState>}
             </>
-          ) : <EmptyState icon={Rocket} title="No live preview yet">Press Deploy (or ask the agent to deploy) to publish this workspace to a temporary Render URL.</EmptyState>)}
+              ) : <div className="faint" style={{ fontSize: 12 }}>Not deployed. Deploy publishes this workspace to a temporary public *.onrender.com URL (needs GitHub connected).</div>}
+            </>
+          )}
           {tab === "raw" && (
             <div className="card raw">
               {state.events.map(event => {
@@ -215,6 +274,13 @@ export default function TaskWorkspace({ id }: { id: string }) {
   const [generation, setGeneration] = useState(0);
   const [mobilePane, setMobilePane] = useState<"chat" | "deck">("deck");
   const [deploying, setDeploying] = useState(false);
+  const deploy = () => {
+    setDeploying(true);
+    void agentApi.followUp(id, "Deploy this project as a temporary live preview with deploy_preview (choose static or node and the right build/start commands from the files), then open the URL with browse to confirm it renders, and report the link.")
+      .then(() => setGeneration(value => value + 1))
+      .catch(error => alert(error instanceof Error ? error.message : "Deploy failed to start"))
+      .finally(() => setDeploying(false));
+  };
   const [exporting, setExporting] = useState(false);
   const { status: github } = useGitHub();
 
@@ -287,13 +353,7 @@ export default function TaskWorkspace({ id }: { id: string }) {
         <a className="btn sm" href="/api/auth/github/start" title="Connect GitHub to export and deploy"><GitHubMark size={13} /> Connect GitHub</a>
       ))}
       {task?.mode === "agent" && (
-        <button className="btn sm" disabled={running || deploying} title="Publish this workspace as a temporary Render preview" onClick={() => {
-          setDeploying(true);
-          void agentApi.followUp(id, "Deploy this project as a temporary live preview with deploy_preview (choose static or node and the right build/start commands from the files), then open the URL with browse to confirm it renders, and report the link.")
-            .then(() => setGeneration(value => value + 1))
-            .catch(error => alert(error instanceof Error ? error.message : "Deploy failed to start"))
-            .finally(() => setDeploying(false));
-        }}><Rocket size={13} /> Deploy</button>
+        <button className="btn sm" disabled={running || deploying} title="Publish this workspace as a temporary Render preview" onClick={deploy}><Rocket size={13} /> Deploy</button>
       )}
       {running ? (
         <button className="btn danger sm" onClick={() => void agentApi.cancel(id)}><CircleStop size={13} /> Cancel</button>
@@ -323,14 +383,14 @@ export default function TaskWorkspace({ id }: { id: string }) {
             <button className={mobilePane === "chat" ? "on" : ""} onClick={() => setMobilePane("chat")}><User size={12} style={{ verticalAlign: -2 }} /> Conversation</button>
             <button className={mobilePane === "deck" ? "on" : ""} onClick={() => setMobilePane("deck")}><Workflow size={12} style={{ verticalAlign: -2 }} /> Inspector</button>
           </div>
-          <div style={{ flex: 1, minHeight: 0, marginTop: 8 }}>{mobilePane === "chat" ? conversation : <Deck state={state} task={task} />}</div>
+          <div style={{ flex: 1, minHeight: 0, marginTop: 8 }}>{mobilePane === "chat" ? conversation : <Deck state={state} task={task} onDeploy={task?.mode === "agent" ? deploy : undefined} deploying={deploying} />}</div>
         </div>
       ) : (
         <div className="workspace">
           <PanelGroup direction="horizontal" autoSaveId="curialy-task-split">
             <Panel defaultSize={44} minSize={28}>{conversation}</Panel>
             <PanelResizeHandle className="resize-handle" />
-            <Panel defaultSize={56} minSize={30}><Deck state={state} task={task} /></Panel>
+            <Panel defaultSize={56} minSize={30}><Deck state={state} task={task} onDeploy={task?.mode === "agent" ? deploy : undefined} deploying={deploying} /></Panel>
           </PanelGroup>
         </div>
       )}
