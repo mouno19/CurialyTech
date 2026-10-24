@@ -182,3 +182,5 @@ export function listLibraryFiles() {
 export function deleteLibraryFile(id: string) {
   return db.prepare("DELETE FROM curialy_files WHERE id = ?").run(id).changes > 0;
 }
+
+export { db, dataDir };

@@ -43,3 +43,11 @@ export const adminProcedure = t.procedure.use(
     });
   }),
 );
+
+/** Requires the Curialy admin session (single-operator deployment). */
+export const operatorProcedure = t.procedure.use(
+  t.middleware(async ({ ctx, next }) => {
+    if (!ctx.admin) throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+    return next({ ctx });
+  }),
+);

@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["server/**/*", "shared/**/*"],
+  "compilerOptions": { "tsBuildInfoFile": "./node_modules/typescript/tsbuildinfo.server" }
+}
