@@ -14,6 +14,8 @@ import { getConnection } from "../services/github";
 import { linkedRepo } from "./repos";
 import { brandText, ENGINE_ALIAS } from "@shared/brand";
 import { closeLiveBrowser } from "./browser";
+import { hydrateImages, stageAttachments, userContent, type AttachmentDisplay, type AttachmentRef } from "./attachments";
+import { getMedia } from "../media/snowflake";
 import { changedSince, MAX_AUTO_ARTIFACTS, storeArtifacts, workspaceManifest, type Manifest } from "./artifacts";
 
 const MAX_TURNS = 60;
@@ -187,6 +189,8 @@ type RunContext = {
   manifest: Manifest;
   /** path -> mtime of files already attached in this run (explicitly). */
   attached: Map<string, number>;
+  /** Base64 of attached images for this run (conversation stores Vault references only). */
+  images: Map<string, string>;
 };
 
 export function activeTaskCount() {
@@ -203,30 +207,25 @@ const formatFor = (spec: ModelSpec): ConversationFormat => (spec.provider === "f
 // while their database writes are in flight.
 const reserved = new Set<string>();
 
-export async function startTask(req: CreateTaskRequest, attachments: { filename: string; stagePath: string }[]) {
+export async function startTask(req: CreateTaskRequest, attachments: AttachmentRef[]) {
   if (running.size + reserved.size >= MAX_CONCURRENT) throw new TaskRejected(`${MAX_CONCURRENT} tasks are already running. Wait for one to finish or cancel it.`);
   const { spec, reason } = dispatchModel(req);
   const id = randomUUID();
   reserved.add(id);
   try {
     await createAgentTask({ id, prompt: req.prompt, mode: req.mode, model: spec.id, effort: req.effort, webSearch: req.webSearch, format: formatFor(spec) });
-    let prompt = req.prompt;
-    if (attachments.length) {
-      const root = ensureWorkspace(id);
-      for (const file of attachments) writeWorkspaceBytes(root, path.join("attachments", file.filename), await fetchMediaBytes(file.stagePath));
-      prompt += `\n\nAttached files (in the workspace): ${attachments.map(file => `attachments/${file.filename}`).join(", ")}`;
-    }
-    const conversation: Record<string, unknown>[] = [{ role: "user", content: prompt }];
+    const staged = await stageAttachments(ensureWorkspace(id), attachments, { vision: spec.vision && formatFor(spec) === "anthropic" });
+    const conversation: Record<string, unknown>[] = [{ role: "user", content: userContent(req.prompt + staged.note, staged.images, formatFor(spec)) }];
     await updateAgentTask(id, { conversation, workspaceState: "live" });
     await addMessage(id, "user", req.prompt);
-    void runTask(id, conversation, { mode: req.mode, effort: req.effort, webSearch: req.webSearch, spec, reason, cloneRepo: req.repo ? { repo: req.repo, branch: req.repoBranch ?? undefined } : undefined });
+    void runTask(id, conversation, { mode: req.mode, effort: req.effort, webSearch: req.webSearch, spec, reason, userText: req.prompt, userAttachments: staged.display, cloneRepo: req.repo ? { repo: req.repo, branch: req.repoBranch ?? undefined } : undefined });
     return id;
   } finally {
     reserved.delete(id);
   }
 }
 
-export async function followUp(taskId: string, prompt: string) {
+export async function followUp(taskId: string, prompt: string, attachments: AttachmentRef[] = []) {
   if (running.has(taskId) || reserved.has(taskId)) throw new TaskRejected("This task is still running.");
   if (running.size + reserved.size >= MAX_CONCURRENT) throw new TaskRejected(`${MAX_CONCURRENT} tasks are already running.`);
   reserved.add(taskId);
@@ -235,12 +234,26 @@ export async function followUp(taskId: string, prompt: string) {
     if (!task) throw new TaskRejected("Task not found.");
     const spec = getModel(task.model);
     if (!spec) throw new TaskRejected(`Unknown model ${task.model}.`);
-    const { messages } = await getConversation(taskId);
+    const { messages, format } = await getConversation(taskId);
     const conversation = messages as Record<string, unknown>[];
-    conversation.push({ role: "user", content: prompt });
+    // Attachments land in the (restored, if archived) workspace before the run starts.
+    let restoredFiles = 0;
+    let staged: Awaited<ReturnType<typeof stageAttachments>> = { display: [] as AttachmentDisplay[], images: [], note: "" };
+    if (attachments.length) {
+      try {
+        const workspace = await materializeWorkspace(taskId);
+        restoredFiles = workspace.restored;
+        staged = await stageAttachments(workspace.dir, attachments, { vision: spec.vision && format === "anthropic" });
+      } catch (error) {
+        // Mark the (possibly just restored) workspace live so the idle sweeper archives it again.
+        await updateAgentTask(taskId, { workspaceState: "live" });
+        throw error;
+      }
+    }
+    conversation.push({ role: "user", content: userContent(prompt + staged.note, staged.images, format) });
     await updateAgentTask(taskId, { conversation, status: "queued", error: null, workspaceState: "live" });
     await addMessage(taskId, "user", prompt);
-    void runTask(taskId, conversation, { mode: task.mode, effort: task.effort, webSearch: task.webSearch, spec, reason: "Follow-up on the same model." });
+    void runTask(taskId, conversation, { mode: task.mode, effort: task.effort, webSearch: task.webSearch, spec, reason: "Follow-up on the same model.", userText: prompt, userAttachments: staged.display, restoredFiles });
   } finally {
     reserved.delete(taskId);
   }
@@ -269,7 +282,7 @@ async function githubContext(taskId: string) {
   };
 }
 
-async function runTask(taskId: string, conversation: Record<string, unknown>[], opts: { mode: TaskMode; effort: ThinkingLevel; webSearch: boolean; spec: ModelSpec; reason: string; cloneRepo?: { repo: string; branch?: string } }) {
+async function runTask(taskId: string, conversation: Record<string, unknown>[], opts: { mode: TaskMode; effort: ThinkingLevel; webSearch: boolean; spec: ModelSpec; reason: string; userText?: string; userAttachments?: AttachmentDisplay[]; restoredFiles?: number; cloneRepo?: { repo: string; branch?: string } }) {
   const controller = new AbortController();
   running.set(taskId, controller);
   let bus: Awaited<ReturnType<typeof openChannel>>;
@@ -307,14 +320,16 @@ async function runTask(taskId: string, conversation: Record<string, unknown>[], 
     agentVerifyCommands: [],
     manifest: workspaceManifest(root),
     attached: new Map(),
+    images: new Map(),
   };
   const filesBefore = existing?.filesChanged ?? 0;
   updateAgentTask(taskId, { status: "running" });
   const latest = conversation[conversation.length - 1];
-  if (latest?.role === "user") emit({ type: "user_message", text: plainText(latest.content as Anthropic.MessageParam["content"]) });
+  // Show what the user typed (not the attachment note appended for the model) plus their files.
+  if (latest?.role === "user") emit({ type: "user_message", text: opts.userText ?? plainText(latest.content as Anthropic.MessageParam["content"]), ...(opts.userAttachments?.length ? { attachments: opts.userAttachments } : {}) });
   emit({ type: "status", status: "running" });
   emit({ type: "dispatch", model: opts.spec.id, provider: (ENGINE_ALIAS[opts.spec.provider] ?? "core"), reason: opts.reason });
-  if (restored) emit({ type: "notice", level: "info", message: `Workspace restored from Curialy Vault (${restored} files).` });
+  if (restored || opts.restoredFiles) emit({ type: "notice", level: "info", message: `Workspace restored from Curialy Vault (${restored || opts.restoredFiles} files).` });
   ctx.phases.advance("planning");
   if (opts.mode === "chat") {
     ctx.phases.set("implementation", "skipped");
@@ -328,7 +343,13 @@ async function runTask(taskId: string, conversation: Record<string, unknown>[], 
       if (!outcome.ok) throw new Error(outcome.content);
       ctx.context = (await githubContext(taskId)).context;
       const first = conversation[0];
-      if (first && typeof first.content === "string") first.content = `${first.content}\n\n[The repository ${opts.cloneRepo.repo} has already been cloned into the workspace: ${outcome.summary}.]`;
+      const cloned = `\n\n[The repository ${opts.cloneRepo.repo} has already been cloned into the workspace: ${outcome.summary}.]`;
+      if (first && typeof first.content === "string") first.content += cloned;
+      else if (first && Array.isArray(first.content)) {
+        const text = [...(first.content as { type: string; text?: string }[])].reverse().find(block => block.type === "text");
+        if (text) text.text = (text.text ?? "") + cloned;
+        else (first.content as unknown[]).push({ type: "text", text: cloned.trim() });
+      }
     } else if (opts.cloneRepo) {
       throw new Error("Connect GitHub to work on a repository.");
     }
@@ -404,11 +425,16 @@ async function streamTurn(ctx: RunContext, conversation: Anthropic.MessageParam[
     if (fixed) ctx.emit({ type: "notice", level: "info", message: `Repaired ${fixed} earlier failed tool result(s) that contained images (rejected by the API).` });
   }
   ctx.emit({ type: "turn_start", turn, model: ctx.spec.id });
+  let warned = false;
+  const messages = await hydrateImages(conversation, ctx.images, async mediaId => {
+    const media = await getMedia(mediaId);
+    return media ? fetchMediaBytes(media.stage_path) : null;
+  }, message => { if (!warned) { warned = true; ctx.emit({ type: "notice", level: "warn", message }); } });
   const stream = client.messages.stream({
     model: ctx.spec.id,
     max_tokens: MAX_TOKENS,
     system: [{ type: "text", text: ctx.mode === "agent" ? AGENT_SYSTEM : CHAT_SYSTEM }, ...(ctx.context ? [{ type: "text" as const, text: ctx.context }] : [])],
-    messages: conversation,
+    messages,
     ...(tools.length ? { tools } : {}),
     ...reasoningParams(ctx.spec, ctx.effort),
   }, { signal: ctx.signal });

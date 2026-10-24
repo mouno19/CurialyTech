@@ -454,3 +454,13 @@ code, pre, kbd, .mono { font-family: var(--mono); }
 .markdown table { margin: 0 0 0.8em; font-size: 0.95em; } .markdown th { background: var(--surface-3); text-align: left; }
 .markdown strong { color: var(--text); }
 .markdown img { max-width: 100%; border-radius: 8px; }
+
+/* Composer attachments: paste/drop target and image thumbnails */
+.composer.dragging { border-color: var(--violet); box-shadow: 0 0 0 3px var(--violet-soft); }
+.att-chip.has-thumb { padding-left: 3px; height: 28px; }
+.att-chip img { width: 22px; height: 22px; object-fit: cover; border-radius: 5px; }
+.att-chip button { display: inline-grid; place-items: center; color: var(--muted); }
+.msg-user-wrap { align-self: flex-end; max-width: 88%; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.msg-user-wrap .msg-user { max-width: 100%; }
+.msg-user-files { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.msg-user-files img { width: 120px; height: 84px; object-fit: cover; border-radius: 9px; border: 1px solid var(--line-strong); display: block; }

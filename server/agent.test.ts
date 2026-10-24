@@ -236,3 +236,89 @@ describe("artifacts", () => {
     expect(classify("data.csv").mimeType).toBe("text/csv");
   });
 });
+
+describe("user attachments", () => {
+  const png = Buffer.from("89504e470d0a1a0a0000000d4948445200000001000000010806000000", "hex");
+
+  it("detects real image types from bytes, not names", async () => {
+    const { sniffImage } = await import("./agent/attachments");
+    expect(sniffImage(png)).toBe("image/png");
+    expect(sniffImage(Buffer.from([0xff, 0xd8, 0xff, 0xe0]))).toBe("image/jpeg");
+    expect(sniffImage(Buffer.from("GIF89a....", "latin1"))).toBe("image/gif");
+    expect(sniffImage(Buffer.from("RIFF\0\0\0\0WEBPVP8 ", "latin1"))).toBe("image/webp");
+    expect(sniffImage(Buffer.from("%PDF-1.7"))).toBeNull();
+  });
+
+  it("stages files without overwriting earlier attachments and caps vision images", async () => {
+    const { stageAttachments, userContent } = await import("./agent/attachments");
+    const ws = path.join(process.env.AGENT_WORKSPACE_ROOT!, "attach-run");
+    fs.mkdirSync(ws, { recursive: true });
+    const load = async (stage: string) => (stage.endsWith(".png") ? png : Buffer.from("hello"));
+    const ref = (id: string, filename: string) => ({ id, filename, stagePath: `s/${filename}`, mimeType: filename.endsWith(".png") ? "image/png" : "text/plain", sizeBytes: 1 });
+    const first = await stageAttachments(ws, [ref("11111111-1111-4111-8111-111111111111", "shot.png"), ref("22222222-2222-4222-8222-222222222222", "notes.txt")], { vision: true, load });
+    const second = await stageAttachments(ws, [ref("33333333-3333-4333-8333-333333333333", "shot.png")], { vision: false, load });
+    expect(first.display.map(file => file.path)).toEqual(["attachments/shot-111111.png", "attachments/notes-222222.txt"]);
+    expect(second.display[0].path).toBe("attachments/shot-333333.png"); // same name, distinct stable path
+    expect(first.images).toEqual([{ mediaType: "image/png", mediaId: "11111111-1111-4111-8111-111111111111" }]);
+    expect(second.images).toEqual([]);
+    expect(second.note).toMatch(/cannot view images/);
+    const content = userContent("look", first.images, "anthropic") as any[];
+    expect(content[0]).toMatchObject({ type: "image", source: { type: "curialy_vault" } });
+    expect(JSON.stringify(content)).not.toContain(png.toString("base64")); // stored as a reference, not bytes
+    expect(userContent("look", first.images, "openai")).toBe("look");
+  });
+
+  it("hydrates vault image references into base64 blocks, once per run", async () => {
+    const { hydrateImages } = await import("./agent/attachments");
+    let loads = 0;
+    const cache = new Map<string, string>();
+    const convo = [
+      { role: "user", content: [{ type: "image", source: { type: "curialy_vault", media_id: "m1", media_type: "image/png" } }, { type: "text", text: "hi" }] },
+      { role: "user", content: [{ type: "image", source: { type: "curialy_vault", media_id: "gone", media_type: "image/png" } }] },
+    ];
+    const load = async (id: string) => { loads++; return id === "m1" ? png : null; };
+    const out = await hydrateImages(convo, cache, load) as any[];
+    await hydrateImages(convo, cache, load);
+    expect(out[0].content[0]).toEqual({ type: "image", source: { type: "base64", media_type: "image/png", data: png.toString("base64") } });
+    expect(out[1].content[0]).toEqual({ type: "text", text: "[An attached image is no longer available.]" });
+    expect(convo[0].content[0].source.type).toBe("curialy_vault"); // stored history untouched
+    expect(loads).toBe(2);
+  });
+});
+
+describe("attachment limits (review fixes)", () => {
+  const pngOf = (width: number, height: number) => {
+    const header = Buffer.alloc(33);
+    Buffer.from("89504e470d0a1a0a", "hex").copy(header, 0);
+    header.writeUInt32BE(13, 8); header.write("IHDR", 12, "latin1"); header.writeUInt32BE(width, 16); header.writeUInt32BE(height, 20);
+    return header;
+  };
+
+  it("reads image dimensions and keeps oversized images out of the model input", async () => {
+    const { imageSize, stageAttachments } = await import("./agent/attachments");
+    expect(imageSize(pngOf(1440, 12000))).toEqual({ width: 1440, height: 12000 });
+    const ws = path.join(process.env.AGENT_WORKSPACE_ROOT!, "attach-dims");
+    fs.mkdirSync(ws, { recursive: true });
+    const result = await stageAttachments(ws, [{ id: "44444444-4444-4444-8444-444444444444", filename: "tall.png", stagePath: "s", mimeType: "image/png", sizeBytes: 33 }], { vision: true, load: async () => pngOf(1440, 12000) });
+    expect(result.images).toEqual([]);
+    expect(result.note).toMatch(/dimensions too large/);
+  });
+
+  it("caps images per request newest-first and does not cache transient load failures", async () => {
+    const { hydrateImages } = await import("./agent/attachments");
+    const ref = (id: string) => ({ type: "image", source: { type: "curialy_vault", media_id: id, media_type: "image/png" } });
+    const convo = Array.from({ length: 22 }, (_, i) => ({ role: "user", content: [ref(`m${i}`), { type: "text", text: `t${i}` }] }));
+    const cache = new Map<string, string>();
+    const out = await hydrateImages(convo, cache, async () => pngOf(10, 10)) as any[];
+    const sent = out.flatMap(message => message.content).filter((block: any) => block.type === "image");
+    expect(sent).toHaveLength(20);
+    expect(out[0].content[0].type).toBe("text"); // oldest two replaced by a note
+    expect(out[21].content[0].type).toBe("image");
+    let calls = 0;
+    const flaky = new Map<string, string>();
+    const once = await hydrateImages([{ role: "user", content: [ref("x")] }], flaky, async () => { calls++; throw new Error("vault down"); }) as any[];
+    expect(once[0].content[0].type).toBe("text");
+    expect(flaky.has("x")).toBe(false); // retried next turn
+    expect(calls).toBe(2); // one immediate retry
+  });
+});

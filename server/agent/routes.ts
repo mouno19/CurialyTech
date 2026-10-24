@@ -32,7 +32,18 @@ const createSchema = z.object({
 });
 const linkSchema = z.object({ repo: z.string().trim().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/), branch: z.string().trim().max(200).optional() });
 
-const followUpSchema = z.object({ prompt: z.string().trim().min(1).max(20_000) });
+const followUpSchema = z.object({ prompt: z.string().trim().min(1).max(20_000), attachmentIds: z.array(z.string().uuid()).max(10).default([]) });
+
+/** Resolve uploaded media ids (from /media) into attachment references. */
+async function resolveAttachments(ids: string[]) {
+  const refs = [];
+  for (const id of Array.from(new Set(ids))) {
+    const media = await getMedia(id);
+    if (!media) throw new TaskRejected(`Attachment ${id} not found.`);
+    refs.push({ id: media.id, filename: media.filename, stagePath: media.stage_path, mimeType: media.mime_type, sizeBytes: media.size_bytes });
+  }
+  return refs;
+}
 const exportSchema = z.object({ repoName: z.string().trim().max(100).optional(), private: z.boolean().default(true), message: z.string().trim().max(2000).optional(), branch: z.string().trim().max(200).optional() });
 
 /** GET repositories for the picker: the shape the UI (and /api/github/repos) promises. */
@@ -129,13 +140,7 @@ export function agentRouter() {
 
   router.post("/tasks", handle(async (req, res) => {
     const input = createSchema.parse(req.body);
-    const attachments = [];
-    for (const id of input.attachmentIds) {
-      const media = await getMedia(id);
-      if (!media) throw new TaskRejected(`Attachment ${id} not found.`);
-      attachments.push({ filename: media.filename, stagePath: media.stage_path });
-    }
-    const taskId = await startTask(input, attachments);
+    const taskId = await startTask(input, await resolveAttachments(input.attachmentIds));
     res.status(201).json({ taskId });
   }));
 
@@ -160,7 +165,8 @@ export function agentRouter() {
   router.post("/tasks/:id/messages", handle(async (req, res) => {
     const task = await taskOr404(req, res);
     if (!task) return;
-    await followUp(task.id, followUpSchema.parse(req.body).prompt);
+    const input = followUpSchema.parse(req.body);
+    await followUp(task.id, input.prompt, await resolveAttachments(input.attachmentIds));
     res.status(202).json({ ok: true });
   }));
 

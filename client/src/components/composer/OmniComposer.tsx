@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowUp, Bot, Check, ChevronDown, Globe, Loader2, MessageSquare, Paperclip, Sparkles, X } from "lucide-react";
 import { CAPABILITIES, getModel, MODELS, type CreateTaskRequest, type TaskMode, type ThinkingLevel } from "@shared/agent";
-import { agentApi, type GitHubRepo, type UploadedFile } from "@/lib/api";
+import { type GitHubRepo } from "@/lib/api";
+import { AttachmentTray, useAttachments } from "@/lib/useAttachments";
 import { RepoSelector } from "@/components/RepoSelector";
 import { useGitHub } from "@/components/shell/AppShell";
 
@@ -77,13 +78,11 @@ export function ModelPicker({ value, onChange, mode, openDown = false }: { value
 export function OmniComposer({ onSubmit, busy, autoFocus, seed }: { onSubmit: (request: CreateTaskRequest) => Promise<void>; busy: boolean; autoFocus?: boolean; seed?: { text: string; nonce: number } }) {
   const [prefs, setPrefs] = useState<Prefs>(readPrefs);
   const [prompt, setPrompt] = useState("");
-  const [files, setFiles] = useState<UploadedFile[]>([]);
-  const [uploading, setUploading] = useState(0);
+  const attachments = useAttachments();
   const [error, setError] = useState<string | null>(null);
   const [repo, setRepo] = useState<GitHubRepo | null>(null);
   const { status: github } = useGitHub();
   const textarea = useRef<HTMLTextAreaElement>(null);
-  const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => { try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch { /* storage unavailable */ } }, [prefs]);
   useEffect(() => {
@@ -105,30 +104,15 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed }: { onSubmit: (r
     return next;
   });
 
-  const addFiles = async (list: FileList | null) => {
-    if (!list) return;
-    setError(null);
-    for (const file of Array.from(list).slice(0, 10 - files.length)) {
-      setUploading(count => count + 1);
-      try {
-        const uploaded = await agentApi.upload(file);
-        setFiles(current => [...current, uploaded]);
-      } catch (uploadError) {
-        setError(`${file.name}: ${uploadError instanceof Error ? uploadError.message : "upload failed"}`);
-      } finally {
-        setUploading(count => count - 1);
-      }
-    }
-  };
-
   const submit = async () => {
     const text = prompt.trim();
-    if (text.length < 2 || busy || uploading) return;
+    if (text.length < 2 || busy || attachments.uploading) return;
+    const sent = attachments.ids;
     setError(null);
     try {
-      await onSubmit({ prompt: text, model: prefs.model, mode: prefs.mode, effort: prefs.effort, webSearch: prefs.webSearch, attachmentIds: files.map(file => file.id), repo: prefs.mode === "agent" ? repo?.full_name ?? null : null, repoBranch: prefs.mode === "agent" ? repo?.default_branch ?? null : null });
+      await onSubmit({ prompt: text, model: prefs.model, mode: prefs.mode, effort: prefs.effort, webSearch: prefs.webSearch, attachmentIds: sent, repo: prefs.mode === "agent" ? repo?.full_name ?? null : null, repoBranch: prefs.mode === "agent" ? repo?.default_branch ?? null : null });
       setPrompt("");
-      setFiles([]);
+      attachments.clear(sent);
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Could not start the task.");
     }
@@ -139,7 +123,7 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed }: { onSubmit: (r
 
   return (
     <div>
-      <div className="composer">
+      <div className={`composer${attachments.dragging ? " dragging" : ""}`} {...attachments.dropProps}>
         <label className="sr-only" htmlFor="omni-prompt">Task</label>
         <textarea
           id="omni-prompt"
@@ -148,6 +132,7 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed }: { onSubmit: (r
           autoFocus={autoFocus}
           placeholder={prefs.mode === "agent" ? (repo ? `Work on ${repo.full_name}: e.g. "Refactor the auth middleware and open a PR"…` : "Describe what to build, fix or refactor, or name one of your repos (\"check my easyeps repo\")…") : "Ask anything. Toggle Web Search to let the model fetch pages…"}
           onChange={event => setPrompt(event.target.value)}
+          onPaste={attachments.onPaste}
           onKeyDown={event => {
             if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault();
@@ -155,17 +140,7 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed }: { onSubmit: (r
             }
           }}
         />
-        {(files.length > 0 || uploading > 0) && (
-          <div className="composer-attachments">
-            {files.map(file => (
-              <span key={file.id} className="chip">
-                <Paperclip size={11} /> {file.filename}
-                <button type="button" aria-label={`Remove ${file.filename}`} onClick={() => setFiles(current => current.filter(item => item.id !== file.id))}><X size={11} /></button>
-              </span>
-            ))}
-            {uploading > 0 && <span className="chip"><Loader2 size={11} className="spin" /> Uploading…</span>}
-          </div>
-        )}
+        <AttachmentTray files={attachments.files} uploading={attachments.uploading} onRemove={attachments.remove} />
         <div className="composer-bar">
           <ModelPicker value={prefs.model} mode={prefs.mode} onChange={model => update({ model })} />
           {github?.connected && prefs.mode === "agent" && <RepoSelector value={repo?.full_name ?? null} onChange={setRepo} />}
@@ -185,17 +160,17 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed }: { onSubmit: (r
           <button type="button" className={`toggle${prefs.webSearch ? " on" : ""}`} onClick={() => update({ webSearch: !prefs.webSearch })} aria-pressed={prefs.webSearch} title="Let the agent fetch pages, use the Live Browser and the Research Agent">
             <Globe size={14} /> Web
           </button>
-          <button type="button" className="toggle" onClick={() => fileInput.current?.click()} disabled={files.length >= 10} title="Attach files (copied into the task workspace)">
+          <button type="button" className="toggle" onClick={attachments.open} disabled={attachments.full} title="Attach files, or paste / drop screenshots into the box">
             <Paperclip size={14} /> Attach
           </button>
-          <input ref={fileInput} type="file" multiple hidden onChange={event => { void addFiles(event.target.files); event.target.value = ""; }} />
+          {attachments.picker}
           <span className="composer-hint"><span className="kbd">Enter</span> to run · <span className="kbd">Shift+Enter</span> newline</span>
-          <button type="button" className="btn primary" onClick={() => void submit()} disabled={busy || uploading > 0 || prompt.trim().length < 2} aria-label="Start task">
+          <button type="button" className="btn primary" onClick={() => void submit()} disabled={busy || attachments.uploading > 0 || prompt.trim().length < 2} aria-label="Start task">
             {busy ? <Loader2 size={15} className="spin" /> : <ArrowUp size={15} />} Run
           </button>
         </div>
       </div>
-      {error && <div className="alert error" style={{ marginTop: 10 }}>{error}</div>}
+      {(error || attachments.error) && <div className="alert error" style={{ marginTop: 10 }}>{error ?? attachments.error}</div>}
     </div>
   );
 }

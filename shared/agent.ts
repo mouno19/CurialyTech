@@ -71,7 +71,7 @@ export type FileChangeKind = "create" | "modify" | "delete";
 /** Every event the runtime emits. Persisted with a per-task sequence number and replayed over SSE. */
 export type AgentEventBody =
   | { type: "status"; status: TaskStatus }
-  | { type: "user_message"; text: string }
+  | { type: "user_message"; text: string; attachments?: { mediaId: string; filename: string; mimeType: string; sizeBytes: number; path: string }[] }
   | { type: "phase"; phase: PhaseId; state: PhaseState; note?: string }
   /** provider is an engine alias (core | relay | fast | research), never a vendor name. */
   | { type: "dispatch"; model: string; provider: string; reason: string }

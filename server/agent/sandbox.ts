@@ -79,8 +79,8 @@ export function writeWorkspaceFile(root: string, requested: string, content: str
   return { absolute, relative };
 }
 
-export function writeWorkspaceBytes(root: string, requested: string, content: Buffer) {
-  if (content.length > MAX_FILE_BYTES * 4) throw new SandboxError(`Refusing to write more than ${MAX_FILE_BYTES * 4} bytes.`);
+export function writeWorkspaceBytes(root: string, requested: string, content: Buffer, maxBytes = MAX_FILE_BYTES * 4) {
+  if (content.length > maxBytes) throw new SandboxError(`Refusing to write more than ${maxBytes} bytes.`);
   const { absolute, relative } = resolveInWorkspace(root, requested);
   fs.mkdirSync(path.dirname(absolute), { recursive: true, mode: 0o2775 });
   resolveInWorkspace(root, requested);

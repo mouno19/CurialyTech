@@ -39,7 +39,7 @@ export const agentApi = {
   tasks: () => api<{ tasks: AgentTaskSummary[] }>("/api/agent/tasks"),
   task: (id: string) => api<{ task: AgentTaskSummary; live: boolean }>(`/api/agent/tasks/${id}`),
   create: (body: CreateTaskRequest) => api<{ taskId: string }>("/api/agent/tasks", { method: "POST", json: body }),
-  followUp: (id: string, prompt: string) => api<{ ok: true }>(`/api/agent/tasks/${id}/messages`, { method: "POST", json: { prompt } }),
+  followUp: (id: string, prompt: string, attachmentIds: string[] = []) => api<{ ok: true }>(`/api/agent/tasks/${id}/messages`, { method: "POST", json: { prompt, attachmentIds } }),
   cancel: (id: string) => api<{ cancelled: boolean }>(`/api/agent/tasks/${id}/cancel`, { method: "POST", json: {} }),
   remove: (id: string) => api<{ deleted: boolean }>(`/api/agent/tasks/${id}`, { method: "DELETE" }),
   tree: (id: string) => api<{ entries: TreeEntry[]; source: "live" | "archived" }>(`/api/agent/tasks/${id}/tree`),

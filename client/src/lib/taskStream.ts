@@ -5,7 +5,7 @@ export type FileChange = Extract<AgentEvent, { type: "file_change" }>;
 export type OutputSegment = { stream: "stdout" | "stderr"; text: string };
 
 export type TimelineItem =
-  | { kind: "user"; id: string; text: string; ts: string }
+  | { kind: "user"; id: string; text: string; ts: string; attachments?: Extract<AgentEvent, { type: "user_message" }>["attachments"] }
   | { kind: "thinking"; id: string; text: string; ts: string; ms?: number; done: boolean; turn: number }
   | { kind: "text"; id: string; text: string; ts: string; done: boolean }
   | { kind: "tool"; id: string; name: string; ts: string; inputPartial: string; input?: Record<string, unknown>; output: OutputSegment[]; result?: { ok: boolean; summary: string; exitCode?: number | null; durationMs: number }; changes: FileChange[] }
@@ -67,7 +67,7 @@ function apply(state: StreamState, event: AgentEvent) {
 
   switch (event.type) {
     case "user_message":
-      items.push({ kind: "user", id: `u${event.seq}`, text: event.text, ts: event.ts });
+      items.push({ kind: "user", id: `u${event.seq}`, text: event.text, ts: event.ts, attachments: event.attachments });
       break;
     case "status":
       state.status = event.status;

@@ -2,12 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { Markdown } from "@/components/Markdown";
-import { ArrowUp, Bot, Brain, CircleStop, Copy, ExternalLink, FileDiff, Globe, Loader2, RefreshCcw, Rocket, ScrollText, SquareTerminal, Trash2, User, Workflow } from "lucide-react";
+import { ArrowUp, Bot, Brain, Paperclip, CircleStop, Copy, ExternalLink, FileDiff, Globe, Loader2, RefreshCcw, Rocket, ScrollText, SquareTerminal, Trash2, User, Workflow } from "lucide-react";
 import { getModel, type AgentTaskSummary } from "@shared/agent";
 import { AppShell, EmptyState, GitHubMark, useGitHub } from "@/components/shell/AppShell";
 import { RepoSelector } from "@/components/RepoSelector";
 import { LiveBrowser } from "@/components/LiveBrowser";
 import { Attachments } from "@/components/Attachments";
+import { AttachmentTray, useAttachments } from "@/lib/useAttachments";
 import { DiffViewer } from "@/components/deck/DiffViewer";
 import { PhaseStepper, PlanView, ThinkingBlock, TimelineEntry, ToolCard } from "@/components/deck/Timeline";
 import { agentApi, formatTokens } from "@/lib/api";
@@ -46,7 +47,18 @@ function Conversation({ state, task }: { state: StreamState; task: AgentTaskSumm
   return (
     <div className="convo">
       {messages.map(item => {
-        if (item.kind === "user") return <div key={item.id} className="msg-user">{item.text}</div>;
+        if (item.kind === "user") return (
+          <div key={item.id} className="msg-user-wrap">
+            {item.attachments && item.attachments.length > 0 && (
+              <div className="msg-user-files">
+                {item.attachments.map(file => /^image\/(png|jpe?g|gif|webp|avif|svg\+xml)$/.test(file.mimeType)
+                  ? <a key={file.mediaId} href={agentApi.mediaUrl(file.mediaId)} target="_blank" rel="noreferrer" title={file.path}><img src={agentApi.mediaUrl(file.mediaId)} alt={file.filename} loading="lazy" /></a>
+                  : <a key={file.mediaId} className="chip" href={agentApi.mediaDownloadUrl(file.mediaId)} title={file.path}><Paperclip size={11} /> {file.filename}</a>)}
+              </div>
+            )}
+            <div className="msg-user">{item.text}</div>
+          </div>
+        );
         if (item.kind === "browser") return state.browsers[item.id] ? <LiveBrowser key={`b-${item.id}`} browser={state.browsers[item.id]} /> : null;
         if (item.kind === "attachments") return <Attachments key={item.id} files={item.files} auto={item.auto} more={item.more} skipped={item.skipped} />;
         const isFinal = finished && item === lastText;
@@ -78,13 +90,18 @@ function FollowUp({ taskId, disabled, onSent }: { taskId: string; disabled: bool
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const attachments = useAttachments();
+  // A message may be only attachments (e.g. a screenshot); give the model a minimal instruction.
+  const canSend = !disabled && !busy && attachments.uploading === 0 && (text.trim().length > 0 || attachments.files.length > 0);
   const send = async () => {
-    if (!text.trim() || busy || disabled) return;
+    if (!canSend) return;
     setBusy(true);
     setError(null);
+    const sent = attachments.ids; // files added while this send is in flight stay in the tray
     try {
-      await agentApi.followUp(taskId, text.trim());
+      await agentApi.followUp(taskId, text.trim() || "See the attached file(s).", sent);
       setText("");
+      attachments.clear(sent);
       onSent();
     } catch (sendError) {
       setError(sendError instanceof Error ? sendError.message : "Could not send.");
@@ -95,16 +112,20 @@ function FollowUp({ taskId, disabled, onSent }: { taskId: string; disabled: bool
   return (
     <div className="convo-foot">
       <div className="convo-foot-inner">
-        <div className="composer compact">
-          <textarea value={text} disabled={disabled} placeholder={disabled ? "The agent is working…" : "Follow up: ask for changes, fixes or explanations…"} onChange={event => setText(event.target.value)}
+        <div className={`composer compact${attachments.dragging ? " dragging" : ""}`} {...attachments.dropProps}>
+          <textarea value={text} disabled={disabled} placeholder={disabled ? "The agent is working…" : "Follow up: ask for changes, fixes or explanations… (paste or drop screenshots)"} onChange={event => setText(event.target.value)}
+            onPaste={attachments.onPaste}
             onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} />
+          <AttachmentTray files={attachments.files} uploading={attachments.uploading} onRemove={attachments.remove} />
           <div className="composer-bar">
-            <span className="composer-hint" style={{ marginLeft: 0 }}>Continues in the same workspace and conversation</span>
+            <button type="button" className="toggle" onClick={attachments.open} disabled={attachments.full} title="Attach files, or paste / drop screenshots into the box"><Paperclip size={14} /> Attach</button>
+            {attachments.picker}
+            <span className="composer-hint" style={{ marginLeft: 4 }}>Continues in the same workspace and conversation</span>
             <span className="spacer" />
-            <button className="btn primary sm" onClick={() => void send()} disabled={disabled || busy || !text.trim()}>{busy ? <Loader2 size={13} className="spin" /> : <ArrowUp size={13} />} Send</button>
+            <button className="btn primary sm" onClick={() => void send()} disabled={!canSend}>{busy ? <Loader2 size={13} className="spin" /> : <ArrowUp size={13} />} Send</button>
           </div>
         </div>
-        {error && <div className="alert error" style={{ marginTop: 8 }}>{error}</div>}
+        {(error || attachments.error) && <div className="alert error" style={{ marginTop: 8 }}>{error ?? attachments.error}</div>}
       </div>
     </div>
   );
