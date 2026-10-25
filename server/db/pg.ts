@@ -168,6 +168,11 @@ const MIGRATIONS: { id: number; sql: string }[] = [
     sql: `ALTER TABLE curialy.file_metadata ADD COLUMN IF NOT EXISTS source_path text;
           CREATE INDEX IF NOT EXISTS file_metadata_session_idx ON curialy.file_metadata (session_id, created_at);`,
   },
+  {
+    id: 5,
+    sql: `ALTER TABLE curialy.chat_sessions ADD COLUMN IF NOT EXISTS team boolean NOT NULL DEFAULT false;
+          ALTER TABLE curialy.chat_sessions ADD COLUMN IF NOT EXISTS team_state jsonb;`,
+  },
 ];
 
 export async function migrate() {

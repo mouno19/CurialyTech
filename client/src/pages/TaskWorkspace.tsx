@@ -8,6 +8,7 @@ import { AppShell, EmptyState, GitHubMark, useGitHub } from "@/components/shell/
 import { RepoSelector } from "@/components/RepoSelector";
 import { LiveBrowser } from "@/components/LiveBrowser";
 import { Attachments } from "@/components/Attachments";
+import { HandoffCard, RoleBadge, TeamPanel } from "@/components/deck/Team";
 import { AttachmentTray, useAttachments } from "@/lib/useAttachments";
 import { DiffViewer } from "@/components/deck/DiffViewer";
 import { PhaseStepper, PlanView, ThinkingBlock, TimelineEntry, ToolCard } from "@/components/deck/Timeline";
@@ -35,7 +36,8 @@ function StatusChip({ status, live }: { status: string | null; live?: boolean })
 
 function Conversation({ state, task }: { state: StreamState; task: AgentTaskSummary | null }) {
   const bottom = useRef<HTMLDivElement>(null);
-  const messages = state.items.filter((item): item is Extract<TimelineItem, { kind: "user" | "text" | "browser" | "attachments" }> => item.kind === "user" || item.kind === "text" || item.kind === "browser" || item.kind === "attachments");
+  const messages = state.items.filter((item): item is Extract<TimelineItem, { kind: "user" | "text" | "browser" | "attachments" | "handoff" }> =>
+    item.kind === "user" || item.kind === "text" || item.kind === "browser" || item.kind === "attachments" || (item.kind === "handoff" && item.handoff !== "report"));
   const lastText = [...messages].reverse().find((item): item is Extract<TimelineItem, { kind: "text" }> => item.kind === "text");
   const finished = state.status === "completed" || state.status === "failed" || state.status === "cancelled";
   const [copied, setCopied] = useState(false);
@@ -61,9 +63,11 @@ function Conversation({ state, task }: { state: StreamState; task: AgentTaskSumm
         );
         if (item.kind === "browser") return state.browsers[item.id] ? <LiveBrowser key={`b-${item.id}`} browser={state.browsers[item.id]} /> : null;
         if (item.kind === "attachments") return <Attachments key={item.id} files={item.files} auto={item.auto} more={item.more} skipped={item.skipped} />;
+        if (item.kind === "handoff") return <HandoffCard key={item.id} item={item} />;
         const isFinal = finished && item === lastText;
         return (
-          <div key={item.id} className={`msg-assistant${isFinal ? " msg-final" : " interim"}`}>
+          <div key={item.id} className={`msg-assistant${isFinal ? " msg-final" : " interim"}${item.agent ? ` by-${item.agent}` : ""}`}>
+            {!isFinal && item.agent && <div className="msg-role"><RoleBadge role={item.agent} /></div>}
             {isFinal && (
               <div className="msg-label">
                 <Bot size={13} /> Final output
@@ -207,6 +211,7 @@ function Deck({ state, task, onDeploy, deploying }: { state: StreamState; task: 
   return (
     <div className="pane deck">
       <div className="deck-head">
+        {(task?.team || Object.keys(state.team).length > 0) && <TeamPanel team={state.team} />}
         <PhaseStepper phases={state.phases} />
         <div className="metrics">
           <span>Model <b>{model?.label ?? state.model ?? "—"}</b></span>

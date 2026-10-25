@@ -49,7 +49,7 @@ class TaskChannel {
     this.emitter.setMaxListeners(50);
   }
 
-  emit(body: AgentEventBody) {
+  emit(body: AgentEventBody & { agent?: string }) {
     const key = deltaKey(body);
     if (key && this.pending?.key === key) {
       this.pending.body = mergeDelta(this.pending.body, body as DeltaBody);

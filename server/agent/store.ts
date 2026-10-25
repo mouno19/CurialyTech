@@ -10,10 +10,10 @@ type SessionRow = {
   id: string; prompt: string; status: TaskStatus; mode: TaskMode; model: string; effort: ThinkingLevel; web_search: boolean;
   phase: PhaseId | null; answer: string | null; error: string | null; usage: AgentTaskSummary["usage"]; files_changed: number;
   workspace_state: string; github_repo: string | null; github_repo_url: string | null; github_pushed_at: Date | null;
-  github_mode: "export" | "linked" | null; github_branch: string | null; created_at: Date; updated_at: Date;
+  github_mode: "export" | "linked" | null; github_branch: string | null; team: boolean; created_at: Date; updated_at: Date;
 };
 
-const SUMMARY_COLUMNS = "id, prompt, status, mode, model, effort, web_search, phase, answer, error, usage, files_changed, workspace_state, github_repo, github_repo_url, github_pushed_at, github_mode, github_branch, created_at, updated_at";
+const SUMMARY_COLUMNS = "id, prompt, status, mode, model, effort, web_search, phase, answer, error, usage, files_changed, workspace_state, github_repo, github_repo_url, github_pushed_at, github_mode, github_branch, team, created_at, updated_at";
 
 function fromRow(row: SessionRow): AgentTaskSummary & { workspaceState: string } {
   return {
@@ -21,18 +21,37 @@ function fromRow(row: SessionRow): AgentTaskSummary & { workspaceState: string }
     webSearch: row.web_search, phase: row.phase, answer: row.answer ?? undefined, error: row.error ?? undefined,
     usage: row.usage, filesChanged: row.files_changed, workspaceState: row.workspace_state,
     githubRepo: row.github_repo ?? undefined, githubRepoUrl: row.github_repo_url ?? undefined, githubPushedAt: row.github_pushed_at?.toISOString(),
-    githubMode: row.github_mode ?? undefined, githubBranch: row.github_branch ?? undefined,
+    githubMode: row.github_mode ?? undefined, githubBranch: row.github_branch ?? undefined, team: row.team,
     createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(),
   };
 }
 
-export async function createAgentTask(task: { id: string; prompt: string; mode: TaskMode; model: string; effort: ThinkingLevel; webSearch: boolean; format: ConversationFormat }) {
+export async function createAgentTask(task: { id: string; prompt: string; mode: TaskMode; model: string; effort: ThinkingLevel; webSearch: boolean; format: ConversationFormat; team?: boolean }) {
   const userId = await adminUserId();
   await query(
-    `INSERT INTO curialy.chat_sessions (id, user_id, prompt, status, mode, model, effort, web_search, conversation_format)
-     VALUES ($1, $2, $3, 'queued', $4, $5, $6, $7, $8)`,
-    [task.id, userId, task.prompt, task.mode, task.model, task.effort, task.webSearch, task.format],
+    `INSERT INTO curialy.chat_sessions (id, user_id, prompt, status, mode, model, effort, web_search, conversation_format, team)
+     VALUES ($1, $2, $3, 'queued', $4, $5, $6, $7, $8, $9)`,
+    [task.id, userId, task.prompt, task.mode, task.model, task.effort, task.webSearch, task.format, Boolean(task.team)],
   );
+}
+
+export async function getTeamState<T>(id: string): Promise<T | null> {
+  const { rows } = await query<{ team_state: T | null }>("SELECT team_state FROM curialy.chat_sessions WHERE id = $1", [id]);
+  return rows[0]?.team_state ?? null;
+}
+
+const teamChains = new Map<string, Promise<unknown>>();
+/** Ordered, fire-and-forget persistence of the team's state (each agent's history, plan, reviews). */
+export function saveTeamState(id: string, state: unknown) {
+  const json = JSON.stringify(state);
+  const run = () => query("UPDATE curialy.chat_sessions SET team_state = $2, updated_at = now(), last_activity_at = now() WHERE id = $1", [id, json]);
+  const next = (teamChains.get(id) ?? Promise.resolve()).then(run, run).catch(error => console.error(`[store] team state ${id}:`, error.message));
+  teamChains.set(id, next);
+  return next;
+}
+
+export async function settleTeamWrites(id: string) {
+  await teamChains.get(id);
 }
 
 export type TaskPatch = Partial<{

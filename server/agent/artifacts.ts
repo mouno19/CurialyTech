@@ -77,6 +77,62 @@ export function changedSince(before: Manifest, after: Manifest, alsoChanged: Ite
     .sort((a, b) => PRIORITY[classify(a).kind] - PRIORITY[classify(b).kind] || a.localeCompare(b));
 }
 
+// ---- Read-only guard (Dev Team Architect/Reviewer commands) ----
+// Commands run as the sandbox user, which can write the shared workspace, so read-only roles are
+// enforced by snapshotting source files before a command and reverting whatever it changed.
+
+const SNAPSHOT_FILE_BYTES = 2 * 1024 * 1024;
+const SNAPSHOT_TOTAL_BYTES = 32 * 1024 * 1024;
+
+// Build output and lock files may change (a Reviewer has to build to test); source may not.
+const GENERATED = /^(dist|build|out|target|\.svelte-kit|\.output|test-results|playwright-report|htmlcov)\//;
+const guardedFile = (file: string) => !GENERATED.test(file) && !NOISE.test(file);
+
+export type Snapshot = { manifest: Manifest; contents: Map<string, Buffer> };
+
+export function sourceSnapshot(root: string): Snapshot {
+  const manifest = workspaceManifest(root);
+  const contents = new Map<string, Buffer>();
+  let total = 0;
+  for (const [file, info] of Array.from(manifest.entries())) {
+    if (!guardedFile(file)) manifest.delete(file);
+    else if (info.size > SNAPSHOT_FILE_BYTES || total + info.size > SNAPSHOT_TOTAL_BYTES) continue;
+    try { contents.set(file, fs.readFileSync(path.join(root, file))); total += info.size; } catch { /* vanished */ }
+  }
+  return { manifest, contents };
+}
+
+/** Undo changes made since the snapshot: delete new files, restore changed/deleted ones (with their mtimes). */
+export function revertWorkspace(root: string, snapshot: Snapshot): { reverted: string[]; unreverted: string[] } {
+  const after = workspaceManifest(root);
+  const reverted: string[] = [];
+  const unreverted: string[] = [];
+  const restore = (file: string, info: { mtimeMs: number }) => {
+    const saved = snapshot.contents.get(file);
+    if (!saved) return unreverted.push(file);
+    try {
+      const absolute = path.join(root, file);
+      try { if (fs.readFileSync(absolute).equals(saved)) { fs.utimesSync(absolute, new Date(), new Date(info.mtimeMs)); return; } } catch { /* missing: rewrite */ }
+      fs.mkdirSync(path.dirname(absolute), { recursive: true, mode: 0o2775 });
+      fs.rmSync(absolute, { force: true }); // unlink + recreate also works when the command chmod-ed the file
+      fs.writeFileSync(absolute, saved, { mode: 0o664 });
+      fs.utimesSync(absolute, new Date(), new Date(info.mtimeMs));
+      reverted.push(file);
+    } catch {
+      unreverted.push(file);
+    }
+  };
+  for (const [file, info] of Array.from(after.entries())) {
+    if (!guardedFile(file)) continue;
+    const previous = snapshot.manifest.get(file);
+    if (!previous) {
+      try { fs.rmSync(path.join(root, file), { force: true }); reverted.push(file); } catch { unreverted.push(file); }
+    } else if (previous.size !== info.size || previous.mtimeMs !== info.mtimeMs) restore(file, previous);
+  }
+  for (const [file, info] of Array.from(snapshot.manifest.entries())) if (!after.has(file)) restore(file, info);
+  return { reverted, unreverted };
+}
+
 /** Copy workspace files into Curialy Vault and describe them for the chat. */
 export async function storeArtifacts(sessionId: string, root: string, files: string[], primary: boolean) {
   const stored: ArtifactInfo[] = [];

@@ -83,7 +83,7 @@ export default function Dashboard() {
                 <TaskStatusIcon status={task.status} />
                 <div style={{ minWidth: 0 }}>
                   <div className="prompt truncate">{task.prompt}</div>
-                  <div className="meta"><span>{getModel(task.model)?.label ?? task.model}</span><span>{task.mode}</span>{task.filesChanged > 0 && <span>{task.filesChanged} files</span>}</div>
+                  <div className="meta"><span>{getModel(task.model)?.label ?? task.model}</span><span>{task.team ? "Dev Team" : task.mode}</span>{task.filesChanged > 0 && <span>{task.filesChanged} files</span>}</div>
                 </div>
                 <span className="chip mono">{formatTokens(task.usage.inputTokens + task.usage.outputTokens)} tok</span>
                 <span className="faint" style={{ fontSize: 11.5 }}>{relativeTime(task.createdAt)}</span>

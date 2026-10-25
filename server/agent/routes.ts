@@ -29,6 +29,7 @@ const createSchema = z.object({
   attachmentIds: z.array(z.string().uuid()).max(10).default([]),
   repo: z.string().trim().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, "Repository must be owner/name").nullish(),
   repoBranch: z.string().trim().max(200).nullish(),
+  team: z.boolean().default(false),
 });
 const linkSchema = z.object({ repo: z.string().trim().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/), branch: z.string().trim().max(200).optional() });
 

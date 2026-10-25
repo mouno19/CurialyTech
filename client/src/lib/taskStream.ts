@@ -1,10 +1,13 @@
 import { useEffect, useReducer, useRef } from "react";
-import { PHASES, type AgentEvent, type PhaseId, type PhaseState, type PlanStep, type TaskStatus } from "@shared/agent";
+import { PHASES, type TeamRole, type AgentEvent, type PhaseId, type PhaseState, type PlanStep, type TaskStatus } from "@shared/agent";
 
 export type FileChange = Extract<AgentEvent, { type: "file_change" }>;
 export type OutputSegment = { stream: "stdout" | "stderr"; text: string };
 
-export type TimelineItem =
+/** agent: the Dev Team member that produced the item (absent for solo runs). */
+export type TimelineItem = TimelineItemBase & { agent?: TeamRole };
+type TimelineItemBase =
+  | { kind: "handoff"; id: string; ts: string; from: TeamRole; to: TeamRole | "user"; handoff: "plan" | "review" | "fixes" | "report"; title: string; content: string; round?: number }
   | { kind: "user"; id: string; text: string; ts: string; attachments?: Extract<AgentEvent, { type: "user_message" }>["attachments"] }
   | { kind: "thinking"; id: string; text: string; ts: string; ms?: number; done: boolean; turn: number }
   | { kind: "text"; id: string; text: string; ts: string; done: boolean }
@@ -24,6 +27,8 @@ export type Attachment = Extract<AgentEvent, { type: "artifacts" }>["files"][num
 
 export type BrowserState = { sessionId: string; status: "live" | "ended"; liveUrl: string | null; replayUrl: string; url: string; action: string; detail: string; actions: number; startedAt: string; endedAt?: string; reason?: string };
 
+export type TeamMemberState = { status: "waiting" | "working" | "done" | "failed"; model: string; activity: string; updatedAt: string };
+
 export type DeploymentState = { id: string; status: string; url?: string; detail: string; expiresAt?: string; updatedAt: string };
 
 export type TurnUsage = Extract<AgentEvent, { type: "usage" }>;
@@ -36,6 +41,7 @@ export type StreamState = {
   usage: TurnUsage[];
   deployments: DeploymentState[];
   browsers: Record<string, BrowserState>;
+  team: Partial<Record<TeamRole, TeamMemberState>>;
   status: TaskStatus | null;
   model: string | null;
   answer: string;
@@ -48,7 +54,7 @@ export type StreamState = {
 const initialPhases = () => Object.fromEntries(PHASES.map(phase => [phase.id, { state: "pending" as PhaseState }])) as StreamState["phases"];
 
 export const initialStreamState = (): StreamState => ({
-  items: [], phases: initialPhases(), plan: [], changes: [], usage: [], deployments: [], browsers: {}, status: null, model: null, answer: "", events: [], lastSeq: 0, connected: false, ended: false,
+  items: [], phases: initialPhases(), plan: [], changes: [], usage: [], deployments: [], browsers: {}, team: {}, status: null, model: null, answer: "", events: [], lastSeq: 0, connected: false, ended: false,
 });
 
 type Action = { type: "events"; events: AgentEvent[] } | { type: "connected"; value: boolean } | { type: "ended" } | { type: "reset" };
@@ -180,6 +186,10 @@ function apply(state: StreamState, event: AgentEvent) {
     case "done":
       state.status = event.status;
       if (event.answer) state.answer = event.answer;
+      // Safety net: no member keeps spinning once the run is over.
+      if (event.status !== "completed") {
+        state.team = Object.fromEntries(Object.entries(state.team).map(([role, member]) => [role, member && member.status === "working" ? { ...member, status: "failed", activity: event.status === "cancelled" ? "Cancelled" : member.activity } : member]));
+      }
       break;
     case "artifacts":
       items.push({ kind: "attachments", id: `a${event.seq}`, ts: event.ts, files: event.files, auto: event.auto, more: event.more, skipped: event.skipped });
@@ -218,6 +228,12 @@ function apply(state: StreamState, event: AgentEvent) {
       state.deployments = current && current.status !== "live" && current.status !== "failed" ? [...state.deployments.slice(0, -1), next] : [...state.deployments, next];
       break;
     }
+    case "team_agent":
+      state.team = { ...state.team, [event.role]: { status: event.status, model: event.model, activity: event.activity, updatedAt: event.ts } };
+      break;
+    case "handoff":
+      items.push({ kind: "handoff", id: `h${event.seq}`, ts: event.ts, from: event.from, to: event.to, handoff: event.kind, title: event.title, content: event.content, round: event.round });
+      break;
     case "turn_start":
       break;
   }
@@ -235,7 +251,19 @@ function reducer(state: StreamState, action: Action): StreamState {
       const fresh = action.events.filter(event => event.seq > state.lastSeq);
       if (!fresh.length) return state;
       const next: StreamState = { ...state, items: state.items.slice(), ended: false };
-      for (const event of fresh) apply(next, event);
+      for (const event of fresh) {
+        const before = next.items.length;
+        apply(next, event);
+        if (!event.agent) continue;
+        for (let index = before; index < next.items.length; index++) next.items[index] = { ...next.items[index], agent: event.agent };
+        // Live "what is this member doing" line, from its own tool calls.
+        const member = next.team[event.agent];
+        if (event.type === "tool_call" && member && member.status === "working") {
+          const input = event.input as Record<string, unknown>;
+          const target = [input.command, input.path, input.url, input.pattern, input.repo].find(value => typeof value === "string") as string | undefined;
+          next.team = { ...next.team, [event.agent]: { ...member, activity: `${event.name.replace(/_/g, " ")}${target ? `: ${target.slice(0, 80)}` : ""}`, updatedAt: event.ts } };
+        }
+      }
       next.lastSeq = fresh[fresh.length - 1].seq;
       const events = state.events.concat(fresh);
       next.events = events.length > MAX_RAW_EVENTS ? events.slice(events.length - MAX_RAW_EVENTS) : events;

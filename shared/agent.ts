@@ -7,6 +7,15 @@ export type ModelGroup = "Core" | "Relay" | "Fast" | "Research" | "Gemini";
 export type Capability = "Flagship Heavy Coding" | "Ultra-Fast Reasoning" | "Speed & High Context" | "Open Weights" | "Autonomous Web";
 export type ThinkingLevel = "low" | "medium" | "high";
 export type TaskMode = "agent" | "chat";
+/** Dev Team mode roles. */
+export type TeamRole = "architect" | "engineer" | "reviewer";
+export const TEAM_ROLES: { id: TeamRole; label: string; title: string; defaultModel: string }[] = [
+  { id: "architect", label: "Architect", title: "Plans and maps dependencies", defaultModel: "claude-opus-5-5" },
+  { id: "engineer", label: "Engineer", title: "Implements the plan", defaultModel: "auto" },
+  { id: "reviewer", label: "Reviewer", title: "Reviews the code and runs the tests", defaultModel: "claude-opus-5" },
+];
+export type TeamPlan = { summary: string; steps: { title: string; detail: string; acceptance: string }[]; risks: string[]; test_plan: string };
+export type TeamReview = { verdict: "approve" | "request_changes"; summary: string; issues: { severity: "blocker" | "major" | "minor"; file?: string; description: string; suggestion: string }[]; tests_run: { command: string; result: string }[] };
 
 export type ModelSpec = {
   id: string;
@@ -71,6 +80,8 @@ export type FileChangeKind = "create" | "modify" | "delete";
 /** Every event the runtime emits. Persisted with a per-task sequence number and replayed over SSE. */
 export type AgentEventBody =
   | { type: "status"; status: TaskStatus }
+  | { type: "team_agent"; role: TeamRole; status: "waiting" | "working" | "done" | "failed"; model: string; activity: string }
+  | { type: "handoff"; from: TeamRole; to: TeamRole | "user"; kind: "plan" | "review" | "fixes" | "report"; title: string; content: string; round?: number }
   | { type: "user_message"; text: string; attachments?: { mediaId: string; filename: string; mimeType: string; sizeBytes: number; path: string }[] }
   | { type: "phase"; phase: PhaseId; state: PhaseState; note?: string }
   /** provider is an engine alias (core | relay | fast | research), never a vendor name. */
@@ -110,7 +121,8 @@ export type AgentEventBody =
   | { type: "error"; message: string }
   | { type: "done"; status: TaskStatus; answer: string };
 
-export type AgentEvent = AgentEventBody & { seq: number; ts: string };
+/** agent: which Dev Team member produced the event (absent for solo runs and orchestration). */
+export type AgentEvent = AgentEventBody & { seq: number; ts: string; agent?: TeamRole };
 
 export type AgentTaskSummary = {
   id: string;
@@ -129,6 +141,7 @@ export type AgentTaskSummary = {
   githubRepoUrl?: string;
   githubPushedAt?: string;
   githubMode?: "export" | "linked";
+  team?: boolean;
   githubBranch?: string;
   createdAt: string;
   updatedAt: string;
@@ -144,4 +157,6 @@ export type CreateTaskRequest = {
   /** Optional "owner/name" to clone into the workspace before the agent starts. */
   repo?: string | null;
   repoBranch?: string | null;
+  /** Dev Team mode: Architect → Engineer → Reviewer with review rounds. Agent mode only. */
+  team?: boolean;
 };

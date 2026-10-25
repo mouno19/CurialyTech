@@ -56,7 +56,7 @@ export default function Tasks() {
                         <td style={{ maxWidth: 420 }}><Link href={`/tasks/${task.id}`} className="truncate" style={{ display: "block" }}>{task.prompt}</Link>{task.error && <div className="faint truncate" style={{ fontSize: 11.5 }}>{task.error}</div>}</td>
                         <td>{task.phase ? <span className="chip">{PHASES.find(phase => phase.id === task.phase)?.label}</span> : <span className="faint">—</span>}</td>
                         <td className="num">{getModel(task.model)?.label ?? task.model}</td>
-                        <td>{task.mode}</td>
+                        <td>{task.team ? <span className="chip violet">Dev Team</span> : task.mode}</td>
                         <td className="num">{task.filesChanged}</td>
                         <td className="num">{formatTokens(task.usage.inputTokens + task.usage.outputTokens)}{task.usage.thinkingTokens ? ` (${formatTokens(task.usage.thinkingTokens)} think)` : ""}</td>
                         <td className="num">{task.status === "running" ? "running" : formatDuration(duration)}</td>

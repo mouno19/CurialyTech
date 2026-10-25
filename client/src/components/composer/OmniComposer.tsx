@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Bot, Check, ChevronDown, Globe, Loader2, MessageSquare, Paperclip, Sparkles, X } from "lucide-react";
+import { ArrowUp, Bot, Check, ChevronDown, Globe, Loader2, MessageSquare, Paperclip, Sparkles, Users, X } from "lucide-react";
 import { CAPABILITIES, getModel, MODELS, type CreateTaskRequest, type TaskMode, type ThinkingLevel } from "@shared/agent";
 import { type GitHubRepo } from "@/lib/api";
 import { AttachmentTray, useAttachments } from "@/lib/useAttachments";
 import { RepoSelector } from "@/components/RepoSelector";
 import { useGitHub } from "@/components/shell/AppShell";
 
-type Prefs = { model: string; mode: TaskMode; effort: ThinkingLevel; webSearch: boolean };
+type Prefs = { model: string; mode: TaskMode; effort: ThinkingLevel; webSearch: boolean; team: boolean };
 const PREFS_KEY = "curialy.composer.v2";
-const DEFAULT_PREFS: Prefs = { model: "auto", mode: "agent", effort: "medium", webSearch: false };
+const DEFAULT_PREFS: Prefs = { model: "auto", mode: "agent", effort: "medium", webSearch: false, team: false };
 
 function readPrefs(): Prefs {
   try { return { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}") }; } catch { return DEFAULT_PREFS; }
@@ -110,7 +110,7 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed }: { onSubmit: (r
     const sent = attachments.ids;
     setError(null);
     try {
-      await onSubmit({ prompt: text, model: prefs.model, mode: prefs.mode, effort: prefs.effort, webSearch: prefs.webSearch, attachmentIds: sent, repo: prefs.mode === "agent" ? repo?.full_name ?? null : null, repoBranch: prefs.mode === "agent" ? repo?.default_branch ?? null : null });
+      await onSubmit({ prompt: text, model: prefs.model, mode: prefs.mode, effort: prefs.effort, webSearch: prefs.webSearch, team: prefs.mode === "agent" && prefs.team, attachmentIds: sent, repo: prefs.mode === "agent" ? repo?.full_name ?? null : null, repoBranch: prefs.mode === "agent" ? repo?.default_branch ?? null : null });
       setPrompt("");
       attachments.clear(sent);
     } catch (submitError) {
@@ -157,6 +157,11 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed }: { onSubmit: (r
               </button>
             ))}
           </div>
+          {prefs.mode === "agent" && (
+            <button type="button" className={`toggle${prefs.team ? " on" : ""}`} onClick={() => update({ team: !prefs.team })} aria-pressed={prefs.team} title="Dev Team: an Architect plans, an Engineer builds, a Reviewer reviews and tests, with fix rounds until approved">
+              <Users size={14} /> Dev Team
+            </button>
+          )}
           <button type="button" className={`toggle${prefs.webSearch ? " on" : ""}`} onClick={() => update({ webSearch: !prefs.webSearch })} aria-pressed={prefs.webSearch} title="Let the agent fetch pages, use the Live Browser and the Research Agent">
             <Globe size={14} /> Web
           </button>

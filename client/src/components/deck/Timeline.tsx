@@ -7,6 +7,7 @@ import { PHASES, type PlanStep } from "@shared/agent";
 import type { BrowserState, StreamState, TimelineItem, TurnUsage } from "@/lib/taskStream";
 import { LiveBrowser } from "@/components/LiveBrowser";
 import { Attachments } from "@/components/Attachments";
+import { HandoffCard, RoleBadge } from "./Team";
 import { getModel } from "@shared/agent";
 import { formatDuration, formatTokens } from "@/lib/api";
 import { DiffViewer } from "./DiffViewer";
@@ -191,8 +192,17 @@ export function ToolCard({ item }: { item: Extract<TimelineItem, { kind: "tool" 
   );
 }
 
-export function TimelineEntry({ item, usageByTurn, browsers }: { item: TimelineItem; usageByTurn: Map<number, TurnUsage>; browsers?: Record<string, BrowserState> }) {
+export function TimelineEntry(props: { item: TimelineItem; usageByTurn: Map<number, TurnUsage>; browsers?: Record<string, BrowserState> }) {
+  const entry = <TimelineEntryInner {...props} />;
+  // Dev Team: every item shows which member produced it.
+  if (!props.item.agent || props.item.kind === "handoff") return entry;
+  return <div className={`role-lane ${props.item.agent}`}><RoleBadge role={props.item.agent} />{entry}</div>;
+}
+
+function TimelineEntryInner({ item, usageByTurn, browsers }: { item: TimelineItem; usageByTurn: Map<number, TurnUsage>; browsers?: Record<string, BrowserState> }) {
   switch (item.kind) {
+    case "handoff":
+      return <HandoffCard item={item} defaultOpen={item.handoff !== "report"} />;
     case "browser":
       return browsers?.[item.id] ? <LiveBrowser browser={browsers[item.id]} compact /> : null;
     case "attachments":

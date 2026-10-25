@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { getModel, PHASES, type CreateTaskRequest, type ModelSpec, type PhaseId, type PhaseState, type PlanStep, type TaskMode, type ThinkingLevel } from "@shared/agent";
+import { getModel, PHASES, type TeamRole, type CreateTaskRequest, type ModelSpec, type PhaseId, type PhaseState, type PlanStep, type TaskMode, type ThinkingLevel } from "@shared/agent";
 import { closeChannel, openChannel, type Emit } from "./bus";
 import { anthropicClient, PROVIDER_ENV, reasoningParams, runManusTask, streamCortexInference, streamOpenAIChat } from "./providers";
 import { clip, ensureWorkspace, readWorkspaceFile, runCommand, writeWorkspaceBytes } from "./sandbox";
@@ -15,9 +15,11 @@ import { linkedRepo } from "./repos";
 import { brandText, ENGINE_ALIAS } from "@shared/brand";
 import { closeLiveBrowser } from "./browser";
 import { diagnose, RecoveryEngine, ToolFailureWatch, type RecoveryFlags } from "./recovery";
+import { runTeam } from "./team";
+import { z } from "zod";
 import { hydrateImages, stageAttachments, userContent, type AttachmentDisplay, type AttachmentRef } from "./attachments";
 import { getMedia } from "../media/snowflake";
-import { changedSince, MAX_AUTO_ARTIFACTS, storeArtifacts, workspaceManifest, type Manifest } from "./artifacts";
+import { changedSince, MAX_AUTO_ARTIFACTS, revertWorkspace, sourceSnapshot, storeArtifacts, workspaceManifest, type Manifest } from "./artifacts";
 
 const MAX_TURNS = 60;
 const MAX_HEAL_ITERATIONS = 4;
@@ -100,7 +102,7 @@ class Phases {
 // Prompts
 // ---------------------------------------------------------------------------
 
-const AGENT_SYSTEM = `You are Curialy, an autonomous coding agent. You work inside an isolated workspace directory; every tool path is relative to it and every command runs there.
+export const AGENT_SYSTEM = `You are Curialy, an autonomous coding agent. You work inside an isolated workspace directory; every tool path is relative to it and every command runs there.
 
 How to work:
 1. Start by calling update_plan with a short objective breakdown and dependency order. Update it as steps complete.
@@ -169,7 +171,7 @@ function detectVerificationCommands(root: string, changedFiles: Set<string>, age
 // Task lifecycle
 // ---------------------------------------------------------------------------
 
-type RunContext = {
+export type RunContext = {
   taskId: string;
   /** Per-run context appended after the static system prompt (kept separate so the base prompt caches). */
   context: string;
@@ -196,7 +198,61 @@ type RunContext = {
   recovery: RecoveryEngine;
   flags: RecoveryFlags;
   toolWatch: ToolFailureWatch;
+  /** Where this context's conversation is saved (solo: the task's conversation; team: team state). */
+  persist: (conversation: unknown[]) => void;
+  /** Dev Team member running in this context (forked contexts only). */
+  role?: TeamRole;
+  /** System prompt override (team roles). */
+  system?: string;
+  /** Tools this context may call; enforced at execution, not only by what is offered. */
+  allowedTools?: Set<string>;
+  /** Commands may not change workspace files: anything they change is reverted (Architect/Reviewer). */
+  readOnly?: boolean;
+  /** Harness-handled tools (e.g. submit_plan): validated and recorded, never executed in the sandbox. */
+  virtualTools?: Record<string, VirtualTool>;
 };
+
+export type VirtualTool = { definition: Anthropic.Tool; schema: z.ZodTypeAny; summary: (input: any) => string };
+
+/**
+ * A child context for a Dev Team member: own model, prompt, history, self-healing state and tool
+ * allowlist; shares the workspace, usage totals, phases, changed files and event stream (tagged).
+ */
+export function forkContext(parent: RunContext, opts: { role: TeamRole; spec: ModelSpec; effort: ThinkingLevel; system: string; conversation: Anthropic.MessageParam[]; persist: (conversation: unknown[]) => void; allowedTools: Set<string>; virtualTools?: Record<string, VirtualTool>; readOnly?: boolean; runId?: string }): RunContext {
+  const emit: Emit = body => parent.emit({ ...body, agent: opts.role } as never);
+  const child: RunContext = {
+    ...parent,
+    role: opts.role,
+    spec: opts.spec,
+    effort: opts.effort,
+    system: opts.system,
+    emit,
+    persist: opts.persist,
+    allowedTools: opts.allowedTools,
+    virtualTools: opts.virtualTools,
+    readOnly: opts.readOnly,
+    flags: { noEager: false, noThinking: false, noEffort: false },
+    toolWatch: new ToolFailureWatch(),
+    runId: opts.runId ?? `${parent.runId}-${opts.role[0]}`,
+    recovery: undefined as unknown as RecoveryEngine,
+  };
+  child.recovery = new RecoveryEngine({
+    signal: parent.signal,
+    format: "anthropic",
+    conversation: opts.conversation as never,
+    get spec() { return child.spec; },
+    flags: child.flags,
+    switchModel: (spec, reason) => {
+      child.spec = spec;
+      emit({ type: "dispatch", model: spec.id, provider: ENGINE_ALIAS[spec.provider] ?? "core", reason });
+    },
+    persist: () => opts.persist(opts.conversation),
+    dropImageCache: () => parent.images.clear(),
+    available: spec => spec.provider !== "relay" || Boolean(PROVIDER_ENV.relayKey),
+    emit: event => emit({ type: "recovery", ...event }),
+  });
+  return child;
+}
 
 export function activeTaskCount() {
   return running.size;
@@ -218,12 +274,15 @@ export async function startTask(req: CreateTaskRequest, attachments: AttachmentR
   const id = randomUUID();
   reserved.add(id);
   try {
-    await createAgentTask({ id, prompt: req.prompt, mode: req.mode, model: spec.id, effort: req.effort, webSearch: req.webSearch, format: formatFor(spec) });
-    const staged = await stageAttachments(ensureWorkspace(id), attachments, { vision: spec.vision && formatFor(spec) === "anthropic" });
-    const conversation: Record<string, unknown>[] = [{ role: "user", content: userContent(req.prompt + staged.note, staged.images, formatFor(spec)) }];
+    // Dev Team members run Anthropic-format, tool-capable models; the conversation format follows.
+    const team = Boolean(req.team) && req.mode === "agent";
+    await createAgentTask({ id, prompt: req.prompt, mode: req.mode, model: spec.id, effort: req.effort, webSearch: req.webSearch, format: team ? "anthropic" : formatFor(spec), team });
+    const format = team ? "anthropic" : formatFor(spec);
+    const staged = await stageAttachments(ensureWorkspace(id), attachments, { vision: team || (spec.vision && format === "anthropic") });
+    const conversation: Record<string, unknown>[] = [{ role: "user", content: userContent(req.prompt + staged.note, staged.images, format) }];
     await updateAgentTask(id, { conversation, workspaceState: "live" });
     await addMessage(id, "user", req.prompt);
-    void runTask(id, conversation, { mode: req.mode, effort: req.effort, webSearch: req.webSearch, spec, reason, userText: req.prompt, userAttachments: staged.display, cloneRepo: req.repo ? { repo: req.repo, branch: req.repoBranch ?? undefined } : undefined });
+    void runTask(id, conversation, { mode: req.mode, effort: req.effort, webSearch: req.webSearch, spec, reason: team ? `Dev Team: ${reason}` : reason, team, userText: req.prompt, userAttachments: staged.display, cloneRepo: req.repo ? { repo: req.repo, branch: req.repoBranch ?? undefined } : undefined });
     return id;
   } finally {
     reserved.delete(id);
@@ -248,7 +307,7 @@ export async function followUp(taskId: string, prompt: string, attachments: Atta
       try {
         const workspace = await materializeWorkspace(taskId);
         restoredFiles = workspace.restored;
-        staged = await stageAttachments(workspace.dir, attachments, { vision: spec.vision && format === "anthropic" });
+        staged = await stageAttachments(workspace.dir, attachments, { vision: Boolean(task.team) || (spec.vision && format === "anthropic") });
       } catch (error) {
         // Mark the (possibly just restored) workspace live so the idle sweeper archives it again.
         await updateAgentTask(taskId, { workspaceState: "live" });
@@ -258,7 +317,7 @@ export async function followUp(taskId: string, prompt: string, attachments: Atta
     conversation.push({ role: "user", content: userContent(prompt + staged.note, staged.images, format) });
     await updateAgentTask(taskId, { conversation, status: "queued", error: null, workspaceState: "live" });
     await addMessage(taskId, "user", prompt);
-    void runTask(taskId, conversation, { mode: task.mode, effort: task.effort, webSearch: task.webSearch, spec, reason: "Follow-up on the same model.", userText: prompt, userAttachments: staged.display, restoredFiles });
+    void runTask(taskId, conversation, { mode: task.mode, effort: task.effort, webSearch: task.webSearch, spec, reason: task.team ? "Dev Team follow-up." : "Follow-up on the same model.", team: Boolean(task.team), userText: prompt, userAttachments: staged.display, restoredFiles });
   } finally {
     reserved.delete(taskId);
   }
@@ -287,7 +346,7 @@ async function githubContext(taskId: string) {
   };
 }
 
-async function runTask(taskId: string, conversation: Record<string, unknown>[], opts: { mode: TaskMode; effort: ThinkingLevel; webSearch: boolean; spec: ModelSpec; reason: string; userText?: string; userAttachments?: AttachmentDisplay[]; restoredFiles?: number; cloneRepo?: { repo: string; branch?: string } }) {
+async function runTask(taskId: string, conversation: Record<string, unknown>[], opts: { mode: TaskMode; effort: ThinkingLevel; webSearch: boolean; spec: ModelSpec; reason: string; userText?: string; userAttachments?: AttachmentDisplay[]; restoredFiles?: number; team?: boolean; cloneRepo?: { repo: string; branch?: string } }) {
   const controller = new AbortController();
   running.set(taskId, controller);
   let bus!: Awaited<ReturnType<typeof openChannel>>;
@@ -338,6 +397,7 @@ async function runTask(taskId: string, conversation: Record<string, unknown>[], 
     recovery: undefined as unknown as RecoveryEngine,
     flags: { noEager: false, noThinking: false, noEffort: false },
     toolWatch: new ToolFailureWatch(),
+    persist: messages => { updateAgentTask(taskId, { conversation: messages as Record<string, unknown>[] }); },
   };
   ctx.recovery = new RecoveryEngine({
     signal: controller.signal,
@@ -387,7 +447,8 @@ async function runTask(taskId: string, conversation: Record<string, unknown>[], 
       throw new Error("Connect GitHub to work on a repository.");
     }
     let answer: string;
-    if (opts.spec.provider === "research") answer = await runManus(ctx, conversation as unknown as Anthropic.MessageParam[]);
+    if (opts.team) answer = await runTeam(ctx, conversation as unknown as Anthropic.MessageParam[]);
+    else if (opts.spec.provider === "research") answer = await runManus(ctx, conversation as unknown as Anthropic.MessageParam[]);
     else if (opts.spec.provider === "core-inference") answer = await runInference(ctx, conversation as unknown as Anthropic.MessageParam[]);
     else if (opts.spec.provider === "fast") answer = await runOpenAILoop(ctx, conversation);
     else answer = await runAnthropicLoop(ctx, conversation as unknown as Anthropic.MessageParam[]);
@@ -456,7 +517,7 @@ async function deliverArtifacts(ctx: RunContext) {
 }
 
 /** User-facing error text: engine-neutral wording; the raw error goes to the server log. */
-function describeError(error: unknown) {
+export function describeError(error: unknown) {
   console.error("[agent] run error:", error instanceof Error ? error.message : error);
   if (error instanceof Anthropic.APIError) {
     const detail = brandText(String(error.message).replace(/^\d{3}\s+/, "").replace(/\{.*\}/s, "").trim());
@@ -487,7 +548,7 @@ async function streamTurn(ctx: RunContext, conversation: Anthropic.MessageParam[
   const stream = client.messages.stream({
     model: ctx.spec.id,
     max_tokens: MAX_TOKENS,
-    system: [{ type: "text", text: ctx.mode === "agent" ? AGENT_SYSTEM : CHAT_SYSTEM }, ...(ctx.context ? [{ type: "text" as const, text: ctx.context }] : [])],
+    system: [{ type: "text", text: ctx.system ?? (ctx.mode === "agent" ? AGENT_SYSTEM : CHAT_SYSTEM) }, ...(ctx.context ? [{ type: "text" as const, text: ctx.context }] : [])],
     messages,
     ...(tools.length ? { tools } : {}),
     ...reasoning(ctx),
@@ -551,16 +612,38 @@ async function streamTurn(ctx: RunContext, conversation: Anthropic.MessageParam[
 const textOf = (message: Anthropic.Message) => message.content.filter((block): block is Anthropic.TextBlock => block.type === "text").map(block => block.text).join("\n\n").trim();
 
 async function runAnthropicLoop(ctx: RunContext, conversation: Anthropic.MessageParam[]) {
+  return (await runAgentLoop(ctx, conversation)).text;
+}
+
+/** Tools offered to a context: the normal set, narrowed to its allowlist, plus its virtual tools. */
+function contextTools(ctx: RunContext) {
   const coding = ctx.mode === "agent";
   // Eager input streaming lets file bodies stream into the UI as they are generated.
-  const tools = () => toolsFor({ coding, web: ctx.webSearch, eager: ctx.spec.eagerInput && !ctx.flags.noEager, github: ctx.github });
+  const base = toolsFor({ coding, web: ctx.webSearch, eager: ctx.spec.eagerInput && !ctx.flags.noEager, github: ctx.github });
+  const allowed = ctx.allowedTools;
+  const offered = allowed ? base.filter(tool => allowed.has(tool.name)) : base;
+  return [...offered, ...Object.values(ctx.virtualTools ?? {}).map(tool => tool.definition)];
+}
+
+export type LoopResult = { text: string; terminal?: Record<string, unknown> };
+
+/**
+ * The agent loop shared by solo runs and every Dev Team member.
+ *  terminal: a virtual tool whose successful call ends the loop (e.g. submit_plan).
+ *  verify:   run harness verification + self-healing before accepting an end_turn.
+ */
+export async function runAgentLoop(ctx: RunContext, conversation: Anthropic.MessageParam[], opts: { verify?: boolean; terminal?: string; maxTurns?: number } = {}): Promise<LoopResult> {
+  const coding = ctx.mode === "agent";
+  const verifyAtEnd = opts.verify ?? coding;
+  const maxTurns = opts.maxTurns ?? MAX_TURNS;
   let healIteration = 0;
   let lastText = "";
+  let nudges = 0;
 
-  for (let turn = 1; turn <= MAX_TURNS; turn++) {
-    const message = await healing(ctx, () => streamTurn(ctx, conversation, turn, ctx.spec.tools ? tools() : []));
+  for (let turn = 1; turn <= maxTurns; turn++) {
+    const message = await healing(ctx, () => streamTurn(ctx, conversation, turn, ctx.spec.tools ? contextTools(ctx) : []));
     conversation.push({ role: "assistant", content: message.content });
-    updateAgentTask(ctx.taskId, { conversation });
+    ctx.persist(conversation);
     lastText = textOf(message) || lastText;
 
     if (message.stop_reason === "refusal") throw new Error("The model declined this request (refusal).");
@@ -578,7 +661,12 @@ async function runAnthropicLoop(ctx: RunContext, conversation: Anthropic.Message
         results.push(await runToolCall(ctx, use));
       }
       conversation.push({ role: "user", content: results });
-      updateAgentTask(ctx.taskId, { conversation });
+      ctx.persist(conversation);
+      // A successful terminal call (e.g. submit_review) hands the result back to the orchestrator.
+      if (opts.terminal) {
+        const index = toolUses.findIndex(use => use.name === opts.terminal);
+        if (index >= 0 && !results[index].is_error) return { text: lastText, terminal: toolUses[index].input as Record<string, unknown> };
+      }
       continue;
     }
 
@@ -587,13 +675,26 @@ async function runAnthropicLoop(ctx: RunContext, conversation: Anthropic.Message
       continue;
     }
 
+    if (opts.terminal) {
+      // A team member that stops without handing off is asked (twice at most) to do so.
+      if (nudges++ < 2) {
+        conversation.push({ role: "user", content: `Your turn is not complete until you call ${opts.terminal}. Call it now with your result.` });
+        continue;
+      }
+      return { text: lastText };
+    }
     // end_turn: the harness verifies coding work before accepting the answer.
-    const step = await verifyOrHeal(ctx, coding, healIteration, lastText);
-    if (step.done) return step.answer;
+    const step = await verifyOrHeal(ctx, coding && verifyAtEnd, healIteration, lastText);
+    if (step.done) return { text: step.answer };
     healIteration = step.healIteration;
     conversation.push({ role: "user", content: step.message });
   }
-  throw new Error(`Stopped after ${MAX_TURNS} model turns without finishing.`);
+  if (opts.terminal) {
+    // A team member out of turns falls back to the orchestrator's default instead of failing the run.
+    ctx.emit({ type: "notice", level: "warn", message: `${ctx.role ? `${ctx.role[0].toUpperCase()}${ctx.role.slice(1)}` : "Agent"} used its ${maxTurns}-turn budget without calling ${opts.terminal}.` });
+    return { text: lastText };
+  }
+  throw new Error(`Stopped after ${maxTurns} model turns without finishing.`);
 }
 
 type HealStep = { done: true; answer: string } | { done: false; healIteration: number; message: string };
@@ -744,6 +845,19 @@ async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unkno
 }
 
 async function runToolCall(ctx: RunContext, use: Anthropic.ToolUseBlock): Promise<Anthropic.ToolResultBlockParam> {
+  const virtual = ctx.virtualTools?.[use.name];
+  if (virtual) {
+    ctx.emit({ type: "tool_call", callId: use.id, name: use.name, input: redactLargeInput((use.input ?? {}) as Record<string, unknown>) });
+    const parsed = virtual.schema.safeParse(use.input ?? {});
+    if (!parsed.success) {
+      const issues = parsed.error.issues.map(issue => `${issue.path.join(".") || "input"}: ${issue.message}`).join("; ");
+      ctx.emit({ type: "tool_result", callId: use.id, ok: false, summary: "Invalid input", durationMs: 0 });
+      return { type: "tool_result", tool_use_id: use.id, is_error: true, content: `INVALID_INPUT: ${issues}. Call ${use.name} again with a complete, valid input.` };
+    }
+    use.input = parsed.data;
+    ctx.emit({ type: "tool_result", callId: use.id, ok: true, summary: virtual.summary(parsed.data), durationMs: 0 });
+    return { type: "tool_result", tool_use_id: use.id, content: "Recorded. Your part of this round is complete." };
+  }
   const outcome = await trackedTool(ctx, use.id, use.name, (use.input ?? {}) as Record<string, unknown>);
   const nudge = ctx.toolWatch.note(use.name, outcome.ok, outcome.summary);
   if (nudge) outcome.content += nudge;
@@ -781,6 +895,12 @@ export function sanitizeErrorToolResults(conversation: Anthropic.MessageParam[])
 /** Execute one tool call with phase tracking and lifecycle events; shared by every provider loop. */
 async function trackedTool(ctx: RunContext, callId: string, name: string, input: Record<string, unknown>): Promise<ToolOutcome> {
   ctx.emit({ type: "tool_call", callId, name, input: redactLargeInput(input) });
+  if (ctx.allowedTools && !ctx.allowedTools.has(name)) {
+    // Enforced here, not just by what is offered: a model can still emit a call for any tool name.
+    const outcome = { ok: false, content: `${name} is not available to the ${ctx.role ?? "current"} role. Use your own tools or hand off.`, summary: "Not allowed for this role" };
+    ctx.emit({ type: "tool_result", callId, ok: false, summary: outcome.summary, durationMs: 0 });
+    return outcome;
+  }
   if (name === "update_plan") {
     if (ctx.phases.get("planning") === "active") ctx.phases.set("planning", "done");
   } else if ((name === "run_command" && typeof input.command === "string" && isVerificationCommand(input.command)) || name === "browse" || name.startsWith("browser_")) {
@@ -792,6 +912,8 @@ async function trackedTool(ctx: RunContext, callId: string, name: string, input:
     if (ctx.phases.get("verification") !== "active") ctx.phases.advance("implementation");
   }
   const started = Date.now();
+  const guarded = ctx.readOnly && READ_ONLY_GUARDED.has(name);
+  const snapshot = guarded ? sourceSnapshot(ctx.root) : null;
   const outcome = await executeTool(name, input, {
     root: ctx.root,
     sessionId: ctx.taskId,
@@ -806,9 +928,25 @@ async function trackedTool(ctx: RunContext, callId: string, name: string, input:
       if (isVerificationCommand(command)) ctx.agentVerifyCommands.push(command);
     },
   });
+  if (snapshot) enforceReadOnly(ctx, snapshot, outcome);
   if (ctx.signal.aborted) throw new Error("Cancelled");
   ctx.emit({ type: "tool_result", callId, ok: outcome.ok, summary: outcome.summary, exitCode: outcome.exitCode, durationMs: Date.now() - started });
   return outcome;
+}
+
+/** Tools that run arbitrary commands in the workspace (the rest are read-only by construction). */
+const READ_ONLY_GUARDED = new Set(["run_command", "test_preview_visual"]);
+
+/** Revert whatever a read-only member's command changed and tell both the member and the user. */
+function enforceReadOnly(ctx: RunContext, snapshot: ReturnType<typeof sourceSnapshot>, outcome: ToolOutcome) {
+  const { reverted, unreverted } = revertWorkspace(ctx.root, snapshot);
+  if (!reverted.length && !unreverted.length) return;
+  const list = (files: string[]) => files.slice(0, 12).join(", ") + (files.length > 12 ? ` and ${files.length - 12} more` : "");
+  const role = ctx.role ?? "this";
+  outcome.content = `${outcome.content}\n\n[Read-only role] This command changed workspace files.${reverted.length ? ` Reverted: ${list(reverted)}.` : ""}${unreverted.length ? ` Could not revert: ${list(unreverted)}.` : ""} The ${role} role must not modify files; describe needed changes in your hand-off instead.`;
+  outcome.summary = `${outcome.summary} · ${reverted.length + unreverted.length} file change(s) reverted`;
+  ctx.emit({ type: "notice", level: "warn", message: `The ${role} changed ${reverted.length + unreverted.length} workspace file(s) through a command; ${unreverted.length ? `${unreverted.length} could not be reverted (${list(unreverted)})` : "all were reverted"}.` });
+  for (const file of unreverted) ctx.changedFiles.add(file);
 }
 
 /** File bodies already stream as diffs; keep the logged tool_call input readable. */
@@ -851,7 +989,7 @@ function plainText(content: Anthropic.MessageParam["content"]) {
   return content.map(block => (block.type === "text" ? block.text : "")).join("\n").trim();
 }
 
-async function emitText(ctx: RunContext, blockId: string, chunks: AsyncIterable<string>) {
+export async function emitText(ctx: RunContext, blockId: string, chunks: AsyncIterable<string>) {
   ctx.emit({ type: "text_start", blockId });
   let text = "";
   try {
