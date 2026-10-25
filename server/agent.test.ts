@@ -118,9 +118,8 @@ describe("model dispatch", () => {
     vi.stubEnv("PAPER_API_KEY", "test");
     for (const model of PICKER_MODELS) expect(dispatchModel({ ...base, mode: model.tools ? "agent" : "chat", model: model.id, prompt: "Build a CLI" }).spec.id).toBe(model.id);
     for (const id of ["gemini-4-argon", "llama3.3-70b", "mistral-7b"]) expect(() => dispatchModel({ ...base, model: id, prompt: "Build a CLI" })).toThrow(/cannot call tools/);
-    // Gemini moved to the SQL route: old picks map to the new entries (chat only).
-    expect(dispatchModel({ ...base, mode: "chat", model: "r/gemini-3.8-flash-high", prompt: "Hi" }).spec.id).toBe("gemini-3.8-flash");
-    expect(dispatchModel({ ...base, mode: "chat", model: "r/gemini-2.5-flash", prompt: "Hi" }).spec.id).toBe("gemini-2.5-flash");
+    expect(dispatchModel({ ...base, model: "r/gemini-3.8-flash-high", prompt: "Hi" }).spec.id).toBe("r/gemini-3.8-flash");
+    expect(dispatchModel({ ...base, model: "gemini-2.5-flash", prompt: "Hi" }).spec.id).toBe("r/gemini-2.5-flash"); // briefly-used SQL id
     expect(() => dispatchModel({ ...base, model: "research-agent", prompt: "Build a CLI" })).toThrow(/Unknown model/);
     expect(dispatchModel({ ...base, model: "r/claude-sonnet-4-6", prompt: "Hi" }).spec.id).toBe("claude-sonnet-4-6"); // retired entry → its replacement
     expect(() => dispatchModel({ ...base, model: "r/claude-opus-4-6", prompt: "Hi" })).toThrow(/Unknown model/);
@@ -154,9 +153,12 @@ describe("model catalog and routing", () => {
     for (const id of ["claude-opus-5-5", "claude-haiku-5-5", "claude-sonnet-4-5", "r/gemini-3.8-flash", "r/gemini-2.5-flash"]) expect(format(id)).toBe("anthropic");
     for (const id of ["openai-gpt-5.5", "openai-gpt-5", "grok-4.7", "kimi-k3", "glm-5.3", "ultramarine-1-flash"]) expect(format(id)).toBe("openai");
     // Chat-only engines keep plain-message (Anthropic-shaped) histories.
-    for (const id of ["gemini-3.8-flash", "gemini-4-argon", "gemini-3.7-flash", "gemini-2.5-flash", "llama3.3-70b", "llama3.1-70b", "mistral-7b"]) expect(format(id)).toBe("anthropic");
-    for (const id of ["gemini-3.8-flash", "gemini-4-argon", "gemini-3.7-flash", "gemini-2.5-flash", "llama3.3-70b"]) expect(getModel(id)).toMatchObject({ provider: "core-sql", tools: false, vision: false });
-    expect(getModel("r/gemini-3.8-flash")!.hidden).toBe(true); // relay route kept for old tasks and failover only
+    for (const id of ["gemini-4-argon", "gemini-3.7-flash", "llama3.3-70b", "llama3.1-70b", "mistral-7b"]) expect(format(id)).toBe("anthropic");
+    for (const id of ["gemini-4-argon", "gemini-3.7-flash", "llama3.3-70b"]) expect(getModel(id)).toMatchObject({ provider: "core-sql", tools: false, vision: false });
+    for (const id of ["r/gemini-3.8-flash", "r/gemini-2.5-flash"]) {
+      expect(getModel(id)).toMatchObject({ provider: "relay", tools: true, vision: true });
+      expect(getModel(id)!.hidden).toBeFalsy(); // back in the picker
+    }
     expect(getModel("llama3.1-8b")!.provider).toBe("core-inference");
     const gemini = getModel("r/gemini-3.8-flash")!;
     expect(["low", "medium", "high"].map(level => wireModel(gemini, level as "low"))).toEqual(["r/gemini-3.8-flash-low", "r/gemini-3.8-flash-medium", "r/gemini-3.8-flash-high"]);

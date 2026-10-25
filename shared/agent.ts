@@ -64,11 +64,11 @@ export const MODELS: ModelSpec[] = [
   chat("openai-gpt-5.4", "OpenAI GPT 5.4"),
   chat("openai-gpt-5.2", "OpenAI GPT 5.2"),
   chat("openai-gpt-5", "OpenAI GPT 5"),
-  // Gemini and Llama 3.3 run on Cortex only through SQL AI_COMPLETE: chat-only, replies arrive whole.
-  { id: "gemini-3.8-flash", label: "Gemini 3.8 Flash", provider: "core-sql", group: "Core", ...textOnly },
+  { id: "r/gemini-3.8-flash", label: "Gemini 3.8 Flash", provider: "relay", group: "Gemini", tools: true, thinking: "none", effort: false, eagerInput: false, vision: true, variants: { low: "r/gemini-3.8-flash-low", medium: "r/gemini-3.8-flash-medium", high: "r/gemini-3.8-flash-high" } },
+  // Gemini 4 Argon, 3.7 Flash and Llama 3.3 run on Cortex only through SQL AI_COMPLETE: chat-only, replies arrive whole.
   { id: "gemini-4-argon", label: "Gemini 4 Argon", provider: "core-sql", group: "Core", ...textOnly },
   { id: "gemini-3.7-flash", label: "Gemini 3.7 Flash", provider: "core-sql", group: "Core", ...textOnly },
-  { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "core-sql", group: "Core", ...textOnly },
+  { id: "r/gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "relay", group: "Gemini", tools: true, thinking: "none", effort: false, eagerInput: false, vision: true },
   chat("grok-4.7", "Grok 4.7"),
   chat("grok-4.6", "Grok 4.6"),
   chat("kimi-k3", "Kimi K3", { thinking: "reasoning-content" }),
@@ -78,10 +78,6 @@ export const MODELS: ModelSpec[] = [
   { id: "llama3.1-8b", label: "Llama 3.1 8B", provider: "core-inference", group: "Core", ...textOnly },
   { id: "mistral-7b", label: "Mistral 7B", provider: "core-inference", group: "Core", ...textOnly },
   { id: "ultramarine-1-flash", label: "Ultramarine 1.0 Flash", provider: "fast", group: "Fast", tools: true, thinking: "reasoning-content", effort: false, eagerInput: false, vision: false },
-  // Gemini over the relay: no longer picked directly; older tasks continue on it, and it stays a
-  // last-resort failover route for Claude-format runs.
-  { id: "r/gemini-3.8-flash", label: "Gemini 3.8 Flash", provider: "relay", group: "Gemini", tools: true, thinking: "none", effort: false, eagerInput: false, vision: true, variants: { low: "r/gemini-3.8-flash-low", medium: "r/gemini-3.8-flash-medium", high: "r/gemini-3.8-flash-high" }, hidden: true },
-  { id: "r/gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "relay", group: "Gemini", tools: true, thinking: "none", effort: false, eagerInput: false, vision: true, hidden: true },
   // Second route to Claude, used when the primary route is down (self-healing failover).
   { id: "r/claude-opus-4-6-thinking", label: "Claude Opus 4.6 · backup route", provider: "relay", group: "Relay", tools: true, thinking: "adaptive", effort: true, eagerInput: true, vision: true, hidden: true },
   { id: "r/claude-sonnet-4-6", label: "Claude Sonnet 4.6 · backup route", provider: "relay", group: "Relay", tools: true, thinking: "adaptive", effort: true, eagerInput: true, vision: true, hidden: true },
@@ -91,21 +87,19 @@ export const MODELS: ModelSpec[] = [
 export const PICKER_MODELS = MODELS.filter(model => !model.hidden);
 
 /** Ids that older tasks and saved preferences may still carry: entry plus the thinking level it implied. */
-const ALIASES: Record<string, { id: string; effort: ThinkingLevel }> = {
+const ALIASES: Record<string, { id: string; effort?: ThinkingLevel }> = {
   "r/gemini-3.8-flash-high": { id: "r/gemini-3.8-flash", effort: "high" },
   "r/gemini-3.8-flash-medium": { id: "r/gemini-3.8-flash", effort: "medium" },
   "r/gemini-3.8-flash-low": { id: "r/gemini-3.8-flash", effort: "low" },
+  // Briefly routed through SQL; back on the relay.
+  "gemini-3.8-flash": { id: "r/gemini-3.8-flash" },
+  "gemini-2.5-flash": { id: "r/gemini-2.5-flash" },
 };
 
 /** Retired picker entries and the listed model that replaces them (for new tasks and saved picks). */
 export const REPLACED: Record<string, string> = {
   "r/claude-sonnet-4-6": "claude-sonnet-4-6",
   "r/claude-opus-4-6-thinking": "claude-opus-4-6",
-  "r/gemini-3.8-flash": "gemini-3.8-flash",
-  "r/gemini-3.8-flash-high": "gemini-3.8-flash",
-  "r/gemini-3.8-flash-medium": "gemini-3.8-flash",
-  "r/gemini-3.8-flash-low": "gemini-3.8-flash",
-  "r/gemini-2.5-flash": "gemini-2.5-flash",
 };
 
 export function getModel(id: string) {
