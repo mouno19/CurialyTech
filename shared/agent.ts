@@ -1,6 +1,6 @@
 // Shared contract between the agent runtime (server/agent) and the glassbox UI.
 
-export type ProviderId = "core" | "core-chat" | "core-inference" | "relay" | "fast" | "research";
+export type ProviderId = "core" | "core-chat" | "core-inference" | "core-sql" | "relay" | "fast" | "research";
 /** Engine family, used internally (Integrations page, failover routes); never shown on a model. */
 export type ModelGroup = "Core" | "Relay" | "Fast" | "Research" | "Gemini";
 export type ThinkingLevel = "low" | "medium" | "high";
@@ -43,7 +43,9 @@ type Flags = Partial<Omit<ModelSpec, "id" | "label">>;
 const claude = (id: string, label: string, flags: Flags = {}): ModelSpec => ({ id, label, provider: "core", group: "Core", tools: true, thinking: "adaptive-summarized", effort: true, eagerInput: true, vision: true, ...flags });
 // Cortex's OpenAI-compatible chat/completions endpoint.
 const chat = (id: string, label: string, flags: Flags = {}): ModelSpec => ({ id, label, provider: "core-chat", group: "Core", tools: true, thinking: "none", effort: true, eagerInput: false, vision: true, ...flags });
-const legacy = { tools: false, thinking: "none", effort: false, eagerInput: false, vision: false, hidden: true } as const;
+// Chat-only models (no tool calling): open weights on Cortex inference, and models Cortex serves
+// only through SQL AI_COMPLETE (core-sql: no streaming, answer arrives whole).
+const textOnly = { tools: false, thinking: "none", effort: false, eagerInput: false, vision: false } as const;
 
 /** Picker order is the order below; hidden entries never appear in it. */
 export const MODELS: ModelSpec[] = [
@@ -61,20 +63,29 @@ export const MODELS: ModelSpec[] = [
   chat("openai-gpt-5.5", "OpenAI GPT 5.5"),
   chat("openai-gpt-5.4", "OpenAI GPT 5.4"),
   chat("openai-gpt-5.2", "OpenAI GPT 5.2"),
+  chat("openai-gpt-5", "OpenAI GPT 5"),
+  // Gemini and Llama 3.3 run on Cortex only through SQL AI_COMPLETE: chat-only, replies arrive whole.
+  { id: "gemini-3.8-flash", label: "Gemini 3.8 Flash", provider: "core-sql", group: "Core", ...textOnly },
+  { id: "gemini-4-argon", label: "Gemini 4 Argon", provider: "core-sql", group: "Core", ...textOnly },
+  { id: "gemini-3.7-flash", label: "Gemini 3.7 Flash", provider: "core-sql", group: "Core", ...textOnly },
+  { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "core-sql", group: "Core", ...textOnly },
   chat("grok-4.7", "Grok 4.7"),
   chat("grok-4.6", "Grok 4.6"),
   chat("kimi-k3", "Kimi K3", { thinking: "reasoning-content" }),
   chat("glm-5.3", "GLM 5.3", { thinking: "reasoning-content", vision: false }),
-  { id: "r/gemini-3.8-flash", label: "Gemini 3.8 Flash", provider: "relay", group: "Gemini", tools: true, thinking: "none", effort: false, eagerInput: false, vision: true, variants: { low: "r/gemini-3.8-flash-low", medium: "r/gemini-3.8-flash-medium", high: "r/gemini-3.8-flash-high" } },
-  { id: "r/gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "relay", group: "Gemini", tools: true, thinking: "none", effort: false, eagerInput: false, vision: true },
+  { id: "llama3.3-70b", label: "Llama 3.3 70B", provider: "core-sql", group: "Core", ...textOnly },
+  { id: "llama3.1-70b", label: "Llama 3.1 70B", provider: "core-inference", group: "Core", ...textOnly },
+  { id: "llama3.1-8b", label: "Llama 3.1 8B", provider: "core-inference", group: "Core", ...textOnly },
+  { id: "mistral-7b", label: "Mistral 7B", provider: "core-inference", group: "Core", ...textOnly },
   { id: "ultramarine-1-flash", label: "Ultramarine 1.0 Flash", provider: "fast", group: "Fast", tools: true, thinking: "reasoning-content", effort: false, eagerInput: false, vision: false },
+  // Gemini over the relay: no longer picked directly; older tasks continue on it, and it stays a
+  // last-resort failover route for Claude-format runs.
+  { id: "r/gemini-3.8-flash", label: "Gemini 3.8 Flash", provider: "relay", group: "Gemini", tools: true, thinking: "none", effort: false, eagerInput: false, vision: true, variants: { low: "r/gemini-3.8-flash-low", medium: "r/gemini-3.8-flash-medium", high: "r/gemini-3.8-flash-high" }, hidden: true },
+  { id: "r/gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "relay", group: "Gemini", tools: true, thinking: "none", effort: false, eagerInput: false, vision: true, hidden: true },
   // Second route to Claude, used when the primary route is down (self-healing failover).
   { id: "r/claude-opus-4-6-thinking", label: "Claude Opus 4.6 · backup route", provider: "relay", group: "Relay", tools: true, thinking: "adaptive", effort: true, eagerInput: true, vision: true, hidden: true },
   { id: "r/claude-sonnet-4-6", label: "Claude Sonnet 4.6 · backup route", provider: "relay", group: "Relay", tools: true, thinking: "adaptive", effort: true, eagerInput: true, vision: true, hidden: true },
-  { id: "research-agent", label: "Curialy Research Agent", provider: "research", group: "Research", ...legacy },
-  { id: "llama3.1-70b", label: "Llama 3.1 70B", provider: "core-inference", group: "Core", ...legacy },
-  { id: "llama3.1-8b", label: "Llama 3.1 8B", provider: "core-inference", group: "Core", ...legacy },
-  { id: "mistral-7b", label: "Mistral 7B", provider: "core-inference", group: "Core", ...legacy },
+  { id: "research-agent", label: "Curialy Research Agent", provider: "research", group: "Research", ...textOnly, hidden: true },
 ];
 
 export const PICKER_MODELS = MODELS.filter(model => !model.hidden);
@@ -90,6 +101,11 @@ const ALIASES: Record<string, { id: string; effort: ThinkingLevel }> = {
 export const REPLACED: Record<string, string> = {
   "r/claude-sonnet-4-6": "claude-sonnet-4-6",
   "r/claude-opus-4-6-thinking": "claude-opus-4-6",
+  "r/gemini-3.8-flash": "gemini-3.8-flash",
+  "r/gemini-3.8-flash-high": "gemini-3.8-flash",
+  "r/gemini-3.8-flash-medium": "gemini-3.8-flash",
+  "r/gemini-3.8-flash-low": "gemini-3.8-flash",
+  "r/gemini-2.5-flash": "gemini-2.5-flash",
 };
 
 export function getModel(id: string) {

@@ -4,7 +4,7 @@ import { PICKER_MODELS as MODELS } from "@shared/agent";
 import { AppShell } from "@/components/shell/AppShell";
 import { agentApi, type ProviderProbe } from "@/lib/api";
 
-const PROVIDER_FOR: Record<string, string[]> = { core: ["core", "core-chat"], relay: ["relay"], fast: ["fast"], research: ["research"], gemini: [] };
+const PROVIDER_FOR: Record<string, string[]> = { core: ["core", "core-chat", "core-inference", "core-sql"], relay: ["relay"], fast: ["fast"], research: ["research"], gemini: [] };
 const NON_GEMINI = (group: string) => group !== "Gemini";
 
 export default function Integrations() {

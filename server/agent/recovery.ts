@@ -58,7 +58,7 @@ export function diagnose(error: unknown, aborted: boolean): Diagnosis {
   if (error instanceof Anthropic.APIConnectionError || (!status && NETWORK.test(message))) return { kind: "transient", detail: "Connection to the engine dropped" };
   if (status === 401 || status === 403) return { kind: "auth", status, detail: "The engine rejected its credentials" };
   if (status === 429) return { kind: "rate_limit", status, detail: "The engine is rate limiting requests", retryAfterMs: retryAfter(error) };
-  if (status === 413 || /prompt is too long|context (limit|window|length)|too many (input )?tokens|maximum context|exceeds? .*context|input length/.test(lower)) return { kind: "context_overflow", status, detail: "The conversation no longer fits in the context window" };
+  if (status === 413 || /prompt is too long|context (limit|window|length)|too many (input )?tokens|maximum context|exceeds? .*context|input length|max tokens of \d+ exceeded|context window exceeded/.test(lower)) return { kind: "context_overflow", status, detail: "The conversation no longer fits in the context window" };
   if (/all content must be type .?text.? if .?is_error/.test(lower)) return { kind: "error_result_content", status, detail: "A failed tool result contained non-text content" };
   if (/tool_use.*tool_result|tool_result.*tool_use|tool_use_id|unexpected .?tool/.test(lower)) return { kind: "tool_pairing", status, detail: "Tool calls and results in the history are out of step" };
   if (/thinking|signature|redacted_thinking/.test(lower) && /block|signature|modif|invalid|expected|must/.test(lower)) return { kind: "thinking_history", status, detail: "Earlier reasoning blocks in the history were rejected" };
@@ -276,7 +276,7 @@ const FAILOVER_TIERS: Record<"anthropic" | "openai", string[][]> = {
     ["r/gemini-3.8-flash", "r/gemini-2.5-flash"],
   ],
   openai: [
-    ["openai-gpt-5.5", "openai-gpt-5.4", "openai-gpt-5.2"],
+    ["openai-gpt-5.5", "openai-gpt-5.4", "openai-gpt-5.2", "openai-gpt-5"],
     ["grok-4.7", "grok-4.6"],
     ["kimi-k3", "glm-5.3", "ultramarine-1-flash"],
   ],
@@ -284,7 +284,7 @@ const FAILOVER_TIERS: Record<"anthropic" | "openai", string[][]> = {
 
 /** Same-format models to fail over to: the current tier first, then the others in order. */
 export function failoverModels(current: ModelSpec): ModelSpec[] {
-  if (current.provider === "research" || current.provider === "core-inference") return [];
+  if (current.provider === "research" || current.provider === "core-inference" || current.provider === "core-sql") return [];
   const tiers = FAILOVER_TIERS[current.provider === "fast" || current.provider === "core-chat" ? "openai" : "anthropic"];
   const own = tiers.findIndex(tier => tier.includes(current.id));
   const ordered = own < 0 ? tiers.flat() : [...tiers[own], ...tiers.filter((_, index) => index !== own).flat()];

@@ -116,9 +116,12 @@ describe("model dispatch", () => {
   it("accepts every picker model and old aliases, rejects hidden and tool-less ones", () => {
     vi.stubEnv("RELAY_API_KEY", "test");
     vi.stubEnv("PAPER_API_KEY", "test");
-    for (const model of PICKER_MODELS) expect(dispatchModel({ ...base, model: model.id, prompt: "Build a CLI" }).spec.id).toBe(model.id);
-    expect(dispatchModel({ ...base, model: "r/gemini-3.8-flash-high", prompt: "Hi" }).spec.id).toBe("r/gemini-3.8-flash");
-    expect(() => dispatchModel({ ...base, model: "llama3.1-70b", prompt: "Build a CLI" })).toThrow(/Unknown model/);
+    for (const model of PICKER_MODELS) expect(dispatchModel({ ...base, mode: model.tools ? "agent" : "chat", model: model.id, prompt: "Build a CLI" }).spec.id).toBe(model.id);
+    for (const id of ["gemini-4-argon", "llama3.3-70b", "mistral-7b"]) expect(() => dispatchModel({ ...base, model: id, prompt: "Build a CLI" })).toThrow(/cannot call tools/);
+    // Gemini moved to the SQL route: old picks map to the new entries (chat only).
+    expect(dispatchModel({ ...base, mode: "chat", model: "r/gemini-3.8-flash-high", prompt: "Hi" }).spec.id).toBe("gemini-3.8-flash");
+    expect(dispatchModel({ ...base, mode: "chat", model: "r/gemini-2.5-flash", prompt: "Hi" }).spec.id).toBe("gemini-2.5-flash");
+    expect(() => dispatchModel({ ...base, model: "research-agent", prompt: "Build a CLI" })).toThrow(/Unknown model/);
     expect(dispatchModel({ ...base, model: "r/claude-sonnet-4-6", prompt: "Hi" }).spec.id).toBe("claude-sonnet-4-6"); // retired entry → its replacement
     expect(() => dispatchModel({ ...base, model: "r/claude-opus-4-6", prompt: "Hi" })).toThrow(/Unknown model/);
     // Dev Team: a model that cannot join is replaced up front, so the recorded model is the one that runs.
@@ -128,7 +131,7 @@ describe("model dispatch", () => {
     expect(dispatchModel({ ...base, team: true, model: "claude-opus-5", prompt: "Build a CLI" }).spec.id).toBe("claude-opus-5");
     expect(() => dispatchModel({ ...base, model: "nope", prompt: "Hi" })).toThrow(/Unknown model/);
     vi.unstubAllEnvs();
-    expect(() => dispatchModel({ ...base, model: "r/gemini-2.5-flash", prompt: "Hi" })).toThrow(/not configured/);
+    expect(() => dispatchModel({ ...base, mode: "chat", model: "ultramarine-1-flash", prompt: "Hi" })).toThrow(/not configured/);
   });
 });
 
@@ -137,8 +140,10 @@ describe("model catalog and routing", () => {
     expect(PICKER_MODELS.map(model => model.label)).toEqual([
       "Claude Opus 5.5", "Claude Opus 5", "Claude Opus 4.8", "Claude Opus 4.7", "Claude Opus 4.6", "Claude Opus 4.5",
       "Claude Sonnet 5.5", "Claude Sonnet 5", "Claude Sonnet 4.6", "Claude Sonnet 4.5", "Claude Haiku 5.5",
-      "OpenAI GPT 5.5", "OpenAI GPT 5.4", "OpenAI GPT 5.2", "Grok 4.7", "Grok 4.6", "Kimi K3", "GLM 5.3",
-      "Gemini 3.8 Flash", "Gemini 2.5 Flash", "Ultramarine 1.0 Flash",
+      "OpenAI GPT 5.5", "OpenAI GPT 5.4", "OpenAI GPT 5.2", "OpenAI GPT 5",
+      "Gemini 3.8 Flash", "Gemini 4 Argon", "Gemini 3.7 Flash", "Gemini 2.5 Flash",
+      "Grok 4.7", "Grok 4.6", "Kimi K3", "GLM 5.3",
+      "Llama 3.3 70B", "Llama 3.1 70B", "Llama 3.1 8B", "Mistral 7B", "Ultramarine 1.0 Flash",
     ]);
     // No vendor names in anything the picker can show.
     for (const model of PICKER_MODELS) expect(model.label).not.toMatch(/cortex|snowflake|relay|paper/i);
@@ -147,7 +152,12 @@ describe("model catalog and routing", () => {
   it("routes each model to its API format and wire id", () => {
     const format = (id: string) => formatFor(getModel(id)!);
     for (const id of ["claude-opus-5-5", "claude-haiku-5-5", "claude-sonnet-4-5", "r/gemini-3.8-flash", "r/gemini-2.5-flash"]) expect(format(id)).toBe("anthropic");
-    for (const id of ["openai-gpt-5.5", "grok-4.7", "kimi-k3", "glm-5.3", "ultramarine-1-flash"]) expect(format(id)).toBe("openai");
+    for (const id of ["openai-gpt-5.5", "openai-gpt-5", "grok-4.7", "kimi-k3", "glm-5.3", "ultramarine-1-flash"]) expect(format(id)).toBe("openai");
+    // Chat-only engines keep plain-message (Anthropic-shaped) histories.
+    for (const id of ["gemini-3.8-flash", "gemini-4-argon", "gemini-3.7-flash", "gemini-2.5-flash", "llama3.3-70b", "llama3.1-70b", "mistral-7b"]) expect(format(id)).toBe("anthropic");
+    for (const id of ["gemini-3.8-flash", "gemini-4-argon", "gemini-3.7-flash", "gemini-2.5-flash", "llama3.3-70b"]) expect(getModel(id)).toMatchObject({ provider: "core-sql", tools: false, vision: false });
+    expect(getModel("r/gemini-3.8-flash")!.hidden).toBe(true); // relay route kept for old tasks and failover only
+    expect(getModel("llama3.1-8b")!.provider).toBe("core-inference");
     const gemini = getModel("r/gemini-3.8-flash")!;
     expect(["low", "medium", "high"].map(level => wireModel(gemini, level as "low"))).toEqual(["r/gemini-3.8-flash-low", "r/gemini-3.8-flash-medium", "r/gemini-3.8-flash-high"]);
     expect(wireModel(getModel("openai-gpt-5.5")!, "high")).toBe("openai-gpt-5.5");
@@ -171,6 +181,8 @@ describe("model catalog and routing", () => {
     for (const id of ids("grok-4.7")) expect(formatFor(getModel(id)!)).toBe("openai"); // never crosses formats
     for (const id of ids("claude-haiku-5-5")) expect(formatFor(getModel(id)!)).toBe("anthropic");
     expect(ids("research-agent")).toEqual([]);
+    expect(ids("gemini-4-argon")).toEqual([]); // chat-only engines are retried, not switched
+    expect(ids("openai-gpt-5.4")).toContain("openai-gpt-5");
   });
 
   it("streams OpenAI-format models through the bridge with reasoning effort", async () => {
@@ -217,6 +229,34 @@ describe("model catalog and routing", () => {
 });
 
 describe("model routing regressions", () => {
+  it("heals SQL-completion failures sensibly and keeps their text neutral", async () => {
+    const { diagnose } = await import("./agent/recovery");
+    const { completionError } = await import("./media/snowflake");
+    const { brandText } = await import("../shared/brand");
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const mapped = (message: string) => completionError(new Error(message)).message;
+    // Context overflow (both the raw wording and the mapped one) leads to compaction, not a dead chat.
+    expect(diagnose(new Error("Cortex inference failed (400): {\"message\":\"max tokens of 32768 exceeded\"}"), false).kind).toBe("context_overflow");
+    expect(diagnose(new Error(mapped("remote service error: 400 'max tokens of 128000 exceeded, try a shorter prompt'")), false).kind).toBe("context_overflow");
+    expect(diagnose(new Error(mapped("Request throttled: too many requests")), false).kind).toBe("rate_limit");
+    expect(diagnose(new Error(mapped("Network error: ECONNRESET")), false).kind).toBe("transient");
+    // Our own deadline is not a transient blip: an identical retry would only time out again.
+    expect(diagnose(new Error("The engine took too long to answer. Ask for a shorter reply, or try another model."), false).kind).toBe("fatal");
+    // Raw SQL / driver text never reaches the user.
+    const leaked = mapped("SQL access control error: Insufficient privileges to operate on function 'AI_COMPLETE'. Grant database role SNOWFLAKE.CORTEX_USER");
+    expect(leaked).not.toMatch(/AI_COMPLETE|SNOWFLAKE|CORTEX|SQL/);
+    expect(brandText("Set CORTEX_ENABLED_CROSS_REGION or grant SNOWFLAKE.CORTEX_USER")).not.toMatch(/CORTEX|SNOWFLAKE/i);
+    quiet.mockRestore();
+  });
+
+  it("sends single-prompt engines the whole conversation as a transcript", async () => {
+    const { transcriptPrompt } = await import("./agent/runner");
+    const prompt = transcriptPrompt("Be brief.", [{ role: "user", content: "My name is Ada." }, { role: "assistant", content: "Hi Ada." }, { role: "user", content: "What is my name?" }]);
+    expect(prompt.startsWith("Be brief.")).toBe(true);
+    expect(prompt).toContain("User: My name is Ada.\n\nAssistant: Hi Ada.\n\nUser: What is my name?");
+    expect(prompt.endsWith("Assistant:")).toBe(true);
+  });
+
   it("never saves or replays null assistant content in OpenAI-format histories", async () => {
     const { repairOpenAIContent } = await import("./agent/recovery");
     const history: any[] = [

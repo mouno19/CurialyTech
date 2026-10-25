@@ -50,7 +50,7 @@ export function ModelPicker({ value, onChange, mode, team = false, openDown = fa
           {PICKER_MODELS.map(model => {
             const unusable = mode === "agent" && (!model.tools || (team && !teamCapable(model)));
             return (
-              <button key={model.id} type="button" role="option" aria-selected={value === model.id} disabled={unusable} title={unusable && team ? "Not available in Dev Team mode" : undefined} className={`model-option plain${value === model.id ? " on" : ""}`} onClick={() => { onChange(model.id); setOpen(false); }}>
+              <button key={model.id} type="button" role="option" aria-selected={value === model.id} disabled={unusable} title={unusable ? (model.tools ? "Not available in Dev Team mode" : "Chat mode only") : undefined} className={`model-option plain${value === model.id ? " on" : ""}`} onClick={() => { onChange(model.id); setOpen(false); }}>
                 <strong>{model.label}</strong>
                 {value === model.id && <Check size={14} style={{ marginLeft: "auto", flex: "0 0 auto" }} />}
               </button>
@@ -97,7 +97,7 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed }: { onSubmit: (r
     const sent = attachments.ids;
     setError(null);
     try {
-      await onSubmit({ prompt: text, model: prefs.model, mode: prefs.mode, effort: prefs.effort, webSearch: prefs.webSearch, team: prefs.mode === "agent" && prefs.team, attachmentIds: sent, repo: prefs.mode === "agent" ? repo?.full_name ?? null : null, repoBranch: prefs.mode === "agent" ? repo?.default_branch ?? null : null });
+      await onSubmit({ prompt: text, model: prefs.model, mode: prefs.mode, effort: prefs.effort, webSearch: prefs.webSearch && webApplies, team: prefs.mode === "agent" && prefs.team, attachmentIds: sent, repo: prefs.mode === "agent" ? repo?.full_name ?? null : null, repoBranch: prefs.mode === "agent" ? repo?.default_branch ?? null : null });
       setPrompt("");
       attachments.clear(sent);
     } catch (submitError) {
@@ -107,6 +107,7 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed }: { onSubmit: (r
 
   const spec = getModel(prefs.model);
   const showEffort = prefs.model === "auto" || Boolean(spec && effortApplies(spec));
+  const webApplies = prefs.model === "auto" || Boolean(spec?.tools);
 
   return (
     <div>
@@ -149,7 +150,7 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed }: { onSubmit: (r
               <Users size={14} /> Dev Team
             </button>
           )}
-          <button type="button" className={`toggle${prefs.webSearch ? " on" : ""}`} onClick={() => update({ webSearch: !prefs.webSearch })} aria-pressed={prefs.webSearch} title="Let the agent fetch pages, use the Live Browser and the Research Agent">
+          <button type="button" className={`toggle${prefs.webSearch && webApplies ? " on" : ""}`} disabled={!webApplies} onClick={() => update({ webSearch: !prefs.webSearch })} aria-pressed={prefs.webSearch && webApplies} title={webApplies ? "Let the agent fetch pages, use the Live Browser and the Research Agent" : `${spec?.label} cannot fetch pages`}>
             <Globe size={14} /> Web
           </button>
           <button type="button" className="toggle" onClick={attachments.open} disabled={attachments.full} title="Attach files, or paste / drop screenshots into the box">

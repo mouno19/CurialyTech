@@ -17,6 +17,7 @@ export const BRAND = {
 const NAMES: [RegExp, string][] = [
   [/\bSnowflake Cortex\b/gi, BRAND.core],
   [/\bCortex\b/g, BRAND.core],
+  [/\b(SNOWFLAKE\.)?CORTEX[A-Z_]*\b/g, "engine setting"],
   [/\bSnowflake\b/gi, BRAND.vault],
   [/\bRelay ?Station\b/gi, BRAND.relay],
   [/\bBrowserbase\b/gi, BRAND.browser],
@@ -43,4 +44,4 @@ export function brandText(text: string) {
 }
 
 /** Engine alias exposed in events instead of the internal provider id. */
-export const ENGINE_ALIAS: Record<string, string> = { core: "core", "core-chat": "core", "core-inference": "core", relay: "relay", fast: "fast", research: "research" };
+export const ENGINE_ALIAS: Record<string, string> = { core: "core", "core-chat": "core", "core-inference": "core", "core-sql": "core", relay: "relay", fast: "fast", research: "research" };

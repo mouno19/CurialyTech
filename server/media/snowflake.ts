@@ -119,3 +119,53 @@ export async function deleteMedia(id: string) {
   await query("DELETE FROM curialy.file_metadata WHERE id = $1", [id]);
   return true;
 }
+
+// ---- Cortex AI_COMPLETE (models Cortex serves only through SQL, e.g. Gemini 4 Argon) ----
+// Same connection and warehouse as the media stage. Not streamed: the reply arrives whole.
+
+export type CompletionResult = { text: string; inputTokens: number; outputTokens: number };
+
+/** Short, neutral error text that keeps only what self-healing needs; the raw error goes to the log. */
+export function completionError(error: Error) {
+  console.error("[cortex] AI_COMPLETE failed:", error.message);
+  const lower = error.message.toLowerCase();
+  if (/max tokens of \d+ exceeded|too long|context|input length/.test(lower)) return new Error("Chat engine request failed (400): context window exceeded");
+  if (/rate|quota|throttl|too many requests/.test(lower)) return new Error("Chat engine request failed (429): rate limited");
+  if (/unknown model|unavailable in your region|not available|does not exist/.test(lower)) return new Error("Chat engine request failed (404): model unavailable");
+  if (/network|econn|socket|connection|fetch failed|503|502|500|internal error/.test(lower)) return new Error("Chat engine request failed (503): the engine had a temporary error");
+  return new Error("Chat engine request failed (400): the engine rejected the request");
+}
+
+export async function aiComplete(opts: { model: string; prompt: string; maxTokens: number; signal: AbortSignal; timeoutMs?: number }): Promise<CompletionResult> {
+  if (opts.signal.aborted) throw new Error("Cancelled");
+  // One deadline and one cancel path for the whole call, connecting included.
+  let cancelStatement: (() => void) | null = null;
+  let timer: NodeJS.Timeout | undefined;
+  let onAbort: (() => void) | undefined;
+  const stopped = new Promise<never>((_, reject) => {
+    // Not phrased as a timeout: an identical retry would only time out again.
+    timer = setTimeout(() => { cancelStatement?.(); reject(new Error("The engine took too long to answer. Ask for a shorter reply, or try another model.")); }, opts.timeoutMs ?? 10 * 60_000);
+    onAbort = () => { cancelStatement?.(); reject(new Error("Cancelled")); };
+    opts.signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    const conn = await Promise.race([connect(), stopped]);
+    const rows = await Promise.race([stopped, new Promise<{ OUT: unknown }[]>((resolve, reject) => {
+      const statement = conn.execute({
+        sqlText: "SELECT AI_COMPLETE(model => ?, prompt => ?, model_parameters => PARSE_JSON(?), show_details => TRUE) AS OUT",
+        binds: [opts.model, opts.prompt, JSON.stringify({ max_tokens: opts.maxTokens })],
+        complete: (error, _statement, result) => (error ? reject(completionError(error)) : resolve((result ?? []) as { OUT: unknown }[])),
+      } as snowflake.StatementOption);
+      cancelStatement = () => statement.cancel(() => undefined);
+    })]);
+    const raw = rows[0]?.OUT;
+    const details = (typeof raw === "string" ? JSON.parse(raw) : raw) as { choices?: { messages?: string }[]; usage?: { prompt_tokens?: number; completion_tokens?: number } } | null;
+    const text = details?.choices?.[0]?.messages;
+    if (typeof text !== "string") throw new Error("Chat engine returned no completion.");
+    return { text, inputTokens: details?.usage?.prompt_tokens ?? 0, outputTokens: details?.usage?.completion_tokens ?? 0 };
+  } finally {
+    clearTimeout(timer);
+    if (onAbort) opts.signal.removeEventListener("abort", onAbort);
+    stopped.catch(() => undefined); // settled after we are done; never an unhandled rejection
+  }
+}

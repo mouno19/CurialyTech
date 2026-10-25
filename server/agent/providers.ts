@@ -1,5 +1,6 @@
 import { brandText } from "@shared/brand";
 import Anthropic from "@anthropic-ai/sdk";
+import { aiComplete } from "../media/snowflake";
 import type { ModelSpec, ProviderId, ThinkingLevel } from "@shared/agent";
 
 // Secrets come only from the service environment (/etc/curialyai.env); nothing here reaches the browser.
@@ -255,10 +256,16 @@ export async function probeProviders(deep = false): Promise<ProbeResult[]> {
         return "Reasoning engine reachable";
       }
       const message = await anthropicClient("core").messages.create({ model: "claude-haiku-5-5", max_tokens: 8, messages: [{ role: "user", content: "Reply OK" }] }, { signal });
-      // The chat-completions route (GPT, Grok, Kimi, GLM) is checked with the same probe.
-      let chatTokens = 0;
-      for await (const chunk of streamOpenAIChat({ provider: "core-chat", model: "openai-gpt-5.4", messages: [{ role: "user", content: "Reply OK" }], maxTokens: 16, signal })) if (chunk.kind === "usage") chatTokens = chunk.outputTokens;
-      return `Live completions OK on both routes (${message.usage.output_tokens} + ${chatTokens} tokens)`;
+      // Every Core route behind the listed models: chat completions (GPT, Grok, Kimi, GLM),
+      // inference (Llama 3.1, Mistral) and SQL completion (Gemini 4 Argon, 3.7 Flash, Llama 3.3).
+      const routes = await Promise.all([
+        (async () => { for await (const chunk of streamOpenAIChat({ provider: "core-chat", model: "openai-gpt-5.4", messages: [{ role: "user", content: "Reply OK" }], maxTokens: 16, signal })) if (chunk.kind === "text") return true; return false; })(),
+        (async () => { for await (const part of streamCortexInference({ model: "llama3.1-8b", system: "Be brief.", messages: [{ role: "user", content: "Reply OK" }], maxTokens: 8, signal })) if ("text" in part) return true; return false; })(),
+        aiComplete({ model: "llama3.3-70b", prompt: "Reply OK", maxTokens: 8, signal, timeoutMs: 40_000 }).then(result => Boolean(result.text)),
+      ].map(check => check.catch(() => false)));
+      const failed = ["chat completions", "inference", "SQL completion"].filter((_, index) => !routes[index]);
+      if (failed.length) throw new Error(`Messages route OK; failing: ${failed.join(", ")}`);
+      return `Live completions OK on all 4 routes (${message.usage.output_tokens} tokens on Messages)`;
     }),
     timed("Curialy Relay", "relay", Boolean(PROVIDER_ENV.relayKey), async () => {
       const response = await fetch(`${PROVIDER_ENV.relayUrl}/v1/models`, { headers: { authorization: `Bearer ${PROVIDER_ENV.relayKey}` }, signal });

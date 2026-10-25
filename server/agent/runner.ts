@@ -9,7 +9,7 @@ import { clip, ensureWorkspace, readWorkspaceFile, runCommand, writeWorkspaceByt
 import { addMessage, createAgentTask, getAgentTask, getConversation, settleTaskWrites, updateAgentTask, type ConversationFormat } from "./store";
 import { executeTool, isVerificationCommand, shellQuote, toolsFor, type ToolOutcome } from "./tools";
 import { materializeWorkspace, snapshotWorkspace } from "./workspaces";
-import { fetchMediaBytes } from "../media/snowflake";
+import { aiComplete, fetchMediaBytes } from "../media/snowflake";
 import { getConnection } from "../services/github";
 import { linkedRepo } from "./repos";
 import { brandText, ENGINE_ALIAS } from "@shared/brand";
@@ -25,6 +25,8 @@ const MAX_TURNS = 60;
 const MAX_HEAL_ITERATIONS = 4;
 const MAX_CONCURRENT = 3;
 const MAX_TOKENS = 16_000;
+/** Output budget for non-streamed (SQL) completions: nothing is shown until the reply is complete. */
+const SQL_MAX_TOKENS = 8192;
 
 const running = new Map<string, AbortController>();
 
@@ -469,7 +471,7 @@ async function runTask(taskId: string, conversation: Record<string, unknown>[], 
     let answer: string;
     if (opts.team) answer = await runTeam(ctx, conversation as unknown as Anthropic.MessageParam[]);
     else if (opts.spec.provider === "research") answer = await runManus(ctx, conversation as unknown as Anthropic.MessageParam[]);
-    else if (opts.spec.provider === "core-inference") answer = await runInference(ctx, conversation as unknown as Anthropic.MessageParam[]);
+    else if (opts.spec.provider === "core-inference" || opts.spec.provider === "core-sql") answer = await runInference(ctx, conversation as unknown as Anthropic.MessageParam[]);
     else if (formatFor(opts.spec) === "openai") answer = await runOpenAILoop(ctx, conversation);
     else answer = await runAnthropicLoop(ctx, conversation as unknown as Anthropic.MessageParam[]);
     await deliverArtifacts(ctx);
@@ -1057,8 +1059,16 @@ export async function emitText(ctx: RunContext, blockId: string, chunks: AsyncIt
   return text;
 }
 
+/** One prompt carrying the whole conversation, for engines that take a single prompt (AI_COMPLETE). */
+export function transcriptPrompt(system: string, messages: { role: "user" | "assistant"; content: string }[]) {
+  const turns = messages.map(message => `${message.role === "user" ? "User" : "Assistant"}: ${message.content}`);
+  return `${system}\n\nContinue this conversation. Reply only as the Assistant, to the last User message.\n\n${turns.join("\n\n")}\n\nAssistant:`;
+}
+
+/** Chat-only models: Cortex inference (streamed) or SQL AI_COMPLETE (whole reply). */
 async function runInference(ctx: RunContext, conversation: Anthropic.MessageParam[]) {
-  ctx.phases.advance("deliberation", "Open-weight model; no visible thinking stream");
+  ctx.phases.advance("deliberation", "No visible thinking stream for this model");
+  if (ctx.webSearch) ctx.emit({ type: "notice", level: "warn", message: `Web access is not available for ${ctx.spec.label}; it answers from its own knowledge.` });
   ctx.emit({ type: "turn_start", turn: 1, model: ctx.spec.id });
   let usage = { inputTokens: 0, outputTokens: 0 };
   const answer = await healing(ctx, async () => {
@@ -1066,6 +1076,14 @@ async function runInference(ctx: RunContext, conversation: Anthropic.MessagePara
       .filter((message): message is Anthropic.MessageParam & { role: "user" | "assistant" } => message.role !== "system")
       .map(message => ({ role: message.role, content: plainText(message.content) }))
       .filter(message => message.content);
+    if (ctx.spec.provider === "core-sql") {
+      // CHAT_SYSTEM only: the per-run context describes tools (GitHub) this model cannot call.
+      // The reply is not streamed, so its budget is kept moderate.
+      const result = await aiComplete({ model: ctx.spec.id, prompt: transcriptPrompt(CHAT_SYSTEM, messages), maxTokens: SQL_MAX_TOKENS, signal: ctx.signal });
+      usage = { inputTokens: result.inputTokens, outputTokens: result.outputTokens };
+      async function* whole() { yield result.text.trim(); }
+      return emitText(ctx, `${ctx.runId}-text.${ctx.recovery.count}`, whole());
+    }
     const stream = streamCortexInference({ model: ctx.spec.id, system: CHAT_SYSTEM, messages, maxTokens: 4096, signal: ctx.signal });
     async function* texts() {
       for await (const part of stream) {
