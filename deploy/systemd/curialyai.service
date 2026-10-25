@@ -1,0 +1,20 @@
+[Unit]
+Description=Curialy AI application
+After=network.target snowflake-proxy.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/srv/curialyai-next
+EnvironmentFile=/etc/curialyai.env
+Environment=NODE_ENV=production
+Environment=PORT=3000
+# nginx is the only public entry point.
+Environment=HOST=127.0.0.1
+ExecStart=/usr/bin/node /srv/curialyai-next/dist/index.js
+Restart=always
+RestartSec=5
+MemoryMax=400M
+
+[Install]
+WantedBy=multi-user.target

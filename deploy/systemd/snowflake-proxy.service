@@ -1,0 +1,15 @@
+[Unit]
+Description=Snowflake Cortex Bridge Proxy for Claude Code
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/snowflake-proxy
+ExecStart=/usr/bin/node /home/ubuntu/snowflake-proxy/proxy.js
+Restart=always
+RestartSec=3
+Environment=PORT=8082
+
+[Install]
+WantedBy=multi-user.target
