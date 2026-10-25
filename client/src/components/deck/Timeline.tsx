@@ -239,7 +239,7 @@ function TimelineEntryInner({ item, usageByTurn, browsers }: { item: TimelineIte
     case "heal":
       return (
         <div className="tl heal">
-          <div className="tl-head"><Wrench size={15} color="var(--amber)" /><span className="title">Self-healing iteration {item.iteration}</span><span className="sub">{item.reason} → sending the stack trace back to {item.model}</span></div>
+          <div className="tl-head"><Wrench size={15} color="var(--amber)" /><span className="title">Self-healing iteration {item.iteration}</span><span className="sub">{item.reason} → sending the stack trace back to {getModel(item.model)?.label ?? "the model"}</span></div>
         </div>
       );
     case "external":

@@ -243,7 +243,7 @@ function Deck({ state, task, onDeploy, deploying }: { state: StreamState; task: 
               <div ref={bottom} />
             </>
           )}
-          {tab === "thinking" && (thinking.length ? thinking.map(item => <ThinkingBlock key={item.id} item={item} usage={usageByTurn.get(item.turn)} />) : <EmptyState icon={Brain} title="No thinking blocks yet">Models with adaptive thinking (Opus 5.5, Opus 5, Opus 4.6, Sonnet 4.6) stream their reasoning summary here.</EmptyState>)}
+          {tab === "thinking" && (thinking.length ? thinking.map(item => <ThinkingBlock key={item.id} item={item} usage={usageByTurn.get(item.turn)} />) : <EmptyState icon={Brain} title="No thinking blocks yet">Reasoning streams here when the model thinks visibly before answering (it may skip thinking on simple requests).</EmptyState>)}
           {tab === "terminal" && (tools.length ? tools.map(item => <ToolCard key={item.id} item={item} />) : <EmptyState icon={SquareTerminal} title="No commands yet">Shell commands and verification runs stream stdout/stderr here.</EmptyState>)}
           {tab === "changes" && (state.changes.length ? (
             <>

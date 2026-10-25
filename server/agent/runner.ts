@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { getModel, PHASES, type TeamRole, type CreateTaskRequest, type ModelSpec, type PhaseId, type PhaseState, type PlanStep, type TaskMode, type ThinkingLevel } from "@shared/agent";
+import { aliasEffort, getModel, PHASES, REPLACED, teamCapable, wireModel, type TeamRole, type CreateTaskRequest, type ModelSpec, type PhaseId, type PhaseState, type PlanStep, type TaskMode, type ThinkingLevel } from "@shared/agent";
 import { closeChannel, openChannel, type Emit } from "./bus";
 import { anthropicClient, PROVIDER_ENV, reasoningParams, runManusTask, streamCortexInference, streamOpenAIChat } from "./providers";
 import { clip, ensureWorkspace, readWorkspaceFile, runCommand, writeWorkspaceBytes } from "./sandbox";
@@ -14,10 +14,10 @@ import { getConnection } from "../services/github";
 import { linkedRepo } from "./repos";
 import { brandText, ENGINE_ALIAS } from "@shared/brand";
 import { closeLiveBrowser } from "./browser";
-import { diagnose, RecoveryEngine, ToolFailureWatch, type RecoveryFlags } from "./recovery";
+import { diagnose, RecoveryEngine, repairOpenAIContent, TOOL_SCREENSHOTS, ToolFailureWatch, type RecoveryFlags } from "./recovery";
 import { runTeam } from "./team";
 import { z } from "zod";
-import { hydrateImages, stageAttachments, userContent, type AttachmentDisplay, type AttachmentRef } from "./attachments";
+import { hydrateImages, hydrateOpenAIImages, stageAttachments, userContent, type AttachmentDisplay, type AttachmentRef } from "./attachments";
 import { getMedia } from "../media/snowflake";
 import { changedSince, MAX_AUTO_ARTIFACTS, revertWorkspace, sourceSnapshot, storeArtifacts, workspaceManifest, type Manifest } from "./artifacts";
 
@@ -37,21 +37,40 @@ export class TaskRejected extends Error {}
 const COMPLEX = /\b(architect\w*|design (a|the) system|debug\w*|root cause|refactor\w*|race condition|deadlock|concurren\w*|memory leak|performance|optimi[sz]\w*|security|migrat\w*|distributed|algorithm|prove|why (does|is|do))\b/i;
 const BROWSING = /\b(browse|browser|web ?research|research (the )?(web|market|competitors?)|scrape|crawl|look up online|find (online|on the web)|compare (prices|vendors|products)|fill (out|in) (a|the) form|sign ?up for|book (a|an))\b/i;
 
-export function dispatchModel(req: Pick<CreateTaskRequest, "prompt" | "model" | "mode" | "effort" | "webSearch">): { spec: ModelSpec; reason: string } {
+// Short, single-paragraph asks (no code pasted) go to the fastest tier.
+const QUICK = (prompt: string) => prompt.length <= 280 && !prompt.includes("```") && prompt.split("\n").length <= 3;
+
+/** Whether a model's route has its credentials (the Cortex routes need none here: the bridge holds them). */
+export function routeConfigured(spec: ModelSpec) {
+  if (spec.provider === "relay") return Boolean(PROVIDER_ENV.relayKey);
+  if (spec.provider === "fast") return Boolean(PROVIDER_ENV.paperKey);
+  if (spec.provider === "research") return Boolean(PROVIDER_ENV.manusKey);
+  return true;
+}
+
+/**
+ * Auto routes by what the request needs; after that, self-healing keeps every model in play:
+ * repeated verification failures escalate to the strongest model of the conversation's format,
+ * and an unavailable route fails over to the closest equivalent (recovery.ts FAILOVER_TIERS).
+ */
+export function dispatchModel(req: Pick<CreateTaskRequest, "prompt" | "model" | "mode" | "effort" | "webSearch" | "team">): { spec: ModelSpec; reason: string } {
   if (req.model !== "auto") {
-    const spec = getModel(req.model);
-    if (!spec) throw new TaskRejected(`Unknown model: ${req.model}`);
-    if (req.mode === "agent" && !spec.tools && spec.provider !== "research") throw new TaskRejected(`${spec.label} cannot call tools; choose it in Chat mode or pick a tool-capable model for Agent mode.`);
-    if (spec.provider === "fast" && !PROVIDER_ENV.paperKey) throw new TaskRejected("The Fast Reasoning engine is not configured.");
+    const spec = getModel(REPLACED[req.model] ?? req.model);
+    if (!spec || spec.hidden) throw new TaskRejected(`Unknown model: ${req.model}`);
+    if (req.mode === "agent" && !spec.tools) throw new TaskRejected(`${spec.label} cannot call tools; choose it in Chat mode or pick a tool-capable model for Agent mode.`);
+    if (!routeConfigured(spec)) throw new TaskRejected(`${spec.label} is not configured on this server.`);
+    // Dev Team members share one conversation format, so the recorded model is the one that runs.
+    if (req.team && req.mode === "agent" && !teamCapable(spec)) return { spec: getModel("claude-sonnet-5-5")!, reason: `${spec.label} cannot join a Dev Team (different conversation format) → Claude Sonnet 5.5.` };
     return { spec, reason: "Selected manually." };
   }
-  if (BROWSING.test(req.prompt) && PROVIDER_ENV.manusKey && (req.webSearch || req.mode === "chat")) {
-    return { spec: getModel("research-agent")!, reason: "Auto: request needs web browsing / external workflows → Research Agent." };
-  }
-  if (COMPLEX.test(req.prompt) || req.prompt.length > 1500 || req.effort === "high") {
-    return { spec: getModel("claude-opus-5-5")!, reason: req.effort === "high" ? "Auto: high thinking level → Opus 5.5." : "Auto: architecture / debugging / complex reasoning → Opus 5.5." };
-  }
-  return { spec: getModel("claude-sonnet-4-5")!, reason: "Auto: routine coding and fast edits → Sonnet 4.5." };
+  const pick = (id: string, reason: string) => ({ spec: getModel(id)!, reason: `Auto: ${reason}` });
+  const team = Boolean(req.team) && req.mode === "agent";
+  if (!team && BROWSING.test(req.prompt) && PROVIDER_ENV.manusKey && (req.webSearch || req.mode === "chat")) return pick("research-agent", "request needs web browsing / external workflows → Research Agent.");
+  if (req.effort === "high") return pick("claude-opus-5-5", "high thinking level → Opus 5.5.");
+  if (COMPLEX.test(req.prompt) || req.prompt.length > 1500) return pick("claude-opus-5-5", "architecture / debugging / complex reasoning → Opus 5.5.");
+  if (req.mode === "chat" && (QUICK(req.prompt) || req.effort === "low")) return pick("claude-haiku-5-5", "short question → Haiku 5.5.");
+  if (!team && req.mode === "agent" && req.effort === "low" && QUICK(req.prompt)) return pick("claude-haiku-5-5", "small low-effort change → Haiku 5.5 (escalates if checks keep failing).");
+  return pick("claude-sonnet-5-5", req.mode === "chat" ? "general question → Sonnet 5.5." : "routine coding and edits → Sonnet 5.5.");
 }
 
 // ---------------------------------------------------------------------------
@@ -248,7 +267,7 @@ export function forkContext(parent: RunContext, opts: { role: TeamRole; spec: Mo
     },
     persist: () => opts.persist(opts.conversation),
     dropImageCache: () => parent.images.clear(),
-    available: spec => spec.provider !== "relay" || Boolean(PROVIDER_ENV.relayKey),
+    available: routeConfigured,
     emit: event => emit({ type: "recovery", ...event }),
   });
   return child;
@@ -262,7 +281,7 @@ export function isRunning(taskId: string) {
   return running.has(taskId) || reserved.has(taskId);
 }
 
-const formatFor = (spec: ModelSpec): ConversationFormat => (spec.provider === "fast" ? "openai" : "anthropic");
+export const formatFor = (spec: ModelSpec): ConversationFormat => (spec.provider === "fast" || spec.provider === "core-chat" ? "openai" : "anthropic");
 
 // Slots are reserved synchronously so concurrent requests cannot exceed MAX_CONCURRENT
 // while their database writes are in flight.
@@ -278,7 +297,7 @@ export async function startTask(req: CreateTaskRequest, attachments: AttachmentR
     const team = Boolean(req.team) && req.mode === "agent";
     await createAgentTask({ id, prompt: req.prompt, mode: req.mode, model: spec.id, effort: req.effort, webSearch: req.webSearch, format: team ? "anthropic" : formatFor(spec), team });
     const format = team ? "anthropic" : formatFor(spec);
-    const staged = await stageAttachments(ensureWorkspace(id), attachments, { vision: team || (spec.vision && format === "anthropic") });
+    const staged = await stageAttachments(ensureWorkspace(id), attachments, { vision: team || spec.vision });
     const conversation: Record<string, unknown>[] = [{ role: "user", content: userContent(req.prompt + staged.note, staged.images, format) }];
     await updateAgentTask(id, { conversation, workspaceState: "live" });
     await addMessage(id, "user", req.prompt);
@@ -307,7 +326,7 @@ export async function followUp(taskId: string, prompt: string, attachments: Atta
       try {
         const workspace = await materializeWorkspace(taskId);
         restoredFiles = workspace.restored;
-        staged = await stageAttachments(workspace.dir, attachments, { vision: Boolean(task.team) || (spec.vision && format === "anthropic") });
+        staged = await stageAttachments(workspace.dir, attachments, { vision: Boolean(task.team) || spec.vision });
       } catch (error) {
         // Mark the (possibly just restored) workspace live so the idle sweeper archives it again.
         await updateAgentTask(taskId, { workspaceState: "live" });
@@ -317,7 +336,8 @@ export async function followUp(taskId: string, prompt: string, attachments: Atta
     conversation.push({ role: "user", content: userContent(prompt + staged.note, staged.images, format) });
     await updateAgentTask(taskId, { conversation, status: "queued", error: null, workspaceState: "live" });
     await addMessage(taskId, "user", prompt);
-    void runTask(taskId, conversation, { mode: task.mode, effort: task.effort, webSearch: task.webSearch, spec, reason: task.team ? "Dev Team follow-up." : "Follow-up on the same model.", team: Boolean(task.team), userText: prompt, userAttachments: staged.display, restoredFiles });
+    // An old Gemini variant id keeps the level it was created with.
+    void runTask(taskId, conversation, { mode: task.mode, effort: aliasEffort(task.model) ?? task.effort, webSearch: task.webSearch, spec, reason: task.team ? "Dev Team follow-up." : "Follow-up on the same model.", team: Boolean(task.team), userText: prompt, userAttachments: staged.display, restoredFiles });
   } finally {
     reserved.delete(taskId);
   }
@@ -412,7 +432,7 @@ async function runTask(taskId: string, conversation: Record<string, unknown>[], 
     },
     persist: () => { updateAgentTask(taskId, { conversation }); },
     dropImageCache: () => ctx.images.clear(),
-    available: spec => spec.provider !== "relay" || Boolean(PROVIDER_ENV.relayKey),
+    available: routeConfigured,
     emit: event => emit({ type: "recovery", ...event }),
   });
   const filesBefore = existing?.filesChanged ?? 0;
@@ -450,7 +470,7 @@ async function runTask(taskId: string, conversation: Record<string, unknown>[], 
     if (opts.team) answer = await runTeam(ctx, conversation as unknown as Anthropic.MessageParam[]);
     else if (opts.spec.provider === "research") answer = await runManus(ctx, conversation as unknown as Anthropic.MessageParam[]);
     else if (opts.spec.provider === "core-inference") answer = await runInference(ctx, conversation as unknown as Anthropic.MessageParam[]);
-    else if (opts.spec.provider === "fast") answer = await runOpenAILoop(ctx, conversation);
+    else if (formatFor(opts.spec) === "openai") answer = await runOpenAILoop(ctx, conversation);
     else answer = await runAnthropicLoop(ctx, conversation as unknown as Anthropic.MessageParam[]);
     await deliverArtifacts(ctx);
     ctx.phases.finish(true);
@@ -546,7 +566,7 @@ async function streamTurn(ctx: RunContext, conversation: Anthropic.MessageParam[
     return media ? fetchMediaBytes(media.stage_path) : null;
   }, message => { if (!warned) { warned = true; ctx.emit({ type: "notice", level: "warn", message }); } });
   const stream = client.messages.stream({
-    model: ctx.spec.id,
+    model: wireModel(ctx.spec, ctx.effort),
     max_tokens: MAX_TOKENS,
     system: [{ type: "text", text: ctx.system ?? (ctx.mode === "agent" ? AGENT_SYSTEM : CHAT_SYSTEM) }, ...(ctx.context ? [{ type: "text" as const, text: ctx.context }] : [])],
     messages,
@@ -699,6 +719,9 @@ export async function runAgentLoop(ctx: RunContext, conversation: Anthropic.Mess
 
 type HealStep = { done: true; answer: string } | { done: false; healIteration: number; message: string };
 
+/** The strongest model per conversation format, for self-healing escalation. */
+const ESCALATE_TO: Record<ConversationFormat, string> = { anthropic: "claude-opus-5-5", openai: "openai-gpt-5.5" };
+
 async function verifyOrHeal(ctx: RunContext, coding: boolean, healIteration: number, lastText: string): Promise<HealStep> {
   if (!coding || ctx.changedFiles.size === 0) return { done: true, answer: lastText };
   const failure = await verify(ctx, healIteration + 1);
@@ -708,11 +731,10 @@ async function verifyOrHeal(ctx: RunContext, coding: boolean, healIteration: num
     ctx.emit({ type: "notice", level: "warn", message: `Verification still failing after ${MAX_HEAL_ITERATIONS} self-healing iterations; delivering with failures reported.` });
     return { done: true, answer: `${lastText}\n\n> **Verification failed** after ${MAX_HEAL_ITERATIONS} self-healing attempts: \`${failure.command}\` (exit ${failure.exitCode}).` };
   }
-  // Escalate within the same conversation format (Anthropic history cannot be replayed to an OpenAI-format model).
-  if (iteration >= 2 && ctx.spec.id === "claude-sonnet-4-5") {
-    ctx.spec = getModel("claude-opus-5-5")!;
-    ctx.emit({ type: "dispatch", model: ctx.spec.id, provider: (ENGINE_ALIAS[ctx.spec.provider] ?? "core"), reason: "Escalated: repeated verification failures → Opus 5.5 for debugging." });
-    updateAgentTask(ctx.taskId, { model: ctx.spec.id });
+  // Escalate within the same conversation format (an Anthropic history cannot be replayed to an OpenAI-format model).
+  const strongest = getModel(ESCALATE_TO[formatFor(ctx.spec)])!;
+  if (iteration >= 2 && ctx.spec.id !== strongest.id && routeConfigured(strongest) && ctx.recovery.canEscalateTo(strongest)) {
+    ctx.recovery.switchTo(strongest, `Escalated: repeated verification failures on ${ctx.spec.label} → ${strongest.label} for debugging.`);
   }
   ctx.emit({ type: "heal", iteration, reason: `${failure.command} exited ${failure.exitCode}`, model: ctx.spec.id });
   ctx.phases.set("verification", "active", `Self-healing iteration ${iteration}/${MAX_HEAL_ITERATIONS}`);
@@ -724,7 +746,7 @@ async function verifyOrHeal(ctx: RunContext, coding: boolean, healIteration: num
 }
 
 // ---------------------------------------------------------------------------
-// OpenAI-format streaming tool loop (Paper Instruments Ultramarine: reasoning_content + tool_calls)
+// OpenAI-format streaming tool loop (Cortex GPT/Grok/Kimi/GLM and Ultramarine: reasoning_content + tool_calls)
 // ---------------------------------------------------------------------------
 
 function openAITools(tools: Anthropic.Tool[]) {
@@ -737,6 +759,10 @@ async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unkno
   const system = () => ({ role: "system", content: [coding ? AGENT_SYSTEM : CHAT_SYSTEM, ctx.context].filter(Boolean).join("\n\n") });
   let healIteration = 0;
   let lastText = "";
+  // Models with hidden reasoning can spend the whole output budget thinking; the next turn thinks less.
+  let effortCap: ThinkingLevel | null = null;
+  // Histories saved before null content was repaired would be rejected on every turn.
+  if (repairOpenAIContent(conversation)) updateAgentTask(ctx.taskId, { conversation });
 
   for (let turn = 1; turn <= MAX_TURNS; turn++) {
     const streamed = await healing(ctx, async () => {
@@ -753,7 +779,15 @@ async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unkno
 
     let finished = false;
     try {
-    for await (const chunk of streamOpenAIChat({ model: ctx.spec.id, messages: [system(), ...conversation], tools: tools.length ? tools : undefined, maxTokens: MAX_TOKENS, signal: ctx.signal })) {
+    let warned = false;
+    const messages = await hydrateOpenAIImages(conversation as { role: string; content: unknown }[], ctx.images, async mediaId => {
+      const media = await getMedia(mediaId);
+      return media ? fetchMediaBytes(media.stage_path) : null;
+    }, ctx.spec.vision, message => { if (!warned) { warned = true; ctx.emit({ type: "notice", level: "warn", message }); } });
+    for await (const chunk of streamOpenAIChat({
+      provider: ctx.spec.provider, model: wireModel(ctx.spec, ctx.effort), messages: [system(), ...messages], tools: tools.length ? tools : undefined,
+      maxTokens: MAX_TOKENS, reasoningEffort: ctx.spec.effort && !ctx.flags.noEffort ? effortCap ?? ctx.effort : undefined, signal: ctx.signal,
+    })) {
       if (chunk.kind === "reasoning") {
         if (!thinkingStarted) {
           thinkingStarted = Date.now();
@@ -805,13 +839,15 @@ async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unkno
     const toolCalls = Array.from(calls.values()).filter(call => call.name);
     conversation.push({
       role: "assistant",
-      content: text || null,
+      // The chat-completions route rejects null content; "" is only valid alongside tool_calls.
+      content: text || (toolCalls.length ? "" : "(no reply)"),
       ...(reasoning ? { reasoning_content: reasoning } : {}),
       ...(toolCalls.length ? { tool_calls: toolCalls.map(call => ({ id: call.id, type: "function", function: { name: call.name, arguments: call.args || "{}" } })) } : {}),
     });
     updateAgentTask(ctx.taskId, { conversation, usage: ctx.usage });
 
     if (toolCalls.length) {
+      const screenshots: { name: string; image: NonNullable<ToolOutcome["image"]> }[] = [];
       for (const call of toolCalls) {
         let input: Record<string, unknown> = {};
         let outcome: ToolOutcome;
@@ -828,14 +864,32 @@ async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unkno
         }
         const nudge = ctx.toolWatch.note(call.name, outcome.ok, outcome.summary);
         conversation.push({ role: "tool", tool_call_id: call.id, content: outcome.content + (nudge ?? "") });
+        if (outcome.image) screenshots.push({ name: call.name, image: outcome.image });
+      }
+      // Tool messages are text-only in this format, so screenshots follow as one user message
+      // (failed calls too: a screenshot of an error page is often the most useful part).
+      if (screenshots.length && ctx.spec.vision) {
+        conversation.push({
+          role: "user",
+          content: [
+            { type: "text", text: `${TOOL_SCREENSHOTS} Screenshot${screenshots.length === 1 ? "" : "s"} returned by ${screenshots.map(shot => shot.name).join(", ")}:` },
+            ...screenshots.map(shot => ({ type: "image_url", image_url: { url: `data:${shot.image.mediaType};base64,${shot.image.base64}` } })),
+          ],
+        });
       }
       updateAgentTask(ctx.taskId, { conversation });
       continue;
     }
     if (finish === "length") {
-      conversation.push({ role: "user", content: "Your previous reply was cut off by the output limit. Continue exactly where you stopped." });
+      if (!text) {
+        effortCap = "low";
+        conversation.push({ role: "user", content: "Your previous reply ran out of output tokens before producing anything. Think less and answer or act directly." });
+      } else {
+        conversation.push({ role: "user", content: "Your previous reply was cut off by the output limit. Continue exactly where you stopped." });
+      }
       continue;
     }
+    effortCap = null;
     const step = await verifyOrHeal(ctx, coding, healIteration, lastText);
     if (step.done) return step.answer;
     healIteration = step.healIteration;

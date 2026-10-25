@@ -172,6 +172,10 @@ code, pre, kbd, .mono { font-family: var(--mono); }
 .model-option .caps { display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
 .model-option .caps span { font-size: 9.5px; color: var(--faint); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
 .model-option .dot { margin-top: 5px; }
+.model-option.plain { align-items: center; padding: 7px 10px; }
+.model-option.plain strong { font-weight: 500; }
+.model-option:disabled { opacity: 0.45; cursor: not-allowed; }
+.model-sep { height: 1px; background: var(--line); margin: 4px 6px; }
 
 /* ---------- Dashboard ---------- */
 .hero { padding: 36px 0 22px; }

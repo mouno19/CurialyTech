@@ -11,7 +11,8 @@ fs.mkdirSync(process.env.AGENT_WORKSPACE_ROOT, { recursive: true });
 
 const sandbox = await import("./agent/sandbox");
 const tools = await import("./agent/tools");
-const { dispatchModel } = await import("./agent/runner");
+const { dispatchModel, formatFor } = await import("./agent/runner");
+const { getModel, PICKER_MODELS, wireModel } = await import("../shared/agent");
 const auth = await import("./auth");
 
 const root = path.join(process.env.AGENT_WORKSPACE_ROOT, "task-under-test");
@@ -101,15 +102,204 @@ describe("file tools", () => {
 
 describe("model dispatch", () => {
   const base = { model: "auto", mode: "agent" as const, effort: "medium" as const, webSearch: false };
-  it("routes complex debugging to Opus 5.5 and routine edits to Sonnet 4.5", () => {
+  it("routes by need: Opus 5.5 for complex or high effort, Sonnet 5.5 for routine work, Haiku 5.5 for quick asks", () => {
     expect(dispatchModel({ ...base, prompt: "Debug the race condition in the job queue" }).spec.id).toBe("claude-opus-5-5");
-    expect(dispatchModel({ ...base, prompt: "Rename the button label to Save" }).spec.id).toBe("claude-sonnet-4-5");
+    expect(dispatchModel({ ...base, prompt: "Rename the button label to Save" }).spec.id).toBe("claude-sonnet-5-5");
     expect(dispatchModel({ ...base, effort: "high", prompt: "Rename a variable" }).spec.id).toBe("claude-opus-5-5");
+    expect(dispatchModel({ ...base, mode: "chat", prompt: "What does HTTP 418 mean?" }).spec.id).toBe("claude-haiku-5-5");
+    expect(dispatchModel({ ...base, mode: "chat", prompt: "Explain this:\n```\nconst a = 1\n```" }).spec.id).toBe("claude-sonnet-5-5");
+    expect(dispatchModel({ ...base, effort: "low", prompt: "Fix the typo in README" }).spec.id).toBe("claude-haiku-5-5");
+    // A Dev Team never gets the fastest tier as its Engineer.
+    expect(dispatchModel({ ...base, effort: "low", team: true, prompt: "Fix the typo in README" }).spec.id).toBe("claude-sonnet-5-5");
   });
 
-  it("rejects tool-less models in agent mode", () => {
-    expect(() => dispatchModel({ ...base, model: "llama3.1-70b", prompt: "Build a CLI" })).toThrow(/cannot call tools/);
-    expect(dispatchModel({ ...base, mode: "chat", model: "llama3.1-70b", prompt: "Hi" }).spec.provider).toBe("core-inference");
+  it("accepts every picker model and old aliases, rejects hidden and tool-less ones", () => {
+    vi.stubEnv("RELAY_API_KEY", "test");
+    vi.stubEnv("PAPER_API_KEY", "test");
+    for (const model of PICKER_MODELS) expect(dispatchModel({ ...base, model: model.id, prompt: "Build a CLI" }).spec.id).toBe(model.id);
+    expect(dispatchModel({ ...base, model: "r/gemini-3.8-flash-high", prompt: "Hi" }).spec.id).toBe("r/gemini-3.8-flash");
+    expect(() => dispatchModel({ ...base, model: "llama3.1-70b", prompt: "Build a CLI" })).toThrow(/Unknown model/);
+    expect(dispatchModel({ ...base, model: "r/claude-sonnet-4-6", prompt: "Hi" }).spec.id).toBe("claude-sonnet-4-6"); // retired entry → its replacement
+    expect(() => dispatchModel({ ...base, model: "r/claude-opus-4-6", prompt: "Hi" })).toThrow(/Unknown model/);
+    // Dev Team: a model that cannot join is replaced up front, so the recorded model is the one that runs.
+    const team = dispatchModel({ ...base, team: true, model: "openai-gpt-5.5", prompt: "Build a CLI" });
+    expect(team.spec.id).toBe("claude-sonnet-5-5");
+    expect(team.reason).toMatch(/cannot join a Dev Team/);
+    expect(dispatchModel({ ...base, team: true, model: "claude-opus-5", prompt: "Build a CLI" }).spec.id).toBe("claude-opus-5");
+    expect(() => dispatchModel({ ...base, model: "nope", prompt: "Hi" })).toThrow(/Unknown model/);
+    vi.unstubAllEnvs();
+    expect(() => dispatchModel({ ...base, model: "r/gemini-2.5-flash", prompt: "Hi" })).toThrow(/not configured/);
+  });
+});
+
+describe("model catalog and routing", () => {
+  it("lists exactly the verified models, plainly, in order", () => {
+    expect(PICKER_MODELS.map(model => model.label)).toEqual([
+      "Claude Opus 5.5", "Claude Opus 5", "Claude Opus 4.8", "Claude Opus 4.7", "Claude Opus 4.6", "Claude Opus 4.5",
+      "Claude Sonnet 5.5", "Claude Sonnet 5", "Claude Sonnet 4.6", "Claude Sonnet 4.5", "Claude Haiku 5.5",
+      "OpenAI GPT 5.5", "OpenAI GPT 5.4", "OpenAI GPT 5.2", "Grok 4.7", "Grok 4.6", "Kimi K3", "GLM 5.3",
+      "Gemini 3.8 Flash", "Gemini 2.5 Flash", "Ultramarine 1.0 Flash",
+    ]);
+    // No vendor names in anything the picker can show.
+    for (const model of PICKER_MODELS) expect(model.label).not.toMatch(/cortex|snowflake|relay|paper/i);
+  });
+
+  it("routes each model to its API format and wire id", () => {
+    const format = (id: string) => formatFor(getModel(id)!);
+    for (const id of ["claude-opus-5-5", "claude-haiku-5-5", "claude-sonnet-4-5", "r/gemini-3.8-flash", "r/gemini-2.5-flash"]) expect(format(id)).toBe("anthropic");
+    for (const id of ["openai-gpt-5.5", "grok-4.7", "kimi-k3", "glm-5.3", "ultramarine-1-flash"]) expect(format(id)).toBe("openai");
+    const gemini = getModel("r/gemini-3.8-flash")!;
+    expect(["low", "medium", "high"].map(level => wireModel(gemini, level as "low"))).toEqual(["r/gemini-3.8-flash-low", "r/gemini-3.8-flash-medium", "r/gemini-3.8-flash-high"]);
+    expect(wireModel(getModel("openai-gpt-5.5")!, "high")).toBe("openai-gpt-5.5");
+  });
+
+  it("asks each model for the reasoning it supports", async () => {
+    const { reasoningParams } = await import("./agent/providers");
+    expect(reasoningParams(getModel("claude-opus-5-5")!, "medium")).toEqual({ thinking: { type: "adaptive", display: "summarized" }, output_config: { effort: "medium" } });
+    expect(reasoningParams(getModel("claude-sonnet-4-5")!, "high")).toEqual({ thinking: { type: "enabled", budget_tokens: 12_288 } });
+    expect(reasoningParams(getModel("claude-opus-4-5")!, "low")).toEqual({ thinking: { type: "enabled", budget_tokens: 2048 } });
+    expect(reasoningParams(getModel("r/gemini-2.5-flash")!, "high")).toEqual({});
+  });
+
+  it("fails over within the conversation format, closest tier first", async () => {
+    const { failoverModels } = await import("./agent/recovery");
+    const ids = (id: string) => failoverModels(getModel(id)!).map(spec => spec.id);
+    expect(ids("claude-opus-5-5").slice(0, 2)).toEqual(["claude-opus-5", "claude-opus-4-8"]);
+    expect(ids("claude-sonnet-5-5")[0]).toBe("claude-sonnet-5");
+    expect(ids("r/gemini-3.8-flash")[0]).toBe("r/gemini-2.5-flash");
+    expect(ids("openai-gpt-5.5").slice(0, 2)).toEqual(["openai-gpt-5.4", "openai-gpt-5.2"]);
+    for (const id of ids("grok-4.7")) expect(formatFor(getModel(id)!)).toBe("openai"); // never crosses formats
+    for (const id of ids("claude-haiku-5-5")) expect(formatFor(getModel(id)!)).toBe("anthropic");
+    expect(ids("research-agent")).toEqual([]);
+  });
+
+  it("streams OpenAI-format models through the bridge with reasoning effort", async () => {
+    const http = await import("node:http");
+    const seen: { url?: string; body?: any } = {};
+    const server = http.createServer((req, res) => {
+      let raw = "";
+      req.on("data", chunk => (raw += chunk));
+      req.on("end", () => {
+        seen.url = req.url;
+        seen.body = JSON.parse(raw);
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        res.write('data: {"choices":[{"delta":{"reasoning_content":"hmm"}}]}\n\n');
+        res.write('data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2}}\n\n');
+        res.end("data: [DONE]\n\n");
+      });
+    });
+    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+    const previous = process.env.CORTEX_BRIDGE_URL;
+    process.env.CORTEX_BRIDGE_URL = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+    try {
+      const { streamOpenAIChat } = await import("./agent/providers");
+      const chunks: any[] = [];
+      for await (const chunk of streamOpenAIChat({ provider: "core-chat", model: "kimi-k3", messages: [{ role: "user", content: "hi" }], maxTokens: 100, reasoningEffort: "low", signal: new AbortController().signal })) chunks.push(chunk);
+      expect(seen.url).toBe("/v1/chat/completions");
+      expect(seen.body).toMatchObject({ model: "kimi-k3", max_tokens: 100, reasoning_effort: "low", stream: true });
+      expect(chunks.map(chunk => chunk.kind)).toEqual(["reasoning", "usage", "text", "finish"]);
+    } finally {
+      process.env.CORTEX_BRIDGE_URL = previous;
+      server.close();
+    }
+  });
+
+  it("sends Vault images to OpenAI-format models as data URLs, and a note to models without vision", async () => {
+    const { hydrateOpenAIImages, userContent } = await import("./agent/attachments");
+    const conversation = [{ role: "user", content: userContent("look", [{ mediaType: "image/png", mediaId: "m1" }], "openai") }];
+    const load = async () => Buffer.from("png-bytes");
+    const sent: any = await hydrateOpenAIImages(conversation as any, new Map(), load, true);
+    expect(sent[0].content[0]).toEqual({ type: "image_url", image_url: { url: `data:image/png;base64,${Buffer.from("png-bytes").toString("base64")}` } });
+    expect((conversation[0].content as any)[0].image_url.url).toBe("curialy-vault:m1"); // stored copy keeps the reference
+    const blind: any = await hydrateOpenAIImages(conversation as any, new Map(), load, false);
+    expect(blind[0].content[0].type).toBe("text");
+  });
+});
+
+describe("model routing regressions", () => {
+  it("never saves or replays null assistant content in OpenAI-format histories", async () => {
+    const { repairOpenAIContent } = await import("./agent/recovery");
+    const history: any[] = [
+      { role: "user", content: "hi" },
+      { role: "assistant", content: null },
+      { role: "user", content: "again" },
+      { role: "assistant", content: null, tool_calls: [{ id: "c1", type: "function", function: { name: "x", arguments: "{}" } }] },
+      { role: "tool", tool_call_id: "c1", content: "ok" },
+      { role: "assistant", content: "" },
+    ];
+    expect(repairOpenAIContent(history)).toBe(3);
+    expect(history.map(message => message.content)).toEqual(["hi", "(no reply)", "again", "", "ok", "(no reply)"]);
+    expect(repairOpenAIContent(history)).toBe(0);
+  });
+
+  it("compacts OpenAI histories with array content and screenshots without losing the request", async () => {
+    const { compactOpenAIHistory, latestRequestIndex, TOOL_SCREENSHOTS } = await import("./agent/recovery");
+    const shot = (n: number) => ({ role: "user", content: [{ type: "text", text: `${TOOL_SCREENSHOTS} Screenshot returned by browse:` }, { type: "image_url", image_url: { url: `data:image/png;base64,${"A".repeat(50)}${n}` } }] });
+    const history: any[] = [{ role: "user", content: [{ type: "image_url", image_url: { url: "curialy-vault:m1" } }, { type: "text", text: "Build the page in the mockup." }] }];
+    for (let i = 0; i < 6; i++) {
+      history.push({ role: "assistant", content: "", tool_calls: [{ id: `c${i}`, type: "function", function: { name: "browse", arguments: "{}" } }] });
+      history.push({ role: "tool", tool_call_id: `c${i}`, content: "x".repeat(5000) });
+      history.push(shot(i));
+    }
+    history.push({ role: "user", content: "Now make the header blue." }); // the real follow-up request
+    for (let i = 6; i < 9; i++) {
+      history.push({ role: "assistant", content: "", tool_calls: [{ id: `c${i}`, type: "function", function: { name: "browse", arguments: "{}" } }] });
+      history.push({ role: "tool", tool_call_id: `c${i}`, content: "y" });
+      history.push(shot(i));
+    }
+    const request = latestRequestIndex(history);
+    expect(history[request].content).toBe("Now make the header blue."); // screenshot turns are not requests
+    compactOpenAIHistory(history, 1);
+    expect(history.slice(1, 10).some(message => Array.isArray(message.content) && message.content.some((part: any) => part.type === "image_url"))).toBe(false); // old screenshots dropped
+    compactOpenAIHistory(history, 3);
+    expect(history.some(message => message.content === "Now make the header blue.")).toBe(true);
+    expect(JSON.stringify(history[0].content)).not.toContain("[object Object]");
+    expect(history[0].content.at(-1).text).toMatch(/earlier messages were removed/);
+  });
+
+  it("escalates only onto healthy routes and never undoes a failover", async () => {
+    const { RecoveryEngine } = await import("./agent/recovery");
+    const make = () => {
+      let spec = getModel("claude-sonnet-5-5")!;
+      const engine = new RecoveryEngine({
+        signal: new AbortController().signal, format: "anthropic", conversation: [{ role: "user", content: "hi" }], get spec() { return spec; }, flags: { noEager: false, noThinking: false, noEffort: false },
+        switchModel: next => { spec = next; }, persist: () => undefined, emit: () => undefined, sleep: async () => undefined,
+      });
+      return { engine, current: () => spec };
+    };
+    const opus = getModel("claude-opus-5-5")!;
+    const healthy = make();
+    expect(healthy.engine.canEscalateTo(opus)).toBe(true);
+    const failed = make();
+    for (let i = 0; i < 6; i++) await failed.engine.handle(Object.assign(new Error("Chat engine request failed (503): unavailable"), {}));
+    expect(failed.current().id).not.toBe("claude-sonnet-5-5"); // failed over
+    expect(failed.engine.canEscalateTo(opus)).toBe(false);
+  });
+
+  it("prefers another route on outages only when the switch keeps vision", async () => {
+    const { RecoveryEngine } = await import("./agent/recovery");
+    const firstFailover = async (id: string) => {
+      let spec = getModel(id)!;
+      const engine = new RecoveryEngine({
+        signal: new AbortController().signal, format: "openai", conversation: [{ role: "user", content: "hi" }] as any, get spec() { return spec; }, flags: { noEager: false, noThinking: false, noEffort: false },
+        switchModel: next => { spec = next; }, persist: () => undefined, emit: () => undefined, sleep: async () => undefined,
+        available: () => true,
+      });
+      for (let i = 0; i < 8 && spec.id === id; i++) await engine.handle(new Error("Chat engine request failed (503): unavailable"));
+      return spec.id;
+    };
+    expect(await firstFailover("openai-gpt-5.5")).toBe("openai-gpt-5.4"); // not the no-vision engine
+    expect(await firstFailover("glm-5.3")).toBe("ultramarine-1-flash"); // no vision to lose: other route first
+  });
+
+  it("reads error types from pretty-printed stream errors and keeps old Gemini levels", async () => {
+    const { diagnose } = await import("./agent/recovery");
+    expect(diagnose(new Error('Chat engine error: {"error": {"type": "overloaded_error"}}'), false).kind).toBe("transient");
+    expect(diagnose(new Error("Chat engine request failed (400): Model does not support image modality"), false).kind).toBe("bad_image");
+    const { aliasEffort } = await import("../shared/agent");
+    expect(aliasEffort("r/gemini-3.8-flash-high")).toBe("high");
+    expect(aliasEffort("claude-opus-5-5")).toBeUndefined();
+    expect(getModel("r/claude-opus-4-6-thinking")!.label).not.toBe(getModel("claude-opus-4-6")!.label);
   });
 });
 
@@ -265,7 +455,8 @@ describe("user attachments", () => {
     const content = userContent("look", first.images, "anthropic") as any[];
     expect(content[0]).toMatchObject({ type: "image", source: { type: "curialy_vault" } });
     expect(JSON.stringify(content)).not.toContain(png.toString("base64")); // stored as a reference, not bytes
-    expect(userContent("look", first.images, "openai")).toBe("look");
+    expect(userContent("look", first.images, "openai")).toEqual([{ type: "image_url", image_url: { url: `curialy-vault:${first.images[0].mediaId}`, media_type: first.images[0].mediaType } }, { type: "text", text: "look" }]);
+    expect(userContent("look", [], "openai")).toBe("look");
   });
 
   it("hydrates vault image references into base64 blocks, once per run", async () => {

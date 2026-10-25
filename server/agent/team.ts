@@ -1,7 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { createTwoFilesPatch } from "diff";
 import { z } from "zod";
-import { getModel, type ModelSpec, type TeamPlan, type TeamReview, type TeamRole } from "@shared/agent";
+import { getModel, teamCapable, type ModelSpec, type TeamPlan, type TeamReview, type TeamRole } from "@shared/agent";
 import { changedSince, workspaceManifest } from "./artifacts";
 import type { Emit } from "./bus";
 import { AGENT_SYSTEM, describeError, emitText, forkContext, runAgentLoop, type RunContext, type VirtualTool } from "./runner";
@@ -109,14 +109,14 @@ Then call submit_review exactly once. Approve only when there are no blocker or 
 
 const effortFor: Record<TeamRole, "low" | "medium" | "high"> = { architect: "high", engineer: "medium", reviewer: "medium" };
 
-/** Engineer: the task's chosen model when it can run the team loop; otherwise Sonnet 4.5. */
+/** Engineer: the task's chosen model when it can run the team loop; otherwise Sonnet 5.5. */
 function roleModels(taskSpec: ModelSpec): Record<TeamRole, ModelSpec> {
-  const usable = (spec: ModelSpec | undefined) => Boolean(spec && spec.tools && (spec.provider === "core" || spec.provider === "relay"));
-  const engineer = usable(taskSpec) ? taskSpec : getModel("claude-sonnet-4-5")!;
-  // The Reviewer is a different model from the Engineer, for an independent second opinion.
-  const reviewer = engineer.id === "claude-opus-5" ? getModel("claude-opus-5-5")! : getModel("claude-opus-5")!;
-  return { architect: getModel("claude-opus-5-5")!, engineer, reviewer };
+  const engineer = teamCapable(taskSpec) ? taskSpec : getModel("claude-sonnet-5-5")!;
+  return { architect: getModel("claude-opus-5-5")!, engineer, reviewer: reviewerFor(engineer) };
 }
+
+/** The Reviewer is a different model from the Engineer, for an independent second opinion. */
+const reviewerFor = (engineer: ModelSpec) => (engineer.id === "claude-opus-5" ? getModel("claude-opus-5-5")! : getModel("claude-opus-5")!);
 
 const bullet = (items: string[]) => items.map(item => `- ${item}`).join("\n");
 
@@ -215,10 +215,17 @@ export async function runTeam(ctx: RunContext, conversation: Anthropic.MessagePa
   });
   const engineerRun = async (runId: string, opts?: { tools?: string[]; verify?: boolean; maxTurns?: number }) => {
     const before = workspaceManifest(ctx.root);
+    const fork = member("engineer", state.engineer, runId, { tools: opts?.tools });
     try {
-      return await runAgentLoop(member("engineer", state.engineer, runId, { tools: opts?.tools }), state.engineer, { verify: opts?.verify ?? true, maxTurns: opts?.maxTurns });
+      return await runAgentLoop(fork, state.engineer, { verify: opts?.verify ?? true, maxTurns: opts?.maxTurns });
     } finally {
       for (const file of changedSince(before, workspaceManifest(ctx.root))) byCommand.add(file);
+      // Self-healing may have escalated or failed over the Engineer: keep that model for later
+      // rounds and keep the Reviewer independent of whoever actually wrote the code.
+      if (fork.spec.id !== models.engineer.id) {
+        models.engineer = fork.spec;
+        models.reviewer = reviewerFor(fork.spec);
+      }
     }
   };
 
@@ -232,6 +239,7 @@ export async function runTeam(ctx: RunContext, conversation: Anthropic.MessagePa
 
   try {
     for (const role of ["architect", "engineer", "reviewer"] as TeamRole[]) track(role, "waiting", "Waiting for its turn");
+    if (models.engineer.id !== ctx.spec.id) ctx.emit({ type: "notice", level: "info", message: `Dev Team members share one conversation format, so the Engineer uses ${models.engineer.label} instead of ${ctx.spec.label}.` });
 
     // ---- 1. Architect: plan ----
     ctx.phases.advance("planning", "Architect is planning");

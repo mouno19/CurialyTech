@@ -1,10 +1,8 @@
 // Shared contract between the agent runtime (server/agent) and the glassbox UI.
 
-export type ProviderId = "core" | "core-inference" | "relay" | "fast" | "research";
-/** Engine family, used for colour coding only (white-label: never shown as a vendor name). */
+export type ProviderId = "core" | "core-chat" | "core-inference" | "relay" | "fast" | "research";
+/** Engine family, used internally (Integrations page, failover routes); never shown on a model. */
 export type ModelGroup = "Core" | "Relay" | "Fast" | "Research" | "Gemini";
-/** How the model picker organizes models: by what they are good at. */
-export type Capability = "Flagship Heavy Coding" | "Ultra-Fast Reasoning" | "Speed & High Context" | "Open Weights" | "Autonomous Web";
 export type ThinkingLevel = "low" | "medium" | "high";
 export type TaskMode = "agent" | "chat";
 /** Dev Team mode roles. */
@@ -22,43 +20,100 @@ export type ModelSpec = {
   label: string;
   provider: ProviderId;
   group: ModelGroup;
-  capability: Capability;
-  description: string;
   /** Accepts client tools (required for agent mode). */
   tools: boolean;
-  /** How thinking is requested/streamed: Anthropic adaptive (+summarized display), OpenAI-style reasoning_content, or none. */
-  thinking: "adaptive-summarized" | "adaptive" | "reasoning-content" | "none";
-  /** Accepts output_config.effort (or reasoning_effort for OpenAI-format providers). */
+  /**
+   * How thinking is requested/streamed: Anthropic adaptive (+summarized display), Anthropic
+   * budgeted (4.5 generation, no adaptive), OpenAI-style reasoning_content, or none.
+   */
+  thinking: "adaptive-summarized" | "adaptive" | "budget" | "reasoning-content" | "none";
+  /** Accepts output_config.effort (Anthropic format) or reasoning_effort (OpenAI format). */
   effort: boolean;
-  /** Accepts eager_input_streaming on tools (Sonnet 4.5 on Cortex rejects the field outright). */
+  /** Accepts eager_input_streaming on tools (the 4.5 generation rejects the field outright). */
   eagerInput: boolean;
-  /** Accepts image blocks in tool results (Browserbase screenshots). */
+  /** Accepts images (attachments, screenshots). */
   vision: boolean;
+  /** One picker entry backed by an API model per thinking level (Gemini 3.8 Flash high/medium/low). */
+  variants?: Record<ThinkingLevel, string>;
+  /** Not in the picker: internal routes (failover, Research Agent) and legacy ids old tasks still use. */
+  hidden?: boolean;
 };
 
+type Flags = Partial<Omit<ModelSpec, "id" | "label">>;
+const claude = (id: string, label: string, flags: Flags = {}): ModelSpec => ({ id, label, provider: "core", group: "Core", tools: true, thinking: "adaptive-summarized", effort: true, eagerInput: true, vision: true, ...flags });
+// Cortex's OpenAI-compatible chat/completions endpoint.
+const chat = (id: string, label: string, flags: Flags = {}): ModelSpec => ({ id, label, provider: "core-chat", group: "Core", tools: true, thinking: "none", effort: true, eagerInput: false, vision: true, ...flags });
+const legacy = { tools: false, thinking: "none", effort: false, eagerInput: false, vision: false, hidden: true } as const;
+
+/** Picker order is the order below; hidden entries never appear in it. */
 export const MODELS: ModelSpec[] = [
-  { id: "claude-opus-5-5", label: "Claude Opus 5.5", provider: "core", group: "Core", capability: "Flagship Heavy Coding", description: "Flagship adaptive reasoning. Architecture, debugging, self-healing escalations.", tools: true, thinking: "adaptive-summarized", effort: true, eagerInput: true, vision: true },
-  { id: "claude-opus-5", label: "Claude Opus 5", provider: "core", group: "Core", capability: "Flagship Heavy Coding", description: "Deep analytical reasoning.", tools: true, thinking: "adaptive-summarized", effort: true, eagerInput: true, vision: true },
-  { id: "claude-opus-4-6", label: "Claude Opus 4.6", provider: "core", group: "Core", capability: "Flagship Heavy Coding", description: "Complex systems architecture.", tools: true, thinking: "adaptive", effort: true, eagerInput: true, vision: true },
-  { id: "r/claude-opus-4-6-thinking", label: "Claude Opus 4.6 Thinking", provider: "relay", group: "Relay", capability: "Flagship Heavy Coding", description: "Opus 4.6 with extended thinking.", tools: true, thinking: "adaptive", effort: true, eagerInput: true, vision: true },
-  { id: "ultramarine-1-flash", label: "Ultramarine 1.0 Flash", provider: "fast", group: "Fast", capability: "Ultra-Fast Reasoning", description: "Fast reasoning with streamed chain-of-thought (reasoning_content).", tools: true, thinking: "reasoning-content", effort: false, eagerInput: false, vision: false },
-  { id: "claude-sonnet-4-5", label: "Claude Sonnet 4.5", provider: "core", group: "Core", capability: "Ultra-Fast Reasoning", description: "Fast code generation and tool calling.", tools: true, thinking: "none", effort: false, eagerInput: false, vision: true },
-  { id: "r/claude-sonnet-4-6", label: "Claude Sonnet 4.6", provider: "relay", group: "Relay", capability: "Ultra-Fast Reasoning", description: "Fast edits and routine coding.", tools: true, thinking: "adaptive", effort: true, eagerInput: true, vision: true },
-  { id: "r/gemini-3.8-flash-high", label: "Gemini 3.8 Flash (high)", provider: "relay", group: "Gemini", capability: "Speed & High Context", description: "Speed and very large context.", tools: true, thinking: "none", effort: false, eagerInput: false, vision: true },
-  { id: "r/gemini-3.8-flash-medium", label: "Gemini 3.8 Flash (medium)", provider: "relay", group: "Gemini", capability: "Speed & High Context", description: "Balanced Gemini 3.8 Flash.", tools: true, thinking: "none", effort: false, eagerInput: false, vision: true },
-  { id: "r/gemini-3.8-flash-low", label: "Gemini 3.8 Flash (low)", provider: "relay", group: "Gemini", capability: "Speed & High Context", description: "Lowest-latency Gemini 3.8 Flash.", tools: true, thinking: "none", effort: false, eagerInput: false, vision: true },
-  { id: "r/gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "relay", group: "Gemini", capability: "Speed & High Context", description: "Proven, fast general model.", tools: true, thinking: "none", effort: false, eagerInput: false, vision: true },
-  { id: "llama3.1-70b", label: "Llama 3.1 70B", provider: "core-inference", group: "Core", capability: "Open Weights", description: "Open-weight model. Chat only (no tools).", tools: false, thinking: "none", effort: false, eagerInput: false, vision: false },
-  { id: "llama3.1-8b", label: "Llama 3.1 8B", provider: "core-inference", group: "Core", capability: "Open Weights", description: "High-throughput utility. Chat only.", tools: false, thinking: "none", effort: false, eagerInput: false, vision: false },
-  { id: "mistral-7b", label: "Mistral 7B", provider: "core-inference", group: "Core", capability: "Open Weights", description: "High-throughput utility. Chat only.", tools: false, thinking: "none", effort: false, eagerInput: false, vision: false },
-  { id: "research-agent", label: "Curialy Research Agent", provider: "research", group: "Research", capability: "Autonomous Web", description: "Autonomous web research and browser workflows (runs for minutes).", tools: false, thinking: "none", effort: false, eagerInput: false, vision: false },
+  claude("claude-opus-5-5", "Claude Opus 5.5"),
+  claude("claude-opus-5", "Claude Opus 5"),
+  claude("claude-opus-4-8", "Claude Opus 4.8"),
+  claude("claude-opus-4-7", "Claude Opus 4.7"),
+  claude("claude-opus-4-6", "Claude Opus 4.6"),
+  claude("claude-opus-4-5", "Claude Opus 4.5", { thinking: "budget", effort: false, eagerInput: false }),
+  claude("claude-sonnet-5-5", "Claude Sonnet 5.5"),
+  claude("claude-sonnet-5", "Claude Sonnet 5"),
+  claude("claude-sonnet-4-6", "Claude Sonnet 4.6"),
+  claude("claude-sonnet-4-5", "Claude Sonnet 4.5", { thinking: "budget", effort: false, eagerInput: false }),
+  claude("claude-haiku-5-5", "Claude Haiku 5.5"),
+  chat("openai-gpt-5.5", "OpenAI GPT 5.5"),
+  chat("openai-gpt-5.4", "OpenAI GPT 5.4"),
+  chat("openai-gpt-5.2", "OpenAI GPT 5.2"),
+  chat("grok-4.7", "Grok 4.7"),
+  chat("grok-4.6", "Grok 4.6"),
+  chat("kimi-k3", "Kimi K3", { thinking: "reasoning-content" }),
+  chat("glm-5.3", "GLM 5.3", { thinking: "reasoning-content", vision: false }),
+  { id: "r/gemini-3.8-flash", label: "Gemini 3.8 Flash", provider: "relay", group: "Gemini", tools: true, thinking: "none", effort: false, eagerInput: false, vision: true, variants: { low: "r/gemini-3.8-flash-low", medium: "r/gemini-3.8-flash-medium", high: "r/gemini-3.8-flash-high" } },
+  { id: "r/gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "relay", group: "Gemini", tools: true, thinking: "none", effort: false, eagerInput: false, vision: true },
+  { id: "ultramarine-1-flash", label: "Ultramarine 1.0 Flash", provider: "fast", group: "Fast", tools: true, thinking: "reasoning-content", effort: false, eagerInput: false, vision: false },
+  // Second route to Claude, used when the primary route is down (self-healing failover).
+  { id: "r/claude-opus-4-6-thinking", label: "Claude Opus 4.6 · backup route", provider: "relay", group: "Relay", tools: true, thinking: "adaptive", effort: true, eagerInput: true, vision: true, hidden: true },
+  { id: "r/claude-sonnet-4-6", label: "Claude Sonnet 4.6 · backup route", provider: "relay", group: "Relay", tools: true, thinking: "adaptive", effort: true, eagerInput: true, vision: true, hidden: true },
+  { id: "research-agent", label: "Curialy Research Agent", provider: "research", group: "Research", ...legacy },
+  { id: "llama3.1-70b", label: "Llama 3.1 70B", provider: "core-inference", group: "Core", ...legacy },
+  { id: "llama3.1-8b", label: "Llama 3.1 8B", provider: "core-inference", group: "Core", ...legacy },
+  { id: "mistral-7b", label: "Mistral 7B", provider: "core-inference", group: "Core", ...legacy },
 ];
 
-export const MODEL_GROUPS: ModelGroup[] = ["Core", "Fast", "Relay", "Gemini", "Research"];
-export const CAPABILITIES: Capability[] = ["Flagship Heavy Coding", "Ultra-Fast Reasoning", "Speed & High Context", "Open Weights", "Autonomous Web"];
+export const PICKER_MODELS = MODELS.filter(model => !model.hidden);
+
+/** Ids that older tasks and saved preferences may still carry: entry plus the thinking level it implied. */
+const ALIASES: Record<string, { id: string; effort: ThinkingLevel }> = {
+  "r/gemini-3.8-flash-high": { id: "r/gemini-3.8-flash", effort: "high" },
+  "r/gemini-3.8-flash-medium": { id: "r/gemini-3.8-flash", effort: "medium" },
+  "r/gemini-3.8-flash-low": { id: "r/gemini-3.8-flash", effort: "low" },
+};
+
+/** Retired picker entries and the listed model that replaces them (for new tasks and saved picks). */
+export const REPLACED: Record<string, string> = {
+  "r/claude-sonnet-4-6": "claude-sonnet-4-6",
+  "r/claude-opus-4-6-thinking": "claude-opus-4-6",
+};
 
 export function getModel(id: string) {
-  return MODELS.find(model => model.id === id);
+  return MODELS.find(model => model.id === id) ?? (ALIASES[id] ? MODELS.find(model => model.id === ALIASES[id].id) : undefined);
+}
+
+/** The thinking level an old aliased id implied (its variant), if any. */
+export function aliasEffort(id: string): ThinkingLevel | undefined {
+  return ALIASES[id]?.effort;
+}
+
+/** Dev Team members share one conversation format (Anthropic Messages): Claude on either route, or Gemini. */
+export function teamCapable(spec: ModelSpec | undefined) {
+  return Boolean(spec && spec.tools && (spec.provider === "core" || spec.provider === "relay"));
+}
+
+/** The model id sent to the API for this thinking level. */
+export function wireModel(spec: ModelSpec, effort: ThinkingLevel) {
+  return spec.variants?.[effort] ?? spec.id;
+}
+
+/** Whether the thinking-level control changes anything for this model. */
+export function effortApplies(spec: ModelSpec) {
+  return spec.effort || spec.thinking === "budget" || Boolean(spec.variants);
 }
 
 export const PHASES = [

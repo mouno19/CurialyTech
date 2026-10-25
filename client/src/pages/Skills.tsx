@@ -8,7 +8,7 @@ const ICONS: Record<string, LucideIcon> = { search: Search, code: Code2, brain: 
 const RUNTIME: Record<string, { status: "live" | "partial"; how: string }> = {
   "web-research": { status: "live", how: "Web toggle: page fetching from the sandbox, the Curialy Live Browser and the Research Agent." },
   coding: { status: "live", how: "Agent mode: file tools, run_command, harness verification and self-healing." },
-  "deep-thinking": { status: "live", how: "Adaptive thinking on Opus 5.5 / Opus 5 with low · medium · high effort." },
+  "deep-thinking": { status: "live", how: "Visible reasoning with a low · medium · high thinking level on models that support it." },
   "data-analysis": { status: "partial", how: "Agent mode with Python 3 in the sandbox (install pandas per task)." },
   writing: { status: "live", how: "Chat mode on any model." },
   "document-analysis": { status: "partial", how: "Attach text files; they are copied into the task workspace. PDF/DOCX need a parser installed by the agent." },

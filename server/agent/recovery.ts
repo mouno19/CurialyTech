@@ -44,7 +44,7 @@ export function diagnose(error: unknown, aborted: boolean): Diagnosis {
   const lower = message.toLowerCase();
   // Errors sent inside an SSE stream arrive with no HTTP status, only an error type.
   const anyError = error as { type?: string; error?: { type?: string; error?: { type?: string } } };
-  const type = anyError?.type ?? anyError?.error?.error?.type ?? anyError?.error?.type ?? (lower.match(/"type":"(\w+_error)"/)?.[1]);
+  const type = anyError?.type ?? anyError?.error?.error?.type ?? anyError?.error?.type ?? (lower.match(/"type":\s*"(\w+_error)"/)?.[1]);
   switch (type) {
     case "overloaded_error": return { kind: "transient", detail: "The engine is overloaded" };
     case "api_error":
@@ -62,7 +62,7 @@ export function diagnose(error: unknown, aborted: boolean): Diagnosis {
   if (/all content must be type .?text.? if .?is_error/.test(lower)) return { kind: "error_result_content", status, detail: "A failed tool result contained non-text content" };
   if (/tool_use.*tool_result|tool_result.*tool_use|tool_use_id|unexpected .?tool/.test(lower)) return { kind: "tool_pairing", status, detail: "Tool calls and results in the history are out of step" };
   if (/thinking|signature|redacted_thinking/.test(lower) && /block|signature|modif|invalid|expected|must/.test(lower)) return { kind: "thinking_history", status, detail: "Earlier reasoning blocks in the history were rejected" };
-  if (/image/.test(lower) && /(exceed|invalid|could not|unsupported|media.?type|too large|dimension|process)/.test(lower)) return { kind: "bad_image", status, detail: "An attached image was rejected" };
+  if (/image/.test(lower) && /(exceed|invalid|could not|unsupported|not support|media.?type|too large|dimension|process)/.test(lower)) return { kind: "bad_image", status, detail: "An attached image was rejected" };
   if (/eager_input_streaming/.test(lower)) return { kind: "unsupported_param", status, param: "eager_input_streaming", detail: "Streaming tool input is not supported by this model" };
   if (/(output_config|effort)/.test(lower) && /(extra|not (permitted|supported|allowed)|unrecognized|unknown|invalid)/.test(lower)) return { kind: "unsupported_param", status, param: "effort", detail: "This model does not accept an effort level" };
   if (/thinking/.test(lower) && /(extra|not (permitted|supported|allowed)|unrecognized|unknown|invalid)/.test(lower)) return { kind: "unsupported_param", status, param: "thinking", detail: "This model does not accept the thinking setting" };
@@ -155,7 +155,7 @@ export function stripImages(conversation: Message[], keepLast = 0) {
     const content = blocks(message);
     if (!content) return;
     const mapped = content.map(block => {
-      if (block.type === "image") { removed++; return { type: "text", text: "[image removed to recover from an error]" }; }
+      if (block.type === "image" || block.type === "image_url") { removed++; return { type: "text", text: "[image removed to recover from an error]" }; }
       if (block.type === "tool_result" && Array.isArray(block.content)) {
         const inner = block.content.filter((part: Block) => part.type !== "image");
         if (inner.length !== block.content.length) { removed += block.content.length - inner.length; return { ...block, content: inner.length ? inner : "[screenshot removed]" }; }
@@ -176,8 +176,11 @@ const trimText = (text: string, max: number) => (text.length > max ? `${text.sli
  *  3. drop the oldest middle turns entirely (keeping the original request and the recent tail).
  * The most recent `keep` messages are never touched. Pairing is repaired and reasoning stripped.
  */
-/** Harness-injected user turns (continue prompts, verification feedback) are not user requests. */
-const INJECTED = /^(Your previous reply was cut off|Automated verification failed)/;
+/** Prefix of the user turn that carries tool screenshots in the OpenAI format (tool messages are text-only). */
+export const TOOL_SCREENSHOTS = "[Tool screenshots]";
+
+/** Harness-injected user turns (continue prompts, verification feedback, tool screenshots) are not user requests. */
+const INJECTED = /^(Your previous reply (was cut off|ran out of output)|Automated verification failed|\[Tool screenshots\])/;
 
 /** Index of the most recent message the user actually wrote (not tool results or harness text). */
 export function latestRequestIndex(conversation: { role: string; content: unknown }[]) {
@@ -263,11 +266,29 @@ export function compactHistory(conversation: Message[], level: 1 | 2 | 3) {
   return changed;
 }
 
-/** Same-format models to fail over to, most capable first, excluding the current one. */
+// Failover tiers per conversation format, closest equivalents first. A history can only move to a
+// model that speaks the same format; within it, the current tier is tried before the next one.
+// The relay Claude routes are the second path to Claude when the primary route is down.
+const FAILOVER_TIERS: Record<"anthropic" | "openai", string[][]> = {
+  anthropic: [
+    ["claude-opus-5-5", "claude-opus-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "r/claude-opus-4-6-thinking", "claude-opus-4-5"],
+    ["claude-sonnet-5-5", "claude-sonnet-5", "claude-sonnet-4-6", "r/claude-sonnet-4-6", "claude-sonnet-4-5", "claude-haiku-5-5"],
+    ["r/gemini-3.8-flash", "r/gemini-2.5-flash"],
+  ],
+  openai: [
+    ["openai-gpt-5.5", "openai-gpt-5.4", "openai-gpt-5.2"],
+    ["grok-4.7", "grok-4.6"],
+    ["kimi-k3", "glm-5.3", "ultramarine-1-flash"],
+  ],
+};
+
+/** Same-format models to fail over to: the current tier first, then the others in order. */
 export function failoverModels(current: ModelSpec): ModelSpec[] {
-  if (current.provider === "fast" || current.provider === "research" || current.provider === "core-inference") return [];
-  const chain = ["claude-opus-5-5", "claude-sonnet-4-5", "r/claude-sonnet-4-6", "claude-opus-5", "r/claude-opus-4-6-thinking"];
-  return chain.filter(id => id !== current.id).map(id => getModel(id)).filter((spec): spec is ModelSpec => Boolean(spec?.tools));
+  if (current.provider === "research" || current.provider === "core-inference") return [];
+  const tiers = FAILOVER_TIERS[current.provider === "fast" || current.provider === "core-chat" ? "openai" : "anthropic"];
+  const own = tiers.findIndex(tier => tier.includes(current.id));
+  const ordered = own < 0 ? tiers.flat() : [...tiers[own], ...tiers.filter((_, index) => index !== own).flat()];
+  return ordered.filter(id => id !== current.id).map(id => getModel(id)).filter((spec): spec is ModelSpec => Boolean(spec?.tools));
 }
 
 /** Tool-failure watchdog: the same tool failing the same way repeatedly gets a nudge to change course. */
@@ -313,6 +334,18 @@ export function repairOpenAIToolPairing(conversation: OpenAIMessage[]) {
   return fixes;
 }
 
+/** Assistant turns need content unless they carry tool_calls (the chat-completions route rejects null). */
+export function repairOpenAIContent(conversation: OpenAIMessage[]) {
+  let fixes = 0;
+  for (const message of conversation) {
+    if (message.role !== "assistant") continue;
+    const hasCalls = Array.isArray(message.tool_calls) && message.tool_calls.length > 0;
+    if (message.content == null) { message.content = hasCalls ? "" : "(no reply)"; fixes++; }
+    else if (!hasCalls && message.content === "") { message.content = "(no reply)"; fixes++; }
+  }
+  return fixes;
+}
+
 export function compactOpenAIHistory(conversation: OpenAIMessage[], level: 1 | 2 | 3) {
   const keep = level === 1 ? 6 : 4;
   const limit = level === 1 ? 2000 : 400;
@@ -334,6 +367,11 @@ export function compactOpenAIHistory(conversation: OpenAIMessage[], level: 1 | 2
       if (next !== message.content) { message.content = next; changed++; }
     }
     if (level >= 2 && message.reasoning_content) { delete message.reasoning_content; changed++; }
+    // Old screenshots and attachments outside the tail are the heaviest parts of the request.
+    if (Array.isArray(message.content) && message.content.some((part: Block) => part.type === "image_url")) {
+      message.content = message.content.map((part: Block) => (part.type === "image_url" ? { type: "text", text: "[earlier image removed to fit the context window]" } : part));
+      changed++;
+    }
   }
   if (level === 3 && conversation.length > keep + 2) {
     const tailStart = conversation.length - keep;
@@ -341,9 +379,12 @@ export function compactOpenAIHistory(conversation: OpenAIMessage[], level: 1 | 2
       ? [...conversation.splice(request + 1, tailStart - request - 1), ...conversation.splice(1, request - 1)]
       : conversation.splice(1, tailStart - 1);
     changed += dropped.length;
-    conversation[0].content = `${conversation[0].content}\n\n[${dropped.length} earlier messages were removed to fit the context window; the workspace still contains all files produced so far.]`;
+    const note = `\n\n[${dropped.length} earlier messages were removed to fit the context window; the workspace still contains all files produced so far.]`;
+    const first = conversation[0];
+    if (Array.isArray(first.content)) first.content.push({ type: "text", text: note.trim() });
+    else first.content = `${first.content ?? ""}${note}`;
   }
-  return changed + repairOpenAIToolPairing(conversation);
+  return changed + repairOpenAIToolPairing(conversation) + repairOpenAIContent(conversation);
 }
 
 // ---- The engine: one instance per run ----
@@ -380,6 +421,8 @@ export class RecoveryEngine {
   private genericRepairTried = false;
   private readonly failedModels = new Set<string>(); // unavailable: never retried this run
   private readonly flakyModels = new Set<string>(); // transient failures: skipped for this turn only
+  private readonly troubled = new Set<string>(); // any route failure this run (escalation avoids them)
+  private failedOver = false;
   readonly log: { kind: FailureKind; action: string }[] = [];
 
   constructor(private host: RecoveryHost) {}
@@ -402,6 +445,7 @@ export class RecoveryEngine {
     const host = this.host;
     const diagnosis = diagnose(error, host.signal.aborted);
     if (diagnosis.kind === "cancelled" || diagnosis.kind === "auth") return false;
+    if (diagnosis.kind === "transient" || diagnosis.kind === "rate_limit" || diagnosis.kind === "model_unavailable") this.troubled.add(host.spec.id);
     if (this.total >= MAX_RUN_RECOVERIES || this.turnAttempts >= MAX_TURN_ATTEMPTS) return false;
     this.turnAttempts++;
     const attempt = this.turnAttempts;
@@ -468,10 +512,9 @@ export class RecoveryEngine {
         return done(`Converted ${fixed} failed tool result(s) to text and retried`);
       }
       case "bad_image": {
-        if (!anthropic) return false;
         const removed = stripImages(conversation);
         if (!removed) return false;
-        stripThinking(conversation);
+        if (anthropic) stripThinking(conversation);
         host.dropImageCache?.();
         host.persist();
         return done(`Removed ${removed} rejected image(s) from the conversation and retried`);
@@ -488,7 +531,7 @@ export class RecoveryEngine {
         // Unknown rejection: one generic history clean-up, which covers most malformed-history 400s.
         if (this.genericRepairTried || diagnosis.status === undefined || diagnosis.status >= 500) return false;
         this.genericRepairTried = true;
-        const fixes = anthropic ? repairToolPairing(conversation) + stripThinking(conversation) : repairOpenAIToolPairing(conversation);
+        const fixes = anthropic ? repairToolPairing(conversation) + stripThinking(conversation) : repairOpenAIToolPairing(conversation) + repairOpenAIContent(conversation);
         if (!fixes) return false;
         host.persist();
         return done(`Cleaned up the conversation history (${fixes} fix${fixes === 1 ? "" : "es"}) and retried`);
@@ -498,22 +541,41 @@ export class RecoveryEngine {
     }
   }
 
-  private failover(diagnosis: Diagnosis, done: (action: string, extra?: { model?: string }) => boolean): boolean | null {
+  /** Whether escalating to a model is safe: never back onto a route that failed, nor undoing a failover. */
+  canEscalateTo(spec: ModelSpec) {
+    return !this.failedOver && !this.failedModels.has(spec.id) && !this.troubled.has(spec.id);
+  }
+
+  /**
+   * Move the run to another same-format model (failover, escalation). Reasoning blocks are signed
+   * per model, so they are dropped; parameters disabled for the old model are re-enabled.
+   */
+  switchTo(spec: ModelSpec, reason: string) {
     const host = this.host;
-    const transient = diagnosis.kind === "transient" || diagnosis.kind === "rate_limit";
-    (transient ? this.flakyModels : this.failedModels).add(host.spec.id);
-    let candidates = failoverModels(host.spec).filter(spec => !this.failedModels.has(spec.id) && !this.flakyModels.has(spec.id) && (host.available?.(spec) ?? true));
-    // For outages, prefer a model reached through a different route first.
-    if (transient) candidates = [...candidates.filter(spec => spec.provider !== host.spec.provider), ...candidates.filter(spec => spec.provider === host.spec.provider)];
-    const next = candidates[0];
-    if (!next) return null;
-    const from = host.spec.label;
-    host.switchModel(next, `Self-healing: ${from} ${diagnosis.kind === "model_unavailable" ? "is unavailable" : "kept failing"} → ${next.label}`);
+    host.switchModel(spec, reason);
     host.flags.noEager = false;
     host.flags.noThinking = false;
     host.flags.noEffort = false;
     if (host.format === "anthropic") stripThinking(host.conversation as Message[]);
     host.persist();
+  }
+
+  private failover(diagnosis: Diagnosis, done: (action: string, extra?: { model?: string }) => boolean): boolean | null {
+    const host = this.host;
+    const transient = diagnosis.kind === "transient" || diagnosis.kind === "rate_limit";
+    (transient ? this.flakyModels : this.failedModels).add(host.spec.id);
+    let candidates = failoverModels(host.spec).filter(spec => !this.failedModels.has(spec.id) && !this.flakyModels.has(spec.id) && (host.available?.(spec) ?? true));
+    // For outages, prefer a model reached through a different route first, as long as the switch
+    // keeps what the run relies on (images); otherwise stay in tier order.
+    if (transient) {
+      const comparable = (spec: ModelSpec) => spec.provider !== host.spec.provider && (spec.vision || !host.spec.vision);
+      candidates = [...candidates.filter(comparable), ...candidates.filter(spec => !comparable(spec))];
+    }
+    const next = candidates[0];
+    if (!next) return null;
+    const from = host.spec.label;
+    this.switchTo(next, `Self-healing: ${from} ${diagnosis.kind === "model_unavailable" ? "is unavailable" : "kept failing"} → ${next.label}`);
+    this.failedOver = true;
     this.transientStreak = 0;
     this.turnAttempts = 0; // the new model gets its own attempts for this turn
     return done(`Switched from ${from} to ${next.label} and retried`, { model: next.id });

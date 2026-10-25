@@ -112,16 +112,75 @@ export async function stageAttachments(root: string, refs: AttachmentRef[], opts
 }
 
 /**
- * User message content in the conversation's wire format (images only for Anthropic-format,
- * vision models). Images are stored as Curialy Vault references, not bytes: the conversation is
- * rewritten to the database every turn, so base64 is attached only to the outgoing request.
+ * User message content in the conversation's wire format. Images are stored as Curialy Vault
+ * references, not bytes: the conversation is rewritten to the database every turn, so base64 is
+ * attached only to the outgoing request.
  */
 export function userContent(text: string, images: VisionImage[], format: "anthropic" | "openai") {
-  if (!images.length || format !== "anthropic") return text;
+  if (!images.length) return text;
+  if (format === "openai") {
+    return [
+      ...images.map(image => ({ type: "image_url", image_url: { url: `${VAULT_SCHEME}${image.mediaId}`, media_type: image.mediaType } })),
+      { type: "text", text },
+    ];
+  }
   return [
     ...images.map(image => ({ type: "image", source: { type: "curialy_vault", media_id: image.mediaId, media_type: image.mediaType } })),
     { type: "text", text },
   ];
+}
+
+const VAULT_SCHEME = "curialy-vault:";
+
+/**
+ * OpenAI-format counterpart of hydrateImages: Vault references become data URLs, newest first
+ * within the same per-request budget; for a model without vision (e.g. after failover) every
+ * image becomes a note.
+ */
+export async function hydrateOpenAIImages<T extends { role: string; content: unknown }>(conversation: T[], cache: Map<string, string>, load: (mediaId: string) => Promise<Buffer | null>, vision: boolean, onIssue?: (message: string) => void): Promise<T[]> {
+  const isImage = (part: any) => part?.type === "image_url" && typeof part?.image_url?.url === "string";
+  if (!conversation.some(message => Array.isArray(message.content) && (message.content as any[]).some(isImage))) return conversation;
+  let count = 0;
+  let bytes = 0;
+  const wanted = new Set<string>();
+  const out: T[] = new Array(conversation.length);
+  for (let index = conversation.length - 1; index >= 0; index--) {
+    const message = conversation[index];
+    if (!Array.isArray(message.content) || !(message.content as any[]).some(isImage)) { out[index] = message; continue; }
+    const content = message.content as any[];
+    const mapped: any[] = new Array(content.length);
+    for (let b = content.length - 1; b >= 0; b--) {
+      const part = content[b];
+      if (!isImage(part)) { mapped[b] = part; continue; }
+      if (!vision) { mapped[b] = { type: "text", text: "[An image was shared here; this model cannot view images.]" }; continue; }
+      let url: string = part.image_url.url;
+      if (url.startsWith(VAULT_SCHEME)) {
+        const id = url.slice(VAULT_SCHEME.length);
+        let data = cache.get(id);
+        if (data === undefined) {
+          try {
+            const loaded = await load(id).catch(() => load(id));
+            data = loaded ? loaded.toString("base64") : "";
+            cache.set(id, data);
+          } catch {
+            onIssue?.("An attached image could not be loaded this turn; it will be retried.");
+            mapped[b] = { type: "text", text: "[An attached image could not be loaded for this turn.]" };
+            continue;
+          }
+        }
+        if (!data) { mapped[b] = { type: "text", text: "[An attached image is no longer available.]" }; continue; }
+        url = `data:${part.image_url.media_type ?? "image/png"};base64,${data}`;
+      }
+      if (count >= REQUEST_IMAGE_LIMIT || bytes + url.length > REQUEST_IMAGE_BYTES) { mapped[b] = { type: "text", text: "[Earlier image omitted from this request to stay within image limits.]" }; continue; }
+      count++;
+      bytes += url.length;
+      if (part.image_url.url.startsWith(VAULT_SCHEME)) wanted.add(part.image_url.url.slice(VAULT_SCHEME.length)); // cache only what is still sent
+      mapped[b] = { type: "image_url", image_url: { url } };
+    }
+    out[index] = { ...message, content: mapped };
+  }
+  for (const id of Array.from(cache.keys())) if (!wanted.has(id) && cache.get(id)) cache.delete(id);
+  return out;
 }
 
 type VaultImageBlock = { type: "image"; source: { type: "curialy_vault"; media_id: string; media_type: VisionImage["mediaType"] } };

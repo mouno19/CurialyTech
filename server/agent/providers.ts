@@ -36,11 +36,15 @@ export function anthropicClient(provider: ProviderId) {
   throw new Error(`${provider} is not an Anthropic-compatible provider.`);
 }
 
+/** Thinking budgets for models without adaptive thinking (kept well under MAX_TOKENS). */
+const THINKING_BUDGET: Record<ThinkingLevel, number> = { low: 2048, medium: 6144, high: 12_288 };
+
 /** Thinking/effort parameters a given model accepts. */
 export function reasoningParams(model: ModelSpec, level: ThinkingLevel): Pick<Anthropic.MessageCreateParams, "thinking" | "output_config"> {
   const params: Pick<Anthropic.MessageCreateParams, "thinking" | "output_config"> = {};
   if (model.thinking === "adaptive-summarized") params.thinking = { type: "adaptive", display: "summarized" };
   else if (model.thinking === "adaptive") params.thinking = { type: "adaptive" };
+  else if (model.thinking === "budget") params.thinking = { type: "enabled", budget_tokens: THINKING_BUDGET[level] };
   if (model.effort) params.output_config = { effort: level };
   return params;
 }
@@ -76,7 +80,7 @@ export async function* streamCortexInference(opts: { model: string; system: stri
   yield { usage };
 }
 
-// ---- OpenAI-compatible streaming (Paper Instruments Ultramarine) ----
+// ---- OpenAI-compatible streaming: Cortex chat/completions (GPT, Grok, Kimi, GLM) and Paper Instruments (Ultramarine) ----
 
 export type OpenAIChunk =
   | { kind: "reasoning"; text: string }
@@ -85,18 +89,29 @@ export type OpenAIChunk =
   | { kind: "finish"; reason: string }
   | { kind: "usage"; inputTokens: number; outputTokens: number; reasoningTokens: number; cachedTokens: number };
 
-export async function* streamOpenAIChat(opts: { model: string; messages: Record<string, unknown>[]; tools?: Record<string, unknown>[]; maxTokens: number; signal: AbortSignal }): AsyncGenerator<OpenAIChunk> {
-  if (!PROVIDER_ENV.paperKey) throw new Error("PAPER_API_KEY is not configured.");
-  const response = await fetch(`${PROVIDER_ENV.paperUrl}/chat/completions`, {
+/** Endpoint and credentials for an OpenAI-format provider. The Cortex bridge adds the PAT and maps max_tokens itself. */
+function chatEndpoint(provider: ProviderId) {
+  if (provider === "core-chat") return { url: `${PROVIDER_ENV.cortexBridgeUrl}/v1/chat/completions`, headers: {} as Record<string, string> };
+  if (provider === "fast") {
+    if (!PROVIDER_ENV.paperKey) throw new Error("PAPER_API_KEY is not configured.");
+    return { url: `${PROVIDER_ENV.paperUrl}/chat/completions`, headers: { authorization: `Bearer ${PROVIDER_ENV.paperKey}` } };
+  }
+  throw new Error(`${provider} is not an OpenAI-compatible provider.`);
+}
+
+export async function* streamOpenAIChat(opts: { provider: ProviderId; model: string; messages: Record<string, unknown>[]; tools?: Record<string, unknown>[]; maxTokens: number; reasoningEffort?: ThinkingLevel; signal: AbortSignal }): AsyncGenerator<OpenAIChunk> {
+  const endpoint = chatEndpoint(opts.provider);
+  const response = await fetch(endpoint.url, {
     method: "POST",
-    headers: { authorization: `Bearer ${PROVIDER_ENV.paperKey}`, "content-type": "application/json", accept: "text/event-stream" },
+    headers: { ...endpoint.headers, "content-type": "application/json", accept: "text/event-stream" },
     body: JSON.stringify({
       model: opts.model, stream: true, stream_options: { include_usage: true }, max_tokens: opts.maxTokens, messages: opts.messages,
+      ...(opts.reasoningEffort ? { reasoning_effort: opts.reasoningEffort } : {}),
       ...(opts.tools?.length ? { tools: opts.tools, tool_choice: "auto" } : {}),
     }),
     signal: opts.signal,
   });
-  if (!response.ok || !response.body) throw new Error(`Paper Instruments request failed (${response.status}): ${(await response.text()).slice(0, 400)}`);
+  if (!response.ok || !response.body) throw new Error(`Chat engine request failed (${response.status}): ${(await response.text()).slice(0, 400)}`);
   const decoder = new TextDecoder();
   let buffer = "";
   for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
@@ -110,7 +125,7 @@ export async function* streamOpenAIChat(opts: { model: string; messages: Record<
       if (!payload || payload === "[DONE]") continue;
       let data: any;
       try { data = JSON.parse(payload); } catch { continue; }
-      if (data.error) throw new Error(`Paper Instruments error: ${data.error.message ?? JSON.stringify(data.error)}`);
+      if (data.error) throw new Error(`Chat engine error: ${data.error.message ?? JSON.stringify(data.error)}`);
       if (data.usage) {
         yield {
           kind: "usage",
@@ -239,8 +254,11 @@ export async function probeProviders(deep = false): Promise<ProbeResult[]> {
         if (!response.ok) throw new Error(`Bridge returned ${response.status}`);
         return "Reasoning engine reachable";
       }
-      const message = await anthropicClient("core").messages.create({ model: "claude-sonnet-4-5", max_tokens: 8, messages: [{ role: "user", content: "Reply OK" }] }, { signal });
-      return `Live completion OK (${message.usage.output_tokens} tokens)`;
+      const message = await anthropicClient("core").messages.create({ model: "claude-haiku-5-5", max_tokens: 8, messages: [{ role: "user", content: "Reply OK" }] }, { signal });
+      // The chat-completions route (GPT, Grok, Kimi, GLM) is checked with the same probe.
+      let chatTokens = 0;
+      for await (const chunk of streamOpenAIChat({ provider: "core-chat", model: "openai-gpt-5.4", messages: [{ role: "user", content: "Reply OK" }], maxTokens: 16, signal })) if (chunk.kind === "usage") chatTokens = chunk.outputTokens;
+      return `Live completions OK on both routes (${message.usage.output_tokens} + ${chatTokens} tokens)`;
     }),
     timed("Curialy Relay", "relay", Boolean(PROVIDER_ENV.relayKey), async () => {
       const response = await fetch(`${PROVIDER_ENV.relayUrl}/v1/models`, { headers: { authorization: `Bearer ${PROVIDER_ENV.relayKey}` }, signal });

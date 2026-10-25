@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowUp, Bot, Check, ChevronDown, Globe, Loader2, MessageSquare, Paperclip, Sparkles, Users, X } from "lucide-react";
-import { CAPABILITIES, getModel, MODELS, type CreateTaskRequest, type TaskMode, type ThinkingLevel } from "@shared/agent";
+import { aliasEffort, effortApplies, getModel, PICKER_MODELS, REPLACED, teamCapable, type CreateTaskRequest, type TaskMode, type ThinkingLevel } from "@shared/agent";
 import { type GitHubRepo } from "@/lib/api";
 import { AttachmentTray, useAttachments } from "@/lib/useAttachments";
 import { RepoSelector } from "@/components/RepoSelector";
@@ -11,12 +11,17 @@ const PREFS_KEY = "curialy.composer.v2";
 const DEFAULT_PREFS: Prefs = { model: "auto", mode: "agent", effort: "medium", webSearch: false, team: false };
 
 function readPrefs(): Prefs {
-  try { return { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}") }; } catch { return DEFAULT_PREFS; }
+  let prefs = DEFAULT_PREFS;
+  try { prefs = { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}") }; } catch { /* storage unavailable */ }
+  if (prefs.model === "auto") return prefs;
+  // Saved ids from older catalogs: aliases resolve to their entry (keeping the level they implied),
+  // retired entries to their replacement, anything else to Auto.
+  const saved = getModel(REPLACED[prefs.model] ?? prefs.model);
+  if (!saved || saved.hidden) return { ...prefs, model: "auto" };
+  return { ...prefs, model: saved.id, effort: aliasEffort(prefs.model) ?? prefs.effort };
 }
 
-const GROUP_COLORS: Record<string, string> = { Core: "#7cb7ff", Relay: "#8b75ff", Fast: "#f6b3bd", Research: "#f2bd72", Gemini: "#52d6b1" };
-
-export function ModelPicker({ value, onChange, mode, openDown = false }: { value: string; onChange: (id: string) => void; mode: TaskMode; openDown?: boolean }) {
+export function ModelPicker({ value, onChange, mode, team = false, openDown = false }: { value: string; onChange: (id: string) => void; mode: TaskMode; team?: boolean; openDown?: boolean }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -31,44 +36,26 @@ export function ModelPicker({ value, onChange, mode, openDown = false }: { value
   return (
     <div className="model-picker" ref={ref}>
       <button type="button" className="model-trigger" onClick={() => setOpen(value => !value)} aria-haspopup="listbox" aria-expanded={open}>
-        <span className="dot" style={{ background: current ? GROUP_COLORS[current.group] : "var(--violet)" }} />
-        <span className="truncate">{current ? current.label : "Auto dispatch"}</span>
+        <span className="dot" style={{ background: "var(--violet)" }} />
+        <span className="truncate">{current ? current.label : "Auto"}</span>
         <ChevronDown size={13} />
       </button>
       {open && (
         <div className={`model-menu${openDown ? " down" : ""}`} role="listbox">
-          <button type="button" className={`model-option${value === "auto" ? " on" : ""}`} onClick={() => { onChange("auto"); setOpen(false); }}>
-            <span className="dot" style={{ background: "var(--violet)" }} />
-            <span>
-              <strong>Auto dispatch</strong>
-              <small>Opus 5.5 for architecture & debugging, Sonnet 4.5 for routine edits, the Research Agent for browsing. Escalates to Opus when self-healing stalls.</small>
-            </span>
+          <button type="button" role="option" aria-selected={value === "auto"} className={`model-option plain${value === "auto" ? " on" : ""}`} onClick={() => { onChange("auto"); setOpen(false); }}>
+            <strong>Auto</strong>
             {value === "auto" && <Check size={14} style={{ marginLeft: "auto" }} />}
           </button>
-          {CAPABILITIES.map(capability => (
-            <div key={capability}>
-              <div className="model-group">{capability}</div>
-              {MODELS.filter(model => model.capability === capability).map(model => {
-                const unusable = mode === "agent" && !model.tools && model.provider !== "research";
-                return (
-                  <button key={model.id} type="button" disabled={unusable} className={`model-option${value === model.id ? " on" : ""}`} onClick={() => { onChange(model.id); setOpen(false); }} title={unusable ? "Chat mode only (no tool calling)" : undefined}>
-                    <span className="dot" style={{ background: GROUP_COLORS[model.group] }} />
-                    <span style={{ minWidth: 0 }}>
-                      <strong>{model.label}</strong>
-                      <small>{model.description}</small>
-                      <span className="caps">
-                        {model.tools && <span>tools</span>}
-                        {model.thinking !== "none" && <span>{model.thinking === "reasoning-content" ? "reasoning stream" : "thinking"}</span>}
-                        {model.vision && <span>vision</span>}
-                        {model.effort && <span>effort</span>}
-                      </span>
-                    </span>
-                    {value === model.id && <Check size={14} style={{ marginLeft: "auto", flex: "0 0 auto" }} />}
-                  </button>
-                );
-              })}
-            </div>
-          ))}
+          <div className="model-sep" />
+          {PICKER_MODELS.map(model => {
+            const unusable = mode === "agent" && (!model.tools || (team && !teamCapable(model)));
+            return (
+              <button key={model.id} type="button" role="option" aria-selected={value === model.id} disabled={unusable} title={unusable && team ? "Not available in Dev Team mode" : undefined} className={`model-option plain${value === model.id ? " on" : ""}`} onClick={() => { onChange(model.id); setOpen(false); }}>
+                <strong>{model.label}</strong>
+                {value === model.id && <Check size={14} style={{ marginLeft: "auto", flex: "0 0 auto" }} />}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
@@ -100,7 +87,7 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed }: { onSubmit: (r
   const update = (patch: Partial<Prefs>) => setPrefs(current => {
     const next = { ...current, ...patch };
     const spec = getModel(next.model);
-    if (next.mode === "agent" && spec && !spec.tools && spec.provider !== "research") next.model = "auto";
+    if (next.mode === "agent" && spec && (!spec.tools || (next.team && !teamCapable(spec)))) next.model = "auto";
     return next;
   });
 
@@ -119,7 +106,7 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed }: { onSubmit: (r
   };
 
   const spec = getModel(prefs.model);
-  const effortApplies = prefs.model === "auto" || Boolean(spec?.effort);
+  const showEffort = prefs.model === "auto" || Boolean(spec && effortApplies(spec));
 
   return (
     <div>
@@ -142,16 +129,16 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed }: { onSubmit: (r
         />
         <AttachmentTray files={attachments.files} uploading={attachments.uploading} onRemove={attachments.remove} />
         <div className="composer-bar">
-          <ModelPicker value={prefs.model} mode={prefs.mode} onChange={model => update({ model })} />
+          <ModelPicker value={prefs.model} mode={prefs.mode} team={prefs.mode === "agent" && prefs.team} onChange={model => update({ model })} />
           {github?.connected && prefs.mode === "agent" && <RepoSelector value={repo?.full_name ?? null} onChange={setRepo} />}
           <div className="segmented" role="radiogroup" aria-label="Mode">
             <button type="button" className={prefs.mode === "agent" ? "on" : ""} onClick={() => update({ mode: "agent" })} title="Autonomous coding agent with tools"><Bot size={12} style={{ verticalAlign: -2 }} /> Agent</button>
             <button type="button" className={prefs.mode === "chat" ? "on" : ""} onClick={() => update({ mode: "chat" })} title="Conversational answer"><MessageSquare size={12} style={{ verticalAlign: -2 }} /> Chat</button>
           </div>
           <span className="divider" />
-          <div className="segmented" role="radiogroup" aria-label="Adaptive thinking level" title={effortApplies ? "Adaptive thinking effort" : `${spec?.label} does not take an effort level`}>
+          <div className="segmented" role="radiogroup" aria-label="Adaptive thinking level" title={showEffort ? "Thinking level" : `${spec?.label} does not take a thinking level`}>
             {(["low", "medium", "high"] as const).map(level => (
-              <button key={level} type="button" disabled={!effortApplies} className={prefs.effort === level ? "on" : ""} onClick={() => update({ effort: level })}>
+              <button key={level} type="button" disabled={!showEffort} className={prefs.effort === level ? "on" : ""} onClick={() => update({ effort: level })}>
                 {level === "high" && <Sparkles size={11} style={{ verticalAlign: -1, marginRight: 3 }} />}
                 {level[0].toUpperCase() + level.slice(1)}
               </button>
