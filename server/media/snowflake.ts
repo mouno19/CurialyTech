@@ -16,15 +16,25 @@ const FETCH_TIMEOUT_MS = 15_000;
 
 snowflake.configure({ logLevel: "ERROR", logFilePath: "STDOUT", additionalLogToConsole: false } as never);
 
-let connection: snowflake.Connection | null = null;
-let connecting: Promise<snowflake.Connection> | null = null;
+// Two logins may be in play: the media stage can live in its own account (SNOWFLAKE_MEDIA_ACCOUNT
+// with its own _USER, _ROLE, _PAT and _WAREHOUSE), while SQL AI_COMPLETE stays on SNOWFLAKE_*.
+// Without SNOWFLAKE_MEDIA_ACCOUNT both use SNOWFLAKE_* (and share one connection).
+type Login = { prefix: "SNOWFLAKE_" | "SNOWFLAKE_MEDIA_"; account?: string; username?: string; role?: string; token?: string; warehouse: string };
+
+function login(prefix: Login["prefix"]): Login {
+  const env = process.env;
+  return { prefix, account: env[`${prefix}ACCOUNT`], username: env[`${prefix}USER`], role: env[`${prefix}ROLE`], token: env[`${prefix}PAT`], warehouse: env[`${prefix}WAREHOUSE`] || "COMPUTE_WH" };
+}
+const mediaLogin = () => login(process.env.SNOWFLAKE_MEDIA_ACCOUNT ? "SNOWFLAKE_MEDIA_" : "SNOWFLAKE_");
+const sqlLogin = () => login("SNOWFLAKE_");
+const loginKey = (l: Login) => [l.account, l.username, l.role, l.warehouse].join("|");
 
 /** Account, user and role come from the environment only: no fallback to another account's values. */
-export function storageConfig() {
-  const env = process.env;
-  const missing = (["SNOWFLAKE_ACCOUNT", "SNOWFLAKE_USER", "SNOWFLAKE_ROLE", "SNOWFLAKE_PAT"] as const).filter(name => !env[name]);
+function loginStatus(l: Login) {
+  const missing = (["ACCOUNT", "USER", "ROLE", "PAT"] as const).filter(name => !process.env[`${l.prefix}${name}`]).map(name => `${l.prefix}${name}`);
   return { ok: missing.length === 0, missing };
 }
+export const storageConfig = () => loginStatus(mediaLogin());
 
 const withDeadline = <T>(promise: Promise<T>, ms: number, label: string, onTimeout?: () => void) => {
   let timer: NodeJS.Timeout | undefined;
@@ -34,36 +44,46 @@ const withDeadline = <T>(promise: Promise<T>, ms: number, label: string, onTimeo
   ]).finally(() => clearTimeout(timer));
 };
 
-function connect() {
-  if (connection?.isUp()) return Promise.resolve(connection);
-  connecting ??= (async () => {
-    const config = storageConfig();
-    if (!config.ok) throw new StorageError("not_configured");
-    const previous = connection;
-    connection = null;
+/** One live connection per distinct login, created on first use and replaced when it drops. */
+const sessions = new Map<string, { connection: snowflake.Connection | null; connecting: Promise<snowflake.Connection> | null }>();
+
+function connect(l: Login = mediaLogin()) {
+  const key = loginKey(l);
+  let slot = sessions.get(key);
+  if (!slot) {
+    slot = { connection: null, connecting: null };
+    sessions.set(key, slot);
+  }
+  const current = slot;
+  if (current.connection?.isUp()) return Promise.resolve(current.connection);
+  current.connecting ??= (async () => {
+    if (!loginStatus(l).ok) throw new StorageError("not_configured");
+    const previous = current.connection;
+    current.connection = null;
     if (previous) previous.destroy(() => undefined);
     const conn = snowflake.createConnection({
-      account: process.env.SNOWFLAKE_ACCOUNT!,
-      username: process.env.SNOWFLAKE_USER!,
-      role: process.env.SNOWFLAKE_ROLE!,
-      warehouse: process.env.SNOWFLAKE_WAREHOUSE || "COMPUTE_WH",
+      account: l.account!,
+      username: l.username!,
+      role: l.role!,
+      warehouse: l.warehouse,
       authenticator: "PROGRAMMATIC_ACCESS_TOKEN",
-      token: process.env.SNOWFLAKE_PAT!,
+      token: l.token!,
       clientSessionKeepAlive: true,
       sfRetryMaxLoginRetries: 1,
     } as snowflake.ConnectionOptions);
     // The driver's own login retry window is at least five minutes; an interactive server cannot wait that long.
     await withDeadline(new Promise<void>((resolve, reject) => conn.connect(error => (error ? reject(error) : resolve()))), CONNECT_TIMEOUT_MS, "storage login", () => conn.destroy(() => undefined));
-    connection = conn;
+    current.connection = conn;
     return conn;
   })().finally(() => {
-    connecting = null;
+    current.connecting = null;
   });
-  return connecting;
+  return current.connecting;
 }
 
+/** A statement on the media stage's login. */
 function run<T = Record<string, unknown>>(sqlText: string, extra: Record<string, unknown> = {}, timeoutMs = STATEMENT_TIMEOUT_MS): Promise<T[]> {
-  return connect().then(conn => {
+  return connect(mediaLogin()).then(conn => {
     let cancel: (() => void) | undefined;
     return withDeadline(new Promise<T[]>((resolve, reject) => {
       const statement = conn.execute({
@@ -263,7 +283,7 @@ export async function deleteMedia(id: string) {
 }
 
 // ---- Cortex AI_COMPLETE (models Cortex serves only through SQL, e.g. Gemini 4 Argon) ----
-// Same connection and warehouse as the media stage. Not streamed: the reply arrives whole.
+// Uses the SNOWFLAKE_* login (the media stage may be elsewhere). Not streamed: the reply arrives whole.
 
 export type CompletionResult = { text: string; inputTokens: number; outputTokens: number };
 
@@ -291,7 +311,7 @@ export async function aiComplete(opts: { model: string; prompt: string; maxToken
     opts.signal.addEventListener("abort", onAbort, { once: true });
   });
   try {
-    const conn = await Promise.race([connect(), stopped]);
+    const conn = await Promise.race([connect(sqlLogin()), stopped]);
     const rows = await Promise.race([stopped, new Promise<{ OUT: unknown }[]>((resolve, reject) => {
       const statement = conn.execute({
         sqlText: "SELECT AI_COMPLETE(model => ?, prompt => ?, model_parameters => PARSE_JSON(?), show_details => TRUE) AS OUT",

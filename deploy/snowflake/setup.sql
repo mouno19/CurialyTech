@@ -1,5 +1,7 @@
 -- Snowflake objects Curialy AI relies on. Run as ACCOUNTADMIN in the account named by
--- SNOWFLAKE_ACCOUNT in /etc/curialyai.env. Everything here is idempotent.
+-- SNOWFLAKE_ACCOUNT in /etc/curialyai.env. Everything here is idempotent. When the media vault
+-- has its own account (SNOWFLAKE_MEDIA_ACCOUNT), run part 2 there, with app_role set to
+-- SNOWFLAKE_MEDIA_ROLE.
 --
 -- Set these two to the values of SNOWFLAKE_ROLE and SNOWFLAKE_USER in /etc/curialyai.env.
 -- (Since the 2026-10-26 account switch production uses CORTEX_API_ROLE / CORTEX_API_USER.)

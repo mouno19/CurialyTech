@@ -169,6 +169,7 @@ describe("StorageBreaker", () => {
 
 const sdk = vi.hoisted(() => ({
   created: 0,
+  accounts: [] as string[],
   executes: [] as string[],
   answer: (_sql: string): { error?: unknown; rows?: unknown[] } => ({ rows: [] }),
 }));
@@ -176,8 +177,9 @@ const sdk = vi.hoisted(() => ({
 vi.mock("snowflake-sdk", () => ({
   default: {
     configure: () => undefined,
-    createConnection: () => {
+    createConnection: (options: { account?: string }) => {
       sdk.created++;
+      sdk.accounts.push(String(options?.account));
       let up = false;
       return {
         connect: (done: (error: unknown) => void) => { up = true; done(null); },
@@ -209,6 +211,7 @@ describe("media storage (snowflake.ts)", () => {
 
   beforeEach(() => {
     sdk.created = 0;
+    sdk.accounts.length = 0;
     sdk.executes.length = 0;
     sdk.answer = sql => (sql.includes("GET_PRESIGNED_URL") ? { rows: [{ URL: SIGNED }] } : { rows: [] });
     fetchMock = vi.fn(async () => new Response("bytes", { status: 200 }));
@@ -228,6 +231,27 @@ describe("media storage (snowflake.ts)", () => {
     try { fn(); } catch (error) { return error; }
     return null;
   };
+
+  it("keeps the media stage on its own account when SNOWFLAKE_MEDIA_* is set, and AI_COMPLETE on SNOWFLAKE_*", async () => {
+    for (const name of ["SNOWFLAKE_MEDIA_ACCOUNT", "SNOWFLAKE_MEDIA_USER", "SNOWFLAKE_MEDIA_ROLE", "SNOWFLAKE_MEDIA_PAT"]) vi.stubEnv(name, `media-${name.toLowerCase()}`);
+    const sf = await load();
+    sdk.answer = sql => (sql.includes("GET_PRESIGNED_URL") ? { rows: [{ URL: SIGNED }] }
+      : sql.includes("AI_COMPLETE") ? { rows: [{ OUT: { choices: [{ messages: "READY" }], usage: { prompt_tokens: 3, completion_tokens: 1 } } }] }
+        : { rows: [] });
+    await sf.openStoredObject("upload/1/a.png");
+    await sf.openStoredObject("upload/2/b.png");
+    expect(await sf.aiComplete({ model: "gemini-4-argon", prompt: "Reply with READY.", maxTokens: 10, signal: new AbortController().signal })).toMatchObject({ text: "READY" });
+    // One login per account, reused.
+    expect(sdk.accounts).toEqual(["media-snowflake_media_account", "test-snowflake_account"]);
+  });
+
+  it("names the media variables still missing when SNOWFLAKE_MEDIA_* is only partly set", async () => {
+    vi.stubEnv("SNOWFLAKE_MEDIA_ACCOUNT", "media-account");
+    const sf = await load();
+    expect(sf.storageConfig()).toEqual({ ok: false, missing: ["SNOWFLAKE_MEDIA_USER", "SNOWFLAKE_MEDIA_ROLE", "SNOWFLAKE_MEDIA_PAT"] });
+    expect(await sf.mediaStatus()).toMatchObject({ ok: false, state: "not_configured" });
+    expect(sdk.created).toBe(0);
+  });
 
   it("does nothing at all when storage is not configured", async () => {
     const sf = await load(false);
