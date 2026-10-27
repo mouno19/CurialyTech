@@ -1,428 +1,523 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
-import { Markdown } from "@/components/Markdown";
-import { ArrowUp, Bot, Brain, Paperclip, CircleStop, Copy, ExternalLink, FileDiff, Globe, Loader2, RefreshCcw, Rocket, ScrollText, SquareTerminal, Trash2, User, Workflow } from "lucide-react";
-import { getModel, type AgentTaskSummary } from "@shared/agent";
-import { AppShell, EmptyState, GitHubMark, useGitHub } from "@/components/shell/AppShell";
+import * as Tabs from "@radix-ui/react-tabs";
+import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelHandle } from "react-resizable-panels";
+import { CircleStop, FolderGit2, Link2, MessagesSquare, Rocket, RotateCcw, SquareTerminal, Trash2, TriangleAlert, Upload, Workflow } from "lucide-react";
+import type { StatusReason } from "@shared/agent";
+import { deriveTaskStatus, isActiveStatus, isFinalStatus, isRetryable, outcomeIssues, statusLabel } from "@shared/taskStatus";
 import { RepoSelector } from "@/components/RepoSelector";
-import { LiveBrowser } from "@/components/LiveBrowser";
-import { Attachments } from "@/components/Attachments";
-import { HandoffCard, RoleBadge, TeamPanel } from "@/components/deck/Team";
-import { AttachmentTray, useAttachments } from "@/lib/useAttachments";
-import { DiffViewer } from "@/components/deck/DiffViewer";
-import { PhaseStepper, PlanView, ThinkingBlock, TimelineEntry, ToolCard } from "@/components/deck/Timeline";
-import { agentApi, formatTokens } from "@/lib/api";
-import { totals, useTaskStream, type StreamState, type TimelineItem, type TurnUsage } from "@/lib/taskStream";
+import { Button } from "@/components/common/Button";
+import { ConfirmDialog } from "@/components/common/ConfirmDialog";
+import { Spinner } from "@/components/common/Spinner";
+import { StateNotice } from "@/components/common/StateNotice";
+import { StatusBadge } from "@/components/common/StatusBadge";
+import { AppShell, type TopbarAction } from "@/components/shell/AppShell";
+import { Conversation, type LatestOutcome, type PendingMessage } from "@/components/task/Conversation";
+import { ExportDialog } from "@/components/task/ExportDialog";
+import { FollowUpComposer } from "@/components/task/FollowUpComposer";
+import { Inspector, InspectorRail, inspectorCounts } from "@/components/task/Inspector";
+import { TaskHeader } from "@/components/task/TaskHeader";
+import { newClientId, plural, prefs } from "@/components/task/format";
+import { useAnnouncer } from "@/components/task/useAnnouncer";
+import { useDeployments, useWorkspacePreview } from "@/components/task/usePreviewData";
+import { usePoll, useTaskRow } from "@/components/task/useTaskRow";
+import { toast } from "sonner";
+import { agentApi, ApiError, errorMessage, type ExportResult } from "@/lib/api";
+import { useGitHub } from "@/lib/appStatus";
+import { useIsDesktop } from "@/lib/breakpoints";
+import { conversationRuns, freshestStatus, initialInspectorTab, isReplayed, latestRun, useTaskStream, type InspectorTab, type StatusSnapshot, type TimelineItem } from "@/lib/taskStream";
+import type { PendingAttachment } from "@/lib/useAttachments";
+import { useStickToBottom } from "@/lib/useStickToBottom";
 
-type DeckTab = "activity" | "thinking" | "terminal" | "changes" | "preview" | "raw";
+const firstLine = (text: string) => text.split("\n").find(line => line.trim())?.trim() || "Task";
 
-function useNarrow() {
-  const query = "(max-width: 860px)";
-  const [narrow, setNarrow] = useState(() => window.matchMedia(query).matches);
-  useEffect(() => {
-    const media = window.matchMedia(query);
-    const onChange = () => setNarrow(media.matches);
-    media.addEventListener("change", onChange);
-    return () => media.removeEventListener("change", onChange);
-  }, []);
-  return narrow;
-}
-
-function StatusChip({ status, live }: { status: string | null; live?: boolean }) {
-  const tone = status === "completed" ? "mint" : status === "failed" ? "red" : status === "cancelled" ? "amber" : "violet";
-  return <span className={`chip ${tone}`}>{(status === "running" || live) && <span className="dot live" />}{status ?? "loading"}</span>;
-}
-
-function Conversation({ state, task }: { state: StreamState; task: AgentTaskSummary | null }) {
-  const bottom = useRef<HTMLDivElement>(null);
-  const messages = state.items.filter((item): item is Extract<TimelineItem, { kind: "user" | "text" | "browser" | "attachments" | "handoff" }> =>
-    item.kind === "user" || item.kind === "text" || item.kind === "browser" || item.kind === "attachments" || (item.kind === "handoff" && item.handoff !== "report"));
-  const lastText = [...messages].reverse().find((item): item is Extract<TimelineItem, { kind: "text" }> => item.kind === "text");
-  const finished = state.status === "completed" || state.status === "failed" || state.status === "cancelled";
-  const [copied, setCopied] = useState(false);
-  useEffect(() => { bottom.current?.scrollIntoView({ block: "end" }); }, [messages.length, lastText?.text.length]);
-
-  if (!messages.length && task) {
-    messages.push({ kind: "user", id: "prompt", text: task.prompt, ts: task.createdAt });
+/** Where a failed or interrupted run stopped: its last error, else its last failed step, else its last step. */
+function stopEntryKey(items: TimelineItem[], run: number) {
+  let failedTool: string | null = null;
+  let last: string | null = null;
+  for (let index = items.length - 1; index >= 0; index--) {
+    const item = items[index];
+    if (item.run < run) break;
+    if (item.run !== run || item.kind === "user" || item.kind === "text") continue;
+    if (item.kind === "notice" && item.level === "error") return item.key;
+    if (!failedTool && item.kind === "tool" && item.result && !item.result.ok && !item.result.settled) failedTool = item.key;
+    last ??= item.key;
   }
-  return (
-    <div className="convo">
-      {messages.map(item => {
-        if (item.kind === "user") return (
-          <div key={item.id} className="msg-user-wrap">
-            {item.attachments && item.attachments.length > 0 && (
-              <div className="msg-user-files">
-                {item.attachments.map(file => /^image\/(png|jpe?g|gif|webp|avif|svg\+xml)$/.test(file.mimeType)
-                  ? <a key={file.mediaId} href={agentApi.mediaUrl(file.mediaId)} target="_blank" rel="noreferrer" title={file.path}><img src={agentApi.mediaUrl(file.mediaId)} alt={file.filename} loading="lazy" /></a>
-                  : <a key={file.mediaId} className="chip" href={agentApi.mediaDownloadUrl(file.mediaId)} title={file.path}><Paperclip size={11} /> {file.filename}</a>)}
-              </div>
-            )}
-            <div className="msg-user">{item.text}</div>
-          </div>
-        );
-        if (item.kind === "browser") return state.browsers[item.id] ? <LiveBrowser key={`b-${item.id}`} browser={state.browsers[item.id]} /> : null;
-        if (item.kind === "attachments") return <Attachments key={item.id} files={item.files} auto={item.auto} more={item.more} skipped={item.skipped} />;
-        if (item.kind === "handoff") return <HandoffCard key={item.id} item={item} />;
-        const isFinal = finished && item === lastText;
-        return (
-          <div key={item.id} className={`msg-assistant${isFinal ? " msg-final" : " interim"}${item.agent ? ` by-${item.agent}` : ""}`}>
-            {!isFinal && item.agent && <div className="msg-role"><RoleBadge role={item.agent} /></div>}
-            {isFinal && (
-              <div className="msg-label">
-                <Bot size={13} /> Final output
-                <span className="spacer" />
-                <button className="icon-btn sm" title="Copy answer" onClick={() => { void navigator.clipboard.writeText(item.text); setCopied(true); setTimeout(() => setCopied(false), 1200); }}><Copy size={13} /></button>
-                {copied && <span className="faint">Copied</span>}
-              </div>
-            )}
-            <Markdown text={item.text || " "} />
-            {!item.done && <span className="caret" />}
-          </div>
-        );
-      })}
-      {state.status === "running" && !messages.some(item => item.kind === "text" && !item.done) && (
-        <div className="row faint" style={{ fontSize: 12.5 }}><Loader2 size={14} className="spin" /> Working — follow every step in the inspection deck.</div>
-      )}
-      {state.status === "failed" && task?.error && <div className="alert error">{task.error}</div>}
-      <div ref={bottom} />
-    </div>
-  );
-}
-
-function FollowUp({ taskId, disabled, onSent }: { taskId: string; disabled: boolean; onSent: () => void }) {
-  const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const attachments = useAttachments();
-  // A message may be only attachments (e.g. a screenshot); give the model a minimal instruction.
-  const canSend = !disabled && !busy && attachments.uploading === 0 && (text.trim().length > 0 || attachments.files.length > 0);
-  const send = async () => {
-    if (!canSend) return;
-    setBusy(true);
-    setError(null);
-    const sent = attachments.ids; // files added while this send is in flight stay in the tray
-    try {
-      await agentApi.followUp(taskId, text.trim() || "See the attached file(s).", sent);
-      setText("");
-      attachments.clear(sent);
-      onSent();
-    } catch (sendError) {
-      setError(sendError instanceof Error ? sendError.message : "Could not send.");
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <div className="convo-foot">
-      <div className="convo-foot-inner">
-        <div className={`composer compact${attachments.dragging ? " dragging" : ""}`} {...attachments.dropProps}>
-          <textarea value={text} disabled={disabled} placeholder={disabled ? "The agent is working…" : "Follow up: ask for changes, fixes or explanations… (paste or drop screenshots)"} onChange={event => setText(event.target.value)}
-            onPaste={attachments.onPaste}
-            onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} />
-          <AttachmentTray files={attachments.files} uploading={attachments.uploading} onRemove={attachments.remove} />
-          <div className="composer-bar">
-            <button type="button" className="toggle" onClick={attachments.open} disabled={attachments.full} title="Attach files, or paste / drop screenshots into the box"><Paperclip size={14} /> Attach</button>
-            {attachments.picker}
-            <span className="composer-hint" style={{ marginLeft: 4 }}>Continues in the same workspace and conversation</span>
-            <span className="spacer" />
-            <button className="btn primary sm" onClick={() => void send()} disabled={!canSend}>{busy ? <Loader2 size={13} className="spin" /> : <ArrowUp size={13} />} Send</button>
-          </div>
-        </div>
-        {(error || attachments.error) && <div className="alert error" style={{ marginTop: 8 }}>{error ?? attachments.error}</div>}
-      </div>
-    </div>
-  );
-}
-
-function WorkspacePreview({ taskId, refreshKey, running }: { taskId: string; refreshKey: number; running: boolean }) {
-  const [info, setInfo] = useState<Awaited<ReturnType<typeof agentApi.preview>> | null>(null);
-  const [frame, setFrame] = useState(0);
-  const [shot, setShot] = useState<Awaited<ReturnType<typeof agentApi.previewScreenshot>> | null>(null);
-  const [shooting, setShooting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => { agentApi.preview(taskId).then(setInfo).catch(() => setInfo({ available: false })); }, [taskId, refreshKey]);
-  if (!info) return <div className="faint" style={{ fontSize: 12 }}>Checking the workspace for a web build…</div>;
-  if (!info.available) {
-    return <EmptyState icon={Rocket} title="No web build in the workspace yet">When the agent builds a site (index.html in dist/, build/, out/, public/ or the root) it appears here. {info.workspace === false ? "This workspace is archived; send a follow-up to restore it." : ""}</EmptyState>;
-  }
-  const screenshot = async () => {
-    setShooting(true);
-    setError(null);
-    try { setShot(await agentApi.previewScreenshot(taskId)); } catch (shotError) { setError(shotError instanceof Error ? shotError.message : "Screenshot failed"); } finally { setShooting(false); }
-  };
-  return (
-    <>
-      <div className="preview-bar">
-        <span className="chip mint">workspace preview</span>
-        <span className="mono faint" style={{ fontSize: 12 }}>{info.dir === "." ? "./" : `${info.dir}/`}</span>
-        <span className="spacer" />
-        <button className="icon-btn sm" title="Reload" onClick={() => { setFrame(value => value + 1); void agentApi.preview(taskId).then(setInfo); }}><RefreshCcw size={13} /></button>
-        <a className="icon-btn sm" href={info.url} target="_blank" rel="noreferrer" title="Open in a new tab"><ExternalLink size={13} /></a>
-        <button className="btn sm" disabled={shooting || running} onClick={() => void screenshot()} title="Capture this preview in the Curialy Live Browser">{shooting ? <Loader2 size={13} className="spin" /> : <Globe size={13} />} Capture in Live Browser</button>
-      </div>
-      {info.warnings && info.warnings.length > 0 && <div className="alert warn">index.html uses absolute asset paths ({info.warnings.join(", ")}), which won't load in the preview. Ask the agent to build with relative paths (Vite: base: './').</div>}
-      <iframe key={`${frame}-${refreshKey}`} className="preview-frame" src={info.url} title="Workspace preview" sandbox="allow-scripts allow-forms allow-popups allow-modals" />
-      <div className="faint" style={{ fontSize: 11.5 }}>Sandboxed: the page runs with an isolated origin (no cookies or localStorage). Use Deploy for a full-fidelity public URL.</div>
-      {error && <div className="alert error">{error}</div>}
-      {shot && (
-        <figure className="tl media">
-          {shot.image && <a href={shot.image} target="_blank" rel="noreferrer"><img src={shot.image} alt="Live Browser capture" /></a>}
-          <figcaption>
-            <Globe size={12} /> HTTP {shot.status ?? "?"} · {shot.title || "untitled"} · {shot.consoleErrors.length ? `${shot.consoleErrors.length} console error(s)` : "no console errors"}
-          </figcaption>
-          {shot.consoleErrors.length > 0 && <div className="kv">{shot.consoleErrors.join("\n")}</div>}
-        </figure>
-      )}
-    </>
-  );
-}
-
-function Deck({ state, task, onDeploy, deploying }: { state: StreamState; task: AgentTaskSummary | null; onDeploy?: () => void; deploying?: boolean }) {
-  const [tab, setTab] = useState<DeckTab>("activity");
-  const sum = totals(state.usage);
-  const usageByTurn = useMemo(() => new Map<number, TurnUsage>(state.usage.map((turn, index) => [index + 1, turn])), [state.usage]);
-  const activity = state.items.filter(item => item.kind !== "user" && item.kind !== "text");
-  const thinking = state.items.filter((item): item is Extract<TimelineItem, { kind: "thinking" }> => item.kind === "thinking");
-  const tools = state.items.filter((item): item is Extract<TimelineItem, { kind: "tool" }> => item.kind === "tool" && ["run_command", "verify", "research", "research_agent", "delegate_research", "browse", "deploy_preview"].includes(item.name));
-  const live = [...state.deployments].reverse().find(deployment => deployment.status === "live" && deployment.url);
-  const latestDeploy = state.deployments[state.deployments.length - 1];
-  const [frameKey, setFrameKey] = useState(0);
-  // Re-check the workspace build whenever the agent opens a preview or changes files.
-  const lastPreview = [...state.events].reverse().find(event => event.type === "preview");
-  const previewKey = (lastPreview?.seq ?? 0) + state.changes.length * 100000 + (state.ended ? 1 : 0);
-  useEffect(() => { if (lastPreview) setTab(current => (current === "activity" ? "preview" : current)); }, [lastPreview?.seq]);
-  useEffect(() => { if (live) setTab(current => (current === "activity" ? "preview" : current)); }, [live?.url]);
-  const bottom = useRef<HTMLDivElement>(null);
-  const follow = useRef(true);
-  const scroller = useRef<HTMLDivElement>(null);
-  useEffect(() => { if (follow.current && tab === "activity") bottom.current?.scrollIntoView({ block: "end" }); }, [state.lastSeq, tab]);
-
-  const model = getModel(state.model ?? task?.model ?? "");
-  const tabs: { id: DeckTab; label: string; icon: typeof Brain; count?: number }[] = [
-    { id: "activity", label: "Activity", icon: Workflow, count: activity.length },
-    { id: "thinking", label: "Thinking", icon: Brain, count: thinking.length },
-    { id: "terminal", label: "Terminal", icon: SquareTerminal, count: tools.length },
-    { id: "changes", label: "Changes", icon: FileDiff, count: state.changes.length },
-    { id: "preview", label: "Preview", icon: Rocket, count: state.deployments.length || undefined },
-    { id: "raw", label: "Raw log", icon: ScrollText, count: state.events.length },
-  ];
-
-  return (
-    <div className="pane deck">
-      <div className="deck-head">
-        {(task?.team || Object.keys(state.team).length > 0) && <TeamPanel team={state.team} />}
-        <PhaseStepper phases={state.phases} />
-        <div className="metrics">
-          <span>Model <b>{model?.label ?? state.model ?? "—"}</b></span>
-          <span>Turns <b>{state.usage.length}</b></span>
-          <span>In <b>{formatTokens(sum.input)}</b></span>
-          <span>Out <b>{formatTokens(sum.output)}</b></span>
-          <span>Thinking <b>{formatTokens(sum.thinking)}</b></span>
-          <span>Files <b>{new Set(state.changes.map(change => change.path)).size}</b></span>
-          <span className="row" style={{ gap: 5 }}><span className={`dot ${state.connected ? "ok" : state.ended ? "" : "warn"}`} />{state.connected ? "Live" : state.ended ? "Replay" : "Reconnecting"}</span>
-        </div>
-        <div className="deck-tabs" role="tablist">
-          {tabs.map(item => (
-            <button key={item.id} role="tab" aria-selected={tab === item.id} className={tab === item.id ? "on" : ""} onClick={() => setTab(item.id)}>
-              <item.icon size={13} /> {item.label} {item.count ? <span className="count">{item.count}</span> : null}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="pane-scroll" ref={scroller} onScroll={event => {
-        const element = event.currentTarget;
-        follow.current = element.scrollHeight - element.scrollTop - element.clientHeight < 120;
-      }}>
-        <div className="deck-body">
-          {tab === "activity" && (
-            <>
-              <PlanView steps={state.plan} />
-              {activity.length === 0 && <EmptyState icon={Loader2} title="Waiting for the first event">The agent's thinking, tool calls and file changes will stream here live.</EmptyState>}
-              {activity.map(item => <TimelineEntry key={`${item.kind}-${item.id}`} item={item} usageByTurn={usageByTurn} browsers={state.browsers} />)}
-              <div ref={bottom} />
-            </>
-          )}
-          {tab === "thinking" && (thinking.length ? thinking.map(item => <ThinkingBlock key={item.id} item={item} usage={usageByTurn.get(item.turn)} />) : <EmptyState icon={Brain} title="No thinking blocks yet">Reasoning streams here when the model thinks visibly before answering (it may skip thinking on simple requests).</EmptyState>)}
-          {tab === "terminal" && (tools.length ? tools.map(item => <ToolCard key={item.id} item={item} />) : <EmptyState icon={SquareTerminal} title="No commands yet">Shell commands and verification runs stream stdout/stderr here.</EmptyState>)}
-          {tab === "changes" && (state.changes.length ? (
-            <>
-              <div className="muted" style={{ fontSize: 12 }}>{state.changes.length} change{state.changes.length === 1 ? "" : "s"} across {new Set(state.changes.map(change => change.path)).size} file(s), in order applied.</div>
-              {state.changes.map(change => <DiffViewer key={change.seq} change={change} />)}
-            </>
-          ) : <EmptyState icon={FileDiff} title="No file changes">Every file the agent creates, edits or deletes appears here as a diff.</EmptyState>)}
-          {tab === "preview" && (
-            <>
-              <div className="eyebrow">Workspace preview</div>
-              <WorkspacePreview taskId={task?.id ?? ""} refreshKey={previewKey} running={state.status === "running"} />
-              <div className="row" style={{ marginTop: 14 }}>
-                <span className="eyebrow">Curialy Cloud Deploy</span>
-                <span className="spacer" />
-                {onDeploy && <button className="btn sm" disabled={state.status === "running" || deploying} onClick={onDeploy}><Rocket size={13} /> Deploy Live</button>}
-              </div>
-              {latestDeploy ? (
-            <>
-              <div className="preview-bar">
-                <span className={`chip ${latestDeploy.status === "live" ? "mint" : latestDeploy.status === "failed" ? "red" : "violet"}`}>{latestDeploy.status === "building" || latestDeploy.status === "creating" ? <Loader2 size={11} className="spin" /> : null}{latestDeploy.status}</span>
-                {latestDeploy.url && <a className="mono truncate" style={{ fontSize: 12 }} href={latestDeploy.url} target="_blank" rel="noreferrer">{latestDeploy.url}</a>}
-                <span className="spacer" />
-                {live && <button className="icon-btn sm" title="Reload preview" onClick={() => setFrameKey(value => value + 1)}><RefreshCcw size={13} /></button>}
-                {latestDeploy.url && <a className="icon-btn sm" href={latestDeploy.url} target="_blank" rel="noreferrer" title="Open in new tab"><ExternalLink size={13} /></a>}
-              </div>
-              <div className="muted" style={{ fontSize: 12 }}>{latestDeploy.detail}{latestDeploy.expiresAt ? ` · auto-deletes ${new Date(latestDeploy.expiresAt).toLocaleTimeString()}` : ""}</div>
-              {live ? <iframe key={frameKey} className="preview-frame" src={live.url} title="Live preview" sandbox="allow-scripts allow-forms allow-same-origin allow-popups" /> : latestDeploy.status !== "failed" && <EmptyState icon={Loader2} title="Building the live preview">The preview appears here as soon as the deploy is live.</EmptyState>}
-            </>
-              ) : <div className="faint" style={{ fontSize: 12 }}>Not deployed. Deploy publishes this workspace to a temporary public URL (needs GitHub connected).</div>}
-            </>
-          )}
-          {tab === "raw" && (
-            <div className="card raw">
-              {state.events.map(event => {
-                const { seq, ts, type, ...rest } = event;
-                return (
-                  <div key={seq} className="raw-row" title={JSON.stringify(rest)}>
-                    <span className="faint">#{seq}</span>
-                    <span className="faint">{new Date(ts).toLocaleTimeString()}</span>
-                    <span className="t">{type}</span>
-                    <span className="d">{JSON.stringify(rest).slice(0, 300)}</span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
+  return failedTool ?? last;
 }
 
 export default function TaskWorkspace({ id }: { id: string }) {
   const [, navigate] = useLocation();
-  const [task, setTask] = useState<AgentTaskSummary | null>(null);
-  const [missing, setMissing] = useState(false);
-  const [generation, setGeneration] = useState(0);
-  const [mobilePane, setMobilePane] = useState<"chat" | "deck">("deck");
-  const [deploying, setDeploying] = useState(false);
-  const deploy = () => {
-    setDeploying(true);
-    void agentApi.followUp(id, "Deploy this project as a temporary live preview with deploy_preview (choose static or node and the right build/start commands from the files), then open the URL with browse to confirm it renders, and report the link.")
-      .then(() => setGeneration(value => value + 1))
-      .catch(error => alert(error instanceof Error ? error.message : "Deploy failed to start"))
-      .finally(() => setDeploying(false));
-  };
-  const [exporting, setExporting] = useState(false);
+  const desktop = useIsDesktop();
   const { status: github } = useGitHub();
+  const { announce, region } = useAnnouncer();
+  const [generation, setGeneration] = useState(0);
+  const reconnectedAt = useRef(0);
+  const reconnect = useCallback(() => {
+    reconnectedAt.current = Date.now();
+    setGeneration(value => value + 1);
+  }, []);
 
+  const row = useTaskRow(id);
+  const { state: s, settle } = useTaskStream(id, generation, { onRow: row.accept });
+  const task = row.row?.detail.task ?? null;
+  const run = latestRun(s);
+  const [actionSnap, setActionSnap] = useState<StatusSnapshot | null>(null);
+
+  // ---- One status for the whole page: the live stream while it is live, else the newest row knowledge ----
+  const snapshot = freshestStatus(
+    task && row.row ? { status: task.status, reason: task.statusReason ?? null, at: row.row.at } : null,
+    s.sync?.status ? { status: s.sync.status, reason: s.sync.statusReason, at: s.sync.at } : null,
+    run?.end && !run.end.synthetic ? { status: run.end.status, reason: run.end.reason ?? null, at: run.end.receivedAt } : null,
+    actionSnap,
+  );
+  // After a follow-up, retry or deploy the stream still shows the previous run's final status until
+  // the new run's first events arrive: newer knowledge of an active run wins over it.
+  const streamStale = Boolean(run?.end && snapshot && snapshot.at > run.end.receivedAt && isActiveStatus(snapshot.status));
+  const streamStatus = streamStale ? null : s.status;
+  const status = deriveTaskStatus({ streamStatus, streamLive: s.live && !streamStale, streamEnded: s.ended, rowStatus: snapshot?.status ?? null });
+  const reason: StatusReason | null = s.live && !streamStale && status === s.status ? s.statusReason : snapshot?.status === status ? snapshot.reason ?? null : status === streamStatus ? s.statusReason : null;
+  const active = isActiveStatus(status);
+  const streaming = active && s.connected;
+
+  // The row is re-read every 5 s while a run is active and not streamed live, and when the stream's view changes.
+  usePoll(row.reload, 5000, active && !s.live);
+  const { reload } = row;
+  useEffect(() => {
+    void reload();
+  }, [s.status, s.ended, reload]);
+
+  // A fresh row says a run is active but this page's stream has ended: follow the run.
+  useEffect(() => {
+    if (!row.row || s.missing || s.connected || !s.ended || Date.now() - reconnectedAt.current < 4000) return;
+    if (isActiveStatus(row.row.detail.task.status) && row.row.at > (s.endedAt ?? 0)) reconnect();
+  }, [row.row, s.missing, s.connected, s.ended, s.endedAt, reconnect]);
+
+  // The row says the run is over but its log never got a done event: nothing may keep looking live.
+  // Durations end when the row says the run stopped, not when this page was opened.
+  useEffect(() => {
+    if (!s.ended || s.connected || !run || run.end || !isFinalStatus(status)) return;
+    const stored = row.row?.detail.task;
+    settle(status!, reason, stored ? Date.parse(stored.finishedAt ?? stored.statusChangedAt ?? stored.updatedAt) : undefined);
+  }, [s.ended, s.connected, run, status, reason, settle, row.row]);
+
+  // ---- Conversation ----
+  const views = useMemo(() => conversationRuns({ runs: s.runs, items: s.items }), [s.runs, s.items]);
+  const [pending, setPending] = useState<PendingMessage[]>([]);
+  const echoed = useMemo(() => {
+    const ids = new Set<string>();
+    for (const item of s.items) if (item.kind === "user" && item.clientMessageId) ids.add(item.clientMessageId);
+    return ids;
+  }, [s.items]);
+  const shownPending = useMemo(() => pending.filter(message => !echoed.has(message.clientMessageId)), [pending, echoed]);
+  useEffect(() => {
+    if (shownPending.length !== pending.length) setPending(shownPending);
+  }, [shownPending, pending.length]);
+
+  // The scroller remounts when the layout switches at 1024px: track the element so following and
+  // the "Jump to latest" state move to the new one.
+  const convoRef = useRef<HTMLDivElement | null>(null);
+  const [convoEl, setConvoEl] = useState<HTMLDivElement | null>(null);
+  const bindConvo = useCallback((element: HTMLDivElement | null) => {
+    convoRef.current = element;
+    setConvoEl(element);
+  }, []);
+  const convoCount = useMemo(() => views.reduce((count, view) => count + view.entries.length + (view.user ? 1 : 0) + (view.divider ? 1 : 0) + (view.run.end ? 1 : 0), 0) + shownPending.length, [views, shownPending.length]);
+  const convo = useStickToBottom(convoRef, { count: convoCount, element: convoEl });
+  const { stickNext } = convo;
+
+  // ---- Inspector tab and panes ----
+  const [tab, setTab] = useState<InspectorTab>("activity");
+  const userPicked = useRef(false);
+  const decided = useRef(false);
+  const [focusKey, setFocusKey] = useState<string | null>(null);
+  const onTab = useCallback((next: InspectorTab, byUser: boolean) => {
+    if (byUser) userPicked.current = true;
+    setTab(next);
+  }, []);
+  const paneKey = `curialy.task.${id}.pane`;
+  const [pane, setPaneState] = useState<"chat" | "inspector">(() => (prefs.session(paneKey) === "inspector" ? "inspector" : "chat"));
+  const setPane = useCallback((next: "chat" | "inspector") => {
+    setPaneState(next);
+    prefs.setSession(paneKey, next);
+  }, [paneKey]);
+  const inspectorPanel = useRef<ImperativePanelHandle>(null);
+  const [collapsed, setCollapsed] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const expandInspector = useCallback((next?: InspectorTab) => {
+    inspectorPanel.current?.expand();
+    if (next) onTab(next, true);
+  }, [onTab]);
+
+  // ---- Preview data (also decides the first tab) ----
+  const deployKey = `${s.deployments.map(deployment => `${deployment.id}:${deployment.status}`).join(",")}|${s.ended ? 1 : 0}`;
+  const deployments = useDeployments(id, deployKey);
+  const preview = useWorkspacePreview(id, `${s.previewSeq}|${s.ended ? 1 : 0}|${isFinalStatus(status) ? status : "active"}`);
+  const counts = inspectorCounts(s, deployments.live.length);
+
+  const replayed = isReplayed(s);
+  const stopKey = useMemo(() => (run ? stopEntryKey(s.items, run.index) : null), [s.items, run]);
+  useEffect(() => {
+    if (decided.current || userPicked.current || !status || !replayed) return;
+    if (status === "completed" && ((deployments.list === null && !deployments.error) || preview.state.phase === "checking")) return;
+    decided.current = true;
+    setTab(initialInspectorTab({ status, liveDeployment: deployments.live.length > 0, previewAvailable: preview.state.phase === "ready" }));
+    if ((status === "failed" || status === "interrupted") && stopKey) setFocusKey(stopKey);
+  }, [status, replayed, deployments.list, deployments.error, deployments.live.length, preview.state.phase, stopKey]);
+
+  // New preview events (never replayed history) bring the Preview tab forward on desktop, unless the reader chose a tab.
+  const liveDeploySeq = s.deployments.reduce((max, deployment) => (deployment.status === "live" ? Math.max(max, deployment.seq) : max), 0);
+  useEffect(() => {
+    if (!desktop || userPicked.current || s.replayMark === null) return;
+    if (Math.max(s.previewSeq, liveDeploySeq) > s.replayMark) {
+      decided.current = true;
+      setTab("preview");
+    }
+  }, [desktop, s.previewSeq, liveDeploySeq, s.replayMark]);
+
+  // Opening a finished task: a long answer is shown from its start, not from its last line.
+  const positioned = useRef(false);
+  const { reveal } = convo;
+  useEffect(() => {
+    // Decided once, when the page has caught up: only a task that was already finished when opened
+    // is shown from its answer; a run finishing while someone reads never moves them.
+    if (positioned.current || !replayed || !status) return;
+    positioned.current = true;
+    if (isActiveStatus(status)) return;
+    const scroller = convoRef.current;
+    const card = scroller?.querySelector<HTMLElement>(".outcome[data-latest]");
+    if (scroller && card && scroller.clientHeight > 0 && card.offsetHeight > scroller.clientHeight * 0.7) reveal(card);
+  }, [replayed, status, reveal]);
+
+  const viewLogs = useCallback(() => {
+    userPicked.current = true;
+    setTab("activity");
+    if (!desktop) setPane("inspector");
+    else if (collapsed) inspectorPanel.current?.expand();
+    if (stopKey) setFocusKey(stopKey);
+  }, [desktop, collapsed, stopKey, setPane]);
+  const onFocused = useCallback(() => setFocusKey(null), []);
+
+  // ---- Milestones for assistive tech (live events only, never the replayed history) ----
+  const announced = useRef({ run: 0, end: 0 });
+  useEffect(() => {
+    const mark = s.replayMark;
+    if (mark === null || !run) return;
+    if (run.seq > mark && run.seq > announced.current.run) {
+      announced.current.run = run.seq;
+      announce(run.trigger === "retry" ? `Retry started, attempt ${run.attempt}` : run.trigger === "deploy" ? "Deploy started" : "Run started");
+    }
+    const end = run.end;
+    if (end && !end.synthetic && end.seq > mark && end.seq > announced.current.end) {
+      announced.current.end = end.seq;
+      if (end.status === "completed") announce(outcomeIssues(end.outcome).length ? "Run completed with issues" : "Answer ready");
+      else if (end.status === "failed") announce(`Run failed${end.error ? `: ${end.error.slice(0, 160)}` : ""}`);
+      else announce(end.status === "cancelled" ? "Run cancelled" : "Run interrupted");
+    }
+  }, [run, s.replayMark, announce]);
+
+  // ---- Actions ----
+  const runId = task?.runId ?? run?.runId ?? null;
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelBusy, setCancelBusy] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const [deployOpen, setDeployOpen] = useState(false);
+  const [deploying, setDeploying] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [linking, setLinking] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (cancelBusy && status && !isActiveStatus(status)) setCancelBusy(false);
+  }, [cancelBusy, status]);
+
+  const confirmCancel = async () => {
+    announce("Stopping the run…");
+    setCancelBusy(true);
+    try {
+      const result = await agentApi.cancel(id, runId);
+      setActionSnap({ status: result.status, reason: result.statusReason ?? null, at: Date.now() });
+      if (result.status !== "cancelling") {
+        setCancelBusy(false);
+        toast(result.status === "cancelled" ? "Run cancelled. Files written so far are kept." : `The run had already ended: ${statusLabel(result.status)}.`);
+      }
+    } catch (failure) {
+      setCancelBusy(false);
+      throw failure;
+    }
+  };
+
+  const retry = useCallback(async () => {
+    if (retrying) return;
+    setRetrying(true);
+    try {
+      const started = await agentApi.retry(id, runId);
+      setActionSnap({ status: "queued", at: Date.now() });
+      stickNext();
+      reconnect();
+      toast(`Retry started · attempt ${started.attempt}`);
+    } catch (failure) {
+      toast.error("Couldn't retry the run.", { description: errorMessage(failure) });
+    } finally {
+      setRetrying(false);
+    }
+  }, [retrying, id, runId, stickNext, reconnect]);
+
+  const retryClick = useCallback(() => void retry(), [retry]);
+  const openDeploy = useCallback(() => setDeployOpen(true), []);
+
+  const confirmDeploy = async () => {
+    setDeploying(true);
+    try {
+      await agentApi.deploy(id, runId);
+      setActionSnap({ status: "queued", at: Date.now() });
+      stickNext();
+      reconnect();
+      onTab("preview", true);
+      toast("Deploy started. The preview appears in the Preview tab when it is live.");
+    } finally {
+      setDeploying(false);
+    }
+  };
+
+  const confirmDelete = async () => {
+    const result = await agentApi.remove(id);
+    const done = [result.previewsRemoved ? `${plural(result.previewsRemoved, "preview")} taken down` : "", result.filesRemoved ? `${plural(result.filesRemoved, "stored file")} removed` : ""].filter(Boolean).join(" · ");
+    const kept = result.filesKept ? `${plural(result.filesKept, "stored file")} could not be removed.` : "";
+    toast.success("Task deleted", { description: [done, kept].filter(Boolean).join(". ") || undefined });
+    navigate("/tasks");
+  };
+
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      toast("Link copied");
+      announce("Link copied");
+    } catch {
+      toast.error("Couldn't copy the link: the browser blocked clipboard access.");
+    }
+  };
+
+  const sendFollowUp = useCallback(async (text: string, files: PendingAttachment[]) => {
+    const clientMessageId = newClientId();
+    stickNext();
+    setPending(list => [...list, { clientMessageId, text, attachments: files.map(file => ({ mediaId: file.id, filename: file.filename, mimeType: file.mimeType, sizeBytes: file.sizeBytes, path: file.filename })) }]);
+    try {
+      await agentApi.followUp(id, text, files.map(file => file.id), { clientMessageId, expectedRunId: runId });
+      setActionSnap({ status: "queued", at: Date.now() });
+      reconnect();
+    } catch (failure) {
+      setPending(list => list.filter(message => message.clientMessageId !== clientMessageId));
+      // The task moved on (another tab, a run that started meanwhile): show what it is now.
+      if (failure instanceof ApiError && failure.status === 409) void reload();
+      throw failure;
+    }
+  }, [id, runId, stickNext, reconnect, reload]);
+
+  const onExported = (result: ExportResult) => {
+    row.patch({ githubRepo: result.repo, githubRepoUrl: result.url, githubPushedAt: new Date().toISOString(), ...(task?.githubMode ? {} : { githubMode: "export" as const }) });
+    void row.reload();
+  };
+
   const linkRepo = async (fullName: string, branch: string) => {
     setLinking(fullName);
     try {
       const result = await agentApi.linkRepo(id, fullName, branch);
-      setTask(current => (current ? { ...current, githubRepo: result.repo, githubRepoUrl: result.url, githubMode: "linked", githubBranch: result.branch } : current));
-    } catch (error) {
-      alert(error instanceof Error ? error.message : "Could not load the repository");
+      row.patch({ githubRepo: result.repo, githubRepoUrl: result.url, githubMode: "linked", githubBranch: result.branch });
+      toast.success(`Linked ${result.repo} (${result.branch})`, { description: `${plural(result.files, "file")} fetched into the workspace. Nothing was pushed.` });
+      void row.reload();
+    } catch (failure) {
+      toast.error("Couldn't link the repository.", { description: errorMessage(failure) });
     } finally {
       setLinking(null);
     }
   };
 
-  const exportToGithub = async () => {
-    if (!task) return;
-    let body: { repoName?: string; private: boolean; branch?: string } = { private: true };
-    if (task.githubMode === "linked") {
-      const branch = window.prompt(`Push workspace changes to which branch of ${task.githubRepo}?\n(Use a new branch name to keep ${task.githubBranch} untouched.)`, `curialy/${id.slice(0, 8)}`);
-      if (!branch) return;
-      body = { private: true, branch: branch.trim() };
-    } else if (!task.githubRepo) {
-      const suggested = `curialy-${task.prompt.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "project"}`;
-      const repoName = window.prompt("New GitHub repository name", suggested);
-      if (!repoName) return;
-      body = { repoName: repoName.trim(), private: window.confirm("Make the repository private?\n\nOK = private, Cancel = public") };
+  // ---- Topbar ----
+  const agentTask = task?.mode === "agent";
+  const caps = deployments.capabilities;
+  const deployReason = !agentTask ? null
+    : active ? "Wait for the run to finish."
+      : !caps ? (deployments.error ? "Couldn't check whether live previews are available." : "Checking whether live previews are available…")
+        : !caps.configured ? "Live previews aren't set up on this server."
+          : !caps.github ? "Connect GitHub to deploy: previews are built from a temporary private repository in your account."
+            : null;
+  const deployAction = agentTask ? { disabledReason: deployReason, busy: deploying, onOpen: () => setDeployOpen(true) } : null;
+
+  // A deploy run can't be retried (the server refuses: a retry has no deploy permission); its
+  // primary action is a new, confirmed deploy instead.
+  const redeploy = agentTask && isRetryable(status) && run?.trigger === "deploy";
+  const actions: TopbarAction[] = [];
+  if (active) {
+    actions.push({ id: "cancel", label: cancelBusy || status === "cancelling" ? "Cancelling…" : "Cancel", icon: CircleStop, priority: "primary", tone: "danger", busy: cancelBusy || status === "cancelling", title: "Stop this run", onSelect: () => setCancelOpen(true) });
+  } else if (redeploy) {
+    actions.push({ id: "redeploy", label: deploying ? "Deploying…" : "Deploy again", icon: Rocket, priority: "primary", tone: "accent", busy: deploying, disabled: Boolean(deployReason), title: deployReason ?? "Start a new live preview", onSelect: () => setDeployOpen(true) });
+  } else if (isRetryable(status)) {
+    actions.push({ id: "retry", label: retrying ? "Retrying…" : "Retry", icon: RotateCcw, priority: "primary", tone: "accent", busy: retrying, title: "Run it again from where it stopped", onSelect: () => void retry() });
+  }
+  if (agentTask && task) {
+    const label = task.githubRepo ? "Push" : "Export";
+    if (!github) actions.push({ id: "export", label, icon: Upload, priority: "secondary", disabled: true, title: "Checking the GitHub connection…" });
+    else if (!github.configured) actions.push({ id: "export", label, icon: Upload, priority: "secondary", disabled: true, title: "GitHub isn't set up on this server." });
+    else if (!github.connected) actions.push({ id: "export", label: "Connect GitHub", icon: Upload, priority: "secondary", href: "/api/auth/github/start", title: "Connect GitHub to export or push this workspace" });
+    else {
+      const blocked = active ? "Wait for the run to finish." : !task.githubRepo && task.filesChanged === 0 ? "No files to export yet." : null;
+      const title = task.githubMode === "linked" ? `Push the workspace changes to a branch of ${task.githubRepo}` : task.githubRepo ? `Push the latest files to ${task.githubRepo}` : "Create a GitHub repository with these files";
+      actions.push({ id: "export", label, icon: Upload, priority: "secondary", disabled: Boolean(blocked), title: blocked ?? title, onSelect: () => setExportOpen(true) });
     }
-    setExporting(true);
-    try {
-      const result = await agentApi.exportToGithub(id, body);
-      if (result.nothingToPush) { alert("Nothing to push: the workspace matches the repository."); return; }
-      setTask(current => (current ? { ...current, githubRepo: result.repo, githubRepoUrl: result.url, githubPushedAt: new Date().toISOString() } : current));
-      window.open(result.commitUrl, "_blank", "noopener");
-    } catch (error) {
-      alert(error instanceof Error ? error.message : "Export failed");
-    } finally {
-      setExporting(false);
-    }
-  };
-  const narrow = useNarrow();
-  const state = useTaskStream(id, generation);
+    if (!redeploy) actions.push({ id: "deploy", label: deploying ? "Deploying…" : "Deploy", icon: Rocket, priority: "secondary", busy: deploying, disabled: Boolean(deployReason), title: deployReason ?? "Deploy a temporary live preview", onSelect: () => setDeployOpen(true) });
+  }
+  actions.push({ id: "workspace", label: "Workspace", icon: SquareTerminal, priority: "secondary", href: `/sandbox?task=${encodeURIComponent(id)}`, title: "Open the files in the Code Sandbox" });
+  if (task?.githubRepoUrl) actions.push({ id: "repo", label: "Open repository", icon: FolderGit2, priority: "overflow", href: task.githubRepoUrl, title: task.githubRepo });
+  actions.push({ id: "copy", label: "Copy link", icon: Link2, priority: "overflow", immediate: true, onSelect: () => void copyLink() });
+  actions.push({ id: "delete", label: "Delete task", icon: Trash2, priority: "overflow", tone: "danger", disabled: active, title: active ? "Cancel the run first" : "Removes the workspace, stored files and live previews", onSelect: () => setDeleteOpen(true) });
 
-  useEffect(() => {
-    let alive = true;
-    agentApi.task(id).then(data => alive && setTask(data.task)).catch(() => alive && setMissing(true));
-    return () => { alive = false; };
-  }, [id, state.status, state.ended]);
+  const latestOutcome = useMemo<LatestOutcome>(() => ({
+    status,
+    reason,
+    error: task?.error ?? null,
+    endedAt: (run?.end && !run.end.synthetic ? run.end.ts : null) ?? task?.finishedAt ?? task?.statusChangedAt ?? null,
+    outcome: run?.end?.outcome ?? task?.outcome ?? null,
+    rowAnswer: task?.answer ?? null,
+  }), [status, reason, task, run?.end]);
 
-  const status = state.status ?? task?.status ?? null;
-  const running = status === "running" || status === "queued";
+  if (row.missing || s.missing) {
+    return (
+      <AppShell title="Task not found" crumb="Live Tasks" crumbHref="/tasks">
+        <div className="page">
+          <StateNotice variant="empty" size="lg" title="This task doesn't exist" actions={<Link href="/tasks" className="btn primary">Back to Live Tasks</Link>}>
+            It may have been deleted, or the link is incomplete.
+          </StateNotice>
+        </div>
+      </AppShell>
+    );
+  }
 
-  const actions = (
+  const changedAt = (run?.end && !run.end.synthetic ? run.end.ts : null) ?? task?.statusChangedAt ?? task?.finishedAt ?? null;
+  const canLink = agentTask && github?.connected && !task?.githubRepo && !active;
+  const header = (
     <>
-      <StatusChip status={status} />
-      {task?.githubRepoUrl ? (
-        <a className={`chip ${task.githubMode === "linked" ? "violet" : ""} desktop-only`} href={task.githubRepoUrl} target="_blank" rel="noreferrer" title={task.githubPushedAt ? `Last pushed ${new Date(task.githubPushedAt).toLocaleString()}` : undefined}>
-          <GitHubMark size={12} /> {task.githubMode === "linked" ? "Active Repo: " : ""}<span className="mono">{task.githubRepo}</span>{task.githubBranch ? ` (branch: ${task.githubBranch})` : ""}
-        </a>
-      ) : task?.mode === "agent" && github?.connected && (
-        linking ? <span className="chip"><Loader2 size={11} className="spin" /> Loading {linking}…</span>
-          : <span className="desktop-only"><RepoSelector value={null} compact openDown disabled={running} onChange={repo => { if (repo) void linkRepo(repo.full_name, repo.default_branch); }} /></span>
+      <TaskHeader task={task} status={status} reason={reason} outcome={latestOutcome.outcome} changedAt={changedAt} model={s.model ?? task?.model ?? null}>
+        {linking ? (
+          <span className="chip"><Spinner size={11} /> <span className="truncate">Linking {linking}…</span></span>
+        ) : canLink ? (
+          <span className="task-link-repo"><RepoSelector value={null} disabled={active} onChange={repo => repo && void linkRepo(repo.full_name, repo.default_branch)} /></span>
+        ) : null}
+      </TaskHeader>
+      {row.error && !task && (
+        <div className="notice task-load-error" data-tone="danger" role="alert">
+          <TriangleAlert size={15} aria-hidden="true" />
+          <div className="notice-body"><strong className="notice-title">Couldn't load the task</strong><p>{row.error}</p></div>
+          <div className="notice-actions"><Button size="sm" onClick={() => void row.reload()}>Try again</Button></div>
+        </div>
       )}
-      {task?.mode === "agent" && (github?.connected ? (
-        <button className="btn sm" disabled={running || exporting || (task.filesChanged === 0 && task.githubMode !== "linked")} title={task.githubMode === "linked" ? `Commit and push workspace changes to ${task.githubRepo}` : task.filesChanged === 0 ? "No files to export yet" : task.githubRepo ? `Push the latest files to ${task.githubRepo}` : "Create a repository in your GitHub account and push these files"} onClick={() => void exportToGithub()}>
-          {exporting ? <Loader2 size={13} className="spin" /> : <GitHubMark size={13} />} {task.githubRepo ? "Push to GitHub" : "Export to GitHub"}
-        </button>
-      ) : github && (
-        <a className="btn sm" href="/api/auth/github/start" title="Connect GitHub to export and deploy"><GitHubMark size={13} /> Connect GitHub</a>
-      ))}
-      {task?.mode === "agent" && (
-        <button className="btn sm" disabled={running || deploying} title="Publish this workspace with Curialy Cloud Deploy" onClick={deploy}><Rocket size={13} /> Deploy</button>
-      )}
-      {running ? (
-        <button className="btn danger sm" onClick={() => void agentApi.cancel(id)}><CircleStop size={13} /> Cancel</button>
-      ) : (
-        <button className="btn ghost sm" title="Delete task and workspace" onClick={() => { if (confirm("Delete this task and its workspace files?")) void agentApi.remove(id).then(() => navigate("/tasks")); }}><Trash2 size={13} /></button>
-      )}
-      <Link href={`/sandbox?task=${id}`} className="btn sm desktop-only"><SquareTerminal size={13} /> Workspace</Link>
     </>
   );
 
-  if (missing) {
-    return <AppShell title="Task not found" crumb="Live Tasks"><div className="page"><EmptyState title="This task does not exist">It may have been deleted. <Link href="/tasks" className="muted">Back to tasks</Link></EmptyState></div></AppShell>;
-  }
-
   const conversation = (
-    <div className="pane">
-      <div className="pane-scroll"><Conversation state={state} task={task} /></div>
-      <FollowUp taskId={id} disabled={running} onSent={() => setGeneration(value => value + 1)} />
-    </div>
+    <Conversation
+      taskId={id}
+      task={task}
+      state={s}
+      views={views}
+      latest={latestOutcome}
+      active={active}
+      streaming={streaming}
+      pending={shownPending}
+      header={header}
+      composer={<FollowUpComposer status={status} onSend={sendFollowUp} redeploy={redeploy} />}
+      scrollRef={bindConvo}
+      stick={convo}
+      onRetry={redeploy ? openDeploy : retryClick}
+      retrying={redeploy ? deploying : retrying}
+      retryDisabled={redeploy ? deployReason : null}
+      retryAs={redeploy ? "deploy" : "retry"}
+      onViewLogs={viewLogs}
+      onCopied={announce}
+    />
   );
 
+  const inspectorVisible = desktop ? !collapsed : pane === "inspector";
+  const inspector = (
+    <section id="inspector-panel" className="inspector-pane" aria-label="Inspector">
+      <Inspector
+        taskId={id}
+        task={task}
+        state={s}
+        status={status}
+        active={active}
+        streaming={streaming}
+        tab={tab}
+        onTab={onTab}
+        counts={counts}
+        focusKey={focusKey}
+        onFocused={onFocused}
+        visible={inspectorVisible}
+        preview={preview}
+        deployments={deployments}
+        deploy={deployAction}
+        onCollapse={desktop ? () => inspectorPanel.current?.collapse() : undefined}
+        collapsed={desktop && collapsed}
+      />
+    </section>
+  );
+
+  const login = github?.login ?? "your-account";
   return (
-    <AppShell title={task?.prompt.split("\n")[0].slice(0, 120) ?? "Task"} crumb="Live Tasks" actions={actions}>
-      {narrow ? (
-        <div className="workspace" style={{ flexDirection: "column" }}>
-          <div className="segmented" style={{ margin: "10px 12px 0", alignSelf: "flex-start" }}>
-            <button className={mobilePane === "chat" ? "on" : ""} onClick={() => setMobilePane("chat")}><User size={12} style={{ verticalAlign: -2 }} /> Conversation</button>
-            <button className={mobilePane === "deck" ? "on" : ""} onClick={() => setMobilePane("deck")}><Workflow size={12} style={{ verticalAlign: -2 }} /> Inspector</button>
-          </div>
-          <div style={{ flex: 1, minHeight: 0, marginTop: 8 }}>{mobilePane === "chat" ? conversation : <Deck state={state} task={task} onDeploy={task?.mode === "agent" ? deploy : undefined} deploying={deploying} />}</div>
+    <AppShell title={task ? firstLine(task.prompt) : "Task"} crumb="Live Tasks" crumbHref="/tasks" titleAddon={status ? <StatusBadge status={status} outcome={latestOutcome.outcome} reason={reason} size="sm" /> : undefined} topbarActions={actions}>
+      {region}
+      {desktop ? (
+        <div className="task-workspace" data-layout="split" data-dragging={dragging || undefined} data-collapsed={collapsed || undefined}>
+          <PanelGroup direction="horizontal" autoSaveId="curialy.task.split" className="task-split">
+            <Panel id="conversation" order={1} minSize={34} defaultSize={56} className="split-panel">
+              {conversation}
+            </Panel>
+            <PanelResizeHandle className="split-handle" onDragging={setDragging} aria-label="Resize the inspector" />
+            <Panel id="inspector" order={2} ref={inspectorPanel} collapsible collapsedSize={0} minSize={26} defaultSize={44} onCollapse={() => setCollapsed(true)} onExpand={() => setCollapsed(false)} className="split-panel">
+              {inspector}
+            </Panel>
+          </PanelGroup>
+          {collapsed && <InspectorRail counts={counts} onExpand={expandInspector} />}
         </div>
       ) : (
-        <div className="workspace">
-          <PanelGroup direction="horizontal" autoSaveId="curialy-task-split">
-            <Panel defaultSize={44} minSize={28}>{conversation}</Panel>
-            <PanelResizeHandle className="resize-handle" />
-            <Panel defaultSize={56} minSize={30}><Deck state={state} task={task} onDeploy={task?.mode === "agent" ? deploy : undefined} deploying={deploying} /></Panel>
-          </PanelGroup>
-        </div>
+        <Tabs.Root className="task-workspace" data-layout="tabs" value={pane} onValueChange={value => setPane(value === "inspector" ? "inspector" : "chat")}>
+          <Tabs.List className="pane-switch" aria-label="Task view">
+            <Tabs.Trigger value="chat" className="pane-tab">
+              <MessagesSquare size={15} aria-hidden="true" />
+              Conversation
+            </Tabs.Trigger>
+            <Tabs.Trigger value="inspector" className="pane-tab">
+              <Workflow size={15} aria-hidden="true" />
+              Inspector
+              {active && <span className="dot" data-tone="progress" data-live={streaming ? "" : undefined} aria-hidden="true" />}
+            </Tabs.Trigger>
+          </Tabs.List>
+          <Tabs.Content value="chat" forceMount hidden={pane !== "chat"} className="pane-panel">
+            {conversation}
+          </Tabs.Content>
+          <Tabs.Content value="inspector" forceMount hidden={pane !== "inspector"} className="pane-panel">
+            {inspector}
+          </Tabs.Content>
+        </Tabs.Root>
       )}
+
+      <ConfirmDialog open={cancelOpen} onOpenChange={setCancelOpen} title="Stop this run?" confirmLabel="Stop run" busyLabel="Cancelling…" cancelLabel="Keep running" tone="danger" onConfirm={confirmCancel}>
+        Files written so far are kept. Nothing is published, pushed or deployed.
+      </ConfirmDialog>
+      <ConfirmDialog open={deployOpen} onOpenChange={setDeployOpen} title="Deploy a live preview?" confirmLabel="Deploy preview" busyLabel="Starting…" onConfirm={confirmDeploy} confirmDisabled={Boolean(deployReason)}>
+        Creates a temporary private repository <strong className="mono break-anywhere">{login}/curialy-preview-…</strong> in your GitHub account and a public preview URL that is removed after about 2 hours. Your own repositories are not changed.
+      </ConfirmDialog>
+      <ConfirmDialog open={deleteOpen} onOpenChange={setDeleteOpen} title="Delete this task?" confirmLabel="Delete task" busyLabel="Deleting…" tone="danger" onConfirm={confirmDelete} confirmDisabled={active}>
+        <p>This permanently removes:</p>
+        <ul className="confirm-list">
+          <li>the workspace files</li>
+          <li>files stored for this task (uploads, screenshots, attachments)</li>
+          <li>live previews (taken down now)</li>
+          <li>the conversation and its log</li>
+        </ul>
+        <p>Repositories on GitHub are not changed.</p>
+      </ConfirmDialog>
+      {agentTask && <ExportDialog open={exportOpen} onOpenChange={setExportOpen} taskId={id} onExported={onExported} />}
     </AppShell>
   );
 }

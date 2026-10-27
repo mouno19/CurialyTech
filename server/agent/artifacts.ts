@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { assertStorageAvailable, storeMedia } from "../media/snowflake";
+import { saveArtifactSnapshot } from "./store";
 import { StorageError } from "../media/storage-errors";
 import { resolveInWorkspace } from "./sandbox";
 
@@ -142,6 +144,7 @@ export function revertWorkspace(root: string, snapshot: Snapshot): { reverted: s
 export async function storeArtifacts(sessionId: string, root: string, files: string[], primary: boolean) {
   const stored: ArtifactInfo[] = [];
   const skipped: string[] = [];
+  const keep: { path: string; content: Buffer; sha256: string }[] = [];
   let storageDown = false;
   try { assertStorageAvailable(); } catch (error) { storageDown = error instanceof StorageError && error.unavailable; }
   for (let index = 0; index < files.length; index += 4) {
@@ -153,18 +156,21 @@ export async function storeArtifacts(sessionId: string, root: string, files: str
         if (!stat?.isFile()) return { skip: `${requested} (not a file)` };
         if (stat.size > MAX_ARTIFACT_BYTES) return { skip: `${relative} (over ${MAX_ARTIFACT_BYTES / 1024 / 1024} MB)` };
         const { mimeType, kind } = classify(relative);
-        const fallback = { info: { mediaId: null, source: "workspace", path: relative, filename: path.basename(relative), mimeType, sizeBytes: stat.size, kind, primary } satisfies ArtifactInfo };
-        if (storageDown) return fallback;
         const fd = fs.openSync(absolute, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
         let buffer: Buffer;
         try { buffer = fs.readFileSync(fd); } finally { fs.closeSync(fd); }
+        const fallback = () => {
+          keep.push({ path: relative, content: buffer, sha256: createHash("sha256").update(buffer).digest("hex") });
+          return { info: { mediaId: null, source: "workspace", path: relative, filename: path.basename(relative), mimeType, sizeBytes: stat.size, kind, primary } satisfies ArtifactInfo };
+        };
+        if (storageDown) return fallback();
         try {
           const media = await storeMedia({ buffer, filename: path.basename(relative), mimeType, kind: "artifact", sessionId, sourcePath: relative });
           return { info: { mediaId: media.id, source: "vault", path: relative, filename: media.filename, mimeType, sizeBytes: buffer.length, kind, primary } satisfies ArtifactInfo };
         } catch (error) {
           if (error instanceof StorageError && error.unavailable) {
             storageDown = true; // stop trying for the rest of the batch
-            return fallback;
+            return fallback();
           }
           throw error;
         }
@@ -176,6 +182,17 @@ export async function storeArtifacts(sessionId: string, root: string, files: str
       if ("info" in result && result.info) stored.push(result.info);
       else if ("skip" in result && result.skip) skipped.push(result.skip);
     }
+  }
+  // Files only "kept in the workspace" need a durable copy before the workspace is ever archived.
+  if (keep.length) {
+    await saveArtifactSnapshot(sessionId, keep).catch(error => {
+      console.error(`[artifacts] ${sessionId}: could not keep ${keep.length} attachment(s) with the archive:`, error instanceof Error ? error.message : error);
+      for (const file of keep) {
+        const index = stored.findIndex(item => item.source === "workspace" && item.path === file.path);
+        if (index >= 0) stored.splice(index, 1);
+        skipped.push(`${file.path} (could not be stored)`);
+      }
+    });
   }
   return { stored, skipped };
 }

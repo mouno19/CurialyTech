@@ -29,7 +29,8 @@ const ROLE_TOOLS: Record<TeamRole, string[]> = {
   reviewer: [...READ_TOOLS, "run_command", "test_preview_visual"],
 };
 /** Only after the Reviewer approves. */
-const PUBLISH_TOOLS = ["github_commit_and_push", "github_create_pr", "deploy_preview"];
+// Previews are not part of team publishing: they start only from the user's confirmed Deploy action.
+const PUBLISH_TOOLS = ["github_commit_and_push", "github_create_pr"];
 const PUBLISH_INTENT = /\b(push|commit|pull request|PR|merge|deploy|publish|ship|release|live preview|github)\b/i;
 
 const planSchema = z.object({
@@ -309,11 +310,13 @@ export async function runTeam(ctx: RunContext, conversation: Anthropic.MessagePa
     let published = "";
     if (wantsPublish && approved) {
       track("engineer", "working", "Publishing the approved changes");
-      pushUser(state.engineer, "The Reviewer approved your changes. If the user's request asked for publishing (committing/pushing to GitHub, opening a pull request, or deploying a preview), do exactly that now and report the links. Do not change any files. If nothing needs publishing, say so and stop.");
+      pushUser(state.engineer, "The Reviewer approved your changes. If the user's request asked for publishing to GitHub (committing/pushing, or opening a pull request), do exactly that now and report the links. Do not change any files. You cannot deploy previews: if the user asked for one, tell them to use the Deploy action. If nothing needs publishing, say so and stop.");
       save();
       try {
+        delete ctx.outcome.publish;
         published = (await engineerRun("p", { tools: [...ROLE_TOOLS.engineer, ...PUBLISH_TOOLS], verify: false, maxTurns: PUBLISH_TURNS })).text;
-        ctx.outcome.publish = "done";
+        // trackedTool recorded done/failed for each push or PR; none called means nothing was published.
+        ctx.outcome.publish ??= "not_requested";
       } catch (error) {
         if (ctx.signal.aborted) throw error;
         ctx.outcome.publish = "failed";

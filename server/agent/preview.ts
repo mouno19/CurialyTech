@@ -5,6 +5,7 @@ import net from "node:net";
 import path from "node:path";
 import type { Request, Response } from "express";
 import { resolveInWorkspace, workspacePath } from "./sandbox";
+import { findBuildDirs } from "./workspaces";
 
 // Previews of what the agent builds, served at
 //   /api/workspace/preview/<taskId>/<token>/<path>
@@ -27,22 +28,40 @@ function secret() {
   return value;
 }
 
-export function previewToken(taskId: string, ttlSeconds = TOKEN_TTL_SECONDS) {
+/**
+ * `dir` (the build folder to serve, e.g. "frontend/dist") is signed into the token itself, so every
+ * request under the preview URL, including relative asset requests, resolves against the same
+ * folder (a ?dir= query string is only present on the first request).
+ */
+export function previewToken(taskId: string, ttlSeconds = TOKEN_TTL_SECONDS, dir = "") {
   const expires = Math.floor(Date.now() / 1000) + ttlSeconds;
-  const mac = createHmac("sha256", secret()).update(`preview:${taskId}:${expires}`).digest("base64url").slice(0, 32);
-  return `${expires.toString(36)}.${mac}`;
+  const mac = createHmac("sha256", secret()).update(tokenPayload(taskId, expires, dir)).digest("base64url").slice(0, 32);
+  return `${expires.toString(36)}.${mac}${dir ? `.${Buffer.from(dir).toString("base64url")}` : ""}`;
+}
+
+const tokenPayload = (taskId: string, expires: number, dir: string) => (dir ? `preview:${taskId}:${expires}:${dir}` : `preview:${taskId}:${expires}`);
+
+/** The build folder carried by a token ("" when none); read it only after verifyPreviewToken. */
+export function previewTokenDir(token: string) {
+  const encoded = token.split(".")[2];
+  if (!encoded) return "";
+  try {
+    return Buffer.from(encoded, "base64url").toString("utf8");
+  } catch {
+    return "";
+  }
 }
 
 export function verifyPreviewToken(taskId: string, token: string) {
   const [expiresPart, mac] = token.split(".");
   const expires = parseInt(expiresPart ?? "", 36);
   if (!mac || !Number.isFinite(expires) || expires < Date.now() / 1000) return false;
-  const expected = createHmac("sha256", secret()).update(`preview:${taskId}:${expires}`).digest("base64url").slice(0, 32);
+  const expected = createHmac("sha256", secret()).update(tokenPayload(taskId, expires, previewTokenDir(token))).digest("base64url").slice(0, 32);
   return mac.length === expected.length && timingSafeEqual(Buffer.from(mac), Buffer.from(expected));
 }
 
-export function previewBaseUrl(taskId: string, origin = process.env.PUBLIC_BASE_URL || "https://curialy.tech") {
-  return `${origin.replace(/\/+$/, "")}/api/workspace/preview/${taskId}/${previewToken(taskId)}/`;
+export function previewBaseUrl(taskId: string, origin = process.env.PUBLIC_BASE_URL || "https://curialy.tech", dir = "") {
+  return `${origin.replace(/\/+$/, "")}/api/workspace/preview/${taskId}/${previewToken(taskId, TOKEN_TTL_SECONDS, dir === "." ? "" : dir)}/`;
 }
 
 /** Find the directory to serve: an explicit one, else the first of dist/build/out/public/. with an index.html. */
@@ -57,6 +76,14 @@ export function detectPreviewRoot(taskId: string, preferred?: string) {
     } catch { /* outside the workspace: ignore */ }
   }
   return null;
+}
+
+/** Without a signed dir: the newest built site (also nested, e.g. frontend/dist), as the Preview tab chooses it. */
+function defaultBuildRoot(taskId: string) {
+  const root = workspacePath(taskId);
+  if (!fs.existsSync(root)) return null;
+  const built = findBuildDirs(root)[0];
+  return built ? detectPreviewRoot(taskId, built) : null;
 }
 
 /** Absolute asset paths ("/assets/x.js") would resolve against curialy.tech instead of the preview. */
@@ -116,8 +143,10 @@ export function previewHandler(req: Request, res: Response) {
   const port = liveServers.get(taskId);
   if (port) return proxy(req, res, port, subPath);
   if (req.method !== "GET" && req.method !== "HEAD") return res.status(405).end();
-  const preferred = typeof req.query.dir === "string" ? req.query.dir : undefined;
-  const site = detectPreviewRoot(taskId, preferred);
+  // The signed dir wins; ?dir= is accepted for links created before dirs were signed into tokens.
+  const signed = previewTokenDir(token);
+  const preferred = signed || (typeof req.query.dir === "string" ? req.query.dir : undefined);
+  const site = preferred ? detectPreviewRoot(taskId, preferred) : defaultBuildRoot(taskId) ?? detectPreviewRoot(taskId);
   if (!site) return res.status(404).type("text/plain").send("No built web output found (looked for index.html in dist/, build/, out/, public/ and the workspace root).");
   const root = workspacePath(taskId);
   const relative = path.join(site.dir, subPath.replace(/^\/+/, ""));

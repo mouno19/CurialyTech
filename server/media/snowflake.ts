@@ -120,7 +120,10 @@ let lastProbe: Promise<unknown> | null = null;
  * every 15 seconds, so a burst of callers costs one query.
  */
 export async function mediaStatus(probeNow = false): Promise<MediaHealth> {
-  if (probeNow && storageConfig().ok && Date.now() - lastProbeAt > 15_000) {
+  // Once an outage's window has passed, even passive reads (health polls, HEAD) start the single
+  // recovery probe in the background, so storage coming back is noticed without anyone asking.
+  const recheck = probeNow || breaker.windowPassed();
+  if (recheck && storageConfig().ok && Date.now() - lastProbeAt > 15_000) {
     lastProbeAt = Date.now();
     lastProbe ??= probe().then(() => breaker.succeeded(), error => { breaker.failed(classifyStorageError(error)); logStorageError("probe", error); }).finally(() => { lastProbe = null; });
   }

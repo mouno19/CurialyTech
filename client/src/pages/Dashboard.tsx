@@ -1,32 +1,65 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { ArrowRight, ListTodo } from "lucide-react";
-import { getModel, type AgentTaskSummary, type CreateTaskRequest } from "@shared/agent";
-import { AppShell, EmptyState } from "@/components/shell/AppShell";
-import { OmniComposer } from "@/components/composer/OmniComposer";
-import { agentApi, formatTokens, relativeTime } from "@/lib/api";
-import { TaskStatusIcon } from "./Tasks";
+import type { LucideIcon } from "lucide-react";
+import { ArrowRight, Bot, Check, CircleX, Info, MessageSquare, RotateCcw, TriangleAlert, Unplug, X } from "lucide-react";
+import type { AgentTaskSummary, CreateTaskRequest, TaskMode } from "@shared/agent";
+import { isActiveStatus, outcomeIssues } from "@shared/taskStatus";
+import { AppShell } from "@/components/shell/AppShell";
+import { Button } from "@/components/common/Button";
+import { IconButton } from "@/components/common/IconButton";
+import { StateNotice } from "@/components/common/StateNotice";
+import { StatusBadge } from "@/components/common/StatusBadge";
+import { useOverflowEdges } from "@/components/common/useOverflowEdges";
+import { OmniComposer, type ComposerSeed } from "@/components/composer/OmniComposer";
+import { agentApi, formatTokens, relativeTime, type TaskStats } from "@/lib/api";
+import { useHealth } from "@/lib/appStatus";
+import { modeLabel, modelLabel, statusTime, TaskDuration, taskNote, TaskSkeleton, tokenTotal, useTaskList } from "./Tasks";
 
-const QUICK = [
-  "Create a TypeScript CLI that converts CSV to JSON, with vitest tests and a check script.",
-  "Write a Python module for rate limiting (token bucket) with pytest tests.",
-  "Scaffold an Express + zod REST API with typed handlers and passing tsc --noEmit.",
-  "Explain the trade-offs between SSE and WebSockets for streaming agent logs.",
+// Questions start in Chat mode, work in Agent mode.
+const QUICK: { text: string; mode: TaskMode }[] = [
+  { text: "Create a TypeScript CLI that converts CSV to JSON, with vitest tests and a check script.", mode: "agent" },
+  { text: "Write a Python module for rate limiting (token bucket) with pytest tests.", mode: "agent" },
+  { text: "Scaffold an Express + zod REST API with typed handlers and passing tsc --noEmit.", mode: "agent" },
+  { text: "Explain the trade-offs between SSE and WebSockets for streaming agent logs.", mode: "chat" },
 ];
+
+const GITHUB_NOTICES: Record<string, { tone: "success" | "warning"; text: string }> = {
+  connected: { tone: "success", text: "GitHub connected. Tasks can now clone your repositories, and finished work can be exported to your account." },
+  access_denied: { tone: "warning", text: "GitHub sign-in was cancelled, so nothing was connected." },
+  missing_repo_scope: { tone: "warning", text: "GitHub didn't grant repository access, which Curialy needs to clone and create repositories. Connect again and approve every requested permission." },
+  state_mismatch: { tone: "warning", text: "The GitHub sign-in link expired or was opened in another browser. Start Connect GitHub again from here." },
+};
+
+const RECENT = 6;
+const compact = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
+const count = (value: number | null | undefined) => (value === null || value === undefined ? "—" : value >= 10_000 ? compact.format(value) : value.toLocaleString());
 
 export default function Dashboard() {
   const [, navigate] = useLocation();
-  const [tasks, setTasks] = useState<AgentTaskSummary[] | null>(null);
-  const [stats, setStats] = useState<Awaited<ReturnType<typeof agentApi.stats>> | null>(null);
+  const list = useTaskList();
+  const { activeTasks, summary } = useHealth();
+  const [stats, setStats] = useState<TaskStats | null>(null);
+  const [statsFailed, setStatsFailed] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [seed, setSeed] = useState<{ text: string; nonce: number }>();
-  const [githubNotice] = useState(() => new URLSearchParams(window.location.search).get("github"));
-  useEffect(() => { if (githubNotice) window.history.replaceState(null, "", "/"); }, [githubNotice]);
+  const [seed, setSeed] = useState<ComposerSeed>();
+  const [githubNotice, setGithubNotice] = useState(() => new URLSearchParams(window.location.search).get("github"));
+  const quickRef = useRef<HTMLUListElement>(null);
+  useOverflowEdges(quickRef, { revealSelected: false });
 
   useEffect(() => {
-    agentApi.tasks().then(data => setTasks(data.tasks)).catch(() => setTasks([]));
-    agentApi.stats().then(setStats).catch(() => undefined);
+    if (new URLSearchParams(window.location.search).has("github")) window.history.replaceState(null, "", "/");
   }, []);
+
+  const loadStats = useCallback(() => agentApi.stats().then(data => { setStats(data); setStatsFailed(false); }, () => setStatsFailed(true)), []);
+  useEffect(() => void loadStats(), [loadStats]);
+  // A run that finished (or started) since the last refresh changes the totals too.
+  const signature = list.tasks?.map(task => `${task.id}:${task.status}`).join("|") ?? null;
+  const seen = useRef<string | null>(null);
+  useEffect(() => {
+    if (signature === null) return;
+    if (seen.current !== null && seen.current !== signature) void loadStats();
+    seen.current = signature;
+  }, [signature, loadStats]);
 
   const start = async (request: CreateTaskRequest) => {
     setBusy(true);
@@ -38,60 +71,169 @@ export default function Dashboard() {
     }
   };
 
-  const tokens = tasks?.reduce((sum, task) => sum + task.usage.inputTokens + task.usage.outputTokens, 0) ?? 0;
-  const successRate = stats && stats.completed + stats.failed > 0 ? Math.round((stats.completed / (stats.completed + stats.failed)) * 100) : null;
+  const focusComposer = () => document.getElementById("omni-prompt")?.focus();
+  const notice = githubNotice ? GITHUB_NOTICES[githubNotice] ?? { tone: "warning" as const, text: `Connecting GitHub didn't work (${githubNotice}). Try Connect GitHub again; if it keeps failing, the server log has the details.` } : null;
+  const inProgress = list.tasks ? list.tasks.filter(task => isActiveStatus(task.status)).length : activeTasks;
 
   return (
     <AppShell title="Workspace Dashboard">
       <div className="page">
         <div className="page-narrow">
-          {githubNotice && (
-            <div className={`alert ${githubNotice === "connected" ? "info" : "warn"}`} style={{ marginTop: 20 }}>
-              {githubNotice === "connected" ? "GitHub connected. Completed agent projects can now be exported to your account and deployed from your repos."
-                : githubNotice === "access_denied" ? "GitHub authorization was cancelled."
-                : githubNotice === "missing_repo_scope" ? "GitHub did not grant the repo scope, which is required to create repositories. Try connecting again and approve all requested permissions."
-                : githubNotice === "state_mismatch" ? "The GitHub sign-in link expired or did not match this browser. Start Connect GitHub again."
-                : `GitHub connection failed (${githubNotice}). Check the server log and try again.`}
+          {notice && (
+            <div className="notice dash-notice" data-tone={notice.tone} role="status">
+              {notice.tone === "success" ? <Check size={16} aria-hidden="true" /> : <TriangleAlert size={16} aria-hidden="true" />}
+              <div className="notice-body">{notice.text}</div>
+              <IconButton size="sm" label="Dismiss" icon={X} tooltip={false} onClick={() => setGithubNotice(null)} />
             </div>
           )}
-          <section className="hero">
-            <span className="eyebrow">Autonomous agent workspace</span>
-            <h2>Bring the messy part. <em>Watch every step.</em></h2>
-            <p>The agent plans, reasons, edits files, runs typechecks and tests in an isolated sandbox, and heals its own failures. Its thinking, terminal output and diffs stream live.</p>
-          </section>
-          <OmniComposer onSubmit={start} busy={busy} autoFocus seed={seed} />
-          <div className="quick">
-            {QUICK.map(text => <button key={text} type="button" onClick={() => setSeed({ text, nonce: Date.now() })}>{text.length > 64 ? `${text.slice(0, 62)}…` : text}</button>)}
-          </div>
 
-          <div className="grid grid-4" style={{ marginTop: 32 }}>
-            <div className="card stat"><div className="label">Tasks run</div><div className="value">{stats?.total ?? "—"}</div></div>
-            <div className="card stat"><div className="label">Success rate</div><div className="value">{successRate === null ? "—" : `${successRate}%`}</div></div>
-            <div className="card stat"><div className="label">Files changed</div><div className="value">{stats?.filesChanged ?? "—"}</div></div>
-            <div className="card stat"><div className="label">Tokens (recent)</div><div className="value">{tasks ? formatTokens(tokens) : "—"}</div></div>
-          </div>
-
-          <div className="card" style={{ marginTop: 18 }}>
-            <div className="card-head">
-              <h2>Recent tasks</h2>
-              <Link href="/tasks" className="btn ghost sm">All tasks <ArrowRight size={13} /></Link>
+          <section className="dash-hero" aria-labelledby="dash-title">
+            <div className="dash-hero-main">
+              <p className="eyebrow dash-eyebrow"><span className="dash-mark" aria-hidden="true">§</span>Autonomous agent workspace</p>
+              <h2 id="dash-title" className="display dash-title">Bring the messy part. <em>Watch every step.</em></h2>
+              <p className="dash-lede">
+                Describe a task and the agent plans it, edits the files, and runs your checks and tests in its own isolated workspace, fixing what fails.
+                Its reasoning, terminal output and diffs stream in while it works.
+              </p>
             </div>
-            {tasks === null && <div className="empty">Loading…</div>}
-            {tasks?.length === 0 && <EmptyState icon={ListTodo} title="No tasks yet">Describe something above to start the first run.</EmptyState>}
-            {tasks?.slice(0, 8).map(task => (
-              <Link key={task.id} href={`/tasks/${task.id}`} className="task-row">
-                <TaskStatusIcon status={task.status} />
-                <div style={{ minWidth: 0 }}>
-                  <div className="prompt truncate">{task.prompt}</div>
-                  <div className="meta"><span>{getModel(task.model)?.label ?? task.model}</span><span>{task.team ? "Dev Team" : task.mode}</span>{task.filesChanged > 0 && <span>{task.filesChanged} files</span>}</div>
-                </div>
-                <span className="chip mono">{formatTokens(task.usage.inputTokens + task.usage.outputTokens)} tok</span>
-                <span className="faint" style={{ fontSize: 11.5 }}>{relativeTime(task.createdAt)}</span>
-              </Link>
-            ))}
+            <aside className="dash-margin" aria-label="Right now">
+              <p className="micro" data-accent="">Right now</p>
+              <p>{inProgress ? `${inProgress} ${inProgress === 1 ? "task" : "tasks"} in progress` : "Nothing in progress"}</p>
+              <p><Link href="/integrations" className="ink-link">{summary.label}</Link></p>
+            </aside>
+          </section>
+
+          <OmniComposer onSubmit={start} busy={busy} autoFocus seed={seed} />
+
+          <div className="dash-quick-wrap">
+            <span className="micro dash-quick-label" id="dash-quick-label">Try</span>
+            <ul className="dash-quick" ref={quickRef} aria-labelledby="dash-quick-label">
+              {QUICK.map(item => (
+                <li key={item.text}>
+                  <button type="button" className="quick-chip" title={item.text} onClick={() => setSeed({ text: item.text, mode: item.mode, nonce: Date.now() })}>
+                    {item.mode === "chat" ? <MessageSquare size={14} aria-hidden="true" /> : <Bot size={14} aria-hidden="true" />}
+                    <span className="clamp-1">{item.text}</span>
+                    <span className="sr-only"> ({item.mode === "chat" ? "starts in Chat mode" : "starts in Agent mode"})</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
           </div>
+
+          <StatsRow stats={stats} failed={statsFailed} tasks={list.tasks} tasksFailed={Boolean(list.error) && !list.tasks} onRetry={() => void loadStats()} />
+
+          <section className="card dash-recent" aria-labelledby="dash-recent-title">
+            <div className="card-head">
+              <h2 id="dash-recent-title">Recent tasks</h2>
+              <Link href="/tasks" className="btn ghost sm">All tasks <ArrowRight size={14} aria-hidden="true" /></Link>
+            </div>
+            {list.tasks === null ? (
+              list.error ? (
+                <StateNotice variant="error" size="sm" title="Couldn't load your tasks" actions={<Button size="sm" icon={RotateCcw} busy={list.refreshing} onClick={() => void list.refresh()}>Try again</Button>}>
+                  {list.error}
+                </StateNotice>
+              ) : (
+                <TaskSkeleton rows={3} bare />
+              )
+            ) : list.tasks.length === 0 ? (
+              <StateNotice variant="empty" icon="mark" title="Describe what to build or fix" actions={<Button variant="primary" onClick={focusComposer}>Start a task</Button>}>
+                Your tasks appear here with their status, model and timing. Each one runs in its own workspace, and you can follow every step as it happens.
+              </StateNotice>
+            ) : (
+              <ul className="recent-list">
+                {list.tasks.slice(0, RECENT).map(task => <RecentRow key={task.id} task={task} />)}
+              </ul>
+            )}
+          </section>
         </div>
       </div>
     </AppShell>
+  );
+}
+
+type Tile = { id: string; label: string; value: number | null | undefined; loading: boolean; icon?: LucideIcon; tone?: string; href: string; hint?: string };
+
+function StatsRow({ stats, failed, tasks, tasksFailed, onRetry }: { stats: TaskStats | null; failed: boolean; tasks: AgentTaskSummary[] | null; tasksFailed: boolean; onRetry: () => void }) {
+  const derived = useMemo(() => {
+    if (!stats) return null;
+    // The server counts issues over every task; older servers did not, so fall back to the list.
+    const exact = typeof stats.completedWithIssues === "number";
+    if (!exact && !tasks) return null;
+    const withIssues = exact ? stats.completedWithIssues! : tasks!.filter(task => task.status === "completed" && outcomeIssues(task.outcome).length > 0).length;
+    const clean = Math.max(0, stats.completed - withIssues);
+    const finished = stats.completed + stats.failed;
+    return { withIssues, clean, rate: finished > 0 ? Math.round((clean / finished) * 100) : null, partial: !exact && tasks && tasks.length < stats.total ? tasks.length : 0 };
+  }, [stats, tasks]);
+
+  if (failed && !stats) {
+    return (
+      <div className="notice dash-stats-error" data-tone="neutral" role="status">
+        <Info size={16} aria-hidden="true" />
+        <div className="notice-body">The task totals couldn't be loaded.</div>
+        <div className="notice-actions"><Button size="sm" icon={RotateCcw} onClick={onRetry}>Try again</Button></div>
+      </div>
+    );
+  }
+  // An empty workspace has nothing to count: the recent-tasks card explains how to start.
+  if (stats && stats.total === 0) return null;
+
+  // Clean vs with-issues needs each run's outcome, which only the task list carries.
+  const outcomesLoading = !derived && !tasksFailed;
+  const tiles: Tile[] = [
+    { id: "total", label: "Tasks", value: stats?.total, loading: !stats, href: "/tasks", hint: stats ? (stats.running ? `${stats.running} active now` : "None active now") : undefined },
+    { id: "clean", label: "Completed cleanly", value: derived?.clean, loading: outcomesLoading, icon: Check, tone: "success", href: "/tasks?status=completed" },
+    { id: "issues", label: "With issues", value: derived?.withIssues, loading: outcomesLoading, icon: TriangleAlert, tone: "warning", href: "/tasks?status=issues", hint: derived?.partial ? `In the latest ${derived.partial}` : undefined },
+    { id: "failed", label: "Failed", value: stats?.failed, loading: !stats, icon: CircleX, tone: "danger", href: "/tasks?status=failed" },
+    { id: "interrupted", label: "Interrupted", value: stats?.interrupted, loading: !stats, icon: Unplug, tone: "warning", href: "/tasks?status=interrupted" },
+  ];
+  const rate = derived?.rate ?? null;
+  const rateHint = derived ? (rate === null ? "No finished runs yet" : "Clean completions out of completed and failed runs") : tasksFailed ? "Needs the task list, which didn't load" : "";
+
+  return (
+    <section className="dash-stats-wrap" aria-labelledby="dash-stats-title">
+      <h2 id="dash-stats-title" className="sr-only">At a glance</h2>
+      <div className="dash-stats" aria-busy={!stats || outcomesLoading || undefined}>
+        {tiles.map(tile => (
+          <Link key={tile.id} href={tile.href} className="dash-stat" data-tone={tile.tone}>
+            <span className="dash-stat-label">
+              {tile.icon && <tile.icon size={14} aria-hidden="true" />}
+              {tile.label}
+            </span>
+            {tile.loading ? <span className="skeleton dash-stat-skeleton" aria-hidden="true" /> : <span className="dash-stat-value">{count(tile.value)}</span>}
+            {tile.hint && <span className="dash-stat-hint">{tile.hint}</span>}
+          </Link>
+        ))}
+        <div className="dash-stat" data-static="">
+          <span className="dash-stat-label">Success rate</span>
+          {!stats || outcomesLoading ? <span className="skeleton dash-stat-skeleton" aria-hidden="true" /> : <span className="dash-stat-value">{rate === null ? "—" : `${rate}%`}</span>}
+          {rateHint && <span className="dash-stat-hint">{rateHint}</span>}
+          {rate !== null && <span className="dash-meter" aria-hidden="true"><span style={{ width: `${rate}%` }} /></span>}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function RecentRow({ task }: { task: AgentTaskSummary }) {
+  const note = taskNote(task);
+  const stopped = task.status === "failed" || task.status === "interrupted" || task.status === "cancelled";
+  return (
+    <li>
+      <Link href={`/tasks/${task.id}`} className="recent-row" title={task.prompt}>
+        <span className="recent-status"><StatusBadge status={task.status} outcome={task.outcome} reason={task.statusReason} size="sm" /></span>
+        <span className="recent-body">
+          <span className="recent-prompt clamp-2">{task.prompt}</span>
+          {note && <span className="recent-note clamp-1" data-tone={stopped ? "stopped" : "issues"}>{note}{stopped && ` · ${relativeTime(statusTime(task))}`}</span>}
+          <span className="recent-meta">
+            <span>{modelLabel(task)}</span>
+            <span>{modeLabel(task)}</span>
+            {task.filesChanged > 0 && <span>{task.filesChanged} {task.filesChanged === 1 ? "file" : "files"}</span>}
+            <span>{formatTokens(tokenTotal(task))} tokens</span>
+            <span><TaskDuration task={task} /></span>
+          </span>
+        </span>
+        <time className="recent-time" dateTime={task.createdAt}>{relativeTime(task.createdAt)}</time>
+      </Link>
+    </li>
   );
 }

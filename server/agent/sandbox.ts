@@ -157,6 +157,8 @@ export function runCommand(opts: {
   timeoutSec: number;
   signal?: AbortSignal;
   onOutput: (stream: "stdout" | "stderr", chunk: string) => void;
+  /** Keep NUL bytes in `output` (machine-readable output such as git -z); streamed chunks are always clean. */
+  raw?: boolean;
 }): Promise<CommandResult> {
   // A run cancelled while its command waits behind another task's gets its answer at once (and the
   // command never starts), instead of waiting its turn in the queue.
@@ -173,14 +175,15 @@ export function runCommand(opts: {
       opts.signal?.removeEventListener("abort", cancelled);
       if (settled) return;
       settled = true;
-      resolve(await runCommandNow(opts));
+      // spawn throws synchronously on arguments it cannot pass (e.g. a NUL byte): answer, never hang the run.
+      resolve(await runCommandNow(opts).catch(error => ({ exitCode: null, timedOut: false, output: `Failed to start command: ${error instanceof Error ? error.message : String(error)}`, durationMs: 0 })));
     }).catch(() => undefined);
   });
 }
 
 const OUTPUT_CAP = 400_000;
 
-function runCommandNow({ root, command, timeoutSec, signal, onOutput }: Parameters<typeof runCommand>[0]): Promise<CommandResult> {
+function runCommandNow({ root, command, timeoutSec, signal, onOutput, raw }: Parameters<typeof runCommand>[0]): Promise<CommandResult> {
   const started = Date.now();
   const timeout = Math.max(5, Math.min(600, Math.round(timeoutSec)));
   const unit = `curialy-agent-${process.pid}-${++commandCounter}-${Date.now()}`;
@@ -207,9 +210,10 @@ function runCommandNow({ root, command, timeoutSec, signal, onOutput }: Paramete
     let output = "";
     let streamed = 0;
     const capture = (stream: "stdout" | "stderr") => (data: Buffer) => {
-      // NUL bytes (binary output) cannot be stored as text; drop them at the source.
-      const chunk = data.toString("utf8").replace(/\u0000/g, "");
-      if (output.length < OUTPUT_CAP) output += chunk;
+      const text = data.toString("utf8");
+      // NUL bytes (binary output) cannot be stored or shown as text; only raw callers keep them.
+      const chunk = text.includes("\u0000") ? text.replace(/\u0000/g, "") : text;
+      if (output.length < OUTPUT_CAP) output += raw ? text : chunk;
       if (streamed < OUTPUT_CAP) {
         streamed += chunk.length;
         onOutput(stream, chunk);

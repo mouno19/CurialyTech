@@ -41,6 +41,10 @@ async function startServer() {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "same-origin");
     res.setHeader("X-Frame-Options", "DENY");
+    // Defence in depth for rendered agent/model content: forms can only post here, images come from
+    // this origin (plus data:/blob: and GitHub avatars), no plugins, no <base> hijack. Routes that
+    // serve agent files set their own, stricter policy.
+    res.setHeader("Content-Security-Policy", "form-action 'self'; img-src 'self' data: blob: https://avatars.githubusercontent.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
     next();
   });
   app.use("/api", sameOriginOnly);

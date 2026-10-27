@@ -1,4 +1,5 @@
-import { BarChart3, Brain, Code2, FileText, PenLine, Search, type LucideIcon } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { BarChart3, Brain, Check, CircleDashed, Code2, FileText, PenLine, Search } from "lucide-react";
 import { SKILLS } from "@shared/skills";
 import { AppShell } from "@/components/shell/AppShell";
 
@@ -14,30 +15,50 @@ const RUNTIME: Record<string, { status: "live" | "partial"; how: string }> = {
   "document-analysis": { status: "partial", how: "Attach text files; they are copied into the task workspace. PDF/DOCX need a parser installed by the agent." },
 };
 
+const STATUS = {
+  live: { label: "Available", tone: "success", icon: Check },
+  partial: { label: "Partial", tone: "warning", icon: CircleDashed },
+} as const;
+
 export default function Skills() {
+  const live = SKILLS.filter(skill => RUNTIME[skill.id]?.status === "live").length;
   return (
     <AppShell title="Skill Store">
       <div className="page">
         <div className="page-narrow">
-          <p className="page-sub">Capabilities available to tasks, and the runtime mechanism behind each one.</p>
-          <div className="grid grid-3">
+          <header className="page-head">
+            <div>
+              <span className="eyebrow">Capabilities</span>
+              <h2 className="page-title">Skill Store</h2>
+              <p className="page-sub">What tasks can do, and the runtime mechanism behind each skill. {live} of {SKILLS.length} are fully available; partial ones work with the limits noted.</p>
+            </div>
+          </header>
+          <ul className="cols-3 skill-grid">
             {SKILLS.map(skill => {
               const Icon = ICONS[skill.icon] ?? Code2;
               const runtime = RUNTIME[skill.id];
+              const status = runtime ? STATUS[runtime.status] : null;
               return (
-                <div key={skill.id} className="card card-pad">
-                  <div className="row" style={{ marginBottom: 10 }}>
-                    <Icon size={18} color={skill.accent === "mint" ? "var(--mint)" : "var(--violet)"} />
-                    <strong style={{ fontSize: 14 }}>{skill.name}</strong>
-                    <span className="spacer" />
-                    <span className="chip mono">v{skill.version}</span>
+                <li key={skill.id} className="card skill-card">
+                  <div className="skill-head">
+                    <span className="skill-icon" aria-hidden="true"><Icon size={17} /></span>
+                    <h3 className="skill-name">{skill.name}</h3>
+                    <span className="chip mono skill-version">v{skill.version}</span>
                   </div>
-                  <p className="muted" style={{ margin: "0 0 12px", fontSize: 12.5 }}>{skill.description}</p>
-                  {runtime && <div className="row" style={{ alignItems: "flex-start", fontSize: 12 }}><span className={`chip ${runtime.status === "live" ? "mint" : "amber"}`}>{runtime.status}</span><span className="muted">{runtime.how}</span></div>}
-                </div>
+                  <p className="skill-desc">{skill.description}</p>
+                  {runtime && status && (
+                    <div className="skill-runtime">
+                      <span className="status-badge" data-tone={status.tone} data-size="sm">
+                        <status.icon size={12} aria-hidden="true" />
+                        {status.label}
+                      </span>
+                      <p>{runtime.how}</p>
+                    </div>
+                  )}
+                </li>
               );
             })}
-          </div>
+          </ul>
         </div>
       </div>
     </AppShell>

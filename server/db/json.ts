@@ -9,9 +9,17 @@ export function cleanText(value: string) {
   return (value.includes("\u0000") ? value.replace(NUL, "") : value).toWellFormed();
 }
 
-/** JSON for a jsonb column: strings cleaned at every depth. */
+const unclean = (text: string) => text.includes("\u0000") || !text.isWellFormed();
+
+/** JSON for a jsonb column: strings cleaned at every depth, object keys included (tool inputs are model-written). */
 export function toJsonb(value: unknown) {
-  return JSON.stringify(value, (_key, item) => (typeof item === "string" ? cleanText(item) : item));
+  return JSON.stringify(value, (_key, item) => {
+    if (typeof item === "string") return cleanText(item);
+    if (item && typeof item === "object" && !Array.isArray(item) && Object.keys(item).some(unclean)) {
+      return Object.fromEntries(Object.entries(item).map(([key, entry]) => [cleanText(key), entry]));
+    }
+    return item;
+  });
 }
 
 /** SQLSTATEs that will fail the same way on every retry (bad text or JSON), as opposed to transient errors. */

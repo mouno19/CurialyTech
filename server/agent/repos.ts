@@ -132,26 +132,20 @@ export type RepoChanges = { changed: string[]; deleted: string[] };
 export async function computeChanges(root: string, repo: LinkedRepo, signal?: AbortSignal): Promise<RepoChanges> {
   if (!SHA.test(repo.baseSha)) throw new Error("Invalid base sha.");
   const repoDir = repo.repoPath === "." ? "." : repo.repoPath;
-  const command = `cd -- ${JSON.stringify(repoDir)} && { git -c core.quotepath=off diff --name-status ${repo.baseSha} -- . 2>/dev/null; echo '::untracked::'; git -c core.quotepath=off ls-files --others --exclude-standard 2>/dev/null; }`;
-  const result = await runCommand({ root, command, timeoutSec: 120, signal, onOutput: () => undefined });
+  // NUL-separated (-z) so any file name (spaces, tabs, quotes, newlines) survives intact.
+  const command = `cd -- ${JSON.stringify(repoDir)} && { git -c core.quotepath=off diff --name-status -z --no-renames ${repo.baseSha} -- . 2>/dev/null; printf '\\0::untracked::\\0'; git ls-files -z --others --exclude-standard 2>/dev/null; }`;
+  const result = await runCommand({ root, command, timeoutSec: 120, signal, onOutput: () => undefined, raw: true });
   if (result.exitCode !== 0) throw new Error(`Could not list repository changes (git exit ${result.exitCode}).`);
-  const [diffPart, untrackedPart = ""] = result.output.split("::untracked::");
+  const [diffPart, untrackedPart = ""] = result.output.split("\0::untracked::\0");
+  const tokens = diffPart.split("\0").filter(Boolean);
   const changed = new Set<string>();
   const deleted = new Set<string>();
-  for (const rawLine of diffPart.split("\n")) {
-    const line = rawLine.trim();
-    if (!line) continue;
-    const tabIdx = line.indexOf("\t");
-    if (tabIdx === -1) continue;
-    const status = line.slice(0, tabIdx).trim();
-    const file = line.slice(tabIdx + 1).trim();
+  for (let index = 0; index + 1 < tokens.length; index += 2) {
+    const [status, file] = [tokens[index], tokens[index + 1]];
     if (status.startsWith("D")) deleted.add(file);
     else changed.add(file);
   }
-  for (const rawLine of untrackedPart.split("\n")) {
-    const file = rawLine.trim();
-    if (file) changed.add(file);
-  }
+  for (const file of untrackedPart.split("\0").filter(Boolean)) changed.add(file);
   const clean = (file: string) => !file.startsWith(".git/") && file !== ".git" && !file.includes("\0");
   return { changed: Array.from(changed).filter(clean), deleted: Array.from(deleted).filter(clean) };
 }

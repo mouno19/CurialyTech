@@ -13,6 +13,13 @@ export class GitHubError extends Error {
   }
 }
 
+/** The branch has commits this workspace didn't push: replacing its files would revert them. */
+export class RemoteChangedError extends GitHubError {
+  constructor(readonly branch: string) {
+    super(`${branch} has commits that weren't pushed from this workspace.`, 409);
+  }
+}
+
 function tokenKey() {
   const raw = process.env.GITHUB_TOKEN_KEY ?? "";
   const key = Buffer.from(raw, "base64");
@@ -144,13 +151,16 @@ export function throwIfAborted(signal?: AbortSignal) {
 /**
  * Commit `files` as the complete tree of `branch` (files not listed are removed) and push it.
  * Uses the Git Data API: blobs → tree → commit → ref update. With a signal, a cancel stops it before
- * the next write (the ref update is the point of no return).
+ * the next write (the ref update is the point of no return). With `onlyOver` (branch → the commit
+ * this workspace last pushed there), a branch whose head is anything else is left untouched.
  */
-export async function pushProjectToRepo(token: string, fullName: string, files: { path: string; content: Buffer }[], message: string, branch?: string, signal?: AbortSignal) {
+export async function pushProjectToRepo(token: string, fullName: string, files: { path: string; content: Buffer }[], message: string, branch?: string, signal?: AbortSignal, onlyOver?: Record<string, string>) {
   throwIfAborted(signal);
   const repo = await githubApi<{ default_branch: string; html_url: string }>(token, `/repos/${fullName}`);
   const target = branch ?? repo.default_branch;
   const ref = await githubApi<{ object: { sha: string } }>(token, `/repos/${fullName}/git/ref/heads/${encodeURIComponent(target)}`);
+  // Checked before any write; the non-forced ref update below also fails if the head moves meanwhile.
+  if (onlyOver && onlyOver[target] !== ref.object.sha) throw new RemoteChangedError(target);
   const tree: { path: string; mode: string; type: string; sha: string }[] = [];
   // Small concurrency keeps large projects reasonably fast without tripping secondary rate limits.
   for (let index = 0; index < files.length; index += 6) {

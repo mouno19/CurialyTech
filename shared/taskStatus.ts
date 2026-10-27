@@ -1,6 +1,6 @@
 // One status model for the whole app: the server validates transitions with it, every view
 // derives what it shows from it. Keep it free of runtime dependencies (client and server import it).
-import type { StatusReason, TaskStatus } from "./agent";
+import type { RunOutcome, StatusReason, TaskStatus } from "./agent";
 
 export type StatusTone = "neutral" | "progress" | "success" | "warning" | "danger";
 
@@ -84,6 +84,35 @@ export function deriveTaskStatus(input: { streamStatus: TaskStatus | null; strea
   return streamStatus ?? rowStatus;
 }
 
+/** Problems a completed run still had (it finished, but not cleanly). Empty means a clean success. */
+export function outcomeIssues(outcome: RunOutcome | null | undefined): string[] {
+  if (!outcome) return [];
+  const issues: string[] = [];
+  if (outcome.verification === "failed") issues.push(outcome.failedCheck ? `Checks still failing: ${outcome.failedCheck.command}` : "Checks still failing");
+  if (outcome.review && outcome.review.verdict !== "approve") issues.push(outcome.review.verdict === "none" ? "No review verdict" : "Review not approved");
+  if (outcome.publish === "failed") issues.push("Publishing failed");
+  if (outcome.publish === "blocked_unapproved") issues.push("Not published: review not approved");
+  if (outcome.research === "partial") issues.push("Research incomplete");
+  if (outcome.research === "failed") issues.push("Research failed");
+  return issues;
+}
+
+export type DisplayState = "active" | "success" | "issues" | "failed" | "stopped";
+
+/**
+ * What a status chip, list row or counter should show: "success" only for a completed run without
+ * issues; a completed run with failing checks, an unapproved review or failed publishing is
+ * "issues"; cancelled and interrupted runs are "stopped".
+ */
+export function displayState(status: TaskStatus | null | undefined, outcome?: RunOutcome | null): DisplayState {
+  if (!status || isActiveStatus(status)) return "active";
+  if (status === "completed") return outcomeIssues(outcome).length ? "issues" : "success";
+  if (status === "failed") return "failed";
+  return "stopped";
+}
+
+export const DISPLAY_TONE: Record<DisplayState, StatusTone> = { active: "progress", success: "success", issues: "warning", failed: "danger", stopped: "warning" };
+
 // ---- Deployments ----
 
 export type DeploymentState = "creating" | "building" | "live" | "failed" | "expired" | "removed" | "interrupted";
@@ -105,6 +134,8 @@ export function deriveDeploymentState(row: DeploymentRowLike, now: number, runAc
   const expires = time(row.expiresAt);
   const deleted = time(row.deletedAt);
   if (Number.isFinite(deleted)) {
+    // A deploy cancelled before it went live was removed, not failed (its row is marked failed).
+    if (row.removedReason === "cancelled") return "removed";
     if (row.status === "failed" || row.removedReason === "failed") return "failed";
     if (row.removedReason === "expired" || (Number.isFinite(expires) && deleted >= expires)) return "expired";
     if (row.removedReason === "interrupted") return "interrupted";

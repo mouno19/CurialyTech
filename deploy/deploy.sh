@@ -20,8 +20,12 @@ if [ "${1:-}" = "--rollback" ]; then
 fi
 
 # Only committed code is deployed: a half-edited tree must never reach production.
-if [ "${ALLOW_DIRTY:-}" != "1" ] && [ -n "$(git status --porcelain --untracked-files=no -- . ':!deploy/snowflake-proxy/proxy.js')" ]; then
-  echo "working tree has uncommitted changes; commit them (or ALLOW_DIRTY=1 to override)"; exit 1
+if [ "${ALLOW_DIRTY:-}" != "1" ]; then
+  dirty=$(git status --porcelain -- . ':!deploy/snowflake-proxy/proxy.js') || { echo "git status failed"; exit 1; }
+  if [ -n "$dirty" ]; then
+    echo "$dirty"
+    echo "working tree has uncommitted or untracked changes; commit them (or ALLOW_DIRTY=1 to override)"; exit 1
+  fi
 fi
 # The unit carries KillMode=mixed / TimeoutStopSec so a restart can record running tasks as interrupted.
 if ! cmp -s deploy/systemd/curialyai.service /etc/systemd/system/curialyai.service; then

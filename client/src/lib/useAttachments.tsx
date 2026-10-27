@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent } from "react";
-import { Loader2, Paperclip, X } from "lucide-react";
+import { Paperclip, X } from "lucide-react";
 import { agentApi, type UploadedFile } from "@/lib/api";
+import { mediaHealth } from "@/lib/mediaHealth";
+import { Spinner } from "@/components/common/Spinner";
 
 // Shared attachment handling for the new-task composer and the follow-up bar: picker, paste
 // (Ctrl/Cmd+V screenshots) and drag & drop, uploading straight to Curialy Vault.
@@ -49,6 +51,11 @@ export function useAttachments() {
   const add = async (list: FileList | File[] | null) => {
     if (!list) return;
     setError(null);
+    // While file storage is known to be down an upload can only fail; say so instead of trying.
+    if (mediaHealth.get().status === "unavailable") {
+      setError("File storage isn't available right now, so files can't be attached. You can still send your message without them.");
+      return;
+    }
     const incoming = Array.from(list);
     const room = Math.max(0, MAX_ATTACHMENTS - claimed.current);
     if (incoming.length > room) setError(`Up to ${MAX_ATTACHMENTS} files per message.`);
@@ -119,12 +126,12 @@ export function AttachmentTray({ files, uploading, onRemove }: { files: PendingA
     <div className="composer-attachments">
       {files.map(file => (
         <span key={file.id} className={`chip att-chip${file.previewUrl ? " has-thumb" : ""}`} title={file.filename}>
-          {file.previewUrl ? <img src={file.previewUrl} alt="" /> : <Paperclip size={11} />}
-          <span className="truncate" style={{ maxWidth: 180 }}>{file.filename}</span>
-          <button type="button" aria-label={`Remove ${file.filename}`} onClick={() => onRemove(file.id)}><X size={11} /></button>
+          {file.previewUrl ? <img src={file.previewUrl} alt="" /> : <Paperclip size={11} aria-hidden="true" />}
+          <span className="truncate att-chip-name">{file.filename}</span>
+          <button type="button" aria-label={`Remove ${file.filename}`} onClick={() => onRemove(file.id)}><X size={11} aria-hidden="true" /></button>
         </span>
       ))}
-      {uploading > 0 && <span className="chip"><Loader2 size={11} className="spin" /> Uploading{uploading > 1 ? ` ${uploading}` : ""}…</span>}
+      {uploading > 0 && <span className="chip" role="status"><Spinner size={11} /> Uploading{uploading > 1 ? ` ${uploading}` : ""}…</span>}
     </div>
   );
 }

@@ -1,0 +1,206 @@
+/* App shell: sidebar (>= 1024px, expanded or rail), navigation drawer (< 1024px), topbar with
+   priority actions, and the page scaffolding every screen renders into. */
+
+.skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: var(--z-skip);
+  padding: 9px 14px;
+  border-radius: var(--r-sm);
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 600;
+  transform: translateY(calc(-100% - 16px));
+  transition: transform var(--dur-2) var(--ease-out);
+  min-height: 40px;
+}
+.skip-link:focus-visible, .skip-link:focus { transform: none; }
+
+/* ---------- Brand: CurialyMark, Wordmark (components/brand/Logo.tsx) ---------- */
+.curialy-mark { display: block; flex: none; }
+.curialy-mark .mark-ground { fill: var(--ink); }
+.curialy-mark .mark-brace { stroke: var(--paper); }
+.curialy-mark .mark-spark { fill: var(--vermilion); }
+.curialy-mark[data-scheme="paper"] .mark-ground { fill: var(--paper); }
+.curialy-mark[data-scheme="paper"] .mark-brace { stroke: var(--ink); }
+.wordmark { display: inline-flex; align-items: center; gap: 10px; min-width: 0; color: var(--ink); white-space: nowrap; }
+.wordmark[data-scheme="paper"] { color: var(--paper); }
+.wordmark-word { position: relative; display: inline-flex; align-items: flex-start; }
+.wordmark-name { font-family: var(--font-display); font-size: 27px; line-height: 1; letter-spacing: -0.01em; }
+.wordmark-ai { margin: 2px 0 0 4px; font-family: var(--font-mono); font-size: 10px; font-weight: 500; letter-spacing: 0.2em; text-transform: uppercase; color: var(--vermilion-deep); }
+.wordmark[data-size="lg"] { gap: 14px; }
+.wordmark[data-size="lg"] .wordmark-name { font-size: clamp(56px, 7vw + 20px, 96px); }
+.wordmark[data-size="lg"] .wordmark-ai { margin: 8px 0 0 8px; font-size: 14px; }
+.wordmark[data-scheme="paper"] .wordmark-ai { color: var(--vermilion); }
+
+.shell { display: flex; height: 100vh; height: 100dvh; overflow: hidden; background: var(--bg); }
+.shell-main { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+
+/* ---------- Sidebar ---------- */
+.sidebar {
+  position: relative;
+  z-index: var(--z-sidebar);
+  flex: none;
+  width: var(--sidebar-w);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+  border-right: 1px solid var(--border);
+  /* Clips labels while the width animates (menus, popovers and tooltips are portalled). */
+  overflow: hidden;
+  transition: width var(--dur-3) var(--ease-out);
+}
+.sidebar[data-state="rail"] { width: var(--rail-w); }
+@media (max-width: 1023.98px) { .sidebar { display: none; } }
+
+.sidebar-head { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; height: var(--topbar-h); padding: 0 10px 0 16px; border-bottom: 1px solid var(--border); }
+.sidebar[data-state="rail"] .sidebar-head { flex-direction: column; justify-content: center; height: auto; min-height: var(--topbar-h); padding: 12px 0; gap: 8px; }
+.brand-link { display: inline-flex; align-items: center; min-width: 0; border-radius: var(--r-sm); color: var(--text); }
+
+.nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 2px; padding: 10px; }
+.nav-section { padding: 10px 10px 6px; }
+.nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.2;
+  text-align: left;
+  white-space: nowrap;
+  transition: background-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+}
+.nav-item > .lucide { color: var(--text-3); transition: color var(--dur-1) var(--ease-out); }
+.nav-item:hover { background: var(--hover); color: var(--text); }
+.nav-item:hover > .lucide { color: var(--text-2); }
+.nav-item[aria-current="page"] { background: var(--selected); color: var(--text); font-weight: 600; }
+.nav-item[aria-current="page"] > .lucide { color: var(--vermilion-deep); }
+/* Current page: indicator bar as well as the wash, so it never relies on colour alone. */
+.nav-item[aria-current="page"]::before { content: ""; position: absolute; left: -10px; top: 8px; bottom: 8px; width: 3px; border-radius: 0 3px 3px 0; background: var(--vermilion-deep); }
+.nav-item[aria-disabled="true"], .nav-item[data-muted] { color: var(--text-3); }
+.nav-item[aria-disabled="true"]:hover, .nav-item[data-muted]:hover { background: none; color: var(--text-3); }
+.nav-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.nav-badge { flex: none; margin-left: auto; min-width: 20px; height: 18px; padding: 0 6px; border-radius: var(--r-pill); background: var(--ink); color: var(--paper); font: 500 10.5px/18px var(--font-mono); font-variant-numeric: tabular-nums; text-align: center; }
+.nav-avatar { flex: none; width: 18px; height: 18px; border-radius: 50%; object-fit: cover; }
+
+.sidebar[data-state="rail"] .nav { padding: 10px 0; align-items: center; }
+.sidebar[data-state="rail"] .nav-item { justify-content: center; width: 44px; padding: 0; }
+.sidebar[data-state="rail"] .nav-item[aria-current="page"]::before { left: -10px; }
+.sidebar[data-state="rail"] .nav-text, .sidebar[data-state="rail"] .health-text {
+  position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap;
+}
+.sidebar[data-state="rail"] .nav-section { display: none; }
+.sidebar[data-state="rail"] .nav-badge { position: absolute; top: 2px; right: 1px; min-width: 16px; height: 16px; padding: 0 4px; font-size: 9.5px; line-height: 16px; }
+
+.sidebar-foot { flex: none; display: flex; flex-direction: column; gap: 2px; padding: 10px; border-top: 1px solid var(--border); }
+.sidebar[data-state="rail"] .sidebar-foot { align-items: center; padding: 10px 0; }
+
+/* Health summary: one dot, one line ("9/10 systems ok"), the per-service list in a popover. */
+.health-summary { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; padding: 4px 10px; border-radius: var(--r-sm); color: var(--text-2); text-align: left; font-size: 12.5px; transition: background-color var(--dur-1); }
+.health-summary:hover { background: var(--hover); color: var(--text); }
+.health-summary:is([data-state="open"], [aria-expanded="true"]) { background: var(--selected); }
+.health-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
+.health-text > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.health-text > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--text-3); }
+.health-summary:hover .health-text > small, .health-summary:is([data-state="open"], [aria-expanded="true"]) .health-text > small { color: var(--text-3-sunk); }
+.sidebar[data-state="rail"] .health-summary { justify-content: center; width: 44px; padding: 0; }
+.health-popover { --popover-w: 340px; padding: 0; }
+.health-popover-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 14px 8px; }
+.health-list { list-style: none; margin: 0; padding: 0 14px; max-height: min(360px, 50dvh); overflow-y: auto; }
+.health-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; column-gap: 10px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 13px; }
+.health-row:first-child { border-top: 0; }
+.health-row-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.health-row-meta { font: 500 11px/1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-3); white-space: nowrap; }
+.health-row-detail { grid-column: 2 / -1; margin-top: 2px; font-size: 12px; line-height: 1.4; color: var(--text-3); overflow-wrap: anywhere; }
+.health-popover-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 14px 12px; border-top: 1px dashed var(--border); font-size: 12px; color: var(--text-3); }
+
+/* ---------- Navigation drawer (< 1024px): a Radix Dialog using .sheet[data-side="left"] ---------- */
+.sheet.nav-drawer { --sheet-w: 320px; background: var(--paper); }
+.nav-drawer .sidebar-head { padding-right: 8px; }
+
+/* ---------- Topbar ---------- */
+.topbar {
+  position: relative;
+  z-index: var(--z-topbar);
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: calc(var(--topbar-h) + env(safe-area-inset-top));
+  padding: env(safe-area-inset-top) max(var(--gutter), env(safe-area-inset-right)) 0 max(var(--gutter), env(safe-area-inset-left));
+  background: var(--paper);
+  border-bottom: 1px solid var(--border);
+  /* Last-resort guard: nothing may push past the right edge (menus and tooltips are portalled). */
+  overflow: hidden;
+}
+/* Doubled class: .icon-btn (controls.css, loaded later) sets display too. */
+.topbar .topbar-menu { display: none; margin-left: -6px; }
+@media (max-width: 1023.98px) { .topbar .topbar-menu { display: inline-grid; } }
+.topbar-crumb { flex: none; display: inline-flex; align-items: center; gap: 8px; color: var(--text-3); font-size: 13px; white-space: nowrap; }
+.topbar-crumb a { border-radius: var(--r-xs); }
+.topbar-crumb a:hover { color: var(--text); text-decoration: underline; text-underline-offset: 0.18em; }
+.topbar-crumb-sep { color: var(--border-strong); }
+@media (max-width: 639.98px) { .topbar-crumb { display: none; } }
+/* The title shrinks first but never below ~12 characters (it used to collapse to 0px on phones). */
+.topbar-title { flex: 1 1 auto; min-width: min(12ch, 40%); margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Focus lands here programmatically after a navigation (for screen readers); no ring on a heading. */
+.topbar-title:focus, .topbar-title:focus-visible { outline: none; }
+.topbar-addon { flex: none; display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.topbar-actions { flex: none; display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-left: auto; }
+.topbar-legacy { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 60vw; overflow-x: auto; scrollbar-width: none; }
+.topbar-legacy::-webkit-scrollbar { display: none; }
+@media (max-width: 639.98px) {
+  .topbar { gap: 8px; }
+  /* Phones: the full title is in the task header; the bar keeps room for the status and actions. */
+  .topbar-title { min-width: min(9ch, 30%); }
+  /* data-compact (several inline actions, or a title addon): actions that have an icon show only the icon. */
+  .topbar-actions[data-compact] .tb-action[data-icon] .tb-label { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+  .topbar-actions[data-compact] .tb-action[data-icon] { width: 40px; padding: 0; }
+}
+
+/* ---------- Page scaffolding ---------- */
+/* <main id="main">: a column; each screen decides where it scrolls (.page scrolls, a split workspace fills). */
+.app-content { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: auto; outline: none; }
+.page {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 28px max(var(--gutter), env(safe-area-inset-right)) max(64px, calc(env(safe-area-inset-bottom) + 32px)) max(var(--gutter), env(safe-area-inset-left));
+  container: page / inline-size;
+}
+@media (max-width: 639.98px) { .page { padding-top: 18px; } }
+.page-narrow { max-width: var(--page-narrow); margin-inline: auto; }
+.page-wide { max-width: var(--page-max); margin-inline: auto; }
+.page-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 24px; margin-bottom: 24px; }
+.page-head > :first-child { min-width: 0; flex: 1 1 320px; }
+.page-head-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.page-title { margin: 6px 0 0; font-family: var(--font-display); font-weight: 400; font-size: var(--fs-page); line-height: 1.05; letter-spacing: -0.01em; color: var(--text); text-wrap: balance; overflow-wrap: anywhere; }
+.page-sub { margin: 0 0 24px; max-width: 68ch; color: var(--text-2); text-wrap: pretty; }
+.page-head .page-sub { margin: 8px 0 0; }
+.page-section { margin-top: 32px; }
+.page-section > .section-title { margin-bottom: 12px; }
+
+/* Full-screen states outside the shell (app loading, login, crash) */
+.screen-center { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; padding: max(24px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom)); background: var(--bg); }
+
+/* ---------- Sign-in (pages/Login.tsx) ---------- */
+.login { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; padding: max(32px, env(safe-area-inset-top)) 16px max(32px, env(safe-area-inset-bottom)); background-color: var(--paper); }
+.login-column { width: 100%; max-width: 440px; display: flex; flex-direction: column; align-items: center; gap: 28px; }
+.login-card { width: 100%; display: flex; flex-direction: column; gap: 16px; padding: 28px; border-color: var(--ink); background: var(--composer); box-shadow: var(--shadow-ink); }
+.login-note { margin-top: -8px; font-size: 13.5px; }
+@media (max-width: 639.98px) { .login-card { padding: 22px 18px; box-shadow: var(--shadow-ink-sm); } }
+
+/* ---------- Crash screen (components/ErrorBoundary.tsx) ---------- */
+.crash-card { width: min(640px, 100%); display: flex; flex-direction: column; align-items: flex-start; gap: 14px; padding: 28px; }
+.crash-details { width: 100%; }
+.crash-details summary { width: fit-content; border-radius: var(--r-xs); color: var(--text-2); font-weight: 600; }
+.crash-details .code-block { margin-top: 10px; max-height: 320px; white-space: pre-wrap; overflow-wrap: anywhere; }

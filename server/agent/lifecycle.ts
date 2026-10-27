@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import type { AgentEvent, AgentEventBody, RunOutcome, StatusReason, TaskStatus } from "@shared/agent";
 import { ACTIVE_STATUSES, FINAL_STATUSES, LEGACY_RESTART_ERROR, sourcesOf } from "@shared/taskStatus";
 import { heartbeatQuery, query } from "../db/pg";
-import { toJsonb } from "../db/json";
+import { cleanText, toJsonb } from "../db/json";
 
 // Task lifecycle: who owns a run, and the only place task status changes.
 //
@@ -37,20 +37,22 @@ export type LifecycleRow = {
   /** Seconds since the lease ran out (null while live or when there is no lease). */
   leaseExpiredFor: number | null;
   cancelRequested: boolean;
+  /** Why the row is in its status (getLifecycleRow only). */
+  statusReason: StatusReason | null;
 };
 
 const LEASE_COLUMNS = `(lease_expires_at IS NOT NULL AND lease_expires_at > now()) AS lease_live,
   CASE WHEN lease_expires_at IS NOT NULL AND lease_expires_at <= now() THEN EXTRACT(EPOCH FROM now() - lease_expires_at)::float ELSE NULL END AS lease_expired_for,
   cancel_requested_at IS NOT NULL AS cancel_requested`;
 
-type LeaseRow = { id: string; status: TaskStatus; run_id: string | null; attempt: number; worker_id: string | null; lease_live: boolean; lease_expired_for: number | null; cancel_requested: boolean };
+type LeaseRow = { id: string; status: TaskStatus; run_id: string | null; attempt: number; worker_id: string | null; lease_live: boolean; lease_expired_for: number | null; cancel_requested: boolean; status_reason?: StatusReason | null };
 const toLifecycleRow = (row: LeaseRow): LifecycleRow => ({
   id: row.id, status: row.status, runId: row.run_id, attempt: row.attempt, workerId: row.worker_id, leaseLive: row.lease_live,
-  leaseExpiredFor: row.lease_expired_for === null ? null : Number(row.lease_expired_for), cancelRequested: row.cancel_requested,
+  leaseExpiredFor: row.lease_expired_for === null ? null : Number(row.lease_expired_for), cancelRequested: row.cancel_requested, statusReason: row.status_reason ?? null,
 });
 
 export async function getLifecycleRow(taskId: string): Promise<LifecycleRow | null> {
-  const { rows } = await query<LeaseRow>(`SELECT id, status, run_id, attempt, worker_id, ${LEASE_COLUMNS} FROM ${t("chat_sessions")} WHERE id = $1`, [taskId]);
+  const { rows } = await query<LeaseRow>(`SELECT id, status, run_id, attempt, worker_id, status_reason, ${LEASE_COLUMNS} FROM ${t("chat_sessions")} WHERE id = $1`, [taskId]);
   return rows[0] ? toLifecycleRow(rows[0]) : null;
 }
 
@@ -76,7 +78,7 @@ export async function claimNextRun(taskId: string, opts: { runId: string; reason
   const { rows } = await query<{ attempt: number }>(
     `UPDATE ${t("chat_sessions")} SET status = 'queued', run_id = $2, attempt = attempt + 1, worker_id = $3,
        lease_expires_at = now() + interval '${LEASE_SECONDS} seconds', status_reason = $4, status_changed_at = now(),
-       error = NULL, cancel_requested_at = NULL, started_at = NULL, finished_at = NULL, outcome = NULL,
+       error = NULL, answer = NULL, cancel_requested_at = NULL, started_at = NULL, finished_at = NULL, outcome = NULL,
        updated_at = now(), last_activity_at = now()
      WHERE id = $1 AND status = ANY($5::text[]) ${fence}
      RETURNING attempt`, values,
@@ -116,8 +118,9 @@ export async function transitionTask(taskId: string, runId: string | null, to: T
     return `$${values.length}`;
   };
   if (opts.reason !== undefined) sets.push(`status_reason = ${param(opts.reason)}`);
-  if (opts.error !== undefined) sets.push(`error = ${param(opts.error)}`);
-  if (opts.answer !== undefined) sets.push(`answer = ${param(opts.answer)}`);
+  // Text columns reject NUL bytes too; an unstorable answer must not cost the run its terminal status.
+  if (opts.error !== undefined) sets.push(`error = ${param(opts.error === null ? null : cleanText(opts.error))}`);
+  if (opts.answer !== undefined) sets.push(`answer = ${param(cleanText(opts.answer))}`);
   if (opts.outcome !== undefined) sets.push(`outcome = ${param(opts.outcome === null ? null : toJsonb(opts.outcome))}::jsonb`);
   if (to === "running") sets.push("started_at = COALESCE(started_at, now())", `lease_expires_at = now() + interval '${LEASE_SECONDS} seconds'`);
   if (to === "cancelling" || opts.cancelRequested) sets.push("cancel_requested_at = COALESCE(cancel_requested_at, now())");
@@ -166,6 +169,22 @@ export async function closeOpenSessionEvents(taskId: string): Promise<AgentEvent
      FROM ${t("agent_execution_logs")} WHERE session_id = $1 AND type = 'browser_session' GROUP BY 1`, [taskId],
   );
   return rows.filter(row => row.sid && row.last === "live").map(row => ({ type: "browser_session", sessionId: row.sid, status: "ended", liveUrl: null, replayUrl: "", reason: "interrupted" }) as AgentEventBody);
+}
+
+/**
+ * A run_start for a run whose start never reached the log (its worker died right after the claim),
+ * so the end recorded for it is not read as the end of the previous run.
+ */
+export async function missingRunStart(taskId: string, runId: string | null, attempt: number): Promise<AgentEventBody[]> {
+  if (!runId) return [];
+  const { rows } = await query<{ found: boolean; reason: StatusReason | null }>(
+    `SELECT EXISTS (SELECT 1 FROM ${t("agent_execution_logs")} WHERE session_id = $1 AND type = 'run_start' AND data->>'runId' = $2) AS found,
+            (SELECT status_reason FROM ${t("chat_sessions")} WHERE id = $1) AS reason`, [taskId, runId],
+  );
+  if (rows[0]?.found !== false) return [];
+  const reason = rows[0]?.reason;
+  const trigger = reason === "retry" ? "retry" : reason === "deploy" ? "deploy" : reason === "follow_up" ? "follow_up" : "prompt";
+  return [{ type: "run_start", runId, attempt, trigger }];
 }
 
 /**
@@ -266,7 +285,8 @@ export async function reconcileStaleTasks(isLocal: (taskId: string, runId: strin
     const status: TaskStatus = cancelled ? "cancelled" : "interrupted";
     const reason: StatusReason = cancelled ? "user_cancel" : verdict.reason;
     const closing = await closeOpenSessionEvents(row.id).catch(() => [] as AgentEventBody[]);
-    const result = await transitionTask(row.id, row.run_id, status, { from: [row.status], reason, events: [...closing, ...terminalEvents(status, { reason })] });
+    const opening = await missingRunStart(row.id, row.run_id, row.attempt).catch(() => [] as AgentEventBody[]);
+    const result = await transitionTask(row.id, row.run_id, status, { from: [row.status], reason, events: [...opening, ...closing, ...terminalEvents(status, { reason })] });
     if (result.applied) recovered.push({ taskId: row.id, status, reason });
   }
   return recovered;

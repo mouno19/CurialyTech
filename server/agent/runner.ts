@@ -414,7 +414,18 @@ async function persistently<T>(label: string, write: () => Promise<T>): Promise<
 type RunOptions = {
   mode: TaskMode; effort: ThinkingLevel; webSearch: boolean; spec: ModelSpec; reason: string; team?: boolean;
   restoredFiles?: number; cloneRepo?: { repo: string; branch?: string }; grants?: PublishGrants;
+  /** Restrict the tools this run may call (enforced in trackedTool, not only by what is offered). */
+  allowedTools?: Set<string>;
 };
+
+/**
+ * The Deploy action promises that the user's own repositories are not changed: its run may use
+ * every tool except the GitHub write tools (the preview goes through its own temporary repository).
+ */
+function deployRunTools() {
+  const blocked = new Set(["github_commit_and_push", "github_create_pr", "github_clone_to_workspace"]);
+  return new Set(toolsFor({ coding: true, web: true, eager: false, github: true }).map(tool => tool.name).filter(name => !blocked.has(name)));
+}
 
 /** Register the handle, open its channel and announce the run (before the HTTP response). */
 async function announce(handle: RunHandle, message?: { text: string; attachments?: AttachmentDisplay[]; clientMessageId?: string }) {
@@ -446,21 +457,26 @@ export async function startTask(req: CreateTaskRequest, attachments: AttachmentR
     return id;
   } catch (error) {
     // Nothing may be left "queued" without a run: record the failed start.
-    await abortStart(handle, error);
+    await abortStart(handle, error, { text: req.prompt });
     throw error;
   }
 }
 
 /** A start that failed before the run began: the row (if any) becomes failed with its terminal events. */
-async function abortStart(handle: RunHandle, error: unknown) {
-  if (handles.get(handle.taskId) === handle) handles.delete(handle.taskId);
+async function abortStart(handle: RunHandle, error: unknown, message?: { text: string }) {
   try {
     if (handle.claimed) {
-      const message = `Could not start: ${describeError(error)}`;
+      const detail = `Could not start: ${describeError(error)}`;
       const channel = handle.channel;
       channel?.seal();
       await channel?.drain();
-      const result = await transitionTask(handle.taskId, handle.runId, "failed", { from: ["queued"], reason: "start_failed", error: message, events: terminalEvents("failed", { reason: "start_failed", error: message }), baseSeq: channel?.seq });
+      // Never announced: the log gets this run's boundary (and the user's message) with its end, so a
+      // replay does not attach the failure to the previous run.
+      const opening: AgentEventBody[] = channel ? [] : [
+        { type: "run_start", runId: handle.runId, attempt: handle.attempt, trigger: handle.trigger },
+        ...(message ? [{ type: "user_message", text: message.text } as AgentEventBody] : []),
+      ];
+      const result = await transitionTask(handle.taskId, handle.runId, "failed", { from: ["queued"], reason: "start_failed", error: detail, events: [...opening, ...terminalEvents("failed", { reason: "start_failed", error: detail })], baseSeq: channel?.seq });
       handle.settled = true;
       if (result.applied) channel?.publish(result.events);
       await channel?.close();
@@ -468,6 +484,8 @@ async function abortStart(handle: RunHandle, error: unknown) {
   } catch (recordError) {
     console.error(`[agent] could not record the failed start of ${handle.taskId}:`, recordError instanceof Error ? recordError.message : recordError);
   } finally {
+    // Only now: until the failure is recorded the reconciler must see this run as ours.
+    if (handles.get(handle.taskId) === handle) handles.delete(handle.taskId);
     handle.resolveFinalized();
   }
 }
@@ -476,15 +494,20 @@ async function abortStart(handle: RunHandle, error: unknown) {
 async function claimRun(taskId: string, trigger: RunTrigger, expectedRunId?: string | null) {
   admit();
   await awaitPrevious(taskId);
+  // Check and register in one synchronous step: two requests released by the same finishing run
+  // must not both register (the loser would remove the winner's entry and orphan its run).
+  if (handles.has(taskId)) throw new TaskRejected("This task is still running.");
+  admit();
   const handle = newHandle(taskId, trigger);
   handles.set(taskId, handle);
+  const release = () => { if (handles.get(taskId) === handle) handles.delete(taskId); };
   const reason: StatusReason = trigger === "retry" ? "retry" : trigger === "deploy" ? "deploy" : "follow_up";
   const claimed = await claimNextRun(taskId, { runId: handle.runId, reason, expectedRunId }).catch(error => {
-    handles.delete(taskId);
+    release();
     throw error;
   });
   if (!claimed) {
-    handles.delete(taskId);
+    release();
     const row = await getLifecycleRow(taskId);
     if (!row) throw new TaskRejected("Task not found.");
     throw new TaskRejected(isFinalStatus(row.status) ? "This task has changed since you loaded it. Reload and try again." : "This task is still running.");
@@ -526,7 +549,7 @@ export async function followUp(taskId: string, prompt: string, attachments: Atta
     void executeRun(handle, conversation, { mode: task.mode, effort: aliasEffort(task.model) ?? task.effort, webSearch: task.webSearch, spec, reason: task.team ? "Dev Team follow-up." : "Follow-up on the same model.", team: Boolean(task.team), restoredFiles });
     return { runId: handle.runId, attempt: handle.attempt };
   } catch (error) {
-    await abortStart(handle, error);
+    await abortStart(handle, error, { text: prompt });
     throw error;
   }
 }
@@ -550,10 +573,10 @@ export async function startDeployRun(taskId: string, opts: { expectedRunId?: str
     await addMessage(taskId, "user", "Deploy a live preview");
     await announce(handle, { text: "Deploy a live preview" });
     // Deploys are solo runs even for Dev Team tasks: the work was already reviewed.
-    void executeRun(handle, conversation, { mode: "agent", effort: aliasEffort(task.model) ?? task.effort, webSearch: task.webSearch, spec: task.team && !spec.tools ? getModel("claude-sonnet-5-5")! : spec, reason: "Deploy requested.", team: false, grants: { deploy: true } });
+    void executeRun(handle, conversation, { mode: "agent", effort: aliasEffort(task.model) ?? task.effort, webSearch: task.webSearch, spec: task.team && !spec.tools ? getModel("claude-sonnet-5-5")! : spec, reason: "Deploy requested.", team: false, grants: { deploy: true }, allowedTools: deployRunTools() });
     return { runId: handle.runId, attempt: handle.attempt };
   } catch (error) {
-    await abortStart(handle, error);
+    await abortStart(handle, error, { text: "Deploy a live preview" });
     throw error;
   }
 }
@@ -567,6 +590,10 @@ export async function retryTask(taskId: string, opts: { expectedRunId?: string |
   const spec = getModel(task.model);
   if (!spec) throw new TaskRejected(`Unknown model ${task.model}.`);
   const previousStatus = task.status;
+  const { rows: [latest] } = await query<{ trigger: string | null }>(
+    "SELECT data->>'trigger' AS trigger FROM curialy.agent_execution_logs WHERE session_id = $1 AND type = 'run_start' ORDER BY seq DESC LIMIT 1", [taskId],
+  ).catch(() => ({ rows: [] as { trigger: string | null }[] }));
+  if (latest?.trigger === "deploy") throw new TaskRejected("That run was a deploy. Start a new preview with Deploy (a retry cannot deploy).");
   const sideEffects = await previousRunSideEffects(taskId);
   const handle = await claimRun(taskId, "retry", opts.expectedRunId === undefined ? task.runId ?? null : opts.expectedRunId);
   try {
@@ -621,7 +648,7 @@ function appendUserNote(conversation: Record<string, unknown>[], format: Convers
  * and a public preview, so it is only granted by the confirmed Deploy action, never inferred from
  * prompt wording, and a retry does not inherit it.
  */
-export type PublishGrants = { deploy?: boolean };
+export type PublishGrants = { deploy?: boolean; deployUsed?: boolean; deployLive?: boolean };
 
 export type CancelResult = { status: TaskStatus; statusReason?: StatusReason; runId: string | null; changed: boolean };
 
@@ -637,7 +664,14 @@ export async function requestCancel(taskId: string, expectedRunId?: string | nul
   if (expectedRunId && row.runId && expectedRunId !== row.runId && !isFinalStatus(row.status)) {
     throw new TaskRejected("A newer run of this task has started since you loaded it. Reload to see it.");
   }
-  if (isFinalStatus(row.status)) return { status: row.status, runId: row.runId, changed: false };
+  const reported = (status: TaskStatus, reason: StatusReason | null | undefined, changed: boolean): CancelResult => ({ status, ...(reason ? { statusReason: reason } : {}), runId: row.runId, changed });
+  // The row as it is now, with its own reason: the run may have finished, or been recovered, meanwhile.
+  const reread = async (fallback: TaskStatus, changed: boolean) => {
+    const now = await getLifecycleRow(taskId);
+    const status = now?.status ?? fallback;
+    return reported(status, status === "cancelling" ? "user_cancel" : now?.statusReason, changed);
+  };
+  if (isFinalStatus(row.status)) return reported(row.status, row.statusReason, false);
   const handle = handles.get(taskId);
   if (handle && handle.runId === row.runId && !handle.settled) {
     const already = handle.controller.signal.aborted;
@@ -648,21 +682,19 @@ export async function requestCancel(taskId: string, expectedRunId?: string | nul
     stopRun(handle, "user");
     // Most runs stop within moments; report the confirmed state either way.
     await Promise.race([handle.finalized, new Promise(resolve => setTimeout(resolve, 3000))]);
-    const now = await getLifecycleRow(taskId);
-    return { status: now?.status ?? "cancelling", statusReason: "user_cancel", runId: row.runId, changed: !already };
+    return reread("cancelling", !already);
   }
-  if (row.status === "cancelling" && row.leaseLive && row.workerId !== WORKER_ID) return { status: "cancelling", statusReason: "user_cancel", runId: row.runId, changed: false };
+  if (row.status === "cancelling" && row.leaseLive && row.workerId !== WORKER_ID) return reported("cancelling", "user_cancel", false);
   const verdict = judgeStaleness({ workerId: row.workerId, leaseLive: row.leaseLive, leaseExpiredFor: row.leaseExpiredFor });
   if (!verdict.stale) {
     // Another live process runs it: record the request; its heartbeat stops the run.
     const marked = await transitionTask(taskId, row.runId, "cancelling", { from: ["queued", "running"], reason: "user_cancel" });
-    return { status: "cancelling", statusReason: "user_cancel", runId: row.runId, changed: marked.applied };
+    return marked.applied ? reported("cancelling", "user_cancel", true) : reread(row.status, false);
   }
   // Nobody is running it any more: the cancel takes effect immediately.
   const closing = await closeOpenSessionEvents(taskId).catch(() => [] as AgentEventBody[]);
   const result = await transitionTask(taskId, row.runId, "cancelled", { from: [row.status], reason: "user_cancel", events: [...closing, ...terminalEvents("cancelled", { reason: "user_cancel" })] });
-  const now = result.applied ? null : await getLifecycleRow(taskId);
-  return { status: result.applied ? "cancelled" : now?.status ?? row.status, statusReason: "user_cancel", runId: row.runId, changed: result.applied };
+  return result.applied ? reported("cancelled", "user_cancel", true) : reread(row.status, false);
 }
 
 /** Record a terminal status for a run that has not ended on its own (cancel deadline, shutdown). */
@@ -680,7 +712,8 @@ async function forceSettle(handle: RunHandle, status: "cancelled" | "interrupted
     const channel = handle.channel;
     channel?.seal();
     await channel?.drain();
-    const result = await persistently(`force ${status} ${handle.taskId}`, () => transitionTask(handle.taskId, handle.runId, status, { from: ["queued", "running", "cancelling"], reason, events: terminalEvents(status, { reason }), baseSeq: channel?.seq }));
+    const opening: AgentEventBody[] = channel ? [] : [{ type: "run_start", runId: handle.runId, attempt: handle.attempt, trigger: handle.trigger }];
+    const result = await persistently(`force ${status} ${handle.taskId}`, () => transitionTask(handle.taskId, handle.runId, status, { from: ["queued", "running", "cancelling"], reason, events: [...opening, ...terminalEvents(status, { reason })], baseSeq: channel?.seq }));
     if (result.applied) channel?.publish(result.events);
     await channel?.close();
     console.warn(`[agent] ${handle.taskId}: run did not stop in time; recorded as ${status} (${reason})`);
@@ -776,6 +809,7 @@ async function executeRun(handle: RunHandle, conversation: Record<string, unknow
       outcome: { verification: "none" },
       grants: opts.grants ?? {},
       publishing: handle.publishing,
+      ...(opts.allowedTools ? { allowedTools: opts.allowedTools } : {}),
     };
     ctx = runCtx;
     runCtx.recovery = new RecoveryEngine({
@@ -829,6 +863,8 @@ async function executeRun(handle: RunHandle, conversation: Record<string, unknow
     else answer = await runAnthropicLoop(runCtx, conversation as unknown as Anthropic.MessageParam[]);
     if (controller.signal.aborted) throw controller.signal.reason;
     await deliverArtifacts(runCtx, false);
+    // The Deploy action's whole job is a live preview: without one the run completed with issues.
+    if (handle.trigger === "deploy" && !runCtx.grants.deployLive) runCtx.outcome.publish = "failed";
     end = { kind: "record", status: "completed", answer, outcome: runCtx.outcome };
   } catch (error) {
     end = endOf(error, controller.signal, handle.phase === "running");
@@ -1451,6 +1487,9 @@ async function trackedTool(ctx: RunContext, callId: string, name: string, input:
       if (isVerificationCommand(command)) ctx.agentVerifyCommands.push(command);
     },
   }).finally(() => { if (publishing) ctx.publishing.count--; });
+  // A push, pull request or deploy that failed (or was refused) makes the run "completed with
+  // issues"; one failure is never cleared by a later success.
+  if (publishing) ctx.outcome.publish = !outcome.ok ? "failed" : ctx.outcome.publish === "failed" ? "failed" : "done";
   if (snapshot) enforceReadOnly(ctx, snapshot, outcome);
   // A repository cloned mid-run is the starting point for "files from this run", not output.
   if (name === "github_clone_to_workspace" && outcome.ok) ctx.manifest = workspaceManifest(ctx.root);

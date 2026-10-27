@@ -169,7 +169,9 @@ function vitePluginPublicPlatformConfig(): Plugin {
 }
 
 // The original template's platform-config and debug-collector plugins are no longer used.
-const plugins = [react(), tailwindcss(), jsxLocPlugin()];
+// jsx-loc only in the dev server: in a build it writes source paths into the DOM (data-loc).
+const jsxLocDevOnly: Plugin = { ...jsxLocPlugin(), apply: "serve" };
+const plugins = [react(), tailwindcss(), jsxLocDevOnly];
 
 export default defineConfig({
   plugins,

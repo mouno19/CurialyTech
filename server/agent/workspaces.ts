@@ -198,8 +198,8 @@ export async function materializeWorkspace(taskId: string) {
       if (!connection) throw new Error(`Reconnect GitHub to restore ${repo.fullName} into this workspace.`);
       await restoreLinkedRepo(root, repo, connection.token);
     }
-    // Sources and the archived build, so a restored workspace can be previewed again.
-    const files = await loadWorkspaceSnapshot(taskId, ["source", "build"]);
+    // Sources, the archived build (so it can be previewed again) and outage-kept attachments.
+    const files = await loadWorkspaceSnapshot(taskId, ["source", "build", "artifact"]);
     for (const file of files) writeWorkspaceBytes(root, file.path, file.content);
     return { dir: root, restored: files.length };
   } catch (error) {

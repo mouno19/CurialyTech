@@ -1,0 +1,236 @@
+/* Curialy design tokens. Brand values first, semantic roles on top: components use the semantic
+   names (--text, --surface, --success-fg...) so a palette change never touches component CSS.
+   Contrast ratios (WCAG 2.x) are against --paper unless noted. Breakpoints cannot be custom
+   properties inside @media, so use the literals: phone < 640px, tablet 640-1023px,
+   desktop >= 1024px, wide >= 1440px (same values in client/src/lib/breakpoints.ts). */
+:root {
+  color-scheme: light;
+
+  /* Brand: surfaces */
+  --paper: #f3efe6;          /* page background */
+  --paper-deep: #e9e3d5;     /* sunken areas, hovers, user bubbles */
+  --card: #f8f5ee;           /* cards and panels */
+  --composer: #fbf9f4;       /* raised input surfaces: composer, menus, dialogs, fields */
+
+  /* Brand: ink and greys */
+  --ink: #14130f;            /* 16.2:1 */
+  --ink-soft: #3a372f;       /* 10.4:1 */
+  --graphite: #6f6a5d;       /* 4.70:1 paper, 4.95 card, 5.12 composer. Fails on paper-deep (4.21) */
+  --graphite-deep: #5f5a4e;  /* 5.37:1 on paper-deep */
+  --rule: #d8d0bf;           /* decorative dividers only (1.34:1) */
+  --rule-strong: #8a8475;    /* control outlines (3.25:1, meets 1.4.11 non-text contrast) */
+
+  /* Brand: vermilion */
+  --vermilion: #ff4a1c;      /* fills, dots, sparks, decoration only; never text (2.93:1). Ink on it: 5.53 */
+  --vermilion-deep: #d93a10; /* text >= 24px (19px bold), icons, selected/progress indicators (4.01:1) */
+  --vermilion-ink: #b8300c;  /* small vermilion text and links (5.28:1, 4.74 on paper-deep). Paper on it: 5.28 */
+  --vermilion-wash: #fbe3d9; /* vermilion-ink on it: 4.93 */
+
+  /* Brand: moss, ochre, brick */
+  --moss: #4f7a3a;           /* icons, dots, fills (4.38:1: not small text) */
+  --moss-ink: #3f6630;       /* success text (5.80:1; 5.39 on moss-wash) */
+  --moss-wash: #e3ead5;
+  --ochre: #a8740c;          /* warning icons and dots (3.54:1) */
+  --ochre-ink: #7a5200;      /* warning text (6.03:1; 5.45 on ochre-wash) */
+  --ochre-wash: #f3e3bf;
+  --brick-ink: #a32a0a;      /* danger text, icons, solid fill (6.33:1; 5.56 on brick-wash; paper on it 6.33) */
+  --brick-wash: #f6dcd2;
+
+  /* Ink panels: terminals, code, diffs, toasts */
+  --panel: #1b1a15;
+  --panel-2: #211f19;        /* panel headers and chrome */
+  --panel-3: #141310;        /* panel bodies (terminal, code) */
+  --panel-text: #f3efe6;     /* 15.2:1 */
+  --panel-text-2: rgb(243 239 230 / 0.8);  /* 10.0:1 */
+  --panel-muted: rgb(243 239 230 / 0.62);  /* 6.5:1. Never go below 0.6 (0.4 is 3.5:1) */
+  --panel-rule: rgb(243 239 230 / 0.12);
+  --panel-hover: rgb(243 239 230 / 0.06);
+  --panel-ok: #9bd17b;       /* 9.8:1 */
+  --panel-err: #ff8a6b;      /* 7.6:1 */
+  --panel-add-bg: #22261b;   /* diff added line (ok at 10%) */
+  --panel-add-fg: #c9e8b4;
+  --panel-del-bg: #2c1f19;   /* diff removed line (err at 10%) */
+  --panel-del-fg: #ffc1b0;
+
+  /* Semantic roles */
+  --bg: var(--paper);
+  --surface: var(--card);
+  --surface-sunk: var(--paper-deep);
+  --surface-raised: var(--composer);
+  --text: var(--ink);
+  --text-2: var(--ink-soft);
+  --text-3: var(--graphite);            /* on paper, card, composer only */
+  --text-3-sunk: var(--graphite-deep);  /* on paper-deep and on hover/selected washes */
+  --border: var(--rule);
+  --border-strong: var(--rule-strong);
+  --accent: var(--vermilion);
+  --accent-strong: var(--vermilion-deep);
+  --accent-text: var(--vermilion-ink);
+  --link: var(--vermilion-ink);
+  --focus: var(--ink);                  /* focus ring; paper inside .panel-ink */
+  --hover: rgb(20 19 15 / 0.05);
+  --press: rgb(20 19 15 / 0.09);
+  --selected: rgb(20 19 15 / 0.07);     /* graphite fails on it: use --text-2 or --text-3-sunk */
+  --scrim: rgb(20 19 15 / 0.42);
+
+  /* Tones (match STATUS_META.tone): fg = text, bg = wash, border, solid = dots and icons */
+  --success-fg: var(--moss-ink);
+  --success-bg: var(--moss-wash);
+  --success-border: #afc39f;
+  --success-solid: var(--moss);
+  --warning-fg: var(--ochre-ink);
+  --warning-bg: var(--ochre-wash);
+  --warning-border: #dcbe82;
+  --warning-solid: var(--ochre);
+  --danger-fg: var(--brick-ink);
+  --danger-bg: var(--brick-wash);
+  --danger-border: #dda796;
+  --danger-solid: var(--brick-ink);
+  --progress-fg: var(--ink);            /* running = ink text + vermilion spark, never mistaken for danger */
+  --progress-bg: var(--composer);
+  --progress-border: #b6b4af;
+  --progress-solid: var(--vermilion);
+  --neutral-fg: var(--ink-soft);
+  --neutral-bg: var(--paper-deep);
+  --neutral-border: var(--rule);
+  --neutral-solid: var(--graphite);
+  --info-fg: var(--ink);
+  --info-bg: var(--card);
+  --info-border: var(--rule-strong);
+  --info-solid: var(--ink-soft);
+
+  /* Type: Geist for UI, Instrument Serif for display >= 20px only, Geist Mono for micro labels, code, metrics */
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Instrument Serif", ui-serif, Georgia, Cambria, "Times New Roman", serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --fs-micro: 10.5px;        /* mono, uppercase, --tracking-micro */
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 14px;             /* body */
+  --fs-lg: 16px;
+  --fs-title: 24px;          /* serif: dialog and empty-state titles */
+  --fs-page: clamp(30px, 1.6vw + 18px, 40px);   /* serif page titles */
+  --fs-display: clamp(36px, 3.4vw + 14px, 60px); /* serif hero */
+  --lh-tight: 1.15;
+  --lh: 1.5;
+  --lh-relaxed: 1.65;
+  --tracking-micro: 0.18em;
+
+  /* Space (4px scale) */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-7: 32px;
+  --s-8: 40px;
+  --s-9: 48px;
+  --s-10: 64px;
+
+  /* Radius */
+  --r-xs: 4px;
+  --r-sm: 8px;               /* buttons, inputs, nav items */
+  --r-md: 10px;              /* menus, popovers, notices, code */
+  --r-lg: 14px;              /* cards, dialogs */
+  --r-xl: 18px;              /* composer */
+  --r-pill: 999px;
+
+  /* Shadows */
+  --shadow-hair: 0 1px 0 rgb(20 19 15 / 0.04);
+  --shadow-card: 0 1px 2px rgb(20 19 15 / 0.06), 0 1px 0 rgb(20 19 15 / 0.03);
+  --shadow-pop: 0 2px 6px rgb(20 19 15 / 0.08), 0 18px 48px -18px rgb(20 19 15 / 0.38);
+  --shadow-ink-sm: 4px 4px 0 var(--ink);  /* the reference's printed-card offset shadow */
+  --shadow-ink: 6px 6px 0 var(--ink);
+  --shadow-ink-lg: 8px 8px 0 var(--ink);
+  --shadow-sheet: 0 0 60px -20px rgb(20 19 15 / 0.5);
+
+  /* Layers (menus sit above dialogs because they can open from inside one) */
+  --z-sticky: 10;
+  --z-sidebar: 20;
+  --z-topbar: 30;
+  --z-overlay: 60;
+  --z-modal: 70;
+  --z-popover: 80;
+  --z-toast: 90;
+  --z-tooltip: 100;
+  --z-skip: 110;
+
+  /* Motion: short and purposeful; base.css turns all of it off under prefers-reduced-motion */
+  --dur-1: 120ms;            /* hover, press, tooltip */
+  --dur-2: 180ms;            /* menus, popovers, tabs, state changes */
+  --dur-3: 240ms;            /* drawer, sheet, dialog, panel */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-in: cubic-bezier(0.5, 0, 0.75, 0);  /* exits */
+
+  /* Layout */
+  --sidebar-w: 248px;
+  --rail-w: 64px;
+  --topbar-h: 56px;
+  --gutter: 32px;            /* page side padding; 16px on phones */
+  --page-max: 1240px;
+  --page-narrow: 1080px;
+  --chat-max: 760px;
+  --inspector-min: 360px;
+
+  /* Transitional aliases for markup that still names the old palette. Remove once
+     `grep -rn "var(--violet\|var(--mint\|var(--amber\|var(--red\|var(--muted\|var(--faint" client/src` is empty. */
+  --violet: var(--vermilion-deep);
+  --violet-line: var(--rule-strong);
+  --mint: var(--moss);
+  --amber: var(--ochre);
+  --red: var(--brick-ink);
+  --muted: var(--text-2);
+  --faint: var(--text-3);
+  --add-fg: var(--moss-ink);
+  --radius: var(--r-lg);
+  --mono: var(--font-mono);
+  --sans: var(--font-sans);
+}
+
+@media (max-width: 639.98px) {
+  :root { --gutter: 16px; --topbar-h: 52px; }
+}
+
+/* Ink panels re-map the semantic roles locally, so anything nested (buttons, chips, focus rings,
+   scrollbars) adapts. Use for terminals, code, diffs and other dark chrome. */
+.panel-ink {
+  color-scheme: dark;
+  --bg: var(--panel);
+  --surface: var(--panel);
+  --surface-sunk: var(--panel-3);
+  --surface-raised: var(--panel-2);
+  --text: var(--panel-text);
+  --text-2: var(--panel-text-2);
+  --text-3: var(--panel-muted);
+  --text-3-sunk: var(--panel-muted);
+  --border: var(--panel-rule);
+  --border-strong: rgb(243 239 230 / 0.32);
+  --link: #ff9b7a;
+  --focus: var(--paper);
+  --hover: var(--panel-hover);
+  --press: rgb(243 239 230 / 0.1);
+  --selected: rgb(243 239 230 / 0.09);
+  --success-fg: var(--panel-ok);
+  --success-bg: rgb(155 209 123 / 0.12);
+  --success-border: rgb(155 209 123 / 0.35);
+  --success-solid: var(--panel-ok);
+  --danger-fg: var(--panel-err);
+  --danger-bg: rgb(255 138 107 / 0.12);
+  --danger-border: rgb(255 138 107 / 0.35);
+  --danger-solid: var(--panel-err);
+  --warning-fg: #e8c06a;
+  --warning-bg: rgb(232 192 106 / 0.12);
+  --warning-border: rgb(232 192 106 / 0.35);
+  --warning-solid: #e8c06a;
+  --neutral-fg: var(--panel-text-2);
+  --neutral-bg: rgb(243 239 230 / 0.08);
+  --neutral-border: var(--panel-rule);
+  --neutral-solid: var(--panel-muted);
+  --progress-fg: var(--panel-text);
+  --progress-bg: rgb(255 74 28 / 0.14);
+  --progress-border: rgb(255 74 28 / 0.4);
+  background: var(--panel);
+  color: var(--panel-text);
+}

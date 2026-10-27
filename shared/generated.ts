@@ -12,11 +12,14 @@ const GENERATED_DIRS = new Set([
 /** Inside a generated directory these are still treated as sources (e.g. scripts/build/run.ts). */
 const SOURCE_EXT = /\.(tsx?|mts|cts|jsx|py|rb|go|rs|java|kt|swift|c|cc|cpp|h|hpp|cs|php|vue|svelte|astro|sql|sh|ya?ml|toml|md|mdx)$/i;
 
-/** Deliverables that are never "build output", wherever they live. */
-const DELIVERABLE_EXT = /\.(pdf|zip|tar|tgz|gz|7z|docx?|xlsx?|pptx?|csv|odt|ods|epub)$/i;
+/** Deliverables that are never "build output", wherever they live (documents, data, packaged apps). */
+const DELIVERABLE_EXT = /\.(pdf|zip|tar|tgz|gz|7z|docx?|xlsx?|pptx?|csv|odt|ods|epub|apk|aab|ipa|jar|war|ear|whl|egg|dmg|pkg|exe|msi|deb|rpm|appimage|nupkg|crx|xpi|vsix|snap)$/i;
 
-/** Vite/Rollup/webpack hashed assets: Chat-BSEziAk6.js, index-7hlOrPdg.css, main.3f9a1c2b.js. */
-const HASHED_IN_ASSETS = /(^|\/)(assets|static\/(js|css|media)|chunks|_next\/static\/[^/]+)\/[^/]+[-.](?=[A-Za-z0-9_-]{8}\.)(?=[A-Za-z0-9_-]{0,7}[A-Z0-9])[A-Za-z0-9_-]{8}\.(m?js|cjs|css|woff2?|ttf|eot|svg|png|jpe?g|webp|gif|avif)$/;
+/**
+ * Vite/Rollup/webpack hashed code and fonts: Chat-BSEziAk6.js, index-7hlOrPdg.css, main.3f9a1c2b.js.
+ * Images are left to the generated-folder rule: a hand-made src/assets/logo-Version2.png looks hashed.
+ */
+const HASHED_IN_ASSETS = /(^|\/)(assets|static\/(js|css|media)|chunks|_next\/static\/[^/]+)\/[^/]+[-.](?=[A-Za-z0-9_-]{8}\.)(?=[A-Za-z0-9_-]{0,7}[A-Z0-9])[A-Za-z0-9_-]{8}\.(m?js|cjs|css|woff2?|ttf|eot)$/;
 const HEX_HASHED = /(^|\/)[^/]+\.[a-f0-9]{8,32}\.(m?js|css)$/;
 const NOISE = /(^|\/)([^/]+\.(map|tsbuildinfo)|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|\.DS_Store)$/;
 

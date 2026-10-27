@@ -118,3 +118,4 @@ client/public/__manus__/version.json
 
 dist-prev/
 dist-next/
+dist-failed/

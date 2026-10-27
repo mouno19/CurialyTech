@@ -8,7 +8,7 @@ import type { Emit } from "./bus";
 import { PROVIDER_ENV, runManusTask } from "./providers";
 import { browserConfigured, closeLiveBrowser, liveBrowser, navigate, snapshot } from "./browser";
 import { deployConfigured, deployPreview } from "./deploy";
-import { mediaStatus, storeMedia } from "../media/snowflake";
+import { assertStorageAvailable, storeMedia } from "../media/snowflake";
 import { StorageError } from "../media/storage-errors";
 
 /** Largest screenshot kept inline in the event log while file storage is unavailable (base64 chars). */
@@ -34,7 +34,7 @@ export type ToolContext = {
   /** Called with paths the agent attached explicitly, so the end-of-run collection skips them. */
   onAttach?: (paths: string[]) => void;
   /** Publishing allowed in this run: a deploy only when the user asked for it or used the Deploy action. */
-  grants?: { deploy?: boolean };
+  grants?: { deploy?: boolean; deployUsed?: boolean; deployLive?: boolean };
 };
 
 export type ToolOutcome = { ok: boolean; content: string; summary: string; exitCode?: number | null; image?: { mediaType: "image/jpeg"; base64: string } };
@@ -394,24 +394,30 @@ async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOu
     case "github_create_pr":
       return runGitHubTool(name, input, ctx);
     case "deploy_preview": {
-      // A public preview is an external side effect: only when this run was asked to deploy.
+      // A public preview is an external side effect: only in a run started by the Deploy action, once.
       if (!ctx.grants?.deploy) {
-        return { ok: false, content: "deploy_preview is not allowed in this run: the user did not ask for a deploy. Do not deploy; if a live preview would help, say so in your summary and the user can start one with the Deploy action.", summary: "Deploy not requested" };
+        return ctx.grants?.deployUsed
+          ? { ok: false, content: "deploy_preview was already used in this run (one preview per run). Report the outcome of that attempt; the user can start another deploy with the Deploy action.", summary: "Already deployed in this run" }
+          : { ok: false, content: "deploy_preview is not allowed in this run: deploys start only from the user's Deploy action. Do not deploy; if a live preview would help, say so in your summary.", summary: "Deploy not requested" };
       }
       const { kind, build_command, publish_path, start_command } = input as z.infer<typeof schemas.deploy_preview>;
       // One preview per run: a retried tool call must not create another repository and service.
       ctx.grants.deploy = false;
+      ctx.grants.deployUsed = true;
       let deploymentId = "";
       let expiresAt: string | undefined;
       const result = await deployPreview({
         sessionId: ctx.sessionId, callId: ctx.callId, root: ctx.root, kind, buildCommand: build_command, publishPath: publish_path, startCommand: start_command, signal: ctx.signal,
         onCreated: (id, expires) => { deploymentId = id; expiresAt = expires; },
         onProgress: (status, detail, url) => {
-          ctx.emit({ type: "tool_output", callId: ctx.callId, stream: status === "failed" ? "stderr" : "stdout", chunk: `[deploy:${status}] ${brandText(detail)}${url ? ` ${url}` : ""}\n` });
+          // The preview's public address is a hosting-provider host: the deployment card links to it
+          // through a first-party route; the log line does not print it.
+          ctx.emit({ type: "tool_output", callId: ctx.callId, stream: status === "failed" ? "stderr" : "stdout", chunk: `[deploy:${status}] ${brandText(detail)}\n` });
           ctx.emit({ type: "deployment", deploymentId: deploymentId || ctx.callId, callId: ctx.callId, status, url, detail: brandText(detail), ...(expiresAt ? { expiresAt } : {}) });
         },
       });
-      return { ok: true, content: `Deployed: ${result.url}\nExpires: ${result.expiresAt}. Verify it with the browse tool before reporting success.`, summary: result.url };
+      ctx.grants.deployLive = true;
+      return { ok: true, content: `Deployed: ${result.url}\nExpires: ${result.expiresAt}. Verify it with the browse tool before reporting success. In your answer call it "the live preview" (the user opens it from the Preview tab); do not paste this address.`, summary: "Live preview deployed" };
     }
     case "delegate_research": {
       const { task } = input as z.infer<typeof schemas.delegate_research>;
@@ -506,9 +512,12 @@ async function reportPage(ctx: ToolContext, page: BrowseResult, displayUrl: stri
   let image: ToolOutcome["image"];
   if (page.screenshot) {
     const caption = `${page.title || safeUrl(displayUrl)} (${safeUrl(page.finalUrl)})`;
-    const stage = await mediaStatus();
     let mediaId: string | null = null;
-    if (stage.ok) {
+    // Same gate as artifacts: skip while storage is known to be down, otherwise try (after an
+    // outage's window this upload is the one call that finds out storage is back).
+    let storageUp = true;
+    try { assertStorageAvailable(); } catch { storageUp = false; }
+    if (storageUp) {
       try {
         mediaId = (await storeMedia({ buffer: page.screenshot, filename: "screenshot.jpg", mimeType: "image/jpeg", kind: "screenshot", sessionId: ctx.sessionId })).id;
       } catch (error) {
@@ -565,10 +574,9 @@ async function visualTest(input: z.infer<typeof schemas.test_preview_visual>, ct
     if (!site) return { ok: false, content: `No index.html found${input.dir ? ` in ${input.dir}` : " in dist/, build/, out/, public/ or the workspace root"}. Build the project first (e.g. npm run build), or pass start_command to test a running server.`, summary: "Nothing to preview" };
     const warnings = absoluteAssetWarnings(fs.readFileSync(path.join(site.absolute, "index.html"), "utf8"));
     if (warnings.length) extra.push(`Warning: index.html references absolute paths (${warnings.join(", ")}); they resolve outside the preview. Rebuild with relative asset paths (Vite: base: './').`);
-    const query = site.dir === "." ? "" : `?dir=${encodeURIComponent(site.dir)}`;
-    url = `${previewBaseUrl(ctx.sessionId)}${page}${query}`;
+    url = `${previewBaseUrl(ctx.sessionId, undefined, site.dir)}${page}`;
     log(`Serving ${site.dir === "." ? "the workspace root" : `${site.dir}/`} as a static preview.\n`);
-    ctx.emit({ type: "preview", url: `${previewBaseUrl(ctx.sessionId)}${query}`, dir: site.dir, mode: "static" });
+    ctx.emit({ type: "preview", url: previewBaseUrl(ctx.sessionId, undefined, site.dir), dir: site.dir, mode: "static" });
   }
 
   try {

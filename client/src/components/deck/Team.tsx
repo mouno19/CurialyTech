@@ -1,59 +1,75 @@
-import { useState } from "react";
-import { ArrowRight, CheckCircle2, ChevronDown, ChevronRight, ClipboardCheck, Compass, Hammer, Loader2, XCircle } from "lucide-react";
+import { memo, useId, useState } from "react";
+import type { LucideIcon } from "lucide-react";
+import { ArrowRight, Check, ChevronDown, CircleSlash, CircleX, ClipboardCheck, Compass, Hammer } from "lucide-react";
 import { getModel, TEAM_ROLES, type TeamRole } from "@shared/agent";
 import { Markdown } from "@/components/Markdown";
-import type { TeamMemberState, TimelineItem } from "@/lib/taskStream";
+import { Spinner } from "@/components/common/Spinner";
+import type { ItemOf, TeamMemberState, TeamMemberStatus } from "@/lib/taskStream";
 
-export const ROLE_ICON: Record<TeamRole, typeof Compass> = { architect: Compass, engineer: Hammer, reviewer: ClipboardCheck };
-const label = (role: TeamRole | "user") => (role === "user" ? "You" : TEAM_ROLES.find(item => item.id === role)?.label ?? role);
+export const ROLE_ICON: Record<TeamRole, LucideIcon> = { architect: Compass, engineer: Hammer, reviewer: ClipboardCheck };
+const roleLabel = (role: TeamRole | "user") => (role === "user" ? "You" : TEAM_ROLES.find(item => item.id === role)?.label ?? role);
 
-export function RoleBadge({ role }: { role: TeamRole }) {
-  const Icon = ROLE_ICON[role];
-  return <span className={`role-badge ${role}`}><Icon size={11} /> {label(role)}</span>;
+export function RoleBadge({ role }: { role: TeamRole | "user" }) {
+  const Icon = role === "user" ? null : ROLE_ICON[role];
+  return (
+    <span className="role-badge" data-role={role}>
+      {Icon && <Icon size={11} aria-hidden="true" />}
+      {roleLabel(role)}
+    </span>
+  );
 }
 
-/** Live status of the three Dev Team members. */
-export function TeamPanel({ team }: { team: Partial<Record<TeamRole, TeamMemberState>> }) {
+const STATUS_TEXT: Record<TeamMemberStatus, string> = { waiting: "Waiting", working: "Working", done: "Done", failed: "Failed", stopped: "Stopped" };
+
+/** Live status of the three Dev Team members. `live`: the run is executing (a working member may pulse). */
+export function TeamPanel({ team, live }: { team: Partial<Record<TeamRole, TeamMemberState>>; live: boolean }) {
   return (
-    <div className="team-panel" role="list" aria-label="Dev Team">
+    <ul className="team-panel" aria-label="Dev Team">
       {TEAM_ROLES.map(role => {
         const member = team[role.id];
         const Icon = ROLE_ICON[role.id];
-        const status = member?.status ?? "waiting";
+        // A member can only be working while the run is; anything else is a log that stopped short.
+        const status: TeamMemberStatus = member?.status === "working" && !live ? "stopped" : member?.status ?? "waiting";
         return (
-          <div key={role.id} className={`team-card ${role.id} ${status}`} role="listitem">
+          <li key={role.id} className="team-card" data-role={role.id} data-status={status}>
             <div className="team-card-head">
-              <span className="team-avatar"><Icon size={14} /></span>
+              <span className="team-avatar" aria-hidden="true"><Icon size={14} /></span>
               <span className="team-name">{role.label}</span>
-              <span className={`team-status ${status}`}>
-                {status === "working" ? <Loader2 size={11} className="spin" /> : status === "done" ? <CheckCircle2 size={11} /> : status === "failed" ? <XCircle size={11} /> : null}
-                {status}
+              <span className="team-status">
+                {status === "working" ? <Spinner size={11} /> : status === "done" ? <Check size={12} aria-hidden="true" /> : status === "failed" ? <CircleX size={12} aria-hidden="true" /> : status === "stopped" ? <CircleSlash size={12} aria-hidden="true" /> : null}
+                {STATUS_TEXT[status]}
               </span>
             </div>
             <div className="team-model">{member ? getModel(member.model)?.label ?? member.model : role.title}</div>
-            <div className="team-activity" title={member?.activity}>{member?.activity ?? "Waiting for its turn"}</div>
-          </div>
+            <div className="team-activity" title={member?.activity}>{member?.activity || "Waiting for its turn"}</div>
+          </li>
         );
       })}
-    </div>
+    </ul>
   );
 }
 
+function handoffTone(item: ItemOf<"handoff">) {
+  if (item.handoff === "review") return /^approved/i.test(item.title) ? "approve" : "changes";
+  return item.handoff;
+}
+
 /** A plan, review or report handed from one member to another. */
-export function HandoffCard({ item, defaultOpen = false }: { item: Extract<TimelineItem, { kind: "handoff" }>; defaultOpen?: boolean }) {
+export const HandoffCard = memo(function HandoffCard({ item, defaultOpen = false }: { item: ItemOf<"handoff">; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen);
-  const tone = item.handoff === "review" ? (item.title.startsWith("Approved") ? "approve" : "changes") : item.handoff;
+  const bodyId = useId();
   return (
-    <div className={`handoff ${tone}`}>
-      <button type="button" className="handoff-head" onClick={() => setOpen(value => !value)} aria-expanded={open}>
+    <div className="handoff" data-kind={handoffTone(item)}>
+      <button type="button" className="handoff-head" onClick={() => setOpen(value => !value)} aria-expanded={open} aria-controls={bodyId}>
         <RoleBadge role={item.from} />
-        <ArrowRight size={12} className="faint" />
-        {item.to === "user" ? <span className="role-badge user">You</span> : <RoleBadge role={item.to} />}
-        <span className="handoff-title">{item.title}</span>
-        <span className="spacer" />
-        {open ? <ChevronDown size={14} className="faint" /> : <ChevronRight size={14} className="faint" />}
+        <ArrowRight size={12} className="faint" aria-hidden="true" />
+        <RoleBadge role={item.to} />
+        <span className="handoff-title clamp-2" title={item.title}>{item.title}</span>
+        <ChevronDown size={14} className="handoff-chevron" aria-hidden="true" />
       </button>
-      {open && <div className="handoff-body"><Markdown text={item.content} /></div>}
+      <div id={bodyId} className="handoff-body" hidden={!open}>
+        {open && <Markdown text={item.content} />}
+      </div>
     </div>
   );
-}
+});

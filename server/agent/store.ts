@@ -159,8 +159,9 @@ export async function addMessage(sessionId: string, role: "user" | "assistant", 
 
 /**
  * Insert committed events; returns how many rows were new (a retry of a batch that landed inserts 0).
- * With `runId`, the batch is only written while that run still owns the task, so a worker that lost
- * its run cannot interleave events into its successor's log.
+ * With `runId`, the batch is only written while that run still owns the task and is active, so a
+ * worker that lost its run cannot interleave events into its successor's log, nor append any after
+ * the done event recovery wrote for it (recovery keeps the run id).
  */
 export async function insertEvents(taskId: string, events: AgentEvent[], runId?: string) {
   if (!events.length) return 0;
@@ -179,7 +180,7 @@ export async function insertEvents(taskId: string, events: AgentEvent[], runId?:
   const { rowCount } = await query(
     `INSERT INTO curialy.agent_execution_logs (session_id, seq, type, data, created_at)
      SELECT v.* FROM (VALUES ${tuples.join(", ")}) AS v(session_id, seq, type, data, created_at)
-     WHERE EXISTS (SELECT 1 FROM curialy.chat_sessions WHERE id = v.session_id AND run_id = $${values.length}::uuid)
+     WHERE EXISTS (SELECT 1 FROM curialy.chat_sessions WHERE id = v.session_id AND run_id = $${values.length}::uuid AND status IN ('queued', 'running', 'cancelling'))
      ON CONFLICT DO NOTHING`, values,
   );
   return rowCount ?? 0;
@@ -195,33 +196,42 @@ export async function listEventsAfter(taskId: string, afterSeq: number, beforeSe
   const { rows } = await query<{ seq: number; data: AgentEventBody; created_at: Date }>(
     "SELECT seq, data, created_at FROM curialy.agent_execution_logs WHERE session_id = $1 AND seq > $2 AND seq < $3 ORDER BY seq", [taskId, afterSeq, beforeSeq],
   );
-  return rows.map(row => ({ ...row.data, seq: row.seq, ts: row.created_at.toISOString() }));
+  // Older logs stored the live browser's vendor view address (with an access token): never replay it.
+  return rows.map(row => {
+    const data = row.data.type === "browser_session" ? { ...row.data, liveUrl: null, replayUrl: "" } : row.data;
+    return { ...data, seq: row.seq, ts: row.created_at.toISOString() } as AgentEvent;
+  });
 }
 
 export async function agentStats() {
   // Legacy restart rows (failed + the old restart text) count as interrupted, not as failures.
   const { rows } = await query<Record<string, string | null>>(`SELECT COUNT(*) AS total,
       COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+      COUNT(*) FILTER (WHERE status = 'completed' AND (outcome->>'verification' = 'failed'
+        OR (outcome ? 'review' AND outcome->'review'->>'verdict' <> 'approve')
+        OR outcome->>'publish' IN ('failed', 'blocked_unapproved') OR outcome->>'research' IN ('partial', 'failed'))) AS completed_with_issues,
       COUNT(*) FILTER (WHERE status = 'failed' AND error IS DISTINCT FROM $1) AS failed,
       COUNT(*) FILTER (WHERE status = 'cancelled') AS cancelled,
       COUNT(*) FILTER (WHERE status = 'interrupted' OR (status = 'failed' AND error = $1)) AS interrupted,
       COUNT(*) FILTER (WHERE status = ANY($2::text[])) AS running, COALESCE(SUM(files_changed), 0) AS files FROM curialy.chat_sessions`, [LEGACY_RESTART_ERROR, ACTIVE_STATUSES]);
   const row = rows[0];
   return {
-    total: Number(row.total), completed: Number(row.completed), failed: Number(row.failed), cancelled: Number(row.cancelled),
+    total: Number(row.total), completed: Number(row.completed), completedWithIssues: Number(row.completed_with_issues ?? 0), failed: Number(row.failed), cancelled: Number(row.cancelled),
     interrupted: Number(row.interrupted), running: Number(row.running), filesChanged: Number(row.files),
   };
 }
 
 // ---- Workspace snapshots: the durable copy of an agent's files (the VPS copy is scratch) ----
 
-export type SnapshotRole = "source" | "build";
+/** artifact: a file attached to the chat while file storage was down; kept until the task is deleted. */
+export type SnapshotRole = "source" | "build" | "artifact";
 
 export async function saveWorkspaceSnapshot(sessionId: string, files: { path: string; content: Buffer; sha256: string; role?: SnapshotRole }[]) {
   const client = await db().connect();
   try {
     await client.query("BEGIN");
-    await client.query("DELETE FROM curialy.workspace_files WHERE session_id = $1", [sessionId]);
+    // Artifacts kept here during a storage outage are not part of the workspace copy: never dropped.
+    await client.query("DELETE FROM curialy.workspace_files WHERE session_id = $1 AND role <> 'artifact'", [sessionId]);
     for (let index = 0; index < files.length; index += 50) {
       const chunk = files.slice(index, index + 50);
       const values: unknown[] = [];
@@ -230,7 +240,8 @@ export async function saveWorkspaceSnapshot(sessionId: string, files: { path: st
         const base = i * 6;
         return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6})`;
       });
-      await client.query(`INSERT INTO curialy.workspace_files (session_id, path, content, size_bytes, sha256, role) VALUES ${tuples.join(", ")}`, values);
+      await client.query(`INSERT INTO curialy.workspace_files (session_id, path, content, size_bytes, sha256, role) VALUES ${tuples.join(", ")}
+        ON CONFLICT (session_id, path) DO UPDATE SET content = EXCLUDED.content, size_bytes = EXCLUDED.size_bytes, sha256 = EXCLUDED.sha256, role = EXCLUDED.role, updated_at = now()`, values);
     }
     await client.query("COMMIT");
   } catch (error) {
@@ -238,6 +249,21 @@ export async function saveWorkspaceSnapshot(sessionId: string, files: { path: st
     throw error;
   } finally {
     client.release();
+  }
+}
+
+/**
+ * Keep chat attachments that could not go to file storage: the durable copy behind their
+ * "kept in the workspace" links once the workspace is archived (a source copy already counts).
+ */
+export async function saveArtifactSnapshot(sessionId: string, files: { path: string; content: Buffer; sha256: string }[]) {
+  for (const file of files) {
+    await query(
+      `INSERT INTO curialy.workspace_files (session_id, path, content, size_bytes, sha256, role) VALUES ($1, $2, $3, $4, $5, 'artifact')
+       ON CONFLICT (session_id, path) DO UPDATE SET content = EXCLUDED.content, size_bytes = EXCLUDED.size_bytes, sha256 = EXCLUDED.sha256, updated_at = now()
+       WHERE curialy.workspace_files.role = 'artifact'`,
+      [sessionId, file.path, file.content, file.content.length, file.sha256],
+    );
   }
 }
 

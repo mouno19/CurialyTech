@@ -20,7 +20,7 @@ import { listWorkspaceTree, removeWorkspace, resolveInWorkspace, SandboxError, w
 import { agentStats, deleteAgentTask, getAgentTask, lastSeq, listAgentTasks, listEventsAfter, listWorkspaceSnapshot, loadWorkspaceSnapshot, readSnapshotFile } from "./store";
 import { collectWorkspaceFiles, findArchivedBuild, findBuildDirs, isPublishExcluded, isUnbuiltTemplate, materializeWorkspace, restoreWorkspace, withWorkspaceLock } from "./workspaces";
 import { query } from "../db/pg";
-import { createRepo, disconnect, getConnection, GITHUB_SCOPES, GitHubError, isValidRepoName, listRepos, oauthConfigured, pushProjectToRepo } from "../services/github";
+import { branchHead, createRepo, disconnect, getConnection, GITHUB_SCOPES, githubApi, GitHubError, isValidRepoName, listRepos, oauthConfigured, pushProjectToRepo, RemoteChangedError } from "../services/github";
 import { cloneIntoWorkspace, commitAndPush, linkedRepo } from "./repos";
 import { absoluteAssetWarnings, detectPreviewRoot, previewBaseUrl } from "./preview";
 import { browse, sessionStatus } from "./browser";
@@ -63,7 +63,8 @@ async function resolveAttachments(ids: string[]) {
 
 /**
  * Export: creating a repository needs its name and an explicit visibility, and a public one an
- * explicit confirmation; pushing to a linked repository's default branch needs its own confirmation.
+ * explicit confirmation; pushing to a linked repository's default branch needs its own confirmation;
+ * re-exporting over commits that weren't pushed from the workspace needs confirmOverwrite.
  * Nothing here is ever defaulted to public.
  */
 const exportSchema = z.object({
@@ -73,6 +74,7 @@ const exportSchema = z.object({
   message: z.string().trim().max(2000).optional(),
   branch: z.string().trim().max(200).optional(),
   confirmDefaultBranch: z.literal(true).optional(),
+  confirmOverwrite: z.literal(true).optional(),
 });
 
 /** GET repositories for the picker: the shape the UI (and /api/github/repos) promises. */
@@ -102,6 +104,7 @@ function sendError(res: Response, error: unknown) {
   if (error instanceof StorageError) return sendStorageError(res, error);
   if (error instanceof TaskRejected) return res.status(error.message === RESTARTING ? 503 : 409).json({ error: brandText(error.message) });
   if (error instanceof SandboxError) return res.status(400).json({ error: error.message });
+  if (error instanceof RemoteChangedError) return res.status(409).json({ error: `${error.message} Pushing replaces their files; confirm to push anyway.`, code: "remote_changed", branch: error.branch });
   if (error instanceof GitHubError) return res.status(error.status === 422 ? 422 : 502).json({ error: brandText(error.message) });
   // Never log raw error objects: driver errors can carry request bodies with credentials.
   console.error("[agent]", error instanceof Error ? `${error.name}: ${redact(error.message)}` : redact(String(error)));
@@ -202,7 +205,7 @@ export function agentRouter() {
     if (isBusy(task.id)) return res.status(409).json({ error: "Cancel the task before deleting it.", status: task.status });
     const row = await getLifecycleRow(task.id);
     // Only a run some live worker still owns blocks deletion; a stale "running" row does not.
-    if (row && isActiveStatus(row.status) && !judgeStaleness({ workerId: row.workerId, leaseLive: row.leaseLive }).stale) {
+    if (row && isActiveStatus(row.status) && !judgeStaleness({ workerId: row.workerId, leaseLive: row.leaseLive, leaseExpiredFor: row.leaseExpiredFor }).stale) {
       return res.status(409).json({ error: "Cancel the task before deleting it.", status: row.status });
     }
     // A deleted task leaves nothing running or stored behind: previews come down, stored files go.
@@ -440,6 +443,13 @@ export function agentRouter() {
     res.status(201).json({ file: { id: stored.id, filename: stored.filename, mimeType: stored.mimeType, sizeBytes: stored.sizeBytes, kind: stored.kind } });
   }));
 
+  /** Whether snapshotFallback would serve this file (size check only, no bytes read). */
+  async function snapshotMatches(media: NonNullable<Awaited<ReturnType<typeof getMedia>>>) {
+    if (media.kind !== "artifact" || !media.session_id || !media.source_path) return false;
+    const { rows } = await query<{ size_bytes: number }>("SELECT size_bytes FROM curialy.workspace_files WHERE session_id = $1 AND path = $2", [media.session_id, media.source_path]).catch(() => ({ rows: [] as { size_bytes: number }[] }));
+    return rows[0]?.size_bytes === media.size_bytes;
+  }
+
   /** An artifact whose stored copy is gone or unreachable, served from the task's archived workspace when it matches. */
   async function snapshotFallback(media: NonNullable<Awaited<ReturnType<typeof getMedia>>>) {
     if (media.kind !== "artifact" || !media.session_id || !media.source_path) return null;
@@ -466,8 +476,10 @@ export function agentRouter() {
   router.head("/media/:id", handle(async (req, res) => {
     const media = await getMedia(String(req.params.id));
     if (!media) return res.status(404).end();
-    if (media.state === "missing") return res.status(410).end();
     const health = await mediaStatus();
+    // Same answer as GET: an artifact whose archived workspace copy matches is served from there.
+    if ((media.state === "missing" || !health.ok) && (await snapshotMatches(media))) return res.status(200).end();
+    if (media.state === "missing") return res.status(410).end();
     if (!health.ok) {
       res.setHeader("Retry-After", String(Math.max(5, health.retryAfter || 30)));
       return res.status(503).end();
@@ -496,6 +508,7 @@ export function agentRouter() {
     try {
       upstream = await openStoredObject(media.stage_path, abort.signal);
     } catch (error) {
+      if (abort.signal.aborted) return; // the viewer went away; nothing to answer
       if (!(error instanceof StorageError)) throw error;
       if (error.kind === "object_missing") await markMediaMissing(media.id).catch(() => undefined);
       return fallback(error);
@@ -593,6 +606,29 @@ export function agentRouter() {
     return { files, excluded: all.filter(file => isPublishExcluded(file.path)).map(file => file.path) };
   }
 
+  /** The commit an export last pushed to each branch of the task's repository. */
+  async function exportedHeads(taskId: string) {
+    const { rows } = await query<{ github_pushed: Record<string, string> | null }>("SELECT github_pushed FROM curialy.chat_sessions WHERE id = $1", [taskId]);
+    return rows[0]?.github_pushed ?? {};
+  }
+
+  /**
+   * The branch a re-export replaces, and whether its head is still the workspace's last push
+   * ("ours"), has commits from elsewhere ("changed"), or can't be told ("unknown": no push was
+   * recorded, or GitHub didn't answer). Anything but "ours" needs confirmOverwrite.
+   */
+  async function exportBranchState(token: string | undefined, taskId: string, fullName: string): Promise<{ branch: string | null; remote: "ours" | "changed" | "unknown" }> {
+    if (!token) return { branch: null, remote: "unknown" };
+    try {
+      const { default_branch: branch } = await githubApi<{ default_branch: string }>(token, `/repos/${fullName}`);
+      const [head, heads] = await Promise.all([branchHead(token, fullName, branch), exportedHeads(taskId)]);
+      return { branch, remote: !heads[branch] ? "unknown" : heads[branch] === head ? "ours" : "changed" };
+    } catch (error) {
+      console.warn(`[agent] export plan: couldn't read ${fullName}: ${error instanceof Error ? redact(error.message) : "unknown error"}`);
+      return { branch: null, remote: "unknown" };
+    }
+  }
+
   // What Export would do, for the confirmation dialog (no side effects).
   router.post("/tasks/:id/export/plan", handle(async (req, res) => {
     const task = await taskOr404(req, res);
@@ -602,7 +638,9 @@ export function agentRouter() {
     if (linked) return res.json({ target: { kind: "linked", repo: linked.fullName, defaultBranch: linked.branch, url: linked.url }, login: connection?.login ?? null });
     const { files, excluded } = await exportFiles(task.id);
     res.json({
-      target: task.githubRepo ? { kind: "existing", repo: task.githubRepo, url: task.githubRepoUrl ?? null } : { kind: "new", owner: connection?.login ?? null, suggestedName: `curialy-${slugify(task.prompt)}` },
+      target: task.githubRepo
+        ? { kind: "existing", repo: task.githubRepo, url: task.githubRepoUrl ?? null, ...(await exportBranchState(connection?.token, task.id, task.githubRepo)) }
+        : { kind: "new", owner: connection?.login ?? null, suggestedName: `curialy-${slugify(task.prompt)}` },
       files: files.length, bytes: files.reduce((sum, file) => sum + file.content.length, 0), excluded,
       login: connection?.login ?? null,
     });
@@ -642,13 +680,22 @@ export function agentRouter() {
       const repo = await createRepo(connection.token, name, input.visibility !== "public", "Created by Curialy AI");
       fullName = repo.full_name;
       created = true;
+      // Its first commit (GitHub's README) counts as the workspace's own, so a retry after a failed
+      // push below replaces it without asking. Best effort: unrecorded, the retry asks first.
+      const initial = await branchHead(connection.token, fullName, repo.default_branch).catch(() => null);
       // Recorded at once: if the push below fails, the next Export pushes into this repository
       // instead of trying to create it again (and nothing is left behind unrecorded).
-      await query("UPDATE curialy.chat_sessions SET github_repo = $2, github_repo_url = $3, github_mode = 'export', updated_at = now() WHERE id = $1", [task.id, fullName, repo.html_url]);
+      await query("UPDATE curialy.chat_sessions SET github_repo = $2, github_repo_url = $3, github_mode = 'export', github_pushed = $4::jsonb, updated_at = now() WHERE id = $1", [task.id, fullName, repo.html_url, JSON.stringify(initial ? { [repo.default_branch]: initial } : {})]);
     }
-    const pushed = await pushProjectToRepo(connection.token, fullName, files, created ? "Initial export from Curialy AI" : "Update from Curialy AI");
-    await query("UPDATE curialy.chat_sessions SET github_repo = $2, github_repo_url = $3, github_pushed_at = now(), github_mode = 'export', updated_at = now() WHERE id = $1", [task.id, fullName, pushed.repoUrl]);
-    res.json({ repo: fullName, url: pushed.repoUrl, commitUrl: pushed.commitUrl, files: files.length, created });
+    // A re-export replaces the branch's files with the workspace's: only over the workspace's own
+    // last push, unless the user confirmed replacing commits made elsewhere.
+    const onlyOver = created || input.confirmOverwrite ? undefined : await exportedHeads(task.id);
+    const pushed = await pushProjectToRepo(connection.token, fullName, files, created ? "Initial export from Curialy AI" : "Update from Curialy AI", undefined, undefined, onlyOver);
+    await query(
+      "UPDATE curialy.chat_sessions SET github_repo = $2, github_repo_url = $3, github_pushed_at = now(), github_pushed = github_pushed || jsonb_build_object($4::text, $5::text), github_mode = 'export', updated_at = now() WHERE id = $1",
+      [task.id, fullName, pushed.repoUrl, pushed.branch, pushed.commitSha],
+    );
+    res.json({ repo: fullName, url: pushed.repoUrl, commitUrl: pushed.commitUrl, files: files.length, created, branch: pushed.branch });
   }));
 
   // ---- Workspace preview (served by this app; see preview.ts) ----
@@ -686,9 +733,9 @@ export function agentRouter() {
       return res.json({ available: false, workspace: live, archived: !live, build, restorable: !live && !isBusy(task.id), running: isRunning(task.id) });
     }
     const warnings = absoluteAssetWarnings(fs.readFileSync(path.join(site.absolute, "index.html"), "utf8"));
-    const query = site.dir === "." ? "" : `?dir=${encodeURIComponent(site.dir)}`;
-    // Relative URL for the iframe (same origin as the UI); the token is short-lived and task-scoped.
-    const url = new URL(previewBaseUrl(task.id)).pathname + query;
+    // Relative URL for the iframe (same origin as the UI); the token is short-lived, task-scoped and
+    // carries the build folder, so the site's relative assets load from the same folder.
+    const url = new URL(previewBaseUrl(task.id, undefined, site.dir)).pathname;
     res.json({ available: true, workspace: true, dir: site.dir, url, warnings });
   }));
 
@@ -708,8 +755,7 @@ export function agentRouter() {
     if (isRunning(task.id)) return res.status(409).json({ error: "Wait for the run to finish; the agent is using the browser." });
     const site = await findPreview(task.id);
     if (!site) return res.status(404).json({ error: "No built web output to screenshot." });
-    const query = site.dir === "." ? "" : `?dir=${encodeURIComponent(site.dir)}`;
-    const result = await browse({ url: `${previewBaseUrl(task.id)}${query}`, screenshot: true, fullPage: true, waitMs: 1500, signal: AbortSignal.timeout(120_000) });
+    const result = await browse({ url: previewBaseUrl(task.id, undefined, site.dir), screenshot: true, fullPage: true, waitMs: 1500, signal: AbortSignal.timeout(120_000) });
     res.json({
       status: result.status, title: result.title, consoleErrors: result.consoleErrors,
       image: result.screenshot ? `data:image/jpeg;base64,${result.screenshot.toString("base64")}` : null,
@@ -754,6 +800,21 @@ export function agentRouter() {
     res.setHeader("Cache-Control", "no-store");
     const github = await getConnection().then(Boolean).catch(() => false);
     res.json({ deployments: await listTaskDeployments(task.id, isRunning(task.id)), capabilities: { configured: deployConfigured().ok, github } });
+  }));
+
+  // Links and frames point here instead of at the hosting provider: a redirect while the preview is
+  // live, a clear "gone" page once it expired or was taken down.
+  router.get("/tasks/:id/deployments/:deploymentId/open", handle(async (req, res) => {
+    const task = await taskOr404(req, res);
+    if (!task) return;
+    const id = String(req.params.deploymentId);
+    const view = /^[0-9a-f-]{36}$/i.test(id) ? (await listTaskDeployments(task.id, isRunning(task.id))).find(item => item.id === id) : undefined;
+    res.setHeader("Cache-Control", "no-store");
+    // The preview itself decides whether it can be framed (the app shell's policies forbid framing).
+    res.removeHeader("X-Frame-Options");
+    res.removeHeader("Content-Security-Policy");
+    if (view?.state === "live" && view.url && /^https:\/\//.test(view.url)) return res.redirect(302, view.url);
+    res.status(410).type("html").send(`<!doctype html><meta charset="utf-8"><title>Preview unavailable</title><body style="font:15px system-ui;padding:2rem;color:#14130f;background:#f3efe6">This preview is no longer live (${view ? view.state : "not found"}). Start a new one from the task's Preview tab.</body>`);
   }));
 
   router.delete("/tasks/:id/deployments/:deploymentId", handle(async (req, res) => {

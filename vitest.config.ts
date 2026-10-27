@@ -13,7 +13,8 @@ export default defineConfig({
     },
   },
   test: {
+    // Everything runs in node: client tests cover pure functions only (no DOM).
     environment: "node",
-    include: ["server/**/*.test.ts", "server/**/*.spec.ts"],
+    include: ["server/**/*.test.ts", "server/**/*.spec.ts", "shared/**/*.test.ts", "client/src/**/*.test.ts"],
   },
 });

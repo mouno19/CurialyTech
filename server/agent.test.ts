@@ -372,6 +372,32 @@ describe("github helpers", () => {
     expect(github.isValidRepoName("..")).toBe(false);
     expect(github.isValidRepoName("a b")).toBe(false);
   });
+
+  it("writes nothing to a branch whose head isn't the workspace's last push", async () => {
+    const github = await import("./services/github");
+    const calls: { method: string; url: string }[] = [];
+    const fetchMock = vi.fn(async (url: string, init: RequestInit = {}) => {
+      calls.push({ method: init.method ?? "GET", url });
+      if (url.endsWith("/repos/octo/site")) return Response.json({ default_branch: "main", html_url: "https://github.com/octo/site" });
+      if (url.includes("/git/ref/heads/main")) return Response.json({ object: { sha: "b".repeat(40) } });
+      return Response.json({ sha: "c".repeat(40), html_url: "" }, { status: 201 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const files = [{ path: "index.html", content: Buffer.from("<h1>Hi</h1>") }];
+      await expect(github.pushProjectToRepo("t", "octo/site", files, "Update", undefined, undefined, { main: "a".repeat(40) })).rejects.toBeInstanceOf(github.RemoteChangedError);
+      await expect(github.pushProjectToRepo("t", "octo/site", files, "Update", undefined, undefined, {})).rejects.toMatchObject({ branch: "main", status: 409 });
+      expect(calls.filter(call => call.method !== "GET")).toEqual([]);
+      // Over its own last push it goes ahead (blobs, tree, commit, a non-forced ref update).
+      const pushed = await github.pushProjectToRepo("t", "octo/site", files, "Update", undefined, undefined, { main: "b".repeat(40) });
+      expect(pushed.branch).toBe("main");
+      const update = calls.find(call => call.method === "PATCH");
+      expect(update?.url).toContain("/git/refs/heads/main");
+      expect(JSON.parse(String(fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH")?.[1]?.body))).toMatchObject({ force: false });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
 
 describe("linked repo change detection", () => {
@@ -397,6 +423,24 @@ describe("linked repo change detection", () => {
     expect(changes.changed.sort()).toEqual(["keep.txt", "src/new file.ts"]);
     expect(changes.deleted).toEqual(["remove.txt"]);
     await expect(computeChanges(repoRoot, { fullName: "o/r", url: "", branch: "main", baseSha: "not-a-sha; rm -rf /", repoPath: ".", pushed: {}, deleted: [] })).rejects.toThrow(/Invalid base sha/);
+  });
+
+  it("keeps file names with tabs, quotes, leading spaces and unicode intact (NUL-separated git output)", async () => {
+    const { computeChanges } = await import("./agent/repos");
+    const { execFileSync } = await import("node:child_process");
+    const repoRoot = path.join(process.env.AGENT_WORKSPACE_ROOT!, "repo-odd-names");
+    fs.mkdirSync(repoRoot, { recursive: true });
+    const git = (...args: string[]) => execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd: repoRoot, encoding: "utf8" });
+    git("init", "-q", "-b", "main");
+    fs.writeFileSync(path.join(repoRoot, "base.txt"), "a\n");
+    git("add", ".");
+    git("commit", "-q", "-m", "base");
+    const baseSha = git("rev-parse", "HEAD").trim();
+    const odd = ["tab\tname.txt", "\"quoted\".md", " leading space.txt", "ünïcode — dash.txt"];
+    for (const name of odd) fs.writeFileSync(path.join(repoRoot, name), "x\n");
+    const changes = await computeChanges(repoRoot, { fullName: "o/r", url: "", branch: "main", baseSha, repoPath: ".", pushed: {}, deleted: [] });
+    expect(changes.changed.sort()).toEqual([...odd].sort());
+    expect(changes.deleted).toEqual([]);
   });
 });
 

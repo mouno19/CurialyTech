@@ -137,6 +137,20 @@ export async function deployPreview(req: DeployRequest) {
 
 export type RemovalReason = "expired" | "failed" | "cancelled" | "interrupted" | "user";
 
+/** Retire a preview's temporary repository; on failure it stays "repo pending" for the sweeper. */
+async function retireTempRepo(id: string, repo: string) {
+  try {
+    const github = await repoToken();
+    if (!github) throw new Error("GitHub is disconnected");
+    const outcome = await retireRepo(github.token, repo);
+    await query("UPDATE curialy.deployments SET cleanup_detail = $2, last_error = NULL WHERE id = $1", [id, `service deleted; repo ${outcome}`]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await query("UPDATE curialy.deployments SET last_error = $2 WHERE id = $1", [id, `repo cleanup: ${message}`.slice(0, 500)]).catch(() => undefined);
+    console.error(`[deploy] temporary repo of ${id} not retired yet: ${message}`);
+  }
+}
+
 /**
  * Take a preview down (hosting service, then the temporary repo) and record why. The stored status
  * and detail of a failed deploy are kept; the removal goes into removed_reason and the task log.
@@ -154,23 +168,25 @@ export async function destroyDeployment(id: string, reason: RemovalReason) {
     serviceId = found?.[0]?.service?.id ?? null;
   }
   if (serviceId) await render(`/services/${serviceId}`, { method: "DELETE" }).catch(error => { if (!/\(404\)/.test(error.message)) throw error; });
-  let repoOutcome = "kept";
-  if (row.repo && !row.repo_owned_by_user) {
-    const github = await repoToken();
-    if (!github) throw new Error("GitHub is disconnected; the temporary repository will be removed once it is reconnected.");
-    repoOutcome = await retireRepo(github.token, row.repo);
-  }
-  await query("UPDATE curialy.deployments SET deleted_at = now(), removed_reason = $2, cleanup_detail = $3, last_error = NULL WHERE id = $1", [id, reason, `service ${serviceId ? "deleted" : "none"}; repo ${repoOutcome}`]);
+  // The public preview is gone: record that before the GitHub step, which can fail (disconnected,
+  // token revoked) and is retried on its own; the row never claims "live" again.
+  const repoPending = Boolean(row.repo && !row.repo_owned_by_user);
+  await query(
+    "UPDATE curialy.deployments SET service_id = NULL, deleted_at = COALESCE(deleted_at, now()), removed_reason = COALESCE(removed_reason, $2), cleanup_detail = $3 WHERE id = $1",
+    [id, reason, repoPending ? "service deleted; repo pending" : "service deleted; repo kept"],
+  );
   if (row.session_id) {
     const status = reason === "expired" ? "expired" : reason === "interrupted" ? "interrupted" : reason === "failed" && row.status === "failed" ? "failed" : "removed";
     const detail = reason === "expired" ? "The preview expired and was removed." : reason === "user" ? "The preview was taken down." : reason === "cancelled" ? "The deploy was cancelled; nothing was left running." : reason === "interrupted" ? "The deploy stopped when its run ended; nothing was left running." : "The failed deploy was cleaned up.";
     await appendTaskEvent(row.session_id, { type: "deployment", deploymentId: id, status, detail, ...(row.url ? { url: row.url } : {}) }).catch(error => console.error(`[deploy] could not log removal of ${id}:`, error.message));
   }
+  if (repoPending) await retireTempRepo(id, row.repo!);
   return true;
 }
 
 export type DeploymentView = {
-  id: string; callId: string | null; state: DeploymentState; url: string | null; detail: string | null;
+  /** openUrl: same-origin address that redirects to a live preview (use it for links and frames). */
+  id: string; callId: string | null; state: DeploymentState; url: string | null; openUrl: string | null; detail: string | null;
   target: { kind: "temp_repo" | "user_repo"; repo: string | null; private: boolean };
   createdAt: string; expiresAt: string; removedAt: string | null; removedReason: string | null; canRemove: boolean;
 };
@@ -185,7 +201,7 @@ export async function listTaskDeployments(sessionId: string, runActive: boolean)
   return rows.map(row => {
     const state = deriveDeploymentState({ status: row.status, expiresAt: row.expires_at, deletedAt: row.deleted_at, removedReason: row.removed_reason }, now, runActive);
     return {
-      id: row.id, callId: row.call_id, state, url: row.url, detail: row.detail,
+      id: row.id, callId: row.call_id, state, url: row.url, openUrl: state === "live" && row.url ? `/api/agent/tasks/${sessionId}/deployments/${row.id}/open` : null, detail: row.detail,
       // Older previews built from the user's own repository were recorded with repo_owned_by_user.
       target: { kind: row.repo_owned_by_user ? "user_repo" : "temp_repo", repo: row.repo, private: !row.repo_owned_by_user },
       createdAt: row.created_at.toISOString(), expiresAt: row.expires_at.toISOString(),
@@ -231,6 +247,11 @@ export function startDeploymentSweeper(isBusy: (taskId: string) => boolean) {
              OR (d.status IN ('creating', 'building') AND (s.id IS NULL OR s.status NOT IN ('queued', 'running', 'cancelling')))
            )`,
         );
+        // Previews already taken down whose temporary repository could not be retired yet.
+        const { rows: pending } = await query<{ id: string; repo: string }>(
+          "SELECT id, repo FROM curialy.deployments WHERE deleted_at IS NOT NULL AND cleanup_detail = 'service deleted; repo pending' AND repo IS NOT NULL AND NOT repo_owned_by_user LIMIT 20",
+        );
+        for (const row of pending) await retireTempRepo(row.id, row.repo);
         for (const row of rows) {
           if (row.reason === "interrupted" && row.session_id && isBusy(row.session_id)) continue;
           await destroyDeployment(row.id, row.reason).catch(error => {

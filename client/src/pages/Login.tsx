@@ -1,41 +1,82 @@
-import { useState } from "react";
-import { Loader2, LockKeyhole } from "lucide-react";
-import { BrandMark } from "@/components/shell/AppShell";
-import { authApi } from "@/lib/api";
+import { useId, useState, type FormEvent } from "react";
+import { ArrowRight, Eye, EyeOff, TriangleAlert } from "lucide-react";
+import { Wordmark } from "@/components/brand/Logo";
+import { Button } from "@/components/common/Button";
+import { IconButton } from "@/components/common/IconButton";
+import { authApi, errorMessage } from "@/lib/api";
 
 export default function Login({ configured, onSignedIn }: { configured: boolean; onSignedIn: () => void }) {
   const [password, setPassword] = useState("");
+  const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const errorId = useId();
 
-  const submit = async (event: React.FormEvent) => {
+  const submit = async (event: FormEvent) => {
     event.preventDefault();
+    if (busy || !password || !configured) return;
     setBusy(true);
     setError(null);
     try {
       await authApi.login(password);
       onSignedIn();
     } catch (loginError) {
-      setError(loginError instanceof Error ? loginError.message : "Sign-in failed.");
-    } finally {
+      setError(errorMessage(loginError, "Sign-in failed. Try again."));
       setBusy(false);
     }
   };
 
   return (
-    <main className="login">
-      <form className="card login-card" onSubmit={submit}>
-        <BrandMark size={34} />
-        <h1>Sign in to Curialy</h1>
-        <p className="muted" style={{ margin: "0 0 20px", fontSize: 13 }}>This workspace runs an autonomous agent that executes code on this server, so it is restricted to the operator.</p>
-        {!configured && <div className="alert warn" style={{ marginBottom: 14 }}>Admin login is not configured. Set ADMIN_PASSWORD_HASH and SESSION_SECRET in /etc/curialyai.env.</div>}
-        <label className="eyebrow" htmlFor="password">Password</label>
-        <input id="password" className="input" type="password" autoComplete="current-password" autoFocus value={password} onChange={event => setPassword(event.target.value)} style={{ marginTop: 6 }} />
-        {error && <div className="alert error" style={{ marginTop: 12 }}>{error}</div>}
-        <button className="btn primary" type="submit" disabled={busy || !password || !configured} style={{ width: "100%", marginTop: 16, height: 38 }}>
-          {busy ? <Loader2 size={15} className="spin" /> : <LockKeyhole size={15} />} Sign in
-        </button>
-      </form>
+    <main className="login grid-paper grain">
+      <div className="login-column">
+        <Wordmark size="lg" />
+        <form className="card login-card" onSubmit={submit} noValidate>
+          <h1 className="serif-title">Sign in</h1>
+          <p className="muted login-note">This workspace runs an autonomous agent that executes code on this server, so access is limited to its operator.</p>
+          {!configured && (
+            <div className="notice" data-tone="warning" role="status">
+              <TriangleAlert size={16} aria-hidden="true" />
+              <div className="notice-body">Sign-in isn't set up on this server yet. The operator needs to set an admin password before anyone can sign in.</div>
+            </div>
+          )}
+          <div className="field">
+            <label className="field-label" htmlFor="password">Password</label>
+            <div className="input-wrap">
+              <input
+                id="password"
+                className="input"
+                type={visible ? "text" : "password"}
+                autoComplete="current-password"
+                autoFocus
+                required
+                disabled={!configured}
+                value={password}
+                aria-invalid={error ? true : undefined}
+                aria-describedby={error ? errorId : undefined}
+                onChange={event => setPassword(event.target.value)}
+              />
+              <IconButton
+                className="input-end"
+                size="sm"
+                label="Show password"
+                icon={visible ? EyeOff : Eye}
+                aria-pressed={visible}
+                disabled={!configured}
+                onClick={() => setVisible(value => !value)}
+              />
+            </div>
+          </div>
+          {error && (
+            <p id={errorId} className="field-error" role="alert">
+              <TriangleAlert size={14} aria-hidden="true" />
+              {error}
+            </p>
+          )}
+          <Button type="submit" variant="primary" size="lg" block busy={busy} disabled={!configured || !password} iconEnd={ArrowRight}>
+            {busy ? "Signing in…" : "Sign in"}
+          </Button>
+        </form>
+      </div>
     </main>
   );
 }

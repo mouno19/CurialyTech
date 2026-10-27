@@ -37,7 +37,9 @@ export function classifyStorageError(error: unknown): StorageFailure {
   if (e.name === "AbortError" || e.name === "TimeoutError" || /^(ECONN|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|UND_ERR)/.test(code)) return "unreachable";
   if (code === "002003" || code === "003001" || code === "391707" || e.sqlState === "02000" || /does not exist or (is )?not authorized|insufficient privileges/i.test(message)) return "stage_missing";
   if (/^390\d{3}$/.test(code) || /incorrect username or password|invalid (oauth|programmatic access) token|token (is )?(invalid|expired)|authentication failed|role .* (does not exist|is not granted)/i.test(message)) return "unauthorized";
-  if (/^40100[1-4]$/.test(code) || /network error|could not reach|socket hang up|fetch failed|timed? ?out|temporarily unavailable|service unavailable|\b50[234]\b/i.test(message)) return "unreachable";
+  // HTTP-level errors (object store responses): the object is gone, or the service is struggling.
+  if (e.status === 404) return "object_missing";
+  if ((typeof e.status === "number" && (e.status >= 500 || e.status === 429)) || /^40100[1-4]$/.test(code) || /network error|could not reach|socket hang up|fetch failed|timed? ?out|temporarily unavailable|service unavailable|\b50[234]\b/i.test(message)) return "unreachable";
   if (/not configured/i.test(message)) return "not_configured";
   return "rejected";
 }
@@ -46,7 +48,8 @@ export function classifyStorageError(error: unknown): StorageFailure {
 export function redact(text: string) {
   return text.split("\n")[0]
     .replace(/https?:\/\/\S+/g, "<url>")
-    .replace(/\b(token|signature|sig|password|X-Amz-[A-Za-z-]+|t)=[^&\s"']+/gi, "$1=<redacted>")
+    .replace(/\b(token|signature|sig|password|X-Amz-[A-Za-z-]+|t)=("[^"]*"|'[^']*'|[^&\s"']+)/gi, "$1=<redacted>")
+    .replace(/\bBearer\s+[^\s"',;]+/gi, "Bearer <redacted>")
     .replace(/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.?[A-Za-z0-9_-]*/g, "<jwt>")
     .slice(0, 240);
 }
@@ -93,11 +96,13 @@ export class StorageBreaker {
   }
 
   succeeded() {
+    // Recent network failures stand while closed (a download link can be issued just before its
+    // download fails); recovering from an outage starts afresh.
+    if (this.kind !== null) this.recentNetwork = [];
     this.kind = null;
     this.since = null;
     this.windowMs = 0;
     this.openUntil = 0;
-    this.recentNetwork = [];
   }
 
   failed(kind: StorageFailure) {
@@ -119,7 +124,12 @@ export class StorageBreaker {
   async guard(probe: () => Promise<void>) {
     if (this.kind === null) return;
     if (!this.windowPassed()) throw new StorageError(this.kind, this.snapshot().retryAfterSec);
-    this.probing ??= probe().then(() => { this.succeeded(); return true; }, error => { this.failed(classifyStorageError(error)); return false; }).finally(() => { this.probing = null; });
+    this.probing ??= probe().then(() => { this.succeeded(); return true; }, error => {
+      // A probe that fails in an unexpected way still failed: stay open for the next, longer window.
+      const kind = classifyStorageError(error);
+      this.failed(kind === "object_missing" || kind === "rejected" ? this.kind ?? "unreachable" : kind);
+      return false;
+    }).finally(() => { this.probing = null; });
     const ok = await this.probing;
     if (!ok && this.kind) throw new StorageError(this.kind, this.snapshot().retryAfterSec);
   }
