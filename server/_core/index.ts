@@ -7,11 +7,10 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { authConfigured, loginHandler, logoutHandler, requireAdmin, sameOriginOnly } from "../auth";
 import { agentRouter, githubReposHandler } from "../agent/routes";
-import { failOrphanedTasks } from "../agent/store";
-import { isRunning } from "../agent/runner";
+import { isBusy, shutdownRuns, startLifecycle } from "../agent/runner";
 import { startWorkspaceSweeper } from "../agent/workspaces";
 import { startDeploymentSweeper } from "../agent/deploy";
-import { migrate } from "../db/pg";
+import { closeDb, migrate } from "../db/pg";
 import { registerGitHubAuth } from "../auth-github";
 import { previewHandler } from "../agent/preview";
 
@@ -23,11 +22,11 @@ async function startServer() {
   app.disable("x-powered-by");
   // All durable state is in Tiger Cloud; refuse to start without it rather than silently writing locally.
   await migrate();
-  const orphaned = await failOrphanedTasks();
-  if (orphaned) console.warn(`[agent] marked ${orphaned} interrupted task(s) as failed`);
+  // Runs whose worker is gone become interrupted (with terminal events), never "running" forever.
+  await startLifecycle();
   if (!authConfigured()) console.warn("[auth] ADMIN_PASSWORD_HASH / SESSION_SECRET missing: the workspace is locked until they are set.");
-  startWorkspaceSweeper(isRunning);
-  startDeploymentSweeper();
+  startWorkspaceSweeper(isBusy);
+  startDeploymentSweeper(isBusy);
   // Agent previews: token-authenticated, sandboxed (CSP), and mounted before the body parsers so
   // requests can be streamed untouched to a dev server running in the sandbox.
   app.use("/api/workspace/preview/:taskId/:token", (req, res) => {
@@ -71,6 +70,29 @@ async function startServer() {
   server.on("error", error => { console.error("Server failed:", error.message); process.exit(1); });
   const host = process.env.HOST || "0.0.0.0";
   server.listen(port, host, () => console.log(`Server listening on ${host}:${port}`));
+
+  // A restart interrupts running tasks truthfully (interrupted, not failed or still "running"),
+  // ends live event streams, and exits within systemd's stop timeout.
+  let stopping = false;
+  const shutdown = async (signal: string) => {
+    if (stopping) return;
+    stopping = true;
+    console.log(`[server] ${signal}: stopping`);
+    const force = setTimeout(() => process.exit(1), 25_000);
+    force.unref();
+    try {
+      const stopped = await shutdownRuns(15_000);
+      if (stopped) console.log(`[server] interrupted ${stopped} running task(s)`);
+    } catch (error) {
+      console.error("[server] shutdown:", error instanceof Error ? error.message : error);
+    }
+    server.close();
+    server.closeAllConnections();
+    await closeDb().catch(() => undefined);
+    process.exit(0);
+  };
+  process.once("SIGTERM", () => void shutdown("SIGTERM"));
+  process.once("SIGINT", () => void shutdown("SIGINT"));
 }
 
 startServer().catch(error => { console.error(error); process.exit(1); });

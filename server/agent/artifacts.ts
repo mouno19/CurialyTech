@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { query } from "../db/pg";
-import { storeMedia } from "../media/snowflake";
+import { assertStorageAvailable, storeMedia } from "../media/snowflake";
+import { StorageError } from "../media/storage-errors";
 import { resolveInWorkspace } from "./sandbox";
 
 // Files the agent produces are attached to the chat as artifacts: copied into Curialy Vault so the
@@ -9,13 +9,14 @@ import { resolveInWorkspace } from "./sandbox";
 // run created or changed (including files written by shell commands, found by diffing a manifest
 // of the workspace taken at the start and end of the run).
 
-const SKIP_DIRS = new Set(["node_modules", ".git", ".next", "__pycache__", ".venv", "venv", ".cache", ".pytest_cache", "coverage", ".turbo", ".parcel-cache"]);
+const SKIP_DIRS = new Set(["node_modules", ".git", ".tmp", ".next", "__pycache__", ".venv", "venv", ".cache", ".pytest_cache", "coverage", ".turbo", ".parcel-cache"]);
 const MAX_MANIFEST = 20_000;
 const MAX_ARTIFACT_BYTES = 25 * 1024 * 1024;
 export const MAX_AUTO_ARTIFACTS = 20;
 
 export type ArtifactKind = "image" | "pdf" | "archive" | "document" | "code" | "data" | "other";
-export type ArtifactInfo = { mediaId: string; path: string; filename: string; mimeType: string; sizeBytes: number; kind: ArtifactKind; primary: boolean };
+/** source "workspace": not in the Vault (storage was unavailable); the file is served from the task's workspace. */
+export type ArtifactInfo = { mediaId: string | null; source: "vault" | "workspace"; path: string; filename: string; mimeType: string; sizeBytes: number; kind: ArtifactKind; primary: boolean };
 
 const TYPES: Record<string, [string, ArtifactKind]> = {
   png: ["image/png", "image"], jpg: ["image/jpeg", "image"], jpeg: ["image/jpeg", "image"], gif: ["image/gif", "image"], webp: ["image/webp", "image"], avif: ["image/avif", "image"], svg: ["image/svg+xml", "image"], ico: ["image/x-icon", "image"], bmp: ["image/bmp", "image"],
@@ -133,10 +134,16 @@ export function revertWorkspace(root: string, snapshot: Snapshot): { reverted: s
   return { reverted, unreverted };
 }
 
-/** Copy workspace files into Curialy Vault and describe them for the chat. */
+/**
+ * Copy workspace files into Curialy Vault and describe them for the chat. While file storage is
+ * unavailable nothing is attempted: the files are described as workspace files instead (served from
+ * the workspace, or its archive, by /tasks/:id/file), so an outage costs no uploads and no errors.
+ */
 export async function storeArtifacts(sessionId: string, root: string, files: string[], primary: boolean) {
   const stored: ArtifactInfo[] = [];
   const skipped: string[] = [];
+  let storageDown = false;
+  try { assertStorageAvailable(); } catch (error) { storageDown = error instanceof StorageError && error.unavailable; }
   for (let index = 0; index < files.length; index += 4) {
     const batch = files.slice(index, index + 4);
     const results = await Promise.all(batch.map(async requested => {
@@ -145,15 +152,24 @@ export async function storeArtifacts(sessionId: string, root: string, files: str
         const stat = fs.lstatSync(absolute, { throwIfNoEntry: false });
         if (!stat?.isFile()) return { skip: `${requested} (not a file)` };
         if (stat.size > MAX_ARTIFACT_BYTES) return { skip: `${relative} (over ${MAX_ARTIFACT_BYTES / 1024 / 1024} MB)` };
+        const { mimeType, kind } = classify(relative);
+        const fallback = { info: { mediaId: null, source: "workspace", path: relative, filename: path.basename(relative), mimeType, sizeBytes: stat.size, kind, primary } satisfies ArtifactInfo };
+        if (storageDown) return fallback;
         const fd = fs.openSync(absolute, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
         let buffer: Buffer;
         try { buffer = fs.readFileSync(fd); } finally { fs.closeSync(fd); }
-        const { mimeType, kind } = classify(relative);
-        const media = await storeMedia({ buffer, filename: path.basename(relative), mimeType, kind: "artifact", sessionId });
-        await query("UPDATE curialy.file_metadata SET source_path = $2 WHERE id = $1", [media.id, relative]);
-        return { info: { mediaId: media.id, path: relative, filename: media.filename, mimeType, sizeBytes: buffer.length, kind, primary } satisfies ArtifactInfo };
+        try {
+          const media = await storeMedia({ buffer, filename: path.basename(relative), mimeType, kind: "artifact", sessionId, sourcePath: relative });
+          return { info: { mediaId: media.id, source: "vault", path: relative, filename: media.filename, mimeType, sizeBytes: buffer.length, kind, primary } satisfies ArtifactInfo };
+        } catch (error) {
+          if (error instanceof StorageError && error.unavailable) {
+            storageDown = true; // stop trying for the rest of the batch
+            return fallback;
+          }
+          throw error;
+        }
       } catch (error) {
-        return { skip: `${requested} (${error instanceof Error ? error.message.slice(0, 120) : "error"})` };
+        return { skip: `${requested} (${error instanceof StorageError ? error.message : "could not be stored"})` };
       }
     }));
     for (const result of results) {

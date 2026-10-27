@@ -26,7 +26,22 @@ The VPS keeps no user data: workspaces are scratch, snapshotted to Tiger and swe
 4. Coding runs end with harness verification; failures loop back with the error output (self-healing, up to 4 iterations, escalating to the strongest model of the format).
 5. Every model call is wrapped by `server/agent/recovery.ts`: retries with backoff, context compaction, history repairs, and failover to the closest same-format model.
 6. Dev Team mode (`server/agent/team.ts`): Architect plans (read-only), Engineer builds, Reviewer reviews the diff and tests (read-only, its source edits are reverted); publishing happens only after approval.
-7. Changed files are attached to the chat as artifacts; the workspace is snapshotted.
+7. Changed files are attached to the chat as artifacts (generated build output is summarised, not attached); the workspace is snapshotted, with the built site kept separately so an archived preview stays known.
+
+## Task lifecycle and restarts (`server/agent/lifecycle.ts`)
+
+- Status is one of queued, running, cancelling, completed, failed, cancelled, interrupted (`shared/taskStatus.ts` has the transition table). Every status change is a conditional update fenced by the run's `run_id`; terminal changes insert the run's last `status`/`done` events in the same statement, so the task row and the replayed event log always agree.
+- The worker that claims a run records `worker_id` and renews a 45 s lease every 15 s. On boot and every 30 s, runs whose worker is gone (dead pid on this host, expired lease elsewhere, or rows from pre-lease code) become **interrupted**, with their open browser sessions closed in the log. Nothing is retried automatically; the task page offers Retry.
+- SIGTERM (systemctl restart) refuses new runs, stops running ones as interrupted within about 15 s and exits. Install the unit from `deploy/systemd/` (`KillMode=mixed`, `TimeoutStopSec=30`) so the app gets the signal first.
+- Cancel is idempotent and only stops the run. Publishing (pushes, pull requests, deploys) is never started by a cancel; a deploy or push in flight is stopped before its next external write, and a cancel deadline waits for a publishing step to finish so it is recorded.
+- Deploy previews are started only by the confirmed Deploy action and always build from a new temporary **private** repository; they never write to a repository you linked or exported. Cancelled, failed and expired previews are taken down and the reason is logged on the task.
+- A second instance sharing the database (e.g. a side test instance) must set `AGENT_INSTANCE_ROLE=replica` and run the same code version as production: replicas never reclaim rows written by older code and do not run the sweepers. Better still, give it its own database (a Tiger fork).
+
+## Media storage
+
+- Requests for stored files never return 500: unknown 404, gone 410, storage unavailable 503 with `Retry-After`. A circuit breaker keeps an outage to one probe at a time instead of a warehouse query per thumbnail.
+- `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, `SNOWFLAKE_ROLE` and `SNOWFLAKE_PAT` have no defaults. If the stage is missing in the configured account (as after the 2026-10-26 account switch), run part 2 of [snowflake/setup.sql](snowflake/setup.sql) as ACCOUNTADMIN with the role and user set to the env values.
+- Files stored in a previous account's stage are not in the new one; they show as no longer available (artifacts fall back to the archived workspace copy when it matches).
 
 ## Models and routes (`shared/agent.ts`)
 
@@ -58,7 +73,7 @@ are used for failover and delegation only.
 
 ## Day-to-day
 
-- Deploy: `deploy/deploy.sh` (typecheck, tests, build with the previous build kept as `dist-prev/`, restart, health check). Add `--bridge` when `deploy/snowflake-proxy/proxy.js` changed.
+- Deploy: `deploy/deploy.sh` (refuses an uncommitted tree; typecheck, tests, build with the previous build kept as `dist-prev/`, restart, health check). Add `--bridge` when `deploy/snowflake-proxy/proxy.js` changed. The first boot of a new build applies its migrations; take a Tiger fork first when a release adds one.
 - Roll back: `deploy/deploy.sh --rollback`.
 - Logs: `journalctl -u curialyai -f`, `journalctl -u snowflake-proxy -f`.
 - Health: the Integrations page ("Run live model check") probes every route end to end.

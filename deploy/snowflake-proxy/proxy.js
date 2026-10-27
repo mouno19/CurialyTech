@@ -1,7 +1,7 @@
 const http = require("http");
 const https = require("https");
 
-const SNOWFLAKE_HOST = "kxjnkhs-lk29580.snowflakecomputing.com";
+const SNOWFLAKE_HOST = process.env.SNOWFLAKE_HOST || "og34722.ap-southeast-7.aws.snowflakecomputing.com";
 const SNOWFLAKE_PAT = process.env.SNOWFLAKE_PAT;
 if (!SNOWFLAKE_PAT) {
   console.error("SNOWFLAKE_PAT is not set (expected via /etc/snowflake-proxy.env)");

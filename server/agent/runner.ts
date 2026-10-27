@@ -2,19 +2,23 @@ import Anthropic from "@anthropic-ai/sdk";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { aliasEffort, getModel, PHASES, REPLACED, teamCapable, wireModel, type TeamRole, type CreateTaskRequest, type ModelSpec, type PhaseId, type PhaseState, type PlanStep, type TaskMode, type ThinkingLevel } from "@shared/agent";
-import { closeChannel, openChannel, type Emit } from "./bus";
+import { aliasEffort, getModel, PHASES, REPLACED, teamCapable, wireModel, type AgentEvent, type AgentEventBody, type TeamRole, type CreateTaskRequest, type ModelSpec, type PhaseId, type PhaseState, type PlanStep, type RunOutcome, type RunTrigger, type StatusReason, type TaskMode, type TaskStatus, type ThinkingLevel } from "@shared/agent";
+import { isFinalStatus, isRetryable } from "@shared/taskStatus";
+import { splitGenerated, summarizeGenerated } from "@shared/generated";
+import { openChannel, type Emit, type TaskChannel } from "./bus";
+import { claimNextRun, closeOpenSessionEvents, getLifecycleRow, HEARTBEAT_MS, judgeStaleness, LEASE_SECONDS, reconcileStaleTasks, RECONCILE_MS, renewLeases, repairEventLogs, terminalEvents, transitionTask, WORKER_ID } from "./lifecycle";
 import { anthropicClient, PROVIDER_ENV, reasoningParams, runManusTask, streamCortexInference, streamOpenAIChat } from "./providers";
 import { clip, ensureWorkspace, readWorkspaceFile, runCommand, writeWorkspaceBytes } from "./sandbox";
 import { addMessage, createAgentTask, getAgentTask, getConversation, settleTaskWrites, updateAgentTask, type ConversationFormat } from "./store";
+import { query } from "../db/pg";
 import { executeTool, isVerificationCommand, shellQuote, toolsFor, type ToolOutcome } from "./tools";
-import { materializeWorkspace, snapshotWorkspace } from "./workspaces";
+import { materializeWorkspace, snapshotWorkspace, withWorkspaceLock } from "./workspaces";
 import { aiComplete, fetchMediaBytes } from "../media/snowflake";
 import { getConnection } from "../services/github";
 import { linkedRepo } from "./repos";
 import { brandText, ENGINE_ALIAS } from "@shared/brand";
 import { closeLiveBrowser } from "./browser";
-import { diagnose, RecoveryEngine, repairOpenAIContent, TOOL_SCREENSHOTS, ToolFailureWatch, type RecoveryFlags } from "./recovery";
+import { diagnose, RecoveryEngine, repairOpenAIContent, repairOpenAIToolPairing, repairToolPairing, TOOL_SCREENSHOTS, ToolFailureWatch, type RecoveryFlags } from "./recovery";
 import { runTeam } from "./team";
 import { z } from "zod";
 import { hydrateImages, hydrateOpenAIImages, stageAttachments, userContent, type AttachmentDisplay, type AttachmentRef } from "./attachments";
@@ -27,8 +31,6 @@ const MAX_CONCURRENT = 3;
 const MAX_TOKENS = 16_000;
 /** Output budget for non-streamed (SQL) completions: nothing is shown until the reply is complete. */
 const SQL_MAX_TOKENS = 8192;
-
-const running = new Map<string, AbortController>();
 
 export class TaskRejected extends Error {}
 
@@ -81,7 +83,7 @@ export function dispatchModel(req: Pick<CreateTaskRequest, "prompt" | "model" | 
 
 class Phases {
   private states = new Map<PhaseId, PhaseState>(PHASES.map(phase => [phase.id, "pending"]));
-  constructor(private taskId: string, private emit: Emit) {
+  constructor(private taskId: string, private emit: Emit, private runId?: string) {
     // A follow-up run starts a fresh lifecycle; reset whatever the UI showed before.
     for (const phase of PHASES) emit({ type: "phase", phase: phase.id, state: "pending" });
   }
@@ -90,7 +92,7 @@ class Phases {
     if (this.states.get(phase) === state && !note) return;
     this.states.set(phase, state);
     this.emit({ type: "phase", phase, state, note });
-    if (state === "active") updateAgentTask(this.taskId, { phase });
+    if (state === "active") updateAgentTask(this.taskId, { phase }, this.runId);
   }
 
   /** Activate a phase, closing every earlier one (done if it ran, skipped if it never did). */
@@ -109,10 +111,13 @@ class Phases {
     return this.states.get(phase);
   }
 
-  finish(ok: boolean) {
+  /** Close the run's phases; failing checks show as a failed verification phase even on a completed run. */
+  finish(ok: boolean, outcome?: RunOutcome) {
     if (ok) {
+      const failedChecks = outcome?.verification === "failed";
       this.advance("review");
-      this.set("review", "done");
+      if (failedChecks) this.set("verification", "failed", outcome?.failedCheck ? `Still failing: ${outcome.failedCheck.command}` : "Checks still failing");
+      this.set("review", "done", failedChecks ? "Delivered with failing checks" : undefined);
       return;
     }
     for (const [phase, state] of Array.from(this.states.entries())) if (state === "active") this.set(phase, "failed");
@@ -131,7 +136,7 @@ How to work:
 3. Implement with edit_file for targeted changes to existing files and write_file for new files. Keep changes minimal and coherent.
 4. Verify with run_command: typecheck (e.g. npx tsc --noEmit), lint, and unit tests (npx vitest run, python3 -m pytest -q). When you create a new project, include a package.json "check"/"test" script or pytest tests so verification is possible.
 5. If a check fails, read the error output, locate the exact file and line, apply a targeted fix, and re-run the failing command. Repeat until it passes.
-6. Finish with a concise summary: what you built or changed, the files involved, and how it was verified (or what could not be verified).
+6. Finish with a concise summary for the user. Lead with the result: what you built or changed and whether it works. List only the source files you changed or the deliverables you produced. Report each check in one line (e.g. "npm run build passed", "12 tests passed", "typecheck failed in src/a.ts:14"), plus key warnings and any preview or pull request links. Never paste build, install or test logs, bundle file listings, hashed asset names or source maps into the answer; they are already in the run log.
 
 When building or editing front-end web applications:
 - Always build and visually test the UI with test_preview_visual (static build output, or start_command for apps that need a server). You can reach your own preview through it; do not fall back to jsdom or skip visual checks.
@@ -197,7 +202,18 @@ export type RunContext = {
   /** Per-run context appended after the static system prompt (kept separate so the base prompt caches). */
   context: string;
   github: boolean;
+  /** Short id used to build block and call ids. */
   runId: string;
+  /** The run's fencing token (chat_sessions.run_id): every write of run data is conditional on it. */
+  runToken: string;
+  /** Structured result, filled in as checks, reviews and publishing happen (shared with team members). */
+  outcome: RunOutcome;
+  /** Publishing this run may do without asking again (deploy only when requested or via the Deploy action). */
+  grants: PublishGrants;
+  /** The "an image could not be loaded" notice goes out once per run, not once per turn. */
+  imageNoticeSent?: boolean;
+  /** Shared with the run handle: publishing steps in flight. */
+  publishing: { count: number };
   root: string;
   mode: TaskMode;
   effort: ThinkingLevel;
@@ -275,81 +291,404 @@ export function forkContext(parent: RunContext, opts: { role: TeamRole; spec: Mo
   return child;
 }
 
-export function activeTaskCount() {
-  return running.size;
+// ---------------------------------------------------------------------------
+// Runs this process is executing (see lifecycle.ts for ownership in the database)
+// ---------------------------------------------------------------------------
+
+export type StopReason = "user" | "shutdown" | "lease_lost" | "cancel_timeout";
+
+/** The abort reason a run's signal carries, so its end can be recorded truthfully. */
+export class RunStop extends Error {
+  constructor(readonly reason: StopReason) {
+    super(reason === "user" ? "Cancelled" : `Stopped (${reason})`);
+  }
 }
 
+/** A run ended without a decided outcome that this process should record (another writer owns it). */
+type RunEnd =
+  | { kind: "record"; status: Exclude<TaskStatus, "queued" | "running" | "cancelling">; reason?: StatusReason; error?: string; answer?: string; outcome?: RunOutcome }
+  | { kind: "abandon" };
+
+type RunHandle = {
+  taskId: string;
+  runId: string;
+  attempt: number;
+  trigger: RunTrigger;
+  controller: AbortController;
+  phase: "starting" | "running" | "finalizing";
+  /** The row exists with this run id and our worker id (only then does the heartbeat cover it). */
+  claimed: boolean;
+  channel: TaskChannel | null;
+  /** The terminal status has been written (normally, or forced by a cancel deadline or shutdown). */
+  settled: boolean;
+  finalized: Promise<void>;
+  resolveFinalized: () => void;
+  cancelTimer?: NodeJS.Timeout;
+  /** Publishing steps (push, pull request, deploy) in flight: a cancel deadline waits for them. */
+  publishing: { count: number };
+  /** Last time the database confirmed our lease (self-fencing when it cannot). */
+  renewedAt: number;
+};
+
+const handles = new Map<string, RunHandle>();
+const CANCEL_DEADLINE_MS = 30_000;
+const FINALIZE_WAIT_MS = 20_000;
+let draining = false;
+
+export const RESTARTING = "The server is restarting. Try again in a moment.";
+
+function newHandle(taskId: string, trigger: RunTrigger): RunHandle {
+  let resolveFinalized!: () => void;
+  const finalized = new Promise<void>(resolve => { resolveFinalized = resolve; });
+  return { taskId, runId: randomUUID(), attempt: 0, trigger, controller: new AbortController(), phase: "starting", claimed: false, channel: null, settled: false, finalized, resolveFinalized, publishing: { count: 0 }, renewedAt: Date.now() };
+}
+
+/** Runs executing here (finalizing runs no longer count against the limit). */
+function executing() {
+  return Array.from(handles.values()).filter(handle => handle.phase !== "finalizing").length;
+}
+
+export function activeTaskCount() {
+  return executing();
+}
+
+/** A run of this task is executing in this process (not counting end-of-run housekeeping). */
 export function isRunning(taskId: string) {
-  return running.has(taskId) || reserved.has(taskId);
+  const handle = handles.get(taskId);
+  return Boolean(handle && handle.phase !== "finalizing");
+}
+
+/** This process still holds the task (including the snapshot after a run); sweepers must wait. */
+export function isBusy(taskId: string) {
+  return handles.has(taskId);
+}
+
+export function isLocalRun(taskId: string, runId: string | null) {
+  const handle = handles.get(taskId);
+  return Boolean(handle && handle.runId === runId);
+}
+
+export function isDraining() {
+  return draining;
+}
+
+function stopRun(handle: RunHandle, reason: StopReason) {
+  if (!handle.controller.signal.aborted) handle.controller.abort(new RunStop(reason));
+  if (reason === "user" && !handle.cancelTimer) {
+    // A tool that ignores the abort must not keep the task "cancelling" forever.
+    handle.cancelTimer = setTimeout(() => void forceSettle(handle, "cancelled", "cancel_timeout"), CANCEL_DEADLINE_MS);
+    handle.cancelTimer.unref();
+  }
+}
+
+/** Wait for an earlier run of the task to finish its housekeeping before starting another. */
+async function awaitPrevious(taskId: string) {
+  const previous = handles.get(taskId);
+  if (!previous) return;
+  if (previous.phase !== "finalizing" && !previous.settled) throw new TaskRejected("This task is still running.");
+  await Promise.race([previous.finalized, new Promise(resolve => setTimeout(resolve, FINALIZE_WAIT_MS))]);
+  if (handles.get(taskId) === previous && !previous.settled) throw new TaskRejected("The previous run is still finishing. Try again in a moment.");
+  if (handles.get(taskId) === previous) handles.delete(taskId); // a forced, settled run: let it finish on its own
+}
+
+function admit() {
+  if (draining) throw new TaskRejected(RESTARTING);
+  if (executing() >= MAX_CONCURRENT) throw new TaskRejected(`${MAX_CONCURRENT} tasks are already running. Wait for one to finish or cancel it.`);
 }
 
 export const formatFor = (spec: ModelSpec): ConversationFormat => (spec.provider === "fast" || spec.provider === "core-chat" ? "openai" : "anthropic");
 
-// Slots are reserved synchronously so concurrent requests cannot exceed MAX_CONCURRENT
-// while their database writes are in flight.
-const reserved = new Set<string>();
+/** Retry a database write that decides a run's outcome; transient errors must not lose it. */
+async function persistently<T>(label: string, write: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await write();
+    } catch (error) {
+      if (attempt >= 6) throw error;
+      console.error(`[agent] ${label} failed (attempt ${attempt}):`, error instanceof Error ? error.message : error);
+      await new Promise(resolve => setTimeout(resolve, 400 * attempt));
+    }
+  }
+}
 
-export async function startTask(req: CreateTaskRequest, attachments: AttachmentRef[]) {
-  if (running.size + reserved.size >= MAX_CONCURRENT) throw new TaskRejected(`${MAX_CONCURRENT} tasks are already running. Wait for one to finish or cancel it.`);
+type RunOptions = {
+  mode: TaskMode; effort: ThinkingLevel; webSearch: boolean; spec: ModelSpec; reason: string; team?: boolean;
+  restoredFiles?: number; cloneRepo?: { repo: string; branch?: string }; grants?: PublishGrants;
+};
+
+/** Register the handle, open its channel and announce the run (before the HTTP response). */
+async function announce(handle: RunHandle, message?: { text: string; attachments?: AttachmentDisplay[]; clientMessageId?: string }) {
+  handle.channel = await openChannel(handle.taskId, handle.runId);
+  handle.channel.emit({ type: "run_start", runId: handle.runId, attempt: handle.attempt, trigger: handle.trigger });
+  if (message) handle.channel.emit({ type: "user_message", text: message.text, ...(message.attachments?.length ? { attachments: message.attachments } : {}), ...(message.clientMessageId ? { clientMessageId: message.clientMessageId } : {}) });
+  handle.channel.emit({ type: "status", status: "queued" });
+}
+
+export async function startTask(req: CreateTaskRequest, attachments: AttachmentRef[], opts: { clientMessageId?: string } = {}) {
+  admit();
   const { spec, reason } = dispatchModel(req);
   const id = randomUUID();
-  reserved.add(id);
+  const handle = newHandle(id, "prompt");
+  handles.set(id, handle);
   try {
     // Dev Team members run Anthropic-format, tool-capable models; the conversation format follows.
     const team = Boolean(req.team) && req.mode === "agent";
-    await createAgentTask({ id, prompt: req.prompt, mode: req.mode, model: spec.id, effort: req.effort, webSearch: req.webSearch, format: team ? "anthropic" : formatFor(spec), team });
     const format = team ? "anthropic" : formatFor(spec);
+    await createAgentTask({ id, runId: handle.runId, prompt: req.prompt, mode: req.mode, model: spec.id, effort: req.effort, webSearch: req.webSearch, format, team });
+    handle.claimed = true;
+    handle.attempt = 1;
     const staged = await stageAttachments(ensureWorkspace(id), attachments, { vision: team || spec.vision });
     const conversation: Record<string, unknown>[] = [{ role: "user", content: userContent(req.prompt + staged.note, staged.images, format) }];
-    await updateAgentTask(id, { conversation, workspaceState: "live" });
+    await updateAgentTask(id, { conversation, workspaceState: "live" }, handle.runId);
     await addMessage(id, "user", req.prompt);
-    void runTask(id, conversation, { mode: req.mode, effort: req.effort, webSearch: req.webSearch, spec, reason: team ? `Dev Team: ${reason}` : reason, team, userText: req.prompt, userAttachments: staged.display, cloneRepo: req.repo ? { repo: req.repo, branch: req.repoBranch ?? undefined } : undefined });
+    await announce(handle, { text: req.prompt, attachments: staged.display, clientMessageId: opts.clientMessageId });
+    void executeRun(handle, conversation, { mode: req.mode, effort: req.effort, webSearch: req.webSearch, spec, reason: team ? `Dev Team: ${reason}` : reason, team, cloneRepo: req.repo ? { repo: req.repo, branch: req.repoBranch ?? undefined } : undefined });
     return id;
-  } finally {
-    reserved.delete(id);
+  } catch (error) {
+    // Nothing may be left "queued" without a run: record the failed start.
+    await abortStart(handle, error);
+    throw error;
   }
 }
 
-export async function followUp(taskId: string, prompt: string, attachments: AttachmentRef[] = []) {
-  if (running.has(taskId) || reserved.has(taskId)) throw new TaskRejected("This task is still running.");
-  if (running.size + reserved.size >= MAX_CONCURRENT) throw new TaskRejected(`${MAX_CONCURRENT} tasks are already running.`);
-  reserved.add(taskId);
+/** A start that failed before the run began: the row (if any) becomes failed with its terminal events. */
+async function abortStart(handle: RunHandle, error: unknown) {
+  if (handles.get(handle.taskId) === handle) handles.delete(handle.taskId);
   try {
-    const task = await getAgentTask(taskId);
-    if (!task) throw new TaskRejected("Task not found.");
-    const spec = getModel(task.model);
-    if (!spec) throw new TaskRejected(`Unknown model ${task.model}.`);
+    if (handle.claimed) {
+      const message = `Could not start: ${describeError(error)}`;
+      const channel = handle.channel;
+      channel?.seal();
+      await channel?.drain();
+      const result = await transitionTask(handle.taskId, handle.runId, "failed", { from: ["queued"], reason: "start_failed", error: message, events: terminalEvents("failed", { reason: "start_failed", error: message }), baseSeq: channel?.seq });
+      handle.settled = true;
+      if (result.applied) channel?.publish(result.events);
+      await channel?.close();
+    }
+  } catch (recordError) {
+    console.error(`[agent] could not record the failed start of ${handle.taskId}:`, recordError instanceof Error ? recordError.message : recordError);
+  } finally {
+    handle.resolveFinalized();
+  }
+}
+
+/** Claim a new run on a finished task (follow-up, retry, deploy) and register it here. */
+async function claimRun(taskId: string, trigger: RunTrigger, expectedRunId?: string | null) {
+  admit();
+  await awaitPrevious(taskId);
+  const handle = newHandle(taskId, trigger);
+  handles.set(taskId, handle);
+  const reason: StatusReason = trigger === "retry" ? "retry" : trigger === "deploy" ? "deploy" : "follow_up";
+  const claimed = await claimNextRun(taskId, { runId: handle.runId, reason, expectedRunId }).catch(error => {
+    handles.delete(taskId);
+    throw error;
+  });
+  if (!claimed) {
+    handles.delete(taskId);
+    const row = await getLifecycleRow(taskId);
+    if (!row) throw new TaskRejected("Task not found.");
+    throw new TaskRejected(isFinalStatus(row.status) ? "This task has changed since you loaded it. Reload and try again." : "This task is still running.");
+  }
+  handle.claimed = true;
+  handle.attempt = claimed.attempt;
+  return handle;
+}
+
+export async function followUp(taskId: string, prompt: string, attachments: AttachmentRef[] = [], opts: { clientMessageId?: string; expectedRunId?: string | null } = {}) {
+  if (isRunning(taskId)) throw new TaskRejected("This task is still running.");
+  const task = await getAgentTask(taskId);
+  if (!task) throw new TaskRejected("Task not found.");
+  if (!isFinalStatus(task.status)) throw new TaskRejected("This task is still running.");
+  const spec = getModel(task.model);
+  if (!spec) throw new TaskRejected(`Unknown model ${task.model}.`);
+  // Attachments land in the (restored, if archived) workspace before the run is claimed, so a
+  // staging failure changes nothing about the task.
+  let restoredFiles = 0;
+  let staged: Awaited<ReturnType<typeof stageAttachments>> = { display: [] as AttachmentDisplay[], images: [], note: "" };
+  if (attachments.length) {
+    // Under the workspace lock, so the idle sweeper cannot archive the directory meanwhile.
+    staged = await withWorkspaceLock(taskId, async () => {
+      const workspace = await materializeWorkspace(taskId);
+      restoredFiles = workspace.restored;
+      await updateAgentTask(taskId, { workspaceState: "live" });
+      return stageAttachments(workspace.dir, attachments, { vision: Boolean(task.team) || spec.vision });
+    });
+  }
+  const handle = await claimRun(taskId, "follow_up", opts.expectedRunId);
+  try {
     const { messages, format } = await getConversation(taskId);
     const conversation = messages as Record<string, unknown>[];
-    // Attachments land in the (restored, if archived) workspace before the run starts.
-    let restoredFiles = 0;
-    let staged: Awaited<ReturnType<typeof stageAttachments>> = { display: [] as AttachmentDisplay[], images: [], note: "" };
-    if (attachments.length) {
-      try {
-        const workspace = await materializeWorkspace(taskId);
-        restoredFiles = workspace.restored;
-        staged = await stageAttachments(workspace.dir, attachments, { vision: Boolean(task.team) || spec.vision });
-      } catch (error) {
-        // Mark the (possibly just restored) workspace live so the idle sweeper archives it again.
-        await updateAgentTask(taskId, { workspaceState: "live" });
-        throw error;
-      }
-    }
     conversation.push({ role: "user", content: userContent(prompt + staged.note, staged.images, format) });
-    await updateAgentTask(taskId, { conversation, status: "queued", error: null, workspaceState: "live" });
+    await updateAgentTask(taskId, { conversation, workspaceState: "live" }, handle.runId);
     await addMessage(taskId, "user", prompt);
+    await announce(handle, { text: prompt, attachments: staged.display, clientMessageId: opts.clientMessageId });
     // An old Gemini variant id keeps the level it was created with.
-    void runTask(taskId, conversation, { mode: task.mode, effort: aliasEffort(task.model) ?? task.effort, webSearch: task.webSearch, spec, reason: task.team ? "Dev Team follow-up." : "Follow-up on the same model.", team: Boolean(task.team), userText: prompt, userAttachments: staged.display, restoredFiles });
-  } finally {
-    reserved.delete(taskId);
+    void executeRun(handle, conversation, { mode: task.mode, effort: aliasEffort(task.model) ?? task.effort, webSearch: task.webSearch, spec, reason: task.team ? "Dev Team follow-up." : "Follow-up on the same model.", team: Boolean(task.team), restoredFiles });
+    return { runId: handle.runId, attempt: handle.attempt };
+  } catch (error) {
+    await abortStart(handle, error);
+    throw error;
   }
 }
 
-export function cancelTask(taskId: string) {
-  const controller = running.get(taskId);
-  if (!controller) return false;
-  controller.abort();
-  return true;
+const DEPLOY_INSTRUCTION = "Deploy this project as a temporary live preview with deploy_preview (choose static or node and the right build and start commands from the files), then open the URL with browse to confirm it renders, and report the link. Do not change any files unless the build needs a fix.";
+
+/** The Deploy action: a run whose only job is a preview deploy, with the deploy grant. */
+export async function startDeployRun(taskId: string, opts: { expectedRunId?: string | null } = {}) {
+  if (isRunning(taskId)) throw new TaskRejected("This task is still running.");
+  const task = await getAgentTask(taskId);
+  if (!task) throw new TaskRejected("Task not found.");
+  if (task.mode !== "agent") throw new TaskRejected("Only agent tasks can be deployed.");
+  const spec = getModel(task.model);
+  if (!spec) throw new TaskRejected(`Unknown model ${task.model}.`);
+  const handle = await claimRun(taskId, "deploy", opts.expectedRunId);
+  try {
+    const { messages, format } = await getConversation(taskId);
+    const conversation = messages as Record<string, unknown>[];
+    appendUserNote(conversation, format, DEPLOY_INSTRUCTION);
+    await updateAgentTask(taskId, { conversation, workspaceState: "live" }, handle.runId);
+    await addMessage(taskId, "user", "Deploy a live preview");
+    await announce(handle, { text: "Deploy a live preview" });
+    // Deploys are solo runs even for Dev Team tasks: the work was already reviewed.
+    void executeRun(handle, conversation, { mode: "agent", effort: aliasEffort(task.model) ?? task.effort, webSearch: task.webSearch, spec: task.team && !spec.tools ? getModel("claude-sonnet-5-5")! : spec, reason: "Deploy requested.", team: false, grants: { deploy: true } });
+    return { runId: handle.runId, attempt: handle.attempt };
+  } catch (error) {
+    await abortStart(handle, error);
+    throw error;
+  }
+}
+
+/** Retry a failed, cancelled or interrupted task: continue the same conversation and workspace. */
+export async function retryTask(taskId: string, opts: { expectedRunId?: string | null } = {}) {
+  if (isRunning(taskId)) throw new TaskRejected("This task is still running.");
+  const task = await getAgentTask(taskId);
+  if (!task) throw new TaskRejected("Task not found.");
+  if (!isRetryable(task.status)) throw new TaskRejected(task.status === "completed" ? "This task completed; send a follow-up instead." : "This task is still running.");
+  const spec = getModel(task.model);
+  if (!spec) throw new TaskRejected(`Unknown model ${task.model}.`);
+  const previousStatus = task.status;
+  const sideEffects = await previousRunSideEffects(taskId);
+  const handle = await claimRun(taskId, "retry", opts.expectedRunId === undefined ? task.runId ?? null : opts.expectedRunId);
+  try {
+    const { messages, format } = await getConversation(taskId);
+    const conversation = messages as Record<string, unknown>[];
+    // The stopped run may have left a tool call without its result; the API rejects such histories.
+    if (format === "anthropic") repairToolPairing(conversation as never);
+    else repairOpenAIToolPairing(conversation as never);
+    const why = previousStatus === "interrupted" ? "was interrupted before it finished (the server restarted or lost the worker)" : previousStatus === "cancelled" ? "was cancelled" : "failed";
+    appendUserNote(conversation, format, `[Retry] The previous run ${why}.${sideEffects ? ` It had already done this, so do not repeat it: ${sideEffects}.` : ""} Continue the user's request from where it stopped: check the current state of the workspace first, then finish the work and verify it.`);
+    await updateAgentTask(taskId, { conversation, workspaceState: "live" }, handle.runId);
+    await announce(handle);
+    void executeRun(handle, conversation, { mode: task.mode, effort: aliasEffort(task.model) ?? task.effort, webSearch: task.webSearch, spec, reason: `Retry (attempt ${handle.attempt}).`, team: Boolean(task.team) });
+    return { runId: handle.runId, attempt: handle.attempt };
+  } catch (error) {
+    await abortStart(handle, error);
+    throw error;
+  }
+}
+
+/** Pushes, pull requests and deploys the latest run already made (so a retry does not repeat them). */
+async function previousRunSideEffects(taskId: string) {
+  const { rows } = await query<{ data: AgentEventBody }>(
+    `SELECT data FROM curialy.agent_execution_logs
+     WHERE session_id = $1 AND type IN ('repo_push', 'repo_pr', 'deployment')
+       AND seq > COALESCE((SELECT MAX(seq) FROM curialy.agent_execution_logs WHERE session_id = $1 AND type = 'run_start'), 0)
+     ORDER BY seq`, [taskId],
+  ).catch(() => ({ rows: [] as { data: AgentEventBody }[] }));
+  const done: string[] = [];
+  for (const { data: event } of rows) {
+    if (event.type === "repo_push") done.push(`pushed ${event.commitSha.slice(0, 7)} to ${event.fullName}@${event.branch}`);
+    if (event.type === "repo_pr") done.push(`opened pull request #${event.number} on ${event.fullName}`);
+    if (event.type === "deployment" && event.status === "live" && event.url) done.push(`deployed a live preview at ${event.url}`);
+  }
+  return Array.from(new Set(done)).join("; ");
+}
+
+/** Add a harness note as a user turn, merged into a trailing user turn so roles keep alternating. */
+function appendUserNote(conversation: Record<string, unknown>[], format: ConversationFormat, text: string) {
+  const last = conversation[conversation.length - 1];
+  if (format === "anthropic" && last?.role === "user") {
+    const content = last.content;
+    last.content = [...(typeof content === "string" ? [{ type: "text", text: content }] : (content as unknown[])), { type: "text", text }];
+    return;
+  }
+  conversation.push({ role: "user", content: text });
+}
+
+
+/**
+ * Publishing the agent may do in a run without asking (see tools.ts). A deploy creates a repository
+ * and a public preview, so it is only granted by the confirmed Deploy action, never inferred from
+ * prompt wording, and a retry does not inherit it.
+ */
+export type PublishGrants = { deploy?: boolean };
+
+export type CancelResult = { status: TaskStatus; statusReason?: StatusReason; runId: string | null; changed: boolean };
+
+/**
+ * Cancel the task's current run. Idempotent: a finished task is reported as it is; an active run in
+ * this process is stopped (cancelling, then cancelled when it ends); a run whose worker is gone is
+ * recorded as cancelled at once; a run owned by another live worker is flagged and that worker
+ * stops it on its next heartbeat. Cancelling never publishes, pushes or deploys anything.
+ */
+export async function requestCancel(taskId: string, expectedRunId?: string | null): Promise<CancelResult> {
+  const row = await getLifecycleRow(taskId);
+  if (!row) throw new TaskRejected("Task not found.");
+  if (expectedRunId && row.runId && expectedRunId !== row.runId && !isFinalStatus(row.status)) {
+    throw new TaskRejected("A newer run of this task has started since you loaded it. Reload to see it.");
+  }
+  if (isFinalStatus(row.status)) return { status: row.status, runId: row.runId, changed: false };
+  const handle = handles.get(taskId);
+  if (handle && handle.runId === row.runId && !handle.settled) {
+    const already = handle.controller.signal.aborted;
+    if (row.status !== "cancelling") {
+      const marked = await transitionTask(taskId, row.runId, "cancelling", { from: ["queued", "running"], reason: "user_cancel" });
+      if (marked.applied) handle.channel?.emit({ type: "status", status: "cancelling", reason: "user_cancel" });
+    }
+    stopRun(handle, "user");
+    // Most runs stop within moments; report the confirmed state either way.
+    await Promise.race([handle.finalized, new Promise(resolve => setTimeout(resolve, 3000))]);
+    const now = await getLifecycleRow(taskId);
+    return { status: now?.status ?? "cancelling", statusReason: "user_cancel", runId: row.runId, changed: !already };
+  }
+  if (row.status === "cancelling" && row.leaseLive && row.workerId !== WORKER_ID) return { status: "cancelling", statusReason: "user_cancel", runId: row.runId, changed: false };
+  const verdict = judgeStaleness({ workerId: row.workerId, leaseLive: row.leaseLive, leaseExpiredFor: row.leaseExpiredFor });
+  if (!verdict.stale) {
+    // Another live process runs it: record the request; its heartbeat stops the run.
+    const marked = await transitionTask(taskId, row.runId, "cancelling", { from: ["queued", "running"], reason: "user_cancel" });
+    return { status: "cancelling", statusReason: "user_cancel", runId: row.runId, changed: marked.applied };
+  }
+  // Nobody is running it any more: the cancel takes effect immediately.
+  const closing = await closeOpenSessionEvents(taskId).catch(() => [] as AgentEventBody[]);
+  const result = await transitionTask(taskId, row.runId, "cancelled", { from: [row.status], reason: "user_cancel", events: [...closing, ...terminalEvents("cancelled", { reason: "user_cancel" })] });
+  const now = result.applied ? null : await getLifecycleRow(taskId);
+  return { status: result.applied ? "cancelled" : now?.status ?? row.status, statusReason: "user_cancel", runId: row.runId, changed: result.applied };
+}
+
+/** Record a terminal status for a run that has not ended on its own (cancel deadline, shutdown). */
+async function forceSettle(handle: RunHandle, status: "cancelled" | "interrupted", reason: StatusReason, waitedMs = 0) {
+  if (handle.settled || handle.phase === "finalizing") return;
+  // A push, pull request or deploy in flight finishes (and is recorded) first: closing the log under
+  // it would hide a side effect that a retry might then repeat. Capped at five minutes.
+  if (handle.publishing.count > 0 && waitedMs < 300_000 && status === "cancelled") {
+    const retry = setTimeout(() => void forceSettle(handle, status, reason, waitedMs + 5000), 5000);
+    retry.unref();
+    return;
+  }
+  handle.settled = true;
+  try {
+    const channel = handle.channel;
+    channel?.seal();
+    await channel?.drain();
+    const result = await persistently(`force ${status} ${handle.taskId}`, () => transitionTask(handle.taskId, handle.runId, status, { from: ["queued", "running", "cancelling"], reason, events: terminalEvents(status, { reason }), baseSeq: channel?.seq }));
+    if (result.applied) channel?.publish(result.events);
+    await channel?.close();
+    console.warn(`[agent] ${handle.taskId}: run did not stop in time; recorded as ${status} (${reason})`);
+  } catch (error) {
+    console.error(`[agent] could not record ${status} for ${handle.taskId}:`, error instanceof Error ? error.message : error);
+  }
+  // The stuck step finishes on its own; a new run of the task may start meanwhile.
+  if (handles.get(handle.taskId) === handle) handles.delete(handle.taskId);
 }
 
 async function githubContext(taskId: string) {
@@ -368,21 +707,33 @@ async function githubContext(taskId: string) {
   };
 }
 
-async function runTask(taskId: string, conversation: Record<string, unknown>[], opts: { mode: TaskMode; effort: ThinkingLevel; webSearch: boolean; spec: ModelSpec; reason: string; userText?: string; userAttachments?: AttachmentDisplay[]; restoredFiles?: number; team?: boolean; cloneRepo?: { repo: string; branch?: string } }) {
-  const controller = new AbortController();
-  running.set(taskId, controller);
-  let bus!: Awaited<ReturnType<typeof openChannel>>;
-  let root!: string;
-  let restored = 0;
-  let existing!: Awaited<ReturnType<typeof getAgentTask>>;
-  let gh = { github: false, context: "" };
-  const setup = async () => {
-    bus = await openChannel(taskId);
-    ({ dir: root, restored } = await materializeWorkspace(taskId));
-    existing = await getAgentTask(taskId);
-    gh = await githubContext(taskId);
-  };
+function endOf(error: unknown, signal: AbortSignal, started: boolean): RunEnd {
+  const stop = signal.aborted ? (signal.reason instanceof RunStop ? signal.reason.reason : "user") : null;
+  if (stop === "lease_lost") return { kind: "abandon" };
+  if (stop === "shutdown") return { kind: "record", status: "interrupted", reason: "server_restart" };
+  if (stop === "user" || stop === "cancel_timeout") return { kind: "record", status: "cancelled", reason: stop === "user" ? "user_cancel" : "cancel_timeout" };
+  const message = describeError(error);
+  return { kind: "record", status: "failed", reason: started ? "error" : "start_failed", error: started ? message : `Could not start: ${message}` };
+}
+
+async function executeRun(handle: RunHandle, conversation: Record<string, unknown>[], opts: RunOptions) {
+  const { taskId } = handle;
+  const controller = handle.controller;
+  const channel = handle.channel!;
+  const emit: Emit = body => channel.emit(body);
+  let ctx: RunContext | null = null;
+  let end: RunEnd = { kind: "abandon" };
+  let filesBefore = 0;
   try {
+    let root!: string;
+    let restored = 0;
+    let existing!: Awaited<ReturnType<typeof getAgentTask>>;
+    let gh = { github: false, context: "" };
+    const setup = async () => {
+      ({ dir: root, restored } = await materializeWorkspace(taskId));
+      existing = await getAgentTask(taskId);
+      gh = await githubContext(taskId);
+    };
     // Database/vault hiccups at start-up get one retry before the run is given up.
     try { await setup(); } catch (first) {
       const kind = diagnose(first, false).kind;
@@ -390,73 +741,75 @@ async function runTask(taskId: string, conversation: Record<string, unknown>[], 
       await new Promise(resolve => setTimeout(resolve, 2000));
       await setup();
     }
-  } catch (error) {
-    running.delete(taskId);
-    console.error(`[agent] could not start ${taskId}:`, error);
-    await updateAgentTask(taskId, { status: "failed", error: `Could not start: ${describeError(error)}` });
-    return;
-  }
-  const emit: Emit = body => bus.emit(body);
-  const ctx: RunContext = {
-    taskId,
-    context: gh.context,
-    github: gh.github,
-    runId: randomUUID().slice(0, 8),
-    root,
-    mode: opts.mode,
-    effort: opts.effort,
-    webSearch: opts.webSearch,
-    spec: opts.spec,
-    emit,
-    signal: controller.signal,
-    phases: new Phases(taskId, emit),
-    usage: existing?.usage ?? { inputTokens: 0, outputTokens: 0, thinkingTokens: 0 },
-    changedFiles: new Set(),
-    agentVerifyCommands: [],
-    manifest: workspaceManifest(root),
-    attached: new Map(),
-    images: new Map(),
-    recovery: undefined as unknown as RecoveryEngine,
-    flags: { noEager: false, noThinking: false, noEffort: false },
-    toolWatch: new ToolFailureWatch(),
-    persist: messages => { updateAgentTask(taskId, { conversation: messages as Record<string, unknown>[] }); },
-  };
-  ctx.recovery = new RecoveryEngine({
-    signal: controller.signal,
-    format: formatFor(opts.spec),
-    conversation: conversation as never,
-    get spec() { return ctx.spec; },
-    flags: ctx.flags,
-    switchModel: (spec, reason) => {
-      ctx.spec = spec;
-      emit({ type: "dispatch", model: spec.id, provider: ENGINE_ALIAS[spec.provider] ?? "core", reason });
-      updateAgentTask(taskId, { model: spec.id });
-    },
-    persist: () => { updateAgentTask(taskId, { conversation }); },
-    dropImageCache: () => ctx.images.clear(),
-    available: routeConfigured,
-    emit: event => emit({ type: "recovery", ...event }),
-  });
-  const filesBefore = existing?.filesChanged ?? 0;
-  updateAgentTask(taskId, { status: "running" });
-  const latest = conversation[conversation.length - 1];
-  // Show what the user typed (not the attachment note appended for the model) plus their files.
-  if (latest?.role === "user") emit({ type: "user_message", text: opts.userText ?? plainText(latest.content as Anthropic.MessageParam["content"]), ...(opts.userAttachments?.length ? { attachments: opts.userAttachments } : {}) });
-  emit({ type: "status", status: "running" });
-  emit({ type: "dispatch", model: opts.spec.id, provider: (ENGINE_ALIAS[opts.spec.provider] ?? "core"), reason: opts.reason });
-  if (restored || opts.restoredFiles) emit({ type: "notice", level: "info", message: `Workspace restored from Curialy Vault (${restored || opts.restoredFiles} files).` });
-  ctx.phases.advance("planning");
-  if (opts.mode === "chat") {
-    ctx.phases.set("implementation", "skipped");
-    ctx.phases.set("verification", "skipped");
-  }
+    if (controller.signal.aborted) throw controller.signal.reason;
+    const started = await transitionTask(taskId, handle.runId, "running", { from: ["queued"] });
+    if (!started.applied) {
+      const row = await getLifecycleRow(taskId);
+      throw new RunStop(row?.runId === handle.runId && (row.status === "cancelling" || row.cancelRequested) ? "user" : "lease_lost");
+    }
+    handle.phase = "running";
+    filesBefore = existing?.filesChanged ?? 0;
+    const runCtx: RunContext = {
+      taskId,
+      context: gh.context,
+      github: gh.github,
+      runId: handle.runId.slice(0, 8),
+      runToken: handle.runId,
+      root,
+      mode: opts.mode,
+      effort: opts.effort,
+      webSearch: opts.webSearch,
+      spec: opts.spec,
+      emit,
+      signal: controller.signal,
+      phases: new Phases(taskId, emit, handle.runId),
+      usage: existing?.usage ?? { inputTokens: 0, outputTokens: 0, thinkingTokens: 0 },
+      changedFiles: new Set(),
+      agentVerifyCommands: [],
+      manifest: workspaceManifest(root),
+      attached: new Map(),
+      images: new Map(),
+      recovery: undefined as unknown as RecoveryEngine,
+      flags: { noEager: false, noThinking: false, noEffort: false },
+      toolWatch: new ToolFailureWatch(),
+      persist: messages => { updateAgentTask(taskId, { conversation: messages as Record<string, unknown>[] }, handle.runId); },
+      outcome: { verification: "none" },
+      grants: opts.grants ?? {},
+      publishing: handle.publishing,
+    };
+    ctx = runCtx;
+    runCtx.recovery = new RecoveryEngine({
+      signal: controller.signal,
+      format: formatFor(opts.spec),
+      conversation: conversation as never,
+      get spec() { return runCtx.spec; },
+      flags: runCtx.flags,
+      switchModel: (spec, reason) => {
+        runCtx.spec = spec;
+        emit({ type: "dispatch", model: spec.id, provider: ENGINE_ALIAS[spec.provider] ?? "core", reason });
+        updateAgentTask(taskId, { model: spec.id }, handle.runId);
+      },
+      persist: () => { updateAgentTask(taskId, { conversation }, handle.runId); },
+      dropImageCache: () => runCtx.images.clear(),
+      available: routeConfigured,
+      emit: event => emit({ type: "recovery", ...event }),
+    });
+    emit({ type: "status", status: "running" });
+    emit({ type: "dispatch", model: opts.spec.id, provider: (ENGINE_ALIAS[opts.spec.provider] ?? "core"), reason: opts.reason });
+    if (restored || opts.restoredFiles) emit({ type: "notice", level: "info", message: `Workspace restored from Curialy Vault (${restored || opts.restoredFiles} files).` });
+    runCtx.phases.advance("planning");
+    if (opts.mode === "chat") {
+      runCtx.phases.set("implementation", "skipped");
+      runCtx.phases.set("verification", "skipped");
+    }
 
-  try {
-    if (opts.cloneRepo && ctx.github) {
+    if (opts.cloneRepo && runCtx.github) {
       // Repository picked in the UI: clone it as the first, fully visible step of the run.
-      const outcome = await trackedTool(ctx, `${ctx.runId}-clone`, "github_clone_to_workspace", { repo: opts.cloneRepo.repo, ...(opts.cloneRepo.branch ? { branch: opts.cloneRepo.branch } : {}) });
+      const outcome = await trackedTool(runCtx, `${runCtx.runId}-clone`, "github_clone_to_workspace", { repo: opts.cloneRepo.repo, ...(opts.cloneRepo.branch ? { branch: opts.cloneRepo.branch } : {}) });
       if (!outcome.ok) throw new Error(outcome.content);
-      ctx.context = (await githubContext(taskId)).context;
+      // The cloned repository is the starting point, not something this run produced.
+      runCtx.manifest = workspaceManifest(root);
+      runCtx.context = (await githubContext(taskId)).context;
       const first = conversation[0];
       const cloned = `\n\n[The repository ${opts.cloneRepo.repo} has already been cloned into the workspace: ${outcome.summary}.]`;
       if (first && typeof first.content === "string") first.content += cloned;
@@ -469,37 +822,132 @@ async function runTask(taskId: string, conversation: Record<string, unknown>[], 
       throw new Error("Connect GitHub to work on a repository.");
     }
     let answer: string;
-    if (opts.team) answer = await runTeam(ctx, conversation as unknown as Anthropic.MessageParam[]);
-    else if (opts.spec.provider === "research") answer = await runManus(ctx, conversation as unknown as Anthropic.MessageParam[]);
-    else if (opts.spec.provider === "core-inference" || opts.spec.provider === "core-sql") answer = await runInference(ctx, conversation as unknown as Anthropic.MessageParam[]);
-    else if (formatFor(opts.spec) === "openai") answer = await runOpenAILoop(ctx, conversation);
-    else answer = await runAnthropicLoop(ctx, conversation as unknown as Anthropic.MessageParam[]);
-    await deliverArtifacts(ctx);
-    ctx.phases.finish(true);
-    updateAgentTask(taskId, { status: "completed", answer, conversation, usage: ctx.usage, filesChanged: filesBefore + ctx.changedFiles.size, model: ctx.spec.id });
-    void addMessage(taskId, "assistant", answer, ctx.spec.id).catch(() => undefined);
-    emit({ type: "status", status: "completed" });
-    emit({ type: "done", status: "completed", answer });
+    if (opts.team) answer = await runTeam(runCtx, conversation as unknown as Anthropic.MessageParam[]);
+    else if (opts.spec.provider === "research") answer = await runManus(runCtx, conversation as unknown as Anthropic.MessageParam[]);
+    else if (opts.spec.provider === "core-inference" || opts.spec.provider === "core-sql") answer = await runInference(runCtx, conversation as unknown as Anthropic.MessageParam[]);
+    else if (formatFor(opts.spec) === "openai") answer = await runOpenAILoop(runCtx, conversation);
+    else answer = await runAnthropicLoop(runCtx, conversation as unknown as Anthropic.MessageParam[]);
+    if (controller.signal.aborted) throw controller.signal.reason;
+    await deliverArtifacts(runCtx, false);
+    end = { kind: "record", status: "completed", answer, outcome: runCtx.outcome };
   } catch (error) {
-    const cancelled = controller.signal.aborted;
-    const message = cancelled ? "Cancelled by user." : describeError(error);
-    // Partial output is still worth handing over when a run fails (not when the user cancelled).
-    if (!cancelled) await deliverArtifacts(ctx).catch(() => undefined);
-    ctx.phases.finish(false);
-    if (!cancelled) emit({ type: "error", message });
-    const status = cancelled ? "cancelled" : "failed";
-    updateAgentTask(taskId, { status, error: message, conversation, usage: ctx.usage, filesChanged: filesBefore + ctx.changedFiles.size });
-    emit({ type: "status", status });
-    emit({ type: "done", status, answer: "" });
+    end = endOf(error, controller.signal, handle.phase === "running");
+    // Partial output is still worth handing over when a run fails (not when it was stopped).
+    if (ctx && end.kind === "record" && end.status === "failed") await deliverArtifacts(ctx, true).catch(() => undefined);
+    if (end.kind === "record" && end.status === "failed" && ctx) emit({ type: "error", message: end.error ?? "The run failed." });
   } finally {
-    // The cloud browser never outlives the run (it bills per minute and holds a session slot).
-    await closeLiveBrowser(taskId, controller.signal.aborted ? "cancelled" : "done").catch(() => undefined);
-    // Persist the durable copy of the workspace; the VPS directory is scratch and gets swept when idle.
-    await snapshotWorkspace(taskId).catch(error => console.error(`[agent] snapshot ${taskId} failed:`, error.message));
-    await settleTaskWrites(taskId);
-    running.delete(taskId);
-    await closeChannel(taskId).catch(error => console.error(`[agent] close ${taskId} failed:`, error.message));
+    await finishRun(handle, ctx, end, filesBefore, conversation);
   }
+}
+
+/**
+ * End of a run, in an order that keeps the record truthful: close what still emits events, persist
+ * the run's data, seal and drain the channel, then write the terminal status together with its
+ * status/done events (done is always the last event), publish them, snapshot, and close.
+ */
+async function finishRun(handle: RunHandle, ctx: RunContext | null, end: RunEnd, filesBefore: number, conversation: Record<string, unknown>[]) {
+  const { taskId } = handle;
+  const channel = handle.channel!;
+  handle.phase = "finalizing";
+  if (handle.cancelTimer) clearTimeout(handle.cancelTimer);
+  const stoppedFor = handle.controller.signal.aborted ? (handle.controller.signal.reason as RunStop | undefined)?.reason : undefined;
+  try {
+    // The cloud browser never outlives the run (it bills per minute and holds a session slot).
+    await closeLiveBrowser(taskId, stoppedFor ? "cancelled" : "done").catch(() => undefined);
+    if (ctx && end.kind === "record") ctx.phases.finish(end.status === "completed", ctx.outcome);
+    if (ctx) updateAgentTask(taskId, { conversation, usage: ctx.usage, filesChanged: filesBefore + ctx.changedFiles.size, model: ctx.spec.id }, handle.runId);
+    await settleTaskWrites(taskId);
+    channel.seal();
+    await channel.drain();
+    if (end.kind === "record" && !handle.settled) {
+      const status = end.status;
+      const reason = end.reason;
+      const result = await persistently(`finalize ${taskId}`, () => transitionTask(taskId, handle.runId, status, {
+        from: status === "completed" ? ["running", "cancelling"] : ["queued", "running", "cancelling"],
+        reason: reason ?? null,
+        error: status === "failed" ? end.error ?? "The run failed." : null,
+        answer: status === "completed" ? end.answer : undefined,
+        outcome: end.outcome ?? null,
+        events: terminalEvents(status, { reason, error: status === "failed" ? end.error : undefined, answer: end.answer, outcome: end.outcome }),
+        baseSeq: channel.seq,
+      }));
+      handle.settled = true;
+      if (result.applied) {
+        channel.publish(result.events);
+        if (status === "completed" && end.answer) void addMessage(taskId, "assistant", end.answer, ctx?.spec.id).catch(() => undefined);
+      } else {
+        console.warn(`[agent] ${taskId}: run ${handle.runId} ended (${status}) after another writer settled it; not recorded`);
+      }
+    }
+  } catch (error) {
+    // The reconciler interrupts the row once this worker no longer claims it.
+    console.error(`[agent] could not record the end of ${taskId}:`, error instanceof Error ? error.message : error);
+  } finally {
+    // Persist the durable copy of the workspace; the VPS directory is scratch and gets swept when idle.
+    // Bounded: a restart has seconds, not minutes.
+    if (end.kind === "record" && handles.get(taskId) === handle) {
+      const budget = stoppedFor === "shutdown" ? 8000 : 120_000;
+      await Promise.race([snapshotWorkspace(taskId), new Promise((_, reject) => setTimeout(() => reject(new Error("snapshot timed out")), budget))])
+        .catch(error => console.error(`[agent] snapshot ${taskId} failed:`, error instanceof Error ? error.message : error));
+    }
+    await channel.close().catch(error => console.error(`[agent] close ${taskId} failed:`, error.message));
+    if (handles.get(taskId) === handle) handles.delete(taskId);
+    handle.resolveFinalized();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Heartbeat, reconciliation and shutdown
+// ---------------------------------------------------------------------------
+
+async function heartbeat() {
+  // Every phase until the outcome is written, finalizing included: a slow end of run must not let
+  // the lease lapse and invite another worker to interrupt a run that is completing.
+  const claimed = Array.from(handles.values()).filter(handle => handle.claimed && !handle.settled);
+  if (!claimed.length) return;
+  let owned: Awaited<ReturnType<typeof renewLeases>>;
+  try {
+    owned = await renewLeases(claimed.map(handle => ({ taskId: handle.taskId, runId: handle.runId })));
+  } catch (error) {
+    // Self-fence: a worker that cannot reach the database for most of a lease stops writing.
+    for (const handle of claimed) if (Date.now() - handle.renewedAt > (LEASE_SECONDS - 10) * 1000 && handle.phase !== "finalizing") stopRun(handle, "lease_lost");
+    throw error;
+  }
+  const byKey = new Map(owned.map(row => [`${row.taskId}:${row.runId}`, row]));
+  for (const handle of claimed) {
+    const row = byKey.get(`${handle.taskId}:${handle.runId}`);
+    // The database no longer says we own this run (reconciled elsewhere): stop without recording.
+    if (!row) {
+      if (handle.phase !== "finalizing") stopRun(handle, "lease_lost");
+      continue;
+    }
+    handle.renewedAt = Date.now();
+    if (row.cancelRequested && !handle.controller.signal.aborted) stopRun(handle, "user");
+  }
+}
+
+/** Boot recovery and the periodic loops that keep the task table truthful. */
+export async function startLifecycle() {
+  const recovered = await reconcileStaleTasks(isLocalRun);
+  if (recovered.length) console.warn(`[agent] recovered ${recovered.length} task(s) whose run had stopped: ${recovered.map(item => `${item.taskId.slice(0, 8)}→${item.status}`).join(", ")}`);
+  const repaired = await repairEventLogs().catch(error => { console.error("[agent] event log repair failed:", error.message); return 0; });
+  if (repaired) console.warn(`[agent] appended missing terminal events to ${repaired} task log(s)`);
+  const beat = setInterval(() => void heartbeat().catch(error => console.error("[agent] heartbeat failed:", error instanceof Error ? error.message : error)), HEARTBEAT_MS);
+  beat.unref();
+  const sweep = setInterval(() => void reconcileStaleTasks(isLocalRun)
+    .then(items => { if (items.length) console.warn(`[agent] recovered ${items.length} stalled task(s)`); })
+    .catch(error => console.error("[agent] reconcile failed:", error instanceof Error ? error.message : error)), RECONCILE_MS);
+  sweep.unref();
+}
+
+/** SIGTERM: refuse new runs, stop the running ones as interrupted (not failed), within a deadline. */
+export async function shutdownRuns(timeoutMs = 15_000) {
+  draining = true;
+  const all = Array.from(handles.values());
+  for (const handle of all) stopRun(handle, "shutdown");
+  await Promise.race([Promise.all(all.map(handle => handle.finalized)), new Promise(resolve => setTimeout(resolve, timeoutMs))]);
+  for (const handle of all) if (!handle.settled && handle.phase !== "finalizing") await forceSettle(handle, "interrupted", "server_restart");
+  return all.length;
 }
 
 /** Thinking/effort parameters for the current model, minus anything the recovery engine disabled. */
@@ -523,15 +971,25 @@ async function healing<T>(ctx: RunContext, attempt: () => Promise<T>): Promise<T
   }
 }
 
-/** Attach everything this run created or changed (beyond what the agent attached itself). */
-async function deliverArtifacts(ctx: RunContext) {
+/**
+ * Attach what this run created or changed (beyond what the agent attached itself). Generated build
+ * output (bundles, hashed assets, maps) is summarised, not attached: it stays in the workspace.
+ */
+async function deliverArtifacts(ctx: RunContext, partial: boolean) {
   try {
     const after = workspaceManifest(ctx.root);
-    const pending = changedSince(ctx.manifest, after, ctx.changedFiles).filter(file => ctx.attached.get(file) !== after.get(file)?.mtimeMs);
-    if (!pending.length) return;
-    ctx.phases.advance("review", `Attaching ${Math.min(pending.length, MAX_AUTO_ARTIFACTS)} file(s)`);
+    const changed = changedSince(ctx.manifest, after, ctx.changedFiles).filter(file => ctx.attached.get(file) !== after.get(file)?.mtimeMs);
+    const { kept, generated } = splitGenerated(changed.map(file => ({ path: file, size: after.get(file)?.size ?? 0 })));
+    if (!kept.length && !generated.length) return;
+    const summary = generated.length ? summarizeGenerated(generated) : undefined;
+    if (!kept.length) {
+      ctx.emit({ type: "artifacts", files: [], auto: true, more: 0, skipped: [], generated: summary, ...(partial ? { partial } : {}) });
+      return;
+    }
+    ctx.phases.advance("review", `Attaching ${Math.min(kept.length, MAX_AUTO_ARTIFACTS)} file(s)`);
+    const pending = kept.map(file => file.path);
     const { stored, skipped } = await storeArtifacts(ctx.taskId, ctx.root, pending.slice(0, MAX_AUTO_ARTIFACTS), false);
-    if (stored.length || skipped.length) ctx.emit({ type: "artifacts", files: stored, auto: true, more: Math.max(0, pending.length - MAX_AUTO_ARTIFACTS), skipped });
+    if (stored.length || skipped.length || summary) ctx.emit({ type: "artifacts", files: stored, auto: true, more: Math.max(0, pending.length - MAX_AUTO_ARTIFACTS), skipped: skipped.map(item => brandText(item)), generated: summary, ...(partial ? { partial } : {}) });
   } catch (error) {
     console.error(`[artifacts] ${ctx.taskId}:`, error instanceof Error ? error.message : error);
     ctx.emit({ type: "notice", level: "warn", message: "Some files could not be attached; they are still available in the Code Sandbox." });
@@ -562,11 +1020,10 @@ async function streamTurn(ctx: RunContext, conversation: Anthropic.MessageParam[
     if (fixed) ctx.emit({ type: "notice", level: "info", message: `Repaired ${fixed} earlier failed tool result(s) that contained images (rejected by the API).` });
   }
   ctx.emit({ type: "turn_start", turn, model: ctx.spec.id });
-  let warned = false;
   const messages = await hydrateImages(conversation, ctx.images, async mediaId => {
     const media = await getMedia(mediaId);
-    return media ? fetchMediaBytes(media.stage_path) : null;
-  }, message => { if (!warned) { warned = true; ctx.emit({ type: "notice", level: "warn", message }); } });
+    return media && media.state !== "missing" ? fetchMediaBytes(media.stage_path) : null;
+  }, message => { if (!ctx.imageNoticeSent) { ctx.imageNoticeSent = true; ctx.emit({ type: "notice", level: "warn", message }); } });
   const stream = client.messages.stream({
     model: wireModel(ctx.spec, ctx.effort),
     max_tokens: MAX_TOKENS,
@@ -627,7 +1084,7 @@ async function streamTurn(ctx: RunContext, conversation: Anthropic.MessageParam[
   ctx.usage.outputTokens += usage.output_tokens;
   ctx.usage.thinkingTokens += thinkingTokens;
   ctx.emit({ type: "usage", turn, model: ctx.spec.id, inputTokens: usage.input_tokens, outputTokens: usage.output_tokens, thinkingTokens, cacheReadTokens: usage.cache_read_input_tokens ?? 0 });
-  updateAgentTask(ctx.taskId, { usage: ctx.usage });
+  updateAgentTask(ctx.taskId, { usage: ctx.usage }, ctx.runToken);
   return message;
 }
 
@@ -730,6 +1187,8 @@ async function verifyOrHeal(ctx: RunContext, coding: boolean, healIteration: num
   if (!failure) return { done: true, answer: lastText };
   const iteration = healIteration + 1;
   if (iteration > MAX_HEAL_ITERATIONS) {
+    ctx.outcome.verification = "failed";
+    ctx.outcome.failedCheck = { command: failure.command, exitCode: failure.exitCode };
     ctx.emit({ type: "notice", level: "warn", message: `Verification still failing after ${MAX_HEAL_ITERATIONS} self-healing iterations; delivering with failures reported.` });
     return { done: true, answer: `${lastText}\n\n> **Verification failed** after ${MAX_HEAL_ITERATIONS} self-healing attempts: \`${failure.command}\` (exit ${failure.exitCode}).` };
   }
@@ -764,7 +1223,7 @@ async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unkno
   // Models with hidden reasoning can spend the whole output budget thinking; the next turn thinks less.
   let effortCap: ThinkingLevel | null = null;
   // Histories saved before null content was repaired would be rejected on every turn.
-  if (repairOpenAIContent(conversation)) updateAgentTask(ctx.taskId, { conversation });
+  if (repairOpenAIContent(conversation)) updateAgentTask(ctx.taskId, { conversation }, ctx.runToken);
 
   for (let turn = 1; turn <= MAX_TURNS; turn++) {
     const streamed = await healing(ctx, async () => {
@@ -781,11 +1240,10 @@ async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unkno
 
     let finished = false;
     try {
-    let warned = false;
     const messages = await hydrateOpenAIImages(conversation as { role: string; content: unknown }[], ctx.images, async mediaId => {
       const media = await getMedia(mediaId);
-      return media ? fetchMediaBytes(media.stage_path) : null;
-    }, ctx.spec.vision, message => { if (!warned) { warned = true; ctx.emit({ type: "notice", level: "warn", message }); } });
+      return media && media.state !== "missing" ? fetchMediaBytes(media.stage_path) : null;
+    }, ctx.spec.vision, message => { if (!ctx.imageNoticeSent) { ctx.imageNoticeSent = true; ctx.emit({ type: "notice", level: "warn", message }); } });
     for await (const chunk of streamOpenAIChat({
       provider: ctx.spec.provider, model: wireModel(ctx.spec, ctx.effort), messages: [system(), ...messages], tools: tools.length ? tools : undefined,
       maxTokens: MAX_TOKENS, reasoningEffort: ctx.spec.effort && !ctx.flags.noEffort ? effortCap ?? ctx.effort : undefined, signal: ctx.signal,
@@ -846,7 +1304,7 @@ async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unkno
       ...(reasoning ? { reasoning_content: reasoning } : {}),
       ...(toolCalls.length ? { tool_calls: toolCalls.map(call => ({ id: call.id, type: "function", function: { name: call.name, arguments: call.args || "{}" } })) } : {}),
     });
-    updateAgentTask(ctx.taskId, { conversation, usage: ctx.usage });
+    updateAgentTask(ctx.taskId, { conversation, usage: ctx.usage }, ctx.runToken);
 
     if (toolCalls.length) {
       const screenshots: { name: string; image: NonNullable<ToolOutcome["image"]> }[] = [];
@@ -879,7 +1337,7 @@ async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unkno
           ],
         });
       }
-      updateAgentTask(ctx.taskId, { conversation });
+      updateAgentTask(ctx.taskId, { conversation }, ctx.runToken);
       continue;
     }
     if (finish === "length") {
@@ -967,9 +1425,17 @@ async function trackedTool(ctx: RunContext, callId: string, name: string, input:
   } else if (["write_file", "edit_file", "delete_file", "run_command", "deploy_preview"].includes(name)) {
     if (ctx.phases.get("verification") !== "active") ctx.phases.advance("implementation");
   }
+  // A call issued after Cancel (later calls of the same turn, or a turn that just finished
+  // streaming) never starts.
+  if (ctx.signal.aborted) {
+    ctx.emit({ type: "tool_result", callId, ok: false, summary: "Not run: the run was stopped", durationMs: 0 });
+    throw ctx.signal.reason ?? new Error("Cancelled");
+  }
   const started = Date.now();
   const guarded = ctx.readOnly && READ_ONLY_GUARDED.has(name);
   const snapshot = guarded ? sourceSnapshot(ctx.root) : null;
+  const publishing = PUBLISHING_TOOLS.has(name);
+  if (publishing) ctx.publishing.count++;
   const outcome = await executeTool(name, input, {
     root: ctx.root,
     sessionId: ctx.taskId,
@@ -977,18 +1443,28 @@ async function trackedTool(ctx: RunContext, callId: string, name: string, input:
     callId,
     signal: ctx.signal,
     emit: ctx.emit,
+    grants: ctx.grants,
     onPlan: (_steps: PlanStep[]) => undefined,
     onFileChange: file => ctx.changedFiles.add(file),
     onAttach: paths => { const now = workspaceManifest(ctx.root); for (const file of paths) ctx.attached.set(file, now.get(file)?.mtimeMs ?? 0); },
     onCommand: command => {
       if (isVerificationCommand(command)) ctx.agentVerifyCommands.push(command);
     },
-  });
+  }).finally(() => { if (publishing) ctx.publishing.count--; });
   if (snapshot) enforceReadOnly(ctx, snapshot, outcome);
-  if (ctx.signal.aborted) throw new Error("Cancelled");
+  // A repository cloned mid-run is the starting point for "files from this run", not output.
+  if (name === "github_clone_to_workspace" && outcome.ok) ctx.manifest = workspaceManifest(ctx.root);
+  if (ctx.signal.aborted) {
+    // Report what actually happened: a push or deploy that completed before the stop took effect did happen.
+    ctx.emit({ type: "tool_result", callId, ok: outcome.ok, summary: outcome.ok ? `${outcome.summary} (finished before the stop took effect)` : "Stopped", exitCode: outcome.exitCode, durationMs: Date.now() - started });
+    throw ctx.signal.reason ?? new Error("Cancelled");
+  }
   ctx.emit({ type: "tool_result", callId, ok: outcome.ok, summary: outcome.summary, exitCode: outcome.exitCode, durationMs: Date.now() - started });
   return outcome;
 }
+
+/** Tools with external side effects; a cancel deadline waits for them to finish. */
+const PUBLISHING_TOOLS = new Set(["github_commit_and_push", "github_create_pr", "deploy_preview"]);
 
 /** Tools that run arbitrary commands in the workspace (the rest are read-only by construction). */
 const READ_ONLY_GUARDED = new Set(["run_command", "test_preview_visual"]);
@@ -1013,11 +1489,13 @@ function redactLargeInput(input: Record<string, unknown>) {
 }
 
 async function verify(ctx: RunContext, iteration: number) {
+  if (!ctx.outcome) ctx.outcome = { verification: "none" };
   const commands = detectVerificationCommands(ctx.root, ctx.changedFiles, ctx.agentVerifyCommands);
   ctx.phases.advance("verification");
   if (!commands.length) {
     ctx.emit({ type: "notice", level: "info", message: "No typecheck, lint or test configuration found in the workspace; automated verification skipped." });
     ctx.phases.set("verification", "skipped", "Nothing to verify");
+    if (ctx.outcome.verification === "none") ctx.outcome.verification = "skipped";
     return null;
   }
   ctx.emit({ type: "verify_start", iteration, commands });
@@ -1026,13 +1504,19 @@ async function verify(ctx: RunContext, iteration: number) {
     ctx.emit({ type: "tool_start", callId, name: "verify" });
     ctx.emit({ type: "tool_call", callId, name: "verify", input: { command } });
     const result = await runCommand({ root: ctx.root, command, timeoutSec: 300, signal: ctx.signal, onOutput: (stream, chunk) => ctx.emit({ type: "tool_output", callId, stream, chunk }) });
-    if (ctx.signal.aborted) throw new Error("Cancelled");
+    if (ctx.signal.aborted) {
+      // Close the card before stopping, so a stopped run never shows a check still running.
+      ctx.emit({ type: "tool_result", callId, ok: false, summary: "Stopped", exitCode: result.exitCode, durationMs: result.durationMs });
+      throw ctx.signal.reason ?? new Error("Cancelled");
+    }
     const ok = result.exitCode === 0;
     ctx.emit({ type: "tool_result", callId, ok, summary: ok ? "passed" : `exit code ${result.exitCode}`, exitCode: result.exitCode, durationMs: result.durationMs });
     ctx.emit({ type: "verify_result", iteration, command, ok, exitCode: result.exitCode, output: clip(result.output, 8000), durationMs: result.durationMs });
     if (!ok) return { command, exitCode: result.exitCode, output: result.output };
   }
   ctx.phases.set("verification", "done", `All ${commands.length} check${commands.length === 1 ? "" : "s"} passed`);
+  ctx.outcome.verification = "passed";
+  delete ctx.outcome.failedCheck;
   return null;
 }
 
@@ -1118,6 +1602,7 @@ async function runManus(ctx: RunContext, conversation: Anthropic.MessageParam[])
   });
   ctx.emit({ type: "tool_result", callId, ok: result.status === "completed", summary: `Research ${result.status}`, durationMs: Date.now() - started });
   if (result.status !== "completed" && !result.answer) throw new Error(`Research task ${result.status}.`);
+  ctx.outcome.research = result.status === "completed" ? "completed" : "partial";
   console.log(`[research] ${ctx.taskId} remote task: ${result.url}`);
   async function* once() { yield result.answer; }
   const answer = await emitText(ctx, `${callId}-text`, once());

@@ -185,7 +185,7 @@ export async function runTeam(ctx: RunContext, conversation: Anthropic.MessagePa
   const state: TeamState = (await getTeamState<TeamState>(ctx.taskId)) ?? { architect: [], engineer: [], reviewer: [], cycles: 0, plans: [], reviews: [] };
   state.cycles++;
   const cycle = state.cycles;
-  const save = () => { saveTeamState(ctx.taskId, state); };
+  const save = () => { saveTeamState(ctx.taskId, state, ctx.runToken); };
   const models = roleModels(ctx.spec);
   const request = requestBlocks(conversation);
   const followUp = cycle > 1 ? `This is follow-up request #${cycle - 1} on the same project.\n\n` : "";
@@ -301,6 +301,7 @@ export async function runTeam(ctx: RunContext, conversation: Anthropic.MessagePa
     }
 
     const approved = review?.verdict === "approve";
+    ctx.outcome.review = { verdict: review?.verdict ?? "none", rounds };
     if (!approved) track("reviewer", "done", "Open items remain");
 
     // ---- 4. Publish (only after approval, and only when the request asks for it) ----
@@ -312,12 +313,17 @@ export async function runTeam(ctx: RunContext, conversation: Anthropic.MessagePa
       save();
       try {
         published = (await engineerRun("p", { tools: [...ROLE_TOOLS.engineer, ...PUBLISH_TOOLS], verify: false, maxTurns: PUBLISH_TURNS })).text;
+        ctx.outcome.publish = "done";
       } catch (error) {
         if (ctx.signal.aborted) throw error;
+        ctx.outcome.publish = "failed";
         published = `Publishing did not complete: ${describeError(error)}`;
       }
     } else if (wantsPublish) {
+      ctx.outcome.publish = "blocked_unapproved";
       published = "Not published: the Reviewer did not approve the changes, so nothing was pushed or deployed.";
+    } else {
+      ctx.outcome.publish = "not_requested";
     }
     track("engineer", "done", approved ? "Changes approved" : "Finished with open review items");
 
@@ -336,16 +342,18 @@ export async function runTeam(ctx: RunContext, conversation: Anthropic.MessagePa
       ...(review?.tests_run.length ? ["", "**Checks run by the Reviewer:**", ...review.tests_run.map(test => `- \`${test.command}\`: ${test.result}`)] : []),
       ...(published ? ["", "**Publishing:**", published] : []),
     ].join("\n");
-    ctx.emit({ type: "handoff", from: "reviewer", to: "user", kind: "report", title: approved ? "Team report · approved" : "Team report · open items", content: report });
+    ctx.emit({ type: "handoff", from: "reviewer", to: "user", kind: "report", title: approved ? (ctx.outcome.publish === "failed" ? "Team report · approved, publishing failed" : "Team report · approved") : "Team report · open items", content: report });
     await settleTeamWrites(ctx.taskId);
     async function* once() { yield report; }
     return emitText(ctx, `${ctx.runId}-team-report`, once());
   } catch (error) {
     // Show where the team stopped; runTask records the failure itself.
-    const cancelled = ctx.signal.aborted;
-    status(active, "failed", cancelled ? "Cancelled" : "Stopped by an error");
+    // Name the stop truthfully: a restart is not a cancel.
+    const stop = ctx.signal.aborted ? (ctx.signal.reason as { reason?: string } | undefined)?.reason ?? "user" : null;
+    const label = stop === "shutdown" ? "Interrupted: the server restarted" : stop ? "Cancelled" : "Stopped by an error";
+    status(active, "failed", label);
     for (const role of ["architect", "engineer", "reviewer"] as TeamRole[]) {
-      if (role !== active && (statuses[role] === "waiting" || statuses[role] === "working")) status(role, "failed", cancelled ? "Cancelled" : "Stopped: the team run failed");
+      if (role !== active && (statuses[role] === "waiting" || statuses[role] === "working")) status(role, "failed", stop ? label : "Stopped: the team run failed");
     }
     await settleTeamWrites(ctx.taskId).catch(() => undefined);
     throw error;

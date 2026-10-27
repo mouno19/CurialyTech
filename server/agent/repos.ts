@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { query } from "../db/pg";
-import { branchHead, githubApi, GitHubError, repoDetails } from "../services/github";
+import { branchHead, githubApi, GitHubError, repoDetails, throwIfAborted } from "../services/github";
 import { randomUUID } from "node:crypto";
 import { resolveInWorkspace, runCommand, SandboxError, WORKSPACE_ROOT } from "./sandbox";
 
@@ -132,19 +132,26 @@ export type RepoChanges = { changed: string[]; deleted: string[] };
 export async function computeChanges(root: string, repo: LinkedRepo, signal?: AbortSignal): Promise<RepoChanges> {
   if (!SHA.test(repo.baseSha)) throw new Error("Invalid base sha.");
   const repoDir = repo.repoPath === "." ? "." : repo.repoPath;
-  const command = `cd -- ${JSON.stringify(repoDir)} && { git -c core.quotepath=off diff --name-status -z --no-renames ${repo.baseSha} -- . 2>/dev/null; printf '\\0::untracked::\\0'; git ls-files -z --others --exclude-standard 2>/dev/null; }`;
+  const command = `cd -- ${JSON.stringify(repoDir)} && { git -c core.quotepath=off diff --name-status ${repo.baseSha} -- . 2>/dev/null; echo '::untracked::'; git -c core.quotepath=off ls-files --others --exclude-standard 2>/dev/null; }`;
   const result = await runCommand({ root, command, timeoutSec: 120, signal, onOutput: () => undefined });
   if (result.exitCode !== 0) throw new Error(`Could not list repository changes (git exit ${result.exitCode}).`);
-  const [diffPart, untrackedPart = ""] = result.output.split("\0::untracked::\0");
-  const tokens = diffPart.split("\0").filter(Boolean);
+  const [diffPart, untrackedPart = ""] = result.output.split("::untracked::");
   const changed = new Set<string>();
   const deleted = new Set<string>();
-  for (let index = 0; index + 1 < tokens.length; index += 2) {
-    const [status, file] = [tokens[index], tokens[index + 1]];
+  for (const rawLine of diffPart.split("\n")) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const tabIdx = line.indexOf("\t");
+    if (tabIdx === -1) continue;
+    const status = line.slice(0, tabIdx).trim();
+    const file = line.slice(tabIdx + 1).trim();
     if (status.startsWith("D")) deleted.add(file);
     else changed.add(file);
   }
-  for (const file of untrackedPart.split("\0").filter(Boolean)) changed.add(file);
+  for (const rawLine of untrackedPart.split("\n")) {
+    const file = rawLine.trim();
+    if (file) changed.add(file);
+  }
   const clean = (file: string) => !file.startsWith(".git/") && file !== ".git" && !file.includes("\0");
   return { changed: Array.from(changed).filter(clean), deleted: Array.from(deleted).filter(clean) };
 }
@@ -183,6 +190,7 @@ export async function commitAndPush(opts: { sessionId: string; root: string; rep
   let total = 0;
   opts.onOutput?.(`Uploading ${changes.changed.length} changed file(s), deleting ${changes.deleted.length}…\n`);
   for (let index = 0; index < changes.changed.length; index += 6) {
+    throwIfAborted(opts.signal);
     const batch = changes.changed.slice(index, index + 6).map(file => ({ file, data: readRepoFile(opts.root, repo, file) })).filter(item => item.data);
     for (const item of batch) total += item.data!.content.length;
     if (total > MAX_PUSH_TOTAL) throw new SandboxError(`Changes exceed ${MAX_PUSH_TOTAL / 1024 / 1024} MB; push a smaller set of files.`);
@@ -193,6 +201,8 @@ export async function commitAndPush(opts: { sessionId: string; root: string; rep
 
   const tree = await githubApi<{ sha: string }>(token, `/repos/${repo.fullName}/git/trees`, { method: "POST", body: JSON.stringify({ base_tree: baseCommit.tree.sha, tree: entries }) });
   const commit = await githubApi<{ sha: string; html_url: string }>(token, `/repos/${repo.fullName}/git/commits`, { method: "POST", body: JSON.stringify({ message: opts.message, tree: tree.sha, parents: [parent] }) });
+  // Last check before the point of no return: a cancelled run leaves the branch untouched.
+  throwIfAborted(opts.signal);
   try {
     if (remoteHead) await githubApi(token, `/repos/${repo.fullName}/git/refs/heads/${target}`, { method: "PATCH", body: JSON.stringify({ sha: commit.sha, force: false }) });
     else await githubApi(token, `/repos/${repo.fullName}/git/refs`, { method: "POST", body: JSON.stringify({ ref: `refs/heads/${target}`, sha: commit.sha }) });

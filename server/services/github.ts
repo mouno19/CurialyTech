@@ -136,23 +136,33 @@ export async function createRepo(token: string, repoName: string, isPrivate: boo
   );
 }
 
+/** Stop before the next external write once a run was cancelled. */
+export function throwIfAborted(signal?: AbortSignal) {
+  if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new Error("Cancelled");
+}
+
 /**
  * Commit `files` as the complete tree of `branch` (files not listed are removed) and push it.
- * Uses the Git Data API: blobs → tree → commit → ref update.
+ * Uses the Git Data API: blobs → tree → commit → ref update. With a signal, a cancel stops it before
+ * the next write (the ref update is the point of no return).
  */
-export async function pushProjectToRepo(token: string, fullName: string, files: { path: string; content: Buffer }[], message: string, branch?: string) {
+export async function pushProjectToRepo(token: string, fullName: string, files: { path: string; content: Buffer }[], message: string, branch?: string, signal?: AbortSignal) {
+  throwIfAborted(signal);
   const repo = await githubApi<{ default_branch: string; html_url: string }>(token, `/repos/${fullName}`);
   const target = branch ?? repo.default_branch;
   const ref = await githubApi<{ object: { sha: string } }>(token, `/repos/${fullName}/git/ref/heads/${encodeURIComponent(target)}`);
   const tree: { path: string; mode: string; type: string; sha: string }[] = [];
   // Small concurrency keeps large projects reasonably fast without tripping secondary rate limits.
   for (let index = 0; index < files.length; index += 6) {
+    throwIfAborted(signal);
     const batch = files.slice(index, index + 6);
     const blobs = await Promise.all(batch.map(file => githubApi<{ sha: string }>(token, `/repos/${fullName}/git/blobs`, { method: "POST", body: JSON.stringify({ content: file.content.toString("base64"), encoding: "base64" }) })));
     batch.forEach((file, i) => tree.push({ path: file.path, mode: "100644", type: "blob", sha: blobs[i].sha }));
   }
+  throwIfAborted(signal);
   const createdTree = await githubApi<{ sha: string }>(token, `/repos/${fullName}/git/trees`, { method: "POST", body: JSON.stringify({ tree }) });
   const commit = await githubApi<{ sha: string; html_url: string }>(token, `/repos/${fullName}/git/commits`, { method: "POST", body: JSON.stringify({ message, tree: createdTree.sha, parents: [ref.object.sha] }) });
+  throwIfAborted(signal);
   await githubApi(token, `/repos/${fullName}/git/refs/heads/${encodeURIComponent(target)}`, { method: "PATCH", body: JSON.stringify({ sha: commit.sha, force: false }) });
   return { branch: target, commitSha: commit.sha, commitUrl: `${repo.html_url}/commit/${commit.sha}`, repoUrl: repo.html_url };
 }

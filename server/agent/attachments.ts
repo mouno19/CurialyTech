@@ -1,3 +1,4 @@
+import { StorageError } from "../media/storage-errors";
 import fs from "node:fs";
 import path from "node:path";
 import { fetchMediaBytes } from "../media/snowflake";
@@ -86,7 +87,7 @@ export async function stageAttachments(root: string, refs: AttachmentRef[], opts
       if (ref.sizeBytes > MAX_ATTACHMENT_BYTES) throw new Error("larger than 25 MB");
       bytes = await load(ref.stagePath);
     } catch (error) {
-      failed.push(`${ref.filename} (${error instanceof Error ? error.message.slice(0, 80) : "unavailable"})`);
+      failed.push(`${ref.filename} (${error instanceof StorageError ? error.message : error instanceof Error && error.message === "larger than 25 MB" ? error.message : "unavailable"})`);
       continue;
     }
     const relative = uniqueAttachmentPath(root, ref.filename, ref.id);
@@ -116,6 +117,23 @@ export async function stageAttachments(root: string, refs: AttachmentRef[], opts
  * references, not bytes: the conversation is rewritten to the database every turn, so base64 is
  * attached only to the outgoing request.
  */
+/**
+ * Load a Vault image for the model: null when it is gone for good (cached as such), one retry only
+ * for a network blip, and no retry at all while file storage is known to be down.
+ */
+async function loadOnce(load: (mediaId: string) => Promise<Buffer | null>, id: string) {
+  try {
+    return await load(id);
+  } catch (error) {
+    if (error instanceof StorageError && error.kind === "object_missing") return null;
+    if (error instanceof StorageError && error.kind !== "unreachable") throw error;
+    return load(id).catch(retryError => {
+      if (retryError instanceof StorageError && retryError.kind === "object_missing") return null;
+      throw retryError;
+    });
+  }
+}
+
 export function userContent(text: string, images: VisionImage[], format: "anthropic" | "openai") {
   if (!images.length) return text;
   if (format === "openai") {
@@ -159,7 +177,7 @@ export async function hydrateOpenAIImages<T extends { role: string; content: unk
         let data = cache.get(id);
         if (data === undefined) {
           try {
-            const loaded = await load(id).catch(() => load(id));
+            const loaded = await loadOnce(load, id);
             data = loaded ? loaded.toString("base64") : "";
             cache.set(id, data);
           } catch {
@@ -222,7 +240,7 @@ export async function hydrateImages<T extends { role: string; content: unknown }
         let data = cache.get(id);
         if (data === undefined) {
           try {
-            const loaded = await load(id).catch(() => load(id)); // one retry for a transient vault error
+            const loaded = await loadOnce(load, id);
             data = loaded ? loaded.toString("base64") : "";
             cache.set(id, data); // cache successes and definite "not found" only
           } catch {

@@ -24,8 +24,10 @@ export type BrowseResult = {
   replayUrl: string;
 };
 
+/** Vendor API call with a deadline: a hung request must never hold a run open. */
 const bb = (path: string, init: RequestInit = {}) => fetch(`https://api.browserbase.com/v1${path}`, {
   ...init,
+  signal: init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000),
   headers: { "X-BB-API-Key": PROVIDER_ENV.browserbaseKey, "content-type": "application/json", ...(init.headers ?? {}) },
 });
 
@@ -79,16 +81,23 @@ class LiveSession {
     this.emit({ type: "browser_action", sessionId: this.sessionId, action, detail, url: this.page.url(), title: "" });
   }
 
-  async close(reason: "done" | "agent" | "idle" | "disconnected" | "cancelled") {
+  /** Whether the remote browser is still attached (the live view can only show a connected session). */
+  get connected() {
+    return !this.closed && this.browser.isConnected();
+  }
+
+  async close(reason: BrowserEndReason) {
     if (this.closed) return;
     this.closed = true;
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.onClose();
-    await this.browser.close().catch(() => undefined);
-    await release(this.sessionId);
+    // Report the end first: releasing the remote session is housekeeping and must not delay the run.
     this.emit({ type: "browser_session", sessionId: this.sessionId, status: "ended", liveUrl: null, replayUrl: "", reason });
+    void Promise.race([this.browser.close(), new Promise(resolve => setTimeout(resolve, 10_000))]).catch(() => undefined).then(() => release(this.sessionId));
   }
 }
+
+export type BrowserEndReason = "done" | "agent" | "idle" | "disconnected" | "cancelled" | "interrupted";
 
 const sessions = new Map<string, LiveSession>();
 const opening = new Map<string, Promise<LiveSession>>();
@@ -110,11 +119,16 @@ export function liveBrowser(taskId: string, emit: Emit, signal?: AbortSignal): P
       const context = browser.contexts()[0] ?? (await browser.newContext());
       const page = context.pages()[0] ?? (await context.newPage());
       await page.setViewportSize({ width: 1280, height: 800 });
+      if (signal?.aborted) throw signal.reason ?? new Error("Cancelled");
       const liveUrl = await liveViewUrl(session.id).catch(() => null);
-      const live = new LiveSession(taskId, session.id, browser, page, liveUrl, emit, () => sessions.delete(taskId));
+      const live = new LiveSession(taskId, session.id, browser, page, liveUrl, emit, () => { if (sessions.get(taskId) === live) sessions.delete(taskId); });
       sessions.set(taskId, live);
-      console.log(`[browser] ${taskId} session ${session.id} replay: ${replayUrl(session.id)}`);
-      emit({ type: "browser_session", sessionId: session.id, status: "live", liveUrl, replayUrl: "" });
+      console.log(`[browser] ${taskId} session ${session.id} opened`);
+      // The live-view address carries an access token: it is handed out on request (sessionStatus),
+      // never stored in the event log.
+      emit({ type: "browser_session", sessionId: session.id, status: "live", liveUrl: null, replayUrl: "", viewer: Boolean(liveUrl) });
+      // A run cancelled while the session was opening must not leave it running (and billed).
+      if (signal?.aborted) await live.close("cancelled");
       return live;
     } catch (error) {
       await browser?.close().catch(() => undefined);
@@ -126,8 +140,21 @@ export function liveBrowser(taskId: string, emit: Emit, signal?: AbortSignal): P
   return promise;
 }
 
-export async function closeLiveBrowser(taskId: string, reason: "done" | "agent" | "cancelled" = "done") {
+export async function closeLiveBrowser(taskId: string, reason: BrowserEndReason = "done") {
   await sessions.get(taskId)?.close(reason);
+}
+
+export type BrowserSessionStatus = { status: "live" | "ended"; viewer: string | null; title: string; url: string };
+
+/**
+ * What the UI may show for a session: live (with a fresh viewer address) only while this process
+ * holds it and the remote browser is still attached; anything else has ended.
+ */
+export async function sessionStatus(taskId: string, sessionId: string, fresh = false): Promise<BrowserSessionStatus> {
+  const live = sessions.get(taskId);
+  if (!live || live.sessionId !== sessionId || !live.connected) return { status: "ended", viewer: null, title: "", url: "" };
+  const viewer = fresh ? await liveViewUrl(sessionId).catch(() => live.liveUrl) : live.liveUrl;
+  return { status: "live", viewer, title: await live.page.title().catch(() => ""), url: live.page.url() };
 }
 
 export async function snapshot(live: LiveSession, opts: { screenshot: boolean; fullPage: boolean; status?: number | null }): Promise<BrowseResult> {

@@ -15,6 +15,10 @@ ExecStart=/usr/bin/node /srv/curialyai-next/dist/index.js
 Restart=always
 RestartSec=5
 MemoryMax=400M
+# SIGTERM goes to the app only; it records running tasks as interrupted and exits (see
+# server/_core/index.ts). Sandbox commands run in their own scopes and are stopped by the app.
+KillMode=mixed
+TimeoutStopSec=30
 
 [Install]
 WantedBy=multi-user.target

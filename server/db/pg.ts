@@ -28,8 +28,27 @@ export async function query<T extends pg.QueryResultRow = any>(text: string, val
 }
 
 export async function closeDb() {
-  await pool?.end();
+  await Promise.all([pool?.end(), heartbeatPool?.end()]);
   pool = null;
+  heartbeatPool = null;
+}
+
+let heartbeatPool: pg.Pool | null = null;
+
+/** A one-connection pool for lease renewals, with a short statement timeout (never queued behind bulk I/O). */
+export async function heartbeatQuery<T extends pg.QueryResultRow = any>(text: string, values?: unknown[]) {
+  if (!heartbeatPool) {
+    const connectionString = process.env.TIGER_DATABASE_URL;
+    if (!connectionString) throw new Error("TIGER_DATABASE_URL is not configured.");
+    const url = new URL(connectionString);
+    url.searchParams.delete("sslmode");
+    heartbeatPool = new pg.Pool({
+      connectionString: url.toString(), ssl: { rejectUnauthorized: true, servername: url.hostname },
+      max: 1, idleTimeoutMillis: 60_000, connectionTimeoutMillis: 5000, statement_timeout: 5000, application_name: "curialy-heartbeat",
+    });
+    heartbeatPool.on("error", error => console.error("[db] heartbeat client error:", error.message));
+  }
+  return heartbeatPool.query<T>(text, values);
 }
 
 const MIGRATIONS: { id: number; sql: string }[] = [
@@ -172,6 +191,44 @@ const MIGRATIONS: { id: number; sql: string }[] = [
     id: 5,
     sql: `ALTER TABLE curialy.chat_sessions ADD COLUMN IF NOT EXISTS team boolean NOT NULL DEFAULT false;
           ALTER TABLE curialy.chat_sessions ADD COLUMN IF NOT EXISTS team_state jsonb;`,
+  },
+  {
+    id: 6,
+    sql: `
+      -- Run ownership and truthful lifecycle (server/agent/lifecycle.ts). Additive only: older code
+      -- ignores these columns. run_id fences every run-scoped write; the lease is renewed by the
+      -- worker's heartbeat so a dead worker's runs can be recognised and interrupted.
+      ALTER TABLE curialy.chat_sessions ADD COLUMN IF NOT EXISTS run_id uuid;
+      ALTER TABLE curialy.chat_sessions ADD COLUMN IF NOT EXISTS attempt integer NOT NULL DEFAULT 0;
+      ALTER TABLE curialy.chat_sessions ADD COLUMN IF NOT EXISTS worker_id text;
+      ALTER TABLE curialy.chat_sessions ADD COLUMN IF NOT EXISTS lease_expires_at timestamptz;
+      ALTER TABLE curialy.chat_sessions ADD COLUMN IF NOT EXISTS cancel_requested_at timestamptz;
+      ALTER TABLE curialy.chat_sessions ADD COLUMN IF NOT EXISTS status_reason text;
+      ALTER TABLE curialy.chat_sessions ADD COLUMN IF NOT EXISTS status_changed_at timestamptz;
+      ALTER TABLE curialy.chat_sessions ADD COLUMN IF NOT EXISTS started_at timestamptz;
+      ALTER TABLE curialy.chat_sessions ADD COLUMN IF NOT EXISTS finished_at timestamptz;
+      ALTER TABLE curialy.chat_sessions ADD COLUMN IF NOT EXISTS outcome jsonb;
+      CREATE INDEX IF NOT EXISTS chat_sessions_active_idx ON curialy.chat_sessions (lease_expires_at)
+        WHERE status IN ('queued', 'running', 'cancelling');
+      -- No data is rewritten: rows the old boot recovery marked failed ('Interrupted by a server
+      -- restart.') are shown as interrupted by the read path (store.ts fromRow), so a rollback to the
+      -- previous build still understands every row.
+
+      -- Deployments: every event carries the row id; cleanup records why a preview went away.
+      ALTER TABLE curialy.deployments ADD COLUMN IF NOT EXISTS call_id text;
+      ALTER TABLE curialy.deployments ADD COLUMN IF NOT EXISTS name text;
+      ALTER TABLE curialy.deployments ADD COLUMN IF NOT EXISTS removed_reason text;
+      ALTER TABLE curialy.deployments ADD COLUMN IF NOT EXISTS last_error text;
+      ALTER TABLE curialy.deployments ADD COLUMN IF NOT EXISTS cleanup_detail text;
+      CREATE INDEX IF NOT EXISTS deployments_session_idx ON curialy.deployments (session_id, created_at);
+
+      -- Media rows whose object is known to be gone (e.g. stored in a previous storage account).
+      ALTER TABLE curialy.file_metadata ADD COLUMN IF NOT EXISTS state text NOT NULL DEFAULT 'stored';
+      ALTER TABLE curialy.file_metadata ADD COLUMN IF NOT EXISTS missing_at timestamptz;
+
+      -- Workspace snapshots also keep the built site ('build') so an archived preview is still known.
+      ALTER TABLE curialy.workspace_files ADD COLUMN IF NOT EXISTS role text NOT NULL DEFAULT 'source';
+    `,
   },
 ];
 

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import snowflake from "snowflake-sdk";
 import { query } from "../db/pg";
+import { classifyStorageError, logStorageError, publicStorageMessage, redact, StorageBreaker, StorageError, type StorageFailure } from "./storage-errors";
 
 // User media lives in a Snowflake internal stage; bytes go from memory straight to the stage
 // (snowflake-sdk fileStream) and are served through short-lived presigned URLs. Nothing is
@@ -8,114 +9,252 @@ import { query } from "../db/pg";
 
 const STAGE = process.env.SNOWFLAKE_MEDIA_STAGE || "@CURIALY_DB.PUBLIC.USER_MEDIA_STAGE";
 const MAX_BYTES = 25 * 1024 * 1024;
+const CONNECT_TIMEOUT_MS = 15_000;
+const STATEMENT_TIMEOUT_MS = 20_000;
+const PUT_TIMEOUT_MS = 90_000;
+const FETCH_TIMEOUT_MS = 15_000;
 
 snowflake.configure({ logLevel: "ERROR", logFilePath: "STDOUT", additionalLogToConsole: false } as never);
 
 let connection: snowflake.Connection | null = null;
 let connecting: Promise<snowflake.Connection> | null = null;
 
+/** Account, user and role come from the environment only: no fallback to another account's values. */
+export function storageConfig() {
+  const env = process.env;
+  const missing = (["SNOWFLAKE_ACCOUNT", "SNOWFLAKE_USER", "SNOWFLAKE_ROLE", "SNOWFLAKE_PAT"] as const).filter(name => !env[name]);
+  return { ok: missing.length === 0, missing };
+}
+
+const withDeadline = <T>(promise: Promise<T>, ms: number, label: string, onTimeout?: () => void) => {
+  let timer: NodeJS.Timeout | undefined;
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => { timer = setTimeout(() => { onTimeout?.(); reject(Object.assign(new Error(`${label} timed out`), { name: "TimeoutError" })); }, ms); }),
+  ]).finally(() => clearTimeout(timer));
+};
+
 function connect() {
   if (connection?.isUp()) return Promise.resolve(connection);
-  connecting ??= new Promise<snowflake.Connection>((resolve, reject) => {
-    const token = process.env.SNOWFLAKE_PAT;
-    if (!token) return reject(new Error("SNOWFLAKE_PAT is not configured."));
+  connecting ??= (async () => {
+    const config = storageConfig();
+    if (!config.ok) throw new StorageError("not_configured");
+    const previous = connection;
+    connection = null;
+    if (previous) previous.destroy(() => undefined);
     const conn = snowflake.createConnection({
-      account: process.env.SNOWFLAKE_ACCOUNT || "kxjnkhs-lk29580",
-      username: process.env.SNOWFLAKE_USER || "CORTEX_CLI_USER",
-      role: process.env.SNOWFLAKE_ROLE || "CORTEX_CLI_ROLE",
+      account: process.env.SNOWFLAKE_ACCOUNT!,
+      username: process.env.SNOWFLAKE_USER!,
+      role: process.env.SNOWFLAKE_ROLE!,
       warehouse: process.env.SNOWFLAKE_WAREHOUSE || "COMPUTE_WH",
       authenticator: "PROGRAMMATIC_ACCESS_TOKEN",
-      token,
+      token: process.env.SNOWFLAKE_PAT!,
       clientSessionKeepAlive: true,
+      sfRetryMaxLoginRetries: 1,
     } as snowflake.ConnectionOptions);
-    conn.connect(error => (error ? reject(error) : resolve(conn)));
-  }).then(conn => {
+    // The driver's own login retry window is at least five minutes; an interactive server cannot wait that long.
+    await withDeadline(new Promise<void>((resolve, reject) => conn.connect(error => (error ? reject(error) : resolve()))), CONNECT_TIMEOUT_MS, "storage login", () => conn.destroy(() => undefined));
     connection = conn;
     return conn;
-  }).finally(() => {
+  })().finally(() => {
     connecting = null;
   });
   return connecting;
 }
 
-function run<T = Record<string, unknown>>(sqlText: string, extra: Record<string, unknown> = {}): Promise<T[]> {
-  return connect().then(conn => new Promise<T[]>((resolve, reject) => {
-    conn.execute({
-      sqlText,
-      ...extra,
-      complete: (error, _statement, rows) => (error ? reject(error) : resolve((rows ?? []) as T[])),
-    } as snowflake.StatementOption);
-  }));
+function run<T = Record<string, unknown>>(sqlText: string, extra: Record<string, unknown> = {}, timeoutMs = STATEMENT_TIMEOUT_MS): Promise<T[]> {
+  return connect().then(conn => {
+    let cancel: (() => void) | undefined;
+    return withDeadline(new Promise<T[]>((resolve, reject) => {
+      const statement = conn.execute({
+        sqlText,
+        ...extra,
+        complete: (error, _statement, rows) => (error ? reject(error) : resolve((rows ?? []) as T[])),
+      } as snowflake.StatementOption);
+      cancel = () => statement.cancel(() => undefined);
+    }), timeoutMs, "storage statement", () => cancel?.());
+  });
 }
 
 const safeName = (name: string) => name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-120) || "file";
 
-let readyCache: { at: number; ok: boolean; detail: string } | null = null;
+const breaker = new StorageBreaker();
 
-export async function mediaStatus(force = false) {
-  if (!force && readyCache && Date.now() - readyCache.at < 60_000) return readyCache;
-  try {
-    await run(`LIST ${STAGE} PATTERN = '.*__curialy_probe__.*'`);
-    readyCache = { at: Date.now(), ok: true, detail: `${STAGE} reachable` };
-  } catch (error) {
-    readyCache = { at: Date.now(), ok: false, detail: error instanceof Error ? error.message.split("\n")[0].slice(0, 220) : "Stage unavailable" };
+const probe = async () => {
+  await run(`LIST ${STAGE} PATTERN = '.*__curialy_probe__.*'`, {}, 10_000);
+};
+
+/** Run a stage operation behind the breaker: fail fast during an outage, record what happened. */
+async function guarded<T>(op: string, work: () => Promise<T>): Promise<T> {
+  if (!storageConfig().ok) {
+    breaker.failed("not_configured");
+    throw new StorageError("not_configured");
   }
-  return readyCache;
+  await breaker.guard(probe);
+  try {
+    const result = await work();
+    breaker.succeeded();
+    return result;
+  } catch (error) {
+    const kind = classifyStorageError(error);
+    breaker.failed(kind);
+    if (!(error instanceof StorageError)) logStorageError(op, error);
+    throw error instanceof StorageError ? error : new StorageError(kind, breaker.snapshot().retryAfterSec, redact(String((error as Error)?.message ?? error)));
+  }
+}
+
+export type MediaHealth = { ok: boolean; state: "ok" | "unavailable" | "not_configured"; kind: StorageFailure | null; retryAfter: number; detail: string };
+
+function healthFromBreaker(): MediaHealth {
+  if (!storageConfig().ok) return { ok: false, state: "not_configured", kind: "not_configured", retryAfter: 0, detail: publicStorageMessage("not_configured") };
+  const snap = breaker.snapshot();
+  if (snap.state === "ok") return { ok: true, state: "ok", kind: null, retryAfter: 0, detail: "File storage is ready." };
+  return { ok: false, state: "unavailable", kind: snap.kind, retryAfter: snap.retryAfterSec, detail: publicStorageMessage(snap.kind ?? "unreachable") };
+}
+
+let lastProbeAt = 0;
+let lastProbe: Promise<unknown> | null = null;
+
+/**
+ * Storage health. By default answered from memory (no I/O); `probe` runs one real check, at most
+ * every 15 seconds, so a burst of callers costs one query.
+ */
+export async function mediaStatus(probeNow = false): Promise<MediaHealth> {
+  if (probeNow && storageConfig().ok && Date.now() - lastProbeAt > 15_000) {
+    lastProbeAt = Date.now();
+    lastProbe ??= probe().then(() => breaker.succeeded(), error => { breaker.failed(classifyStorageError(error)); logStorageError("probe", error); }).finally(() => { lastProbe = null; });
+  }
+  if (probeNow) await lastProbe;
+  return healthFromBreaker();
+}
+
+/** Throws StorageError when storage is known to be unavailable (no I/O). */
+export function assertStorageAvailable() {
+  const health = healthFromBreaker();
+  if (!health.ok && !breaker.windowPassed()) throw new StorageError(health.kind ?? "unreachable", health.retryAfter);
 }
 
 export type StoredMedia = { id: string; filename: string; mimeType: string; sizeBytes: number; kind: string; stagePath: string };
 
-export async function storeMedia(input: { buffer: Buffer; filename: string; mimeType: string; kind: "upload" | "screenshot" | "artifact"; sessionId?: string | null }): Promise<StoredMedia> {
-  if (input.buffer.length > MAX_BYTES) throw new Error(`Files are limited to ${MAX_BYTES / 1024 / 1024} MB.`);
+export async function storeMedia(input: { buffer: Buffer; filename: string; mimeType: string; kind: "upload" | "screenshot" | "artifact"; sessionId?: string | null; sourcePath?: string | null }): Promise<StoredMedia> {
+  if (input.buffer.length > MAX_BYTES) throw new StorageError("rejected", 0, `over ${MAX_BYTES / 1024 / 1024} MB`);
   const id = randomUUID();
   const filename = safeName(input.filename);
   const folder = `${input.kind}/${id}`;
-  // PUT parses the "local" path only for the target file name; the bytes come from fileStream.
-  await run(`PUT 'file:///${filename}' '${STAGE}/${folder}' AUTO_COMPRESS = FALSE OVERWRITE = TRUE`, { fileStream: input.buffer });
-  // The driver decides the final object key (it can introduce a doubled slash), so read it back.
-  const listed = await run<{ name: string }>(`LIST '${STAGE}/${folder}'`);
-  const key = listed.map(row => row.name).find(name => name.endsWith(`/${filename}`));
-  if (!key) throw new Error("Upload to the media stage could not be confirmed.");
-  const stagePath = key.slice(key.indexOf("/") + 1); // strip the stage's own name prefix
-  await query(
-    `INSERT INTO curialy.file_metadata (id, session_id, kind, filename, mime_type, size_bytes, storage, stage_path)
-     VALUES ($1, $2, $3, $4, $5, $6, 'snowflake_stage', $7)`,
-    [id, input.sessionId ?? null, input.kind, filename, input.mimeType, input.buffer.length, stagePath],
-  );
-  return { id, filename, mimeType: input.mimeType, sizeBytes: input.buffer.length, kind: input.kind, stagePath };
+  return guarded("upload", async () => {
+    // PUT parses the "local" path only for the target file name; the bytes come from fileStream.
+    await run(`PUT 'file:///${filename}' '${STAGE}/${folder}' AUTO_COMPRESS = FALSE OVERWRITE = TRUE`, { fileStream: input.buffer }, PUT_TIMEOUT_MS);
+    // The driver decides the final object key (it can introduce a doubled slash), so read it back.
+    const listed = await run<{ name: string }>(`LIST '${STAGE}/${folder}'`);
+    const key = listed.map(row => row.name).find(name => name.endsWith(`/${filename}`));
+    if (!key) throw new StorageError("rejected", 0, "upload could not be confirmed");
+    const stagePath = key.slice(key.indexOf("/") + 1); // strip the stage's own name prefix
+    try {
+      await query(
+        `INSERT INTO curialy.file_metadata (id, session_id, kind, filename, mime_type, size_bytes, storage, stage_path, source_path)
+         VALUES ($1, $2, $3, $4, $5, $6, 'snowflake_stage', $7, $8)`,
+        [id, input.sessionId ?? null, input.kind, filename, input.mimeType, input.buffer.length, stagePath, input.sourcePath ?? null],
+      );
+    } catch (error) {
+      // No orphan objects: the row is the only way to find a stored file again.
+      await run(`REMOVE '${STAGE}/${stagePath.replace(/'/g, "")}'`).catch(() => undefined);
+      throw error;
+    }
+    return { id, filename, mimeType: input.mimeType, sizeBytes: input.buffer.length, kind: input.kind, stagePath };
+  });
 }
 
-export async function getMedia(id: string) {
+export type MediaRow = { id: string; filename: string; mime_type: string; size_bytes: number; kind: string; stage_path: string; created_at: Date; session_id: string | null; source_path: string | null; state: string };
+
+export async function getMedia(id: string): Promise<MediaRow | undefined> {
   if (!/^[0-9a-f-]{36}$/i.test(id)) return undefined;
-  const { rows } = await query<{ id: string; filename: string; mime_type: string; size_bytes: number; kind: string; stage_path: string; created_at: Date }>(
-    "SELECT id, filename, mime_type, size_bytes, kind, stage_path, created_at FROM curialy.file_metadata WHERE id = $1", [id],
+  const { rows } = await query<MediaRow>(
+    "SELECT id, filename, mime_type, size_bytes, kind, stage_path, created_at, session_id, source_path, state FROM curialy.file_metadata WHERE id = $1", [id],
   );
   return rows[0];
 }
 
+export async function markMediaMissing(id: string) {
+  await query("UPDATE curialy.file_metadata SET state = 'missing', missing_at = now() WHERE id = $1 AND state <> 'missing'", [id]);
+}
+
 export async function listMedia(limit = 200) {
-  const { rows } = await query("SELECT id, filename, mime_type AS \"mimeType\", size_bytes AS \"sizeBytes\", kind, session_id AS \"sessionId\", created_at AS \"createdAt\" FROM curialy.file_metadata ORDER BY created_at DESC LIMIT $1", [limit]);
+  const { rows } = await query("SELECT id, filename, mime_type AS \"mimeType\", size_bytes AS \"sizeBytes\", kind, session_id AS \"sessionId\", created_at AS \"createdAt\", state FROM curialy.file_metadata ORDER BY created_at DESC LIMIT $1", [limit]);
   return rows;
 }
 
+// Presigned URLs for immutable objects are reused until shortly before they expire (memory only).
+const PRESIGN_TTL_SECONDS = 3600;
+const presigned = new Map<string, { url: string; expires: number }>();
+
 /** Presigned HTTPS URL for a staged file (requires the stage to use SNOWFLAKE_SSE encryption). */
-export async function presignedUrl(stagePath: string, ttlSeconds = 3600) {
-  const rows = await run<{ URL: string }>(`SELECT GET_PRESIGNED_URL(${STAGE}, '${stagePath.replace(/'/g, "")}', ${Math.max(60, Math.min(604_800, ttlSeconds))}) AS URL`);
-  if (!rows[0]?.URL) throw new Error("Curialy Vault returned no download link.");
-  return rows[0].URL;
+export async function presignedUrl(stagePath: string, opts: { fresh?: boolean } = {}) {
+  const cached = presigned.get(stagePath);
+  if (!opts.fresh && cached && cached.expires - 300_000 > Date.now()) return cached.url;
+  return guarded("presign", async () => {
+    const rows = await run<{ URL: string }>(`SELECT GET_PRESIGNED_URL(${STAGE}, '${stagePath.replace(/'/g, "")}', ${PRESIGN_TTL_SECONDS}) AS URL`);
+    if (!rows[0]?.URL) throw new StorageError("rejected", 0, "no download link returned");
+    presigned.delete(stagePath);
+    presigned.set(stagePath, { url: rows[0].URL, expires: Date.now() + PRESIGN_TTL_SECONDS * 1000 });
+    if (presigned.size > 500) presigned.delete(presigned.keys().next().value!);
+    return rows[0].URL;
+  });
 }
 
-/** Fetch staged bytes into memory (used to restore attachments into an agent workspace). */
+/**
+ * Open a staged object for streaming. A 403/404 after a fresh link means the object is gone
+ * (StorageError object_missing); network failures and 5xx count as unreachable.
+ */
+export async function openStoredObject(stagePath: string, signal?: AbortSignal) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const url = await presignedUrl(stagePath, { fresh: attempt > 0 });
+    let response: Response;
+    try {
+      response = await fetch(url, { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(FETCH_TIMEOUT_MS)]) : AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      breaker.failed("unreachable");
+      throw new StorageError("unreachable", breaker.snapshot().retryAfterSec);
+    }
+    if (response.ok && response.body) return response;
+    await response.body?.cancel().catch(() => undefined);
+    if (response.status === 403 || response.status === 404) {
+      if (attempt === 0) continue; // an expired cached link looks the same: try once with a fresh one
+      throw new StorageError("object_missing");
+    }
+    breaker.failed("unreachable");
+    throw new StorageError("unreachable", breaker.snapshot().retryAfterSec);
+  }
+  throw new StorageError("object_missing");
+}
+
+/** Fetch staged bytes into memory (used to restore attachments into an agent workspace), capped. */
 export async function fetchMediaBytes(stagePath: string) {
-  const response = await fetch(await presignedUrl(stagePath, 300));
-  if (!response.ok) throw new Error(`Stage download failed (${response.status}).`);
-  return Buffer.from(await response.arrayBuffer());
+  const response = await openStoredObject(stagePath);
+  const reader = response.body!.getReader();
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > MAX_BYTES) {
+      await reader.cancel().catch(() => undefined);
+      throw new StorageError("rejected", 0, "object larger than the upload limit");
+    }
+    chunks.push(Buffer.from(value));
+  }
+  return Buffer.concat(chunks);
 }
 
+/** Remove a file. Refused (StorageError) while storage is unavailable, so a row is never dropped while its object remains. */
 export async function deleteMedia(id: string) {
   const media = await getMedia(id);
   if (!media) return false;
-  await run(`REMOVE '${STAGE}/${media.stage_path.replace(/'/g, "")}'`).catch(() => undefined);
+  if (media.state !== "missing") {
+    await guarded("delete", () => run(`REMOVE '${STAGE}/${media.stage_path.replace(/'/g, "")}'`));
+  }
+  presigned.delete(media.stage_path);
   await query("DELETE FROM curialy.file_metadata WHERE id = $1", [id]);
   return true;
 }

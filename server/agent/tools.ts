@@ -9,7 +9,11 @@ import { PROVIDER_ENV, runManusTask } from "./providers";
 import { browserConfigured, closeLiveBrowser, liveBrowser, navigate, snapshot } from "./browser";
 import { deployConfigured, deployPreview } from "./deploy";
 import { mediaStatus, storeMedia } from "../media/snowflake";
-import { createPullRequest, getConnection, listRepos, repoDetails, resolveRepo } from "../services/github";
+import { StorageError } from "../media/storage-errors";
+
+/** Largest screenshot kept inline in the event log while file storage is unavailable (base64 chars). */
+const INLINE_SCREENSHOT_LIMIT = 400 * 1024;
+import { createPullRequest, getConnection, listRepos, repoDetails, resolveRepo, throwIfAborted } from "../services/github";
 import { cloneIntoWorkspace, commitAndPush, linkedRepo } from "./repos";
 import { brandText } from "@shared/brand";
 import { storeArtifacts } from "./artifacts";
@@ -29,6 +33,8 @@ export type ToolContext = {
   onCommand: (command: string) => void;
   /** Called with paths the agent attached explicitly, so the end-of-run collection skips them. */
   onAttach?: (paths: string[]) => void;
+  /** Publishing allowed in this run: a deploy only when the user asked for it or used the Deploy action. */
+  grants?: { deploy?: boolean };
 };
 
 export type ToolOutcome = { ok: boolean; content: string; summary: string; exitCode?: number | null; image?: { mediaType: "image/jpeg"; base64: string } };
@@ -373,7 +379,9 @@ async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOu
       return visualTest(input as z.infer<typeof schemas.test_preview_visual>, ctx);
     case "attach_files": {
       const { paths } = input as z.infer<typeof schemas.attach_files>;
-      const { stored, skipped } = await storeArtifacts(ctx.sessionId, ctx.root, Array.from(new Set(paths)), true);
+      const result = await storeArtifacts(ctx.sessionId, ctx.root, Array.from(new Set(paths)), true);
+      const stored = result.stored;
+      const skipped = result.skipped.map(reason => brandText(reason));
       if (stored.length) ctx.emit({ type: "artifacts", files: stored, auto: false, more: 0, skipped });
       ctx.onAttach?.(stored.map(file => file.path));
       const lines = [...stored.map(file => `Attached ${file.path} (${file.sizeBytes} bytes)`), ...skipped.map(reason => `Skipped ${reason}`)];
@@ -386,17 +394,23 @@ async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOu
     case "github_create_pr":
       return runGitHubTool(name, input, ctx);
     case "deploy_preview": {
+      // A public preview is an external side effect: only when this run was asked to deploy.
+      if (!ctx.grants?.deploy) {
+        return { ok: false, content: "deploy_preview is not allowed in this run: the user did not ask for a deploy. Do not deploy; if a live preview would help, say so in your summary and the user can start one with the Deploy action.", summary: "Deploy not requested" };
+      }
       const { kind, build_command, publish_path, start_command } = input as z.infer<typeof schemas.deploy_preview>;
+      // One preview per run: a retried tool call must not create another repository and service.
+      ctx.grants.deploy = false;
       let deploymentId = "";
+      let expiresAt: string | undefined;
       const result = await deployPreview({
-        sessionId: ctx.sessionId, root: ctx.root, kind, buildCommand: build_command, publishPath: publish_path, startCommand: start_command, signal: ctx.signal,
+        sessionId: ctx.sessionId, callId: ctx.callId, root: ctx.root, kind, buildCommand: build_command, publishPath: publish_path, startCommand: start_command, signal: ctx.signal,
+        onCreated: (id, expires) => { deploymentId = id; expiresAt = expires; },
         onProgress: (status, detail, url) => {
           ctx.emit({ type: "tool_output", callId: ctx.callId, stream: status === "failed" ? "stderr" : "stdout", chunk: `[deploy:${status}] ${brandText(detail)}${url ? ` ${url}` : ""}\n` });
-          ctx.emit({ type: "deployment", deploymentId: deploymentId || ctx.callId, status, url, detail: brandText(detail) });
+          ctx.emit({ type: "deployment", deploymentId: deploymentId || ctx.callId, callId: ctx.callId, status, url, detail: brandText(detail), ...(expiresAt ? { expiresAt } : {}) });
         },
       });
-      deploymentId = result.id;
-      ctx.emit({ type: "deployment", deploymentId: result.id, status: "live", url: result.url, detail: `Live preview (repo ${result.repo})`, expiresAt: result.expiresAt });
       return { ok: true, content: `Deployed: ${result.url}\nExpires: ${result.expiresAt}. Verify it with the browse tool before reporting success.`, summary: result.url };
     }
     case "delegate_research": {
@@ -475,6 +489,7 @@ async function runGitHubTool(name: ToolName, input: any, ctx: ToolContext): Prom
       if (!repo) return { ok: false, content: "No repository is cloned in this task.", summary: "No linked repo" };
       const headBranch = head || Object.keys(repo.pushed).filter(branchName => branchName !== repo.branch).pop();
       if (!headBranch) return { ok: false, content: "Push your changes to a new branch with github_commit_and_push (branch: ...) before opening a pull request.", summary: "No head branch" };
+      throwIfAborted(ctx.signal); // a cancelled run opens no pull request
       const pr = await createPullRequest(token, repo.fullName, { title, body: `${body}\n\n---\nOpened by Curialy AI.`.trim(), head: headBranch, base: base || repo.branch, draft });
       ctx.emit({ type: "repo_pr", fullName: repo.fullName, number: pr.number, url: pr.html_url, head: headBranch, base: base || repo.branch });
       return { ok: true, content: `Opened PR #${pr.number}: ${pr.html_url}`, summary: `PR #${pr.number}` };
@@ -497,11 +512,14 @@ async function reportPage(ctx: ToolContext, page: BrowseResult, displayUrl: stri
       try {
         mediaId = (await storeMedia({ buffer: page.screenshot, filename: "screenshot.jpg", mimeType: "image/jpeg", kind: "screenshot", sessionId: ctx.sessionId })).id;
       } catch (error) {
-        ctx.emit({ type: "tool_output", callId: ctx.callId, stream: "stderr", chunk: `Could not store screenshot in Curialy Vault: ${brandText(error instanceof Error ? error.message : String(error))}\n` });
+        ctx.emit({ type: "tool_output", callId: ctx.callId, stream: "stderr", chunk: `Could not store the screenshot: ${error instanceof StorageError ? error.message : "file storage error"}\n` });
       }
     }
-    // Without the media stage the screenshot travels only inside the event log (stored in Tiger).
-    ctx.emit({ type: "media", callId: ctx.callId, mediaId, filename: "screenshot.jpg", mimeType: "image/jpeg", caption, ...(mediaId ? {} : { inlineDataUrl: `data:image/jpeg;base64,${page.screenshot.toString("base64")}` }) });
+    // Without file storage a small screenshot travels inside the event log; a large one is not
+    // kept (the model still sees it below), so the log cannot balloon.
+    const base64 = mediaId ? "" : page.screenshot.toString("base64");
+    const inline = !mediaId && base64.length <= INLINE_SCREENSHOT_LIMIT;
+    ctx.emit({ type: "media", callId: ctx.callId, mediaId, filename: "screenshot.jpg", mimeType: "image/jpeg", caption, ...(inline ? { inlineDataUrl: `data:image/jpeg;base64,${base64}` } : {}), ...(!mediaId && !inline ? { unavailable: true } : {}) });
     if (ctx.vision) image = { mediaType: "image/jpeg", base64: page.screenshot.toString("base64") };
   }
   const ok = page.status === null || page.status < 400;

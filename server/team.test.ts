@@ -89,7 +89,7 @@ async function setup(taskId: string, files: Record<string, string> = {}) {
     emit: (event: unknown) => events.push(event), signal: controller.signal, phases,
     usage: { inputTokens: 0, outputTokens: 0, thinkingTokens: 0 }, changedFiles: new Set(), agentVerifyCommands: [],
     manifest: new Map(), attached: new Map(), images: new Map(), context: "", github: true,
-    flags: { noEager: false, noThinking: false, noEffort: false }, toolWatch: new ToolFailureWatch(), persist: () => undefined,
+    flags: { noEager: false, noThinking: false, noEffort: false }, toolWatch: new ToolFailureWatch(), persist: () => undefined, outcome: { verification: "none" },
   };
   ctx.recovery = new RecoveryEngine({ signal: ctx.signal, format: "anthropic", conversation: [], spec: ctx.spec, flags: ctx.flags, switchModel: () => undefined, persist: () => undefined, emit: () => undefined });
   return { ctx, root, events, controller };

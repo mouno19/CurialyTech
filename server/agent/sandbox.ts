@@ -158,10 +158,24 @@ export function runCommand(opts: {
   signal?: AbortSignal;
   onOutput: (stream: "stdout" | "stderr", chunk: string) => void;
 }): Promise<CommandResult> {
-  const run = () => runCommandNow(opts);
-  const next = commandQueue.then(run, run);
-  commandQueue = next.catch(() => undefined);
-  return next;
+  // A run cancelled while its command waits behind another task's gets its answer at once (and the
+  // command never starts), instead of waiting its turn in the queue.
+  return new Promise<CommandResult>(resolve => {
+    let settled = false;
+    const cancelled = () => {
+      if (settled) return;
+      settled = true;
+      resolve({ exitCode: null, timedOut: false, output: "Cancelled before it started.", durationMs: 0 });
+    };
+    if (opts.signal?.aborted) return cancelled();
+    opts.signal?.addEventListener("abort", cancelled, { once: true });
+    commandQueue = commandQueue.then(async () => {
+      opts.signal?.removeEventListener("abort", cancelled);
+      if (settled) return;
+      settled = true;
+      resolve(await runCommandNow(opts));
+    }).catch(() => undefined);
+  });
 }
 
 const OUTPUT_CAP = 400_000;
@@ -173,10 +187,16 @@ function runCommandNow({ root, command, timeoutSec, signal, onOutput }: Paramete
   const script = 'umask 002; cd -- "$1" || exit 97; eval "$2"';
   const shellArgs = ["/usr/bin/timeout", "--kill-after=5", `${timeout}s`, "/bin/bash", "-c", script, "curialy", root, command];
   // Repos fetched by the app are owned by the app user; let the sandbox's git operate on them.
-  const env = ["HOME=/var/lib/curialy-agent", "PATH=/usr/local/bin:/usr/bin:/bin", "LANG=C.UTF-8", "CI=1", "TERM=dumb", "NO_COLOR=1", "npm_config_update_notifier=false",
+  // Temporary files go into the workspace (swept with it), not the VPS-wide /tmp.
+  const tmp = path.join(root, ".tmp");
+  try {
+    fs.mkdirSync(tmp, { recursive: true });
+    fs.chmodSync(tmp, 0o2775); // the sandbox user writes here through the shared group (umask would strip it)
+  } catch { /* the command reports a missing workspace itself */ }
+  const env = ["HOME=/var/lib/curialy-agent", "PATH=/usr/local/bin:/usr/bin:/bin", "LANG=C.UTF-8", "CI=1", "TERM=dumb", "NO_COLOR=1", "npm_config_update_notifier=false", `TMPDIR=${tmp}`,
     "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=safe.directory", "GIT_CONFIG_VALUE_0=*", "GIT_TERMINAL_PROMPT=0"];
   const [file, args] = SANDBOX_MODE === "systemd"
-    ? ["sudo", ["-n", "systemd-run", "--quiet", "--scope", "--unit", unit,
+    ? ["sudo", ["-n", "systemd-run", "--quiet", "--scope", "--collect", "--unit", unit, "--description=Curialy agent command",
         "-p", "MemoryMax=512M", "-p", "MemorySwapMax=512M", "-p", "TasksMax=256", "-p", "CPUQuota=150%",
         "--", "/usr/bin/setpriv", `--reuid=${SANDBOX_USER}`, `--regid=${SANDBOX_USER}`, "--init-groups", "--reset-env",
         "--", "/usr/bin/env", ...env, ...shellArgs]] as const
@@ -187,7 +207,8 @@ function runCommandNow({ root, command, timeoutSec, signal, onOutput }: Paramete
     let output = "";
     let streamed = 0;
     const capture = (stream: "stdout" | "stderr") => (data: Buffer) => {
-      const chunk = data.toString("utf8");
+      // NUL bytes (binary output) cannot be stored as text; drop them at the source.
+      const chunk = data.toString("utf8").replace(/\u0000/g, "");
       if (output.length < OUTPUT_CAP) output += chunk;
       if (streamed < OUTPUT_CAP) {
         streamed += chunk.length;
@@ -202,6 +223,7 @@ function runCommandNow({ root, command, timeoutSec, signal, onOutput }: Paramete
     };
     const onAbort = () => stopScope();
     signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) onAbort();
     child.on("error", error => {
       signal?.removeEventListener("abort", onAbort);
       resolve({ exitCode: null, timedOut: false, output: `Failed to start command: ${error.message}`, durationMs: Date.now() - started });

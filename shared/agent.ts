@@ -136,7 +136,30 @@ export const PHASES = [
 
 export type PhaseId = (typeof PHASES)[number]["id"];
 export type PhaseState = "pending" | "active" | "done" | "failed" | "skipped";
-export type TaskStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
+/**
+ * Lifecycle of one task row (see shared/taskStatus.ts for the transition table and labels).
+ * cancelling: a stop was requested and the run has not finished yet.
+ * interrupted: the run stopped without finishing because its worker went away (restart, crash,
+ * lost lease); nothing was decided about the work, so it can be retried.
+ */
+export type TaskStatus = "queued" | "running" | "cancelling" | "completed" | "failed" | "cancelled" | "interrupted";
+
+/** Why a task reached its current status (stored with the row and carried on status/done events). */
+export type StatusReason =
+  | "user_cancel" | "cancel_timeout" | "server_restart" | "worker_lost" | "lease_expired"
+  | "start_failed" | "error" | "follow_up" | "retry" | "deploy" | "prompt";
+
+/** How a run was started. */
+export type RunTrigger = "prompt" | "follow_up" | "retry" | "deploy";
+
+/** Structured result of a run, so the UI never has to infer success from free text. */
+export type RunOutcome = {
+  verification: "passed" | "failed" | "skipped" | "none";
+  failedCheck?: { command: string; exitCode: number | null };
+  review?: { verdict: "approve" | "request_changes" | "none"; rounds: number };
+  publish?: "done" | "failed" | "not_requested" | "blocked_unapproved";
+  research?: "completed" | "partial" | "failed";
+};
 
 export type PlanStep = { title: string; status: "pending" | "in_progress" | "done" };
 
@@ -144,10 +167,12 @@ export type FileChangeKind = "create" | "modify" | "delete";
 
 /** Every event the runtime emits. Persisted with a per-task sequence number and replayed over SSE. */
 export type AgentEventBody =
-  | { type: "status"; status: TaskStatus }
+  | { type: "status"; status: TaskStatus; reason?: StatusReason }
+  /** First event of every run: a boundary the UI uses to scope "this run's" output and outcome. */
+  | { type: "run_start"; runId: string; attempt: number; trigger: RunTrigger }
   | { type: "team_agent"; role: TeamRole; status: "waiting" | "working" | "done" | "failed"; model: string; activity: string }
   | { type: "handoff"; from: TeamRole; to: TeamRole | "user"; kind: "plan" | "review" | "fixes" | "report"; title: string; content: string; round?: number }
-  | { type: "user_message"; text: string; attachments?: { mediaId: string; filename: string; mimeType: string; sizeBytes: number; path: string }[] }
+  | { type: "user_message"; text: string; attachments?: { mediaId: string; filename: string; mimeType: string; sizeBytes: number; path: string }[]; clientMessageId?: string }
   | { type: "phase"; phase: PhaseId; state: PhaseState; note?: string }
   /** provider is an engine alias (core | relay | fast | research), never a vendor name. */
   | { type: "dispatch"; model: string; provider: string; reason: string }
@@ -172,11 +197,15 @@ export type AgentEventBody =
   | { type: "recovery"; kind: string; action: string; detail: string; attempt: number; delayMs?: number; model?: string }
   | { type: "usage"; turn: number; model: string; inputTokens: number; outputTokens: number; thinkingTokens: number; cacheReadTokens: number }
   | { type: "external"; source: "research" | "research"; status: string; detail: string; url?: string }
-  | { type: "media"; callId: string; mediaId: string | null; filename: string; mimeType: string; caption: string; inlineDataUrl?: string }
-  | { type: "deployment"; deploymentId: string; status: "creating" | "building" | "live" | "failed" | "deleted"; url?: string; detail: string; expiresAt?: string }
+  /** unavailable: the image could not be kept (file storage down and too large to inline). */
+  | { type: "media"; callId: string; mediaId: string | null; filename: string; mimeType: string; caption: string; inlineDataUrl?: string; unavailable?: boolean }
+  /** deploymentId is the curialy.deployments row id (older logs used the tool call id until the deploy went live). */
+  | { type: "deployment"; deploymentId: string; callId?: string; status: "creating" | "building" | "live" | "failed" | "deleted" | "expired" | "removed" | "interrupted"; url?: string; detail: string; expiresAt?: string }
   /** Files attached to the chat (stored in Curialy Vault). auto = collected at the end of the run. */
-  | { type: "artifacts"; files: { mediaId: string; path: string; filename: string; mimeType: string; sizeBytes: number; kind: "image" | "pdf" | "archive" | "document" | "code" | "data" | "other"; primary: boolean }[]; auto: boolean; more: number; skipped: string[] }
-  | { type: "browser_session"; sessionId: string; status: "live" | "ended"; liveUrl: string | null; replayUrl: string; reason?: string }
+  /** files[].source "workspace" (mediaId null): kept in the task's workspace because file storage was unavailable. */
+  | { type: "artifacts"; files: { mediaId: string | null; source?: "vault" | "workspace"; path: string; filename: string; mimeType: string; sizeBytes: number; kind: "image" | "pdf" | "archive" | "document" | "code" | "data" | "other"; primary: boolean }[]; auto: boolean; more: number; skipped: string[]; generated?: GeneratedSummary; partial?: boolean }
+  /** liveUrl is no longer stored (it carries an access token); viewer says a live view can be requested. */
+  | { type: "browser_session"; sessionId: string; status: "live" | "ended"; liveUrl: string | null; replayUrl: string; reason?: string; viewer?: boolean }
   | { type: "browser_action"; sessionId: string; action: string; detail: string; url: string; title: string }
   | { type: "preview"; url: string; dir: string | null; mode: "static" | "server" }
   | { type: "repo"; fullName: string; branch: string; baseSha: string; repoPath: string; url: string }
@@ -184,7 +213,11 @@ export type AgentEventBody =
   | { type: "repo_pr"; fullName: string; number: number; url: string; head: string; base: string }
   | { type: "notice"; level: "info" | "warn"; message: string }
   | { type: "error"; message: string }
-  | { type: "done"; status: TaskStatus; answer: string };
+  /** Always the last event of a run. */
+  | { type: "done"; status: TaskStatus; answer: string; reason?: StatusReason; error?: string; outcome?: RunOutcome };
+
+/** Build output left out of the chat attachments: how much and where (see shared/generated.ts). */
+export type GeneratedSummary = { count: number; bytes: number; dirs: { dir: string; count: number }[] };
 
 /** agent: which Dev Team member produced the event (absent for solo runs and orchestration). */
 export type AgentEvent = AgentEventBody & { seq: number; ts: string; agent?: TeamRole };
@@ -208,6 +241,16 @@ export type AgentTaskSummary = {
   githubMode?: "export" | "linked";
   team?: boolean;
   githubBranch?: string;
+  /** Why the task is in its current status, and since when (absent on rows older than these columns). */
+  statusReason?: StatusReason;
+  statusChangedAt?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  /** The current run's fencing token and attempt number. */
+  runId?: string;
+  attempt?: number;
+  cancelRequested?: boolean;
+  outcome?: RunOutcome;
   createdAt: string;
   updatedAt: string;
 };

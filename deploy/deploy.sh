@@ -19,11 +19,22 @@ if [ "${1:-}" = "--rollback" ]; then
   exit 0
 fi
 
+# Only committed code is deployed: a half-edited tree must never reach production.
+if [ "${ALLOW_DIRTY:-}" != "1" ] && [ -n "$(git status --porcelain --untracked-files=no -- . ':!deploy/snowflake-proxy/proxy.js')" ]; then
+  echo "working tree has uncommitted changes; commit them (or ALLOW_DIRTY=1 to override)"; exit 1
+fi
+# The unit carries KillMode=mixed / TimeoutStopSec so a restart can record running tasks as interrupted.
+if ! cmp -s deploy/systemd/curialyai.service /etc/systemd/system/curialyai.service; then
+  echo "note: /etc/systemd/system/curialyai.service differs from deploy/systemd/curialyai.service"
+  echo "      install it with: sudo cp deploy/systemd/curialyai.service /etc/systemd/system/ && sudo systemctl daemon-reload"
+fi
+
 sudo systemctl stop curialy-test 2>/dev/null || true
 NODE_OPTIONS=--max-old-space-size=1700 npx tsc --noEmit
 npx vitest run
 rm -rf dist-prev && cp -a dist dist-prev
 NODE_OPTIONS=--max-old-space-size=900 npm run build
+git rev-parse HEAD > dist/BUILD
 
 if [ "${1:-}" = "--bridge" ]; then
   cp ~/snowflake-proxy/proxy.js ~/snowflake-proxy/proxy.js.bak-"$(date +%Y%m%d%H%M)"
