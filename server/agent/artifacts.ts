@@ -16,12 +16,14 @@ const MAX_MANIFEST = 20_000;
 const MAX_ARTIFACT_BYTES = 25 * 1024 * 1024;
 export const MAX_AUTO_ARTIFACTS = 20;
 
-export type ArtifactKind = "image" | "pdf" | "archive" | "document" | "code" | "data" | "other";
+export type ArtifactKind = "image" | "audio" | "video" | "pdf" | "archive" | "document" | "code" | "data" | "other";
 /** source "workspace": not in the Vault (storage was unavailable); the file is served from the task's workspace. */
 export type ArtifactInfo = { mediaId: string | null; source: "vault" | "workspace"; path: string; filename: string; mimeType: string; sizeBytes: number; kind: ArtifactKind; primary: boolean };
 
 const TYPES: Record<string, [string, ArtifactKind]> = {
   png: ["image/png", "image"], jpg: ["image/jpeg", "image"], jpeg: ["image/jpeg", "image"], gif: ["image/gif", "image"], webp: ["image/webp", "image"], avif: ["image/avif", "image"], svg: ["image/svg+xml", "image"], ico: ["image/x-icon", "image"], bmp: ["image/bmp", "image"],
+  mp3: ["audio/mpeg", "audio"], wav: ["audio/wav", "audio"], ogg: ["audio/ogg", "audio"], oga: ["audio/ogg", "audio"], opus: ["audio/ogg", "audio"], m4a: ["audio/mp4", "audio"], aac: ["audio/aac", "audio"], flac: ["audio/flac", "audio"], weba: ["audio/webm", "audio"],
+  mp4: ["video/mp4", "video"], webm: ["video/webm", "video"], mov: ["video/quicktime", "video"],
   pdf: ["application/pdf", "pdf"],
   zip: ["application/zip", "archive"], gz: ["application/gzip", "archive"], tgz: ["application/gzip", "archive"], tar: ["application/x-tar", "archive"], "7z": ["application/x-7z-compressed", "archive"], rar: ["application/vnd.rar", "archive"],
   md: ["text/markdown", "document"], markdown: ["text/markdown", "document"], txt: ["text/plain", "document"], rtf: ["application/rtf", "document"], html: ["text/html", "document"], htm: ["text/html", "document"],
@@ -38,7 +40,7 @@ export function classify(file: string): { mimeType: string; kind: ArtifactKind }
 }
 
 // Deliverables first, then data, then code; lock files and maps last.
-const PRIORITY: Record<ArtifactKind, number> = { pdf: 0, archive: 0, document: 1, image: 1, data: 2, code: 3, other: 4 };
+const PRIORITY: Record<ArtifactKind, number> = { pdf: 0, archive: 0, audio: 0, video: 0, document: 1, image: 1, data: 2, code: 3, other: 4 };
 const NOISE = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|poetry\.lock|Cargo\.lock|.*\.map|.*\.tsbuildinfo|\.DS_Store)$/;
 
 export type Manifest = Map<string, { size: number; mtimeMs: number }>;

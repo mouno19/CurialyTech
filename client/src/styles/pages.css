@@ -599,3 +599,8 @@ a.vault-thumb:focus-visible { outline-offset: -3px; }
 .dash-credits { display: flex; flex-direction: column; gap: 2px; }
 .dash-credits > button { padding: 0; border: 0; background: none; font: inherit; text-align: left; cursor: pointer; }
 .dash-credits-refill { color: var(--text-3); font-size: 12.5px; }
+
+/* ---------- Dictation (composer microphone) ---------- */
+.omni-mic[data-recording] { border-color: var(--vermilion-deep); background: var(--vermilion-wash); color: var(--vermilion-ink); font-variant-numeric: tabular-nums; }
+.omni-mic[data-recording] > .lucide { color: var(--vermilion-deep); fill: currentColor; animation: spark-ring 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .omni-mic[data-recording] > .lucide { animation: none; } }

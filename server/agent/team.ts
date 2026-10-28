@@ -25,7 +25,7 @@ const READ_TOOLS = ["list_files", "read_file", "search_files", "web_fetch", "bro
 // (RunContext.readOnly). Cloning the task's repository is setup, not an edit, so the Architect may.
 const ROLE_TOOLS: Record<TeamRole, string[]> = {
   architect: [...READ_TOOLS, "run_command", "github_list_repos", "github_get_repo", "github_clone_to_workspace", "delegate_research"],
-  engineer: [...READ_TOOLS, "run_command", "write_file", "edit_file", "delete_file", "update_plan", "attach_files", "test_preview_visual", "github_list_repos", "github_get_repo", "github_clone_to_workspace"],
+  engineer: [...READ_TOOLS, "run_command", "write_file", "edit_file", "delete_file", "update_plan", "attach_files", "test_preview_visual", "transcribe_audio", "generate_speech", "github_list_repos", "github_get_repo", "github_clone_to_workspace"],
   reviewer: [...READ_TOOLS, "run_command", "test_preview_visual"],
 };
 /** Only after the Reviewer approves. */

@@ -13,6 +13,7 @@ import type { StickToBottom } from "@/lib/useStickToBottom";
 import { JumpToLatest } from "./JumpToLatest";
 import { ProgressNote, ProgressNotes, RunDivider, UserBubble } from "./Messages";
 import { OutcomeCard } from "./OutcomeCard";
+import { useAccount } from "@/lib/account";
 
 export type PendingMessage = { clientMessageId: string; text: string; attachments: UserAttachment[] };
 
@@ -82,11 +83,13 @@ type BlockProps = Actions & {
   streamConnected: boolean;
   streaming: boolean;
   mark: number | null;
+  /** Answers can be read aloud (voice is set up). */
+  voice: boolean;
 };
 
 /** One run: what was asked, what happened (live, or folded into notes once over), and how it ended. */
 const RunBlock = memo(function RunBlock(props: BlockProps) {
-  const { view, isLatest, latest, taskId, browsers, taskActive, streamConnected, streaming, mark } = props;
+  const { view, isLatest, latest, taskId, browsers, taskActive, streamConnected, streaming, mark, voice } = props;
   const run = view.run;
   // A run whose log has its done event is over for good (a new run starts with its own run_start).
   // Otherwise the latest run follows the page's status, and an earlier one never finished.
@@ -120,6 +123,7 @@ const RunBlock = memo(function RunBlock(props: BlockProps) {
       {others.map(item => <Card key={item.key} item={item} {...cardProps} />)}
       <OutcomeCard
         view={resolved}
+        listen={voice ? { taskId } : null}
         status={status}
         reason={run.end && !run.end.synthetic ? run.end.reason ?? null : isLatest ? latest.reason : run.reason}
         error={runError(run) ?? (isLatest ? latest.error : null)}
@@ -155,6 +159,8 @@ export function Conversation(props: Props) {
   const activePhase = PHASES.find(phase => state.phases[phase.id].state === "active");
   const loaded = isReplayed(state);
   const actions: Actions = { onRetry: props.onRetry, retrying: props.retrying, retryDisabled: props.retryDisabled, retryAs: props.retryAs, onViewLogs: props.onViewLogs, onCopied: props.onCopied };
+  // Read once here: the memoized runs get a stable boolean, not every account refresh.
+  const voice = Boolean(useAccount().info?.voice?.available);
 
   return (
     <section className="convo-pane" aria-label="Conversation">
@@ -182,6 +188,7 @@ export function Conversation(props: Props) {
                   streamConnected={state.connected}
                   streaming={streaming}
                   mark={state.replayMark}
+                  voice={voice}
                   {...actions}
                 />
               ))}

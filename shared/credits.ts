@@ -51,6 +51,19 @@ export type CreditBalance = {
   windowHours: number;
 };
 
+/**
+ * Voice: transcription per audio minute, speech per 1,000 characters. Expressive speech spends a
+ * scarce budget, so it costs ten times the standard voice.
+ */
+export const VOICE_RATES = { transcribePerMinute: 0.1, speechPer1kChars: 0.5, expressivePer1kChars: 5 } as const;
+
+export function voiceCredits(usage: { seconds?: number; characters?: number; expressive?: boolean }) {
+  const minutes = (usage.seconds ?? 0) / 60;
+  const thousands = (usage.characters ?? 0) / 1000;
+  const amount = minutes * VOICE_RATES.transcribePerMinute + thousands * (usage.expressive ? VOICE_RATES.expressivePer1kChars : VOICE_RATES.speechPer1kChars);
+  return amount > 0 ? Math.max(0.01, Math.round(amount * 100) / 100) : 0;
+}
+
 /** A run can start with at least this many credits available. */
 export const MIN_CREDITS_TO_START = 1;
 

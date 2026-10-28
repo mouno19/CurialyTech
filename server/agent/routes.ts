@@ -10,7 +10,10 @@ import { MODELS, type AgentEvent, type AgentEventBody } from "@shared/agent";
 import { isActiveStatus, isFinalStatus } from "@shared/taskStatus";
 import { deleteMedia, getMedia, isElsewhere, listMedia, markMediaMissing, mediaStatus, mediaUsage, openMedia, storageConfig, storeMedia, assertStorageAvailable } from "../media/snowflake";
 import { accountOf, rateLimited, requireAdmin } from "../auth";
-import { assertCanStart, CreditError } from "../credits";
+import { assertCanStart, charge, CreditError, getBalance, outOfCreditsMessage } from "../credits";
+import { speakStandard, transcribe, voiceConfigured, VoiceError } from "../voice/engines";
+import { MAX_DICTATION_BYTES, MAX_DICTATION_SECONDS, READ_ALOUD_INPUT_CHARS, READ_ALOUD_MAX_CHARS, speakableText, VOICES, worstCaseSeconds } from "@shared/voice";
+import { voiceCredits } from "@shared/credits";
 import { redact, StorageError } from "../media/storage-errors";
 import { isLive, liveChannel } from "./bus";
 import { deployConfigured, deploymentSession, destroyDeployment, listDeployments, listTaskDeployments } from "./deploy";
@@ -111,6 +114,7 @@ function sendError(res: Response, error: unknown) {
   if (error instanceof StorageError) return sendStorageError(res, error);
   if (error instanceof TaskRejected) return res.status(error.message === RESTARTING ? 503 : 409).json({ error: brandText(error.message) });
   if (error instanceof SandboxError) return res.status(400).json({ error: error.message });
+  if (error instanceof VoiceError) return res.status(error.status).json({ error: error.message, code: error.code });
   if (error instanceof RemoteChangedError) return res.status(409).json({ error: `${error.message} Pushing replaces their files; confirm to push anyway.`, code: "remote_changed", branch: error.branch });
   if (error instanceof GitHubError) return res.status(error.status === 422 ? 422 : 502).json({ error: brandText(error.message) });
   // Never log raw error objects: driver errors can carry request bodies with credentials.
@@ -139,6 +143,47 @@ async function mediaFor(req: Request) {
   const media = await getMedia(String(req.params.id));
   return media && (media.user_id === user.id || user.role === "admin") ? media : undefined;
 }
+
+/**
+ * Voice for free accounts: paid in credits (they need `need`, the request's worst case, available),
+ * at most 40 requests in ten minutes and one at a time, so parallel requests can't spend the same
+ * credits twice. The operator is not limited. Returns a release function, or null when refused.
+ */
+const voiceInFlight = new Set<string>();
+async function voiceAllowed(req: Request, res: Response, need: number): Promise<(() => void) | null> {
+  if (!voiceConfigured()) {
+    res.status(503).json({ error: "Voice isn't set up on this server.", code: "not_configured" });
+    return null;
+  }
+  const user = accountOf(req);
+  if (user.role === "admin") return () => undefined;
+  if (voiceInFlight.has(user.id)) {
+    res.status(429).json({ error: "Wait for your other voice request to finish.", code: "busy" });
+    return null;
+  }
+  if (rateLimited(`voice:${user.id}`, 40)) {
+    res.status(429).json({ error: "That's a lot of voice requests. Wait a few minutes, then try again.", code: "busy" });
+    return null;
+  }
+  voiceInFlight.add(user.id);
+  const release = () => voiceInFlight.delete(user.id);
+  try {
+    const balance = await getBalance(user.id);
+    if (balance.available < need) {
+      release();
+      res.status(402).json({ error: outOfCreditsMessage(balance), code: "no_credits", credits: balance });
+      return null;
+    }
+  } catch (error) {
+    release();
+    throw error;
+  }
+  return release;
+}
+
+const speechSchema = z.object({ text: z.string().min(1).max(READ_ALOUD_INPUT_CHARS * 2), voice: z.enum(VOICES.map(voice => voice.id) as [string, ...string[]]).optional() });
+// Dictation audio is held in memory, sent for transcription and dropped: never stored.
+const dictationUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_DICTATION_BYTES, files: 1 } });
 
 /** The live browser view is clickable: only the operator gets its address (see browser.ts liveBrowser). */
 function viewerFor<T extends { viewer: string | null }>(req: Request, status: T): T {
@@ -183,7 +228,9 @@ async function admitRun(req: Request, res: Response) {
 }
 
 const MAX_VIEW_BYTES = 25 * 1024 * 1024;
+/** Inline in raw mode: images, and audio/video for players (everything else downloads). */
 const IMAGE_TYPES: Record<string, string> = {
+  mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", m4a: "audio/mp4", aac: "audio/aac", flac: "audio/flac", weba: "audio/webm", mp4: "video/mp4", webm: "video/webm",
   png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", avif: "image/avif",
   bmp: "image/bmp", ico: "image/x-icon", svg: "image/svg+xml",
 };
@@ -242,6 +289,8 @@ export function agentRouter() {
           note: SANDBOX_MODE === "e2b" ? "Every task's commands, installs and builds run in a sandbox of its own, not on this server." : "Not in use: commands run on this server as the sandbox user.",
         },
         { id: "data", label: "Curialy Data (database)", configured: Boolean(env.TIGER_DATABASE_URL), masked: env.TIGER_DATABASE_URL ? "connected" : null },
+        { id: "voice", label: "Curialy Voice (dictation, transcripts, narration)", configured: Boolean(env.DEEPGRAM_API_KEY), masked: mask(env.DEEPGRAM_API_KEY) },
+        { id: "voice-studio", label: "Curialy Voice Studio (expressive speech)", configured: Boolean(env.ELEVENLABS_API_KEY), masked: mask(env.ELEVENLABS_API_KEY), note: "Used only for emotion and voice acting on the operator's tasks, never past a reserve of the monthly budget." },
         // The vault's own login (it may be a separate account): only whether it is complete.
         { id: "vault", label: "Curialy Vault (media storage)", configured: storageConfig().ok, masked: storageConfig().ok ? "set" : null },
         { id: "tuning", label: "Model tuning", configured: Boolean(env.TINKER_API_KEY), masked: mask(env.TINKER_API_KEY), note: "Stored for fine-tuning; no tuned models are routable yet." },
@@ -478,6 +527,22 @@ export function agentRouter() {
       res.setHeader("Content-Disposition", `${mime ? "inline" : "attachment"}; filename="${name}"`);
       res.setHeader("Content-Security-Policy", SANDBOX_CSP);
       res.setHeader("Cache-Control", "private, max-age=300");
+      // Audio and video players ask for byte ranges (Safari plays nothing without them).
+      if (mime && /^(audio|video)\//.test(mime)) {
+        res.setHeader("Accept-Ranges", "bytes");
+        const range = /^bytes=(\d{0,15})-(\d{0,15})$/.exec(String(req.headers.range ?? ""));
+        if (range && (range[1] || range[2])) {
+          const size = content.length;
+          const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
+          const end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
+          if (!(start <= end && end < size)) {
+            res.setHeader("Content-Range", `bytes */${size}`);
+            return res.status(416).end();
+          }
+          res.status(206).setHeader("Content-Range", `bytes ${start}-${end}/${size}`);
+          return res.end(content.subarray(start, end + 1));
+        }
+      }
       return res.end(content);
     }
     // Text view: report binary content instead of returning mojibake.
@@ -573,7 +638,10 @@ export function agentRouter() {
   const mediaHeaders = (res: Response, media: { id: string; filename: string; mime_type: string }, download: boolean) => {
     const image = /^image\/(png|jpe?g|gif|webp|avif|svg\+xml)$/.test(media.mime_type); // SVG is safe under the sandbox CSP
     const pdf = media.mime_type === "application/pdf";
-    const inline = !download && (image || pdf);
+    // Played by <audio>/<video> on this origin (never run as a document: the sandbox CSP still applies).
+    const playable = /^(audio\/(mpeg|mp4|aac|ogg|wav|webm|flac)|video\/(mp4|webm))$/.test(media.mime_type);
+    const inline = !download && (image || pdf || playable);
+    if (playable) res.setHeader("Accept-Ranges", "bytes");
     res.setHeader("Content-Type", inline ? media.mime_type : "application/octet-stream");
     res.setHeader("Content-Disposition", `${inline ? "inline" : "attachment"}; filename="${media.filename.replace(/["\\\r\n]/g, "")}"`);
     // Agent-produced content: no script, no same-origin access. Chrome's PDF viewer will not render
@@ -621,7 +689,9 @@ export function agentRouter() {
     let upstream: globalThis.Response;
     try {
       // openMedia never looks up another account's file, and never reports an unrecorded one as missing.
-      upstream = await openMedia(media, abort.signal);
+      // Audio and video players ask for byte ranges (Safari plays nothing without them).
+      const range = typeof req.headers.range === "string" && /^bytes=(\d{1,15}-\d{0,15}|-\d{1,15})$/.test(req.headers.range) ? req.headers.range : undefined;
+      upstream = await openMedia(media, abort.signal, range);
     } catch (error) {
       if (abort.signal.aborted) return; // the viewer went away; nothing to answer
       if (!(error instanceof StorageError)) throw error;
@@ -631,6 +701,11 @@ export function agentRouter() {
     mediaHeaders(res, media, download);
     const length = upstream.headers.get("content-length");
     if (length) res.setHeader("Content-Length", length);
+    if (upstream.status === 206) {
+      res.status(206);
+      const contentRange = upstream.headers.get("content-range");
+      if (contentRange) res.setHeader("Content-Range", contentRange);
+    }
     try {
       await pipeline(Readable.fromWeb(upstream.body as never), res);
     } catch (error) {
@@ -672,6 +747,55 @@ export function agentRouter() {
     if (!deleted) return res.status(404).json({ error: "Not found.", code: "media_not_found" });
     // kept: the record is gone, but the stored copy is in another storage account (not removed there).
     res.json({ deleted: true, kept: deleted === "kept" });
+  }));
+
+  // ---- Voice ----
+
+  // Dictation: a recording from the composer to text (charged per audio minute).
+  router.post("/voice/transcribe", (req, res, next) => dictationUpload.single("audio")(req, res, error => {
+    if (!error) return next();
+    if (error instanceof multer.MulterError) return res.status(error.code === "LIMIT_FILE_SIZE" ? 413 : 400).json({ error: error.code === "LIMIT_FILE_SIZE" ? `Recordings are limited to ${Math.round(MAX_DICTATION_BYTES / 1024 / 1024)} MB (about ${MAX_DICTATION_SECONDS / 60} minutes).` : "Send one recording at a time.", code: error.code === "LIMIT_FILE_SIZE" ? "too_large" : "bad_upload" });
+    next(error);
+  }), handle(async (req, res) => {
+    if (!req.file?.buffer.length) return res.status(400).json({ error: "The recording was empty. Try again.", code: "empty" });
+    // Paid for the longest this recording could be, so a low bit rate can't stretch a few credits.
+    const release = await voiceAllowed(req, res, voiceCredits({ seconds: worstCaseSeconds(req.file.buffer.length) }));
+    if (!release) return;
+    try {
+      const user = accountOf(req);
+      // The language is detected: speakers often dictate in a language other than the browser's.
+      const transcript = await transcribe(req.file.buffer, req.file.mimetype || "audio/webm");
+      await charge(user.id, voiceCredits({ seconds: transcript.seconds }), null, `dictation (${Math.round(transcript.seconds)} s)`).catch(error => console.error("[voice] charge:", error instanceof Error ? error.message : error));
+      res.setHeader("Cache-Control", "no-store");
+      res.json({ text: transcript.text, seconds: transcript.seconds, language: transcript.language });
+    } finally {
+      release();
+    }
+  }));
+
+  // Read aloud: an answer's prose as speech (code, tables and links are skipped), charged per character.
+  router.post("/tasks/:id/speech", handle(async (req, res) => {
+    const task = await taskOr404(req, res);
+    if (!task) return;
+    const input = speechSchema.parse(req.body ?? {});
+    // Limits first (cheap), then the text: the most it could cost is READ_ALOUD_MAX_CHARS of speech.
+    const release = await voiceAllowed(req, res, voiceCredits({ characters: Math.min(input.text.length, READ_ALOUD_MAX_CHARS) }));
+    if (!release) return;
+    try {
+      const spoken = speakableText(input.text).slice(0, READ_ALOUD_MAX_CHARS);
+      if (!spoken) return res.status(400).json({ error: "There's nothing to read aloud in that answer.", code: "empty" });
+      // The listener left: stop synthesizing (res "close" fires when the connection goes away).
+      const abort = new AbortController();
+      res.on("close", () => { if (!res.writableFinished) abort.abort(); });
+      const speech = await speakStandard(spoken, input.voice, abort.signal);
+      await charge(accountOf(req).id, voiceCredits({ characters: spoken.length }), task.id, `read aloud (${spoken.length} characters)`).catch(error => console.error("[voice] charge:", error instanceof Error ? error.message : error));
+      res.setHeader("Content-Type", speech.mimeType);
+      res.setHeader("Content-Length", String(speech.audio.length));
+      res.setHeader("Cache-Control", "no-store");
+      res.end(speech.audio);
+    } finally {
+      release();
+    }
   }));
 
   // ---- GitHub ----

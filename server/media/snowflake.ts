@@ -275,18 +275,25 @@ export async function presignedUrl(stagePath: string, opts: { fresh?: boolean } 
  * Open a staged object for streaming. A 403/404 after a fresh link means the object is gone
  * (StorageError object_missing); network failures and 5xx count as unreachable.
  */
-export async function openStoredObject(stagePath: string, signal?: AbortSignal) {
+/** range: an HTTP byte range ("bytes=0-1023") passed through for audio and video players. */
+export async function openStoredObject(stagePath: string, signal?: AbortSignal, range?: string) {
   for (let attempt = 0; attempt < 2; attempt++) {
     const url = await presignedUrl(stagePath, { fresh: attempt > 0 });
     let response: Response;
     try {
-      response = await fetch(url, { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(FETCH_TIMEOUT_MS)]) : AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+      response = await fetch(url, { ...(range ? { headers: { Range: range } } : {}), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(FETCH_TIMEOUT_MS)]) : AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     } catch (error) {
       if (signal?.aborted) throw error;
       breaker.failed("unreachable");
       throw new StorageError("unreachable", breaker.snapshot().retryAfterSec);
     }
     if (response.ok && response.body) return response;
+    // A byte range the object can't satisfy is the player's mistake, not a storage failure: serve
+    // the whole object instead (never counted against the storage breaker).
+    if (range && response.status === 416) {
+      await response.body?.cancel().catch(() => undefined);
+      return openStoredObject(stagePath, signal);
+    }
     await response.body?.cancel().catch(() => undefined);
     if (response.status === 403 || response.status === 404) {
       if (attempt === 0) continue; // an expired cached link looks the same: try once with a fresh one
@@ -303,11 +310,11 @@ export async function openStoredObject(stagePath: string, signal?: AbortSignal) 
  * file; an unrecorded file found here is recorded, and one not found here is remembered as elsewhere
  * (not marked missing: its account may come back). A "here" file's 404 stays object_missing.
  */
-export async function openMedia(media: Pick<MediaRow, "id" | "stage_path" | "stage_account">, signal?: AbortSignal) {
+export async function openMedia(media: Pick<MediaRow, "id" | "stage_path" | "stage_account">, signal?: AbortSignal, range?: string) {
   const where = placement(media);
   if (where === "elsewhere") throw new StorageError("elsewhere");
   try {
-    const response = await openStoredObject(media.stage_path, signal);
+    const response = await openStoredObject(media.stage_path, signal, range);
     if (where === "unknown") {
       await query("UPDATE curialy.file_metadata SET stage_account = $2 WHERE id = $1 AND stage_account IS NULL", [media.id, mediaAccount()]).catch(() => undefined);
     }

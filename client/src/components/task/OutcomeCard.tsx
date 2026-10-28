@@ -10,9 +10,12 @@ import { Spinner } from "@/components/common/Spinner";
 import { runEffects, scrubText, type RunView } from "@/lib/taskStream";
 import { formatClock, fullDate, interruptedCause } from "./format";
 import { ProgressNote } from "./Messages";
+import { ListenButton } from "./ListenButton";
 
 export type OutcomeProps = {
   view: RunView;
+  /** With voice available: the answer can be read aloud. */
+  listen?: { taskId: string } | null;
   /** What this run ended as; for the latest run, the page's derived status. */
   status: TaskStatus | null;
   reason: StatusReason | null;
@@ -56,7 +59,7 @@ function ErrorSummary({ text }: { text: string }) {
  * any), a danger card for a failed one, what still happened for a cancelled one, and what was
  * kept for an interrupted one. Never success styling for anything but a clean completion.
  */
-export function OutcomeCard({ view, status, reason, error, endedAt, outcome, latest, onRetry, retrying, retryDisabled, retryAs = "retry", onViewLogs, onCopied, fresh }: OutcomeProps) {
+export function OutcomeCard({ view, listen, status, reason, error, endedAt, outcome, latest, onRetry, retrying, retryDisabled, retryAs = "retry", onViewLogs, onCopied, fresh }: OutcomeProps) {
   const titleId = useId();
   const [copied, setCopied] = useState(false);
   const deploy = retryAs === "deploy";
@@ -99,6 +102,7 @@ export function OutcomeCard({ view, status, reason, error, endedAt, outcome, lat
           <h3 id={titleId} className="outcome-title" data-micro="">{issues.length ? "Completed with issues" : "Answer"}</h3>
           <When at={endedAt} />
           <span className="spacer" />
+          {answer.trim() && listen && <ListenButton taskId={listen.taskId} text={answer} />}
           {answer.trim() && <IconButton size="sm" label={copied ? "Copied" : "Copy answer"} icon={copied ? Check : Copy} onClick={() => void copy()} />}
         </header>
         {issues.length > 0 && (

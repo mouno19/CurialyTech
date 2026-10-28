@@ -4,7 +4,7 @@ import * as Popover from "@radix-ui/react-popover";
 import * as RadioGroup from "@radix-ui/react-radio-group";
 import * as Switch from "@radix-ui/react-switch";
 import type { LucideIcon } from "lucide-react";
-import { ArrowUp, Bot, Check, ChevronDown, CloudOff, Globe, Info, MessageSquare, Paperclip, RotateCcw, SlidersHorizontal, Sparkles, TriangleAlert, Users, X } from "lucide-react";
+import { ArrowUp, Bot, Check, ChevronDown, CloudOff, Globe, Info, MessageSquare, Mic, Paperclip, RotateCcw, SlidersHorizontal, Sparkles, Square, TriangleAlert, Users, X } from "lucide-react";
 import { aliasEffort, effortApplies, getModel, PICKER_MODELS, REPLACED, teamCapable, type CreateTaskRequest, type ModelSpec, type TaskMode, type ThinkingLevel } from "@shared/agent";
 import { Button } from "@/components/common/Button";
 import { cx } from "@/components/common/cx";
@@ -20,6 +20,8 @@ import { Spinner } from "@/components/common/Spinner";
 import { TypingText } from "@/components/common/TypingText";
 import { usePresence, useTypewriter } from "@/lib/motion";
 import { AttachmentTray, MAX_ATTACHMENTS, useAttachments } from "@/lib/useAttachments";
+import { dictationSupported, useDictation } from "@/lib/useDictation";
+import { useAccount } from "@/lib/account";
 // The unsent prompt survives a reload, the GitHub sign-in round trip and a hand-off from the homepage.
 import { PREFS_KEY, readDraft, writeDraft } from "@/lib/composerDraft";
 
@@ -289,6 +291,36 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed, examples }: {
   const typing = useTypewriter(examples ?? [], ghost);
   const starting = usePresence(busy);
   const [arrivedWithDraft] = useState(() => readDraft().trim().length > 0);
+  // Dictation: spoken text lands where the cursor is (or at the end), separated by a space.
+  const accountInfo = useAccount().info;
+  const voiceAvailable = Boolean(accountInfo?.voice?.available) && dictationSupported();
+  const [dictationNote, setDictationNote] = useState("");
+  // Where the cursor was when the box lost focus (pressing the microphone moves focus to it).
+  const selection = useRef<{ start: number; end: number } | null>(null);
+  const insertDictated = (text: string) => {
+    setPrompt(current => {
+      const start = Math.min(selection.current?.start ?? current.length, current.length);
+      const end = Math.min(selection.current?.end ?? current.length, current.length);
+      const before = current.slice(0, start);
+      const after = current.slice(end);
+      const glue = before && !/\s$/.test(before) ? " " : "";
+      return `${before}${glue}${text}${after && !/^\s/.test(after) ? " " : ""}${after}`;
+    });
+    selection.current = null;
+    requestAnimationFrame(() => textarea.current?.focus({ preventScroll: true }));
+  };
+  const startDictation = () => {
+    const credits = accountInfo?.credits;
+    if (credits && !credits.unlimited && credits.available < 0.05) {
+      setNote("You're out of credits for dictation right now. They refill with your next window, or redeem a promo code.");
+      return;
+    }
+    void dictation.start();
+  };
+  const dictation = useDictation(insertDictated, (message, tone) => {
+    setDictationNote(message);
+    if (tone === "error") setNote(message);
+  });
 
   // Ctrl+/ (⌘/ on a Mac) anywhere on the page starts typing here. A chord, not a bare "/": a
   // single-character shortcut would fire while dictating or reading (WCAG 2.1.4) and hide Quick Find.
@@ -444,7 +476,10 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed, examples }: {
             aria-describedby={hintId}
             onChange={event => setPrompt(event.target.value)}
             onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
+            onBlur={event => {
+              setFocused(false);
+              selection.current = { start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd };
+            }}
             onPaste={onPaste}
             onKeyDown={onKeyDown}
           />
@@ -454,6 +489,7 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed, examples }: {
         <p className="sr-only" role="status">
           {attachments.uploading ? `Uploading ${attachments.uploading === 1 ? "a file" : `${attachments.uploading} files`}…` : files ? `${files} ${files === 1 ? "file" : "files"} attached` : ""}
         </p>
+        <p className="sr-only" role="status">{dictation.state === "recording" ? "Recording. Press Stop when you're done." : dictation.state === "transcribing" ? "Turning your recording into text…" : dictationNote}</p>
         <div className="composer-bar">
           <div className="composer-tools">
             <ModelPicker value={prefs.model} mode={prefs.mode} team={agent && prefs.team} onChange={model => update({ model })} />
@@ -491,6 +527,23 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed, examples }: {
               </button>
             </Tip>
             {attachments.picker}
+            {voiceAvailable && (
+              <Tip content={dictation.state === "recording" ? "Stop and insert the text" : dictation.state === "transcribing" ? "Turning your recording into text…" : "Dictate: speak your task"}>
+                <button
+                  type="button"
+                  className="toggle omni-mic"
+                  data-recording={dictation.state === "recording" || undefined}
+                  aria-label={dictation.state === "recording" ? `Stop dictation (${dictation.seconds} seconds recorded)` : "Dictate"}
+                  aria-pressed={dictation.state === "recording"}
+                  aria-busy={dictation.state === "transcribing" || dictation.state === "starting" || undefined}
+                  aria-disabled={dictation.state === "transcribing" || dictation.state === "starting" || undefined}
+                  onClick={() => (dictation.state === "recording" ? dictation.stop() : dictation.state === "idle" ? startDictation() : undefined)}
+                >
+                  {dictation.state === "transcribing" || dictation.state === "starting" ? <Spinner size={14} /> : dictation.state === "recording" ? <Square size={12} aria-hidden="true" /> : <Mic size={14} aria-hidden="true" />}
+                  <span className="toggle-label">{dictation.state === "recording" ? `${Math.floor(dictation.seconds / 60)}:${String(dictation.seconds % 60).padStart(2, "0")}` : dictation.state === "transcribing" ? "Writing…" : "Dictate"}</span>
+                </button>
+              </Tip>
+            )}
           </div>
           <div className="composer-send">
             <span className="composer-hint" aria-hidden="true"><kbd>Enter</kbd> to run · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line</span>

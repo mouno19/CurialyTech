@@ -20,7 +20,11 @@ import { brandText } from "@shared/brand";
 import { storeArtifacts } from "./artifacts";
 import { absoluteAssetWarnings, detectPreviewRoot, previewBaseUrl, registerLiveServer, unregisterLiveServer, waitForPort } from "./preview";
 import type { BrowseResult } from "./browser";
-import { clip, deleteWorkspaceFile, listWorkspaceTree, readWorkspaceFile, runCommand, SANDBOX_MODE, SandboxError, sandboxPortHost, writeWorkspaceFile } from "./sandbox";
+import { clip, deleteWorkspaceFile, listWorkspaceTree, readWorkspaceFile, resolveInWorkspace, runCommand, SANDBOX_MODE, SandboxError, sandboxPortHost, writeWorkspaceBytes, writeWorkspaceFile } from "./sandbox";
+import { DEFAULT_VOICE, MAX_EXPRESSIVE_CHARS, MAX_SPEECH_CHARS, VOICES, worstCaseSeconds } from "@shared/voice";
+import { voiceCredits } from "@shared/credits";
+import { speakExpressive, speakStandard, studioConfigured, transcribe, voiceConfigured, VoiceError } from "../voice/engines";
+import { classify } from "./artifacts";
 
 export type ToolContext = {
   root: string;
@@ -38,6 +42,10 @@ export type ToolContext = {
   grants?: { deploy?: boolean; deployUsed?: boolean; deployLive?: boolean };
   /** The task belongs to the operator: operator-only tools (OPERATOR_TOOLS) are allowed. */
   operator?: boolean;
+  /** Charge credits for usage other than model tokens (voice): the task's account, unless it is the operator's. */
+  charge?: (credits: number, detail: string) => void;
+  /** Whether the task's account can cover `credits` now (always for the operator). */
+  canSpend?: (credits: number) => Promise<boolean>;
 };
 
 /**
@@ -100,6 +108,18 @@ const schemas = {
   browser_extract: z.object({ selector: z.string().max(500).optional(), include_links: z.boolean().default(false) }),
   browser_screenshot: z.object({ full_page: z.boolean().default(false) }),
   browser_close: z.object({}),
+  transcribe_audio: z.object({
+    path: z.string().min(1),
+    language: z.string().trim().max(12).optional(),
+    speakers: z.boolean().default(false),
+    output_path: z.string().min(1).optional(),
+  }),
+  generate_speech: z.object({
+    text: z.string().trim().min(1).max(MAX_SPEECH_CHARS),
+    path: z.string().min(1),
+    voice: z.enum(VOICES.map(voice => voice.id) as [string, ...string[]]).default(DEFAULT_VOICE),
+    style: z.enum(["standard", "expressive"]).default("standard"),
+  }),
   test_preview_visual: z.object({
     dir: z.string().max(300).optional(),
     page: z.string().max(500).default("/"),
@@ -204,6 +224,25 @@ const BROWSER_TOOLS: ToolDef[] = [
   { name: "browser_close", description: "Close the live browser session when you are done browsing (it also closes automatically at the end of the task).", input_schema: { type: "object", properties: {} } },
 ];
 
+// Curialy Voice: transcripts and speech files. The standard voice serves everything; the expressive
+// voice (emotion, acting) only on the operator's tasks and only when the task really calls for it.
+const VOICE_TOOLS: ToolDef[] = [
+  {
+    name: "transcribe_audio",
+    description: "Transcribe an audio or video file in the workspace (mp3, wav, m4a, ogg, flac, webm, mp4, mov) to text with Curialy Voice. Use it for recordings the user attached (under attachments/) and for files you produced. speakers: true labels who said what (meetings, interviews). output_path: also save the transcript there. Language is detected unless you pass a code such as en or es.",
+    input_schema: { type: "object", properties: { path: { type: "string" }, language: { type: "string" }, speakers: { type: "boolean" }, output_path: { type: "string" } }, required: ["path"] },
+  },
+  {
+    name: "generate_speech",
+    description: `Create spoken audio (an MP3 file) from text with Curialy Voice, saved at path in the workspace and attached for the user to play. Voices: ${VOICES.map(voice => `${voice.id} (${voice.gender}, ${voice.description})`).join("; ")}. style "standard" is natural narration and the default for everything: voiceovers, app sounds, read-outs, tutorials. Use style "expressive" only when the user explicitly asks for emotional delivery, character voices or voice acting; it understands cues in square brackets such as [whispers], [laughs], [sighs], [excited], is limited to ${MAX_EXPRESSIVE_CHARS} characters per call and spends a scarce budget. Up to ${MAX_SPEECH_CHARS} characters per call; split longer scripts.`,
+    input_schema: { type: "object", properties: { text: { type: "string" }, path: { type: "string", description: "e.g. public/audio/intro.mp3" }, voice: { type: "string", enum: VOICES.map(voice => voice.id) }, style: { type: "string", enum: ["standard", "expressive"] } }, required: ["text", "path"] },
+  },
+];
+
+const MAX_TRANSCRIBE_BYTES = 25 * 1024 * 1024;
+/** Free accounts: smaller files, so the worst case they must cover up front stays reasonable. */
+const MAX_TRANSCRIBE_BYTES_FREE = 10 * 1024 * 1024;
+
 const VISUAL_TOOL: ToolDef = {
   name: "test_preview_visual",
   description: "Visually test the web app you built: serve it, open it in a real Chromium (cloud browser), and get back a full-page screenshot plus HTTP status, console errors and the rendered text. Static mode (default) serves the build output: index.html in dir, else dist/, build/, out/, public/ or the workspace root, so run the build first and use relative asset paths (Vite: base: './', CRA: \"homepage\": \".\"). Server mode: pass start_command (e.g. 'npm run dev -- --host 127.0.0.1 --port 4173' or 'node server.js') and the port it listens on; the server runs only for the duration of the test. Inspect the screenshot and fix layout or styling problems before finishing.",
@@ -267,6 +306,7 @@ function toolList(opts: { coding: boolean; web: boolean; github?: boolean }): To
   if (opts.coding && deployConfigured().ok) tools.push(DEPLOY_TOOL);
   if ((opts.web || opts.coding) && browserConfigured()) tools.push(BROWSE_TOOL, ...BROWSER_TOOLS);
   if (opts.coding && PROVIDER_ENV.browserbaseKey && PROVIDER_ENV.browserbaseProject) tools.push(VISUAL_TOOL);
+  if (opts.coding && voiceConfigured()) tools.push(...VOICE_TOOLS);
   if (opts.web) {
     tools.push(WEB_FETCH_TOOL);
     if (PROVIDER_ENV.manusKey) tools.push(DELEGATE_TOOL);
@@ -396,6 +436,10 @@ async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOu
       return runBrowserTool(name, input, ctx);
     case "test_preview_visual":
       return visualTest(input as z.infer<typeof schemas.test_preview_visual>, ctx);
+    case "transcribe_audio":
+      return transcribeTool(input as z.infer<typeof schemas.transcribe_audio>, ctx);
+    case "generate_speech":
+      return speechTool(input as z.infer<typeof schemas.generate_speech>, ctx);
     case "attach_files": {
       const { paths } = input as z.infer<typeof schemas.attach_files>;
       const result = await storeArtifacts(ctx.sessionId, ctx.root, Array.from(new Set(paths)), true);
@@ -563,6 +607,77 @@ async function reportPage(ctx: ToolContext, page: BrowseResult, displayUrl: stri
     clip(page.text, 30_000),
   ].filter(line => line !== "").join("\n");
   return { ok, content: body, summary: `HTTP ${page.status ?? "?"} · ${page.title.slice(0, 60) || "page"}`, image };
+}
+
+const duration = (seconds: number) => (seconds >= 60 ? `${Math.floor(seconds / 60)} min ${Math.round(seconds % 60)} s` : `${Math.round(seconds)} s`);
+
+async function transcribeTool(input: z.infer<typeof schemas.transcribe_audio>, ctx: ToolContext): Promise<ToolOutcome> {
+  const { absolute, relative } = resolveInWorkspace(ctx.root, input.path);
+  const stat = fs.lstatSync(absolute, { throwIfNoEntry: false });
+  if (!stat?.isFile()) {
+    return { ok: false, content: `File not found: ${relative}. A file a command created that is over 8 MB stays in the sandbox and can't be read here: convert it to a smaller mp3 first (e.g. ffmpeg -i in.wav -ac 1 -b:a 64k out.mp3).`, summary: "Not found" };
+  }
+  const limit = ctx.operator === false ? MAX_TRANSCRIBE_BYTES_FREE : MAX_TRANSCRIBE_BYTES;
+  if (stat.size > limit) return { ok: false, content: `${relative} is over ${limit / 1024 / 1024} MB. Convert it to a smaller mp3 (e.g. ffmpeg -i in.wav -ac 1 -b:a 64k out.mp3) or split it, then transcribe the parts.`, summary: "Too large" };
+  // Paid for the longest this file could be: a low bit rate can't stretch the account's credits.
+  if (ctx.canSpend && !(await ctx.canSpend(voiceCredits({ seconds: worstCaseSeconds(stat.size) })))) {
+    return { ok: false, content: `The account doesn't have enough credits to transcribe ${relative}. Tell the user; a smaller or shorter file needs fewer.`, summary: "Not enough credits" };
+  }
+  const fd = fs.openSync(absolute, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  let audio: Buffer;
+  try { audio = fs.readFileSync(fd); } finally { fs.closeSync(fd); }
+  const mime = classify(relative).mimeType;
+  ctx.emit({ type: "tool_output", callId: ctx.callId, stream: "stdout", chunk: `Transcribing ${relative} (${Math.round(stat.size / 1024)} KB)…\n` });
+  const transcript = await transcribe(audio, mime === "application/octet-stream" ? "audio/*" : mime, { language: input.language, speakers: input.speakers, signal: ctx.signal });
+  ctx.charge?.(voiceCredits({ seconds: transcript.seconds }), `transcribed ${relative} (${Math.round(transcript.seconds)} s)`);
+  const text = (input.speakers && transcript.byParagraph) || transcript.text;
+  let savedTo = "";
+  if (input.output_path && text) {
+    const saved = writeWorkspaceFile(ctx.root, input.output_path, `${text}\n`);
+    ctx.onFileChange(saved.relative);
+    savedTo = saved.relative;
+  }
+  const header = `Transcript of ${relative} (${duration(transcript.seconds)}${transcript.language ? `, language ${transcript.language}` : ""})${savedTo ? `, saved to ${savedTo}` : input.output_path ? ", not saved: no speech was found" : ""}:`;
+  return { ok: true, content: clip(`${header}\n\n${text || "(no speech detected)"}`, 40_000), summary: `${duration(transcript.seconds)} transcribed` };
+}
+
+/** Audio-tag cues ([whispers], [laughs]) are for the expressive voice; the standard voice would read them out. */
+const withoutCues = (text: string) => text.replace(/\[[^\]\n]{1,40}\]/g, " ").replace(/[ \t]{2,}/g, " ").trim();
+
+async function speechTool(input: z.infer<typeof schemas.generate_speech>, ctx: ToolContext): Promise<ToolOutcome> {
+  const target = /\.mp3$/i.test(input.path) ? input.path : `${input.path.replace(/\.[a-z0-9]{1,5}$/i, "")}.mp3`;
+  resolveInWorkspace(ctx.root, target);
+  const wantsExpressive = input.style === "expressive";
+  let expressive = wantsExpressive && ctx.operator !== false && studioConfigured();
+  let note = "";
+  if (wantsExpressive && !expressive) note = ctx.operator === false ? " The expressive voice is available on the operator's account only, so the standard voice was used." : " The expressive voice isn't set up on this server, so the standard voice was used.";
+  if (expressive && input.text.length > MAX_EXPRESSIVE_CHARS) return { ok: false, content: `Expressive speech is limited to ${MAX_EXPRESSIVE_CHARS} characters per call; split the script into parts.`, summary: "Too long" };
+  if (!withoutCues(input.text)) return { ok: false, content: "The script has only delivery cues in square brackets and no words to speak.", summary: "Nothing to say" };
+  let speech;
+  try {
+    speech = expressive ? await speakExpressive(input.text, input.voice, ctx.signal) : await speakStandard(withoutCues(input.text), input.voice, ctx.signal);
+  } catch (error) {
+    // Out of (or near the end of) the expressive budget: the standard voice still delivers.
+    if (!(expressive && error instanceof VoiceError && error.code === "studio_budget")) throw error;
+    expressive = false;
+    note = " The expressive voice's budget for this month is used up, so the standard voice was used.";
+    speech = await speakStandard(withoutCues(input.text), input.voice, ctx.signal);
+  }
+  const saved = writeWorkspaceBytes(ctx.root, target, speech.audio);
+  ctx.onFileChange(saved.relative);
+  ctx.charge?.(voiceCredits({ characters: input.text.length, expressive: speech.engine === "studio" }), `speech: ${input.text.length} characters${speech.engine === "studio" ? " (expressive)" : ""}`);
+  const result = await storeArtifacts(ctx.sessionId, ctx.root, [saved.relative], true);
+  if (result.stored.length) {
+    ctx.emit({ type: "artifacts", files: result.stored, auto: false, more: 0, skipped: result.skipped.map(reason => brandText(reason)) });
+    ctx.onAttach?.(result.stored.map(file => file.path));
+  }
+  // The standard voice is 48 kbps MP3 (6 KB a second), the expressive one 128 kbps (16 KB a second).
+  const seconds = Math.max(1, Math.round(speech.audio.length / (speech.engine === "studio" ? 16_000 : 6_000)));
+  return {
+    ok: true,
+    content: `Saved ${saved.relative} (about ${duration(seconds)}, ${Math.round(speech.audio.length / 1024)} KB, ${speech.engine === "studio" ? "expressive" : "standard"} voice "${input.voice}") and attached it for the user to play.${note}`,
+    summary: `${speech.engine === "studio" ? "Expressive" : "Standard"} speech · ${duration(seconds)}`,
+  };
 }
 
 async function visualTest(input: z.infer<typeof schemas.test_preview_visual>, ctx: ToolContext): Promise<ToolOutcome> {

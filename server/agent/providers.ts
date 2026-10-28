@@ -2,6 +2,7 @@ import { brandText } from "@shared/brand";
 import Anthropic from "@anthropic-ai/sdk";
 import { aiComplete } from "../media/snowflake";
 import type { ModelSpec, ProviderId, ThinkingLevel } from "@shared/agent";
+import { probeStudio, probeVoice, studioConfigured, voiceConfigured } from "../voice/engines";
 
 // Secrets come only from the service environment (/etc/curialyai.env); nothing here reaches the browser.
 export const PROVIDER_ENV = {
@@ -294,6 +295,18 @@ export async function probeProviders(deep = false): Promise<ProbeResult[]> {
       const response = await fetch(`https://api.render.com/v1/owners/${PROVIDER_ENV.renderOwner}`, { headers: { authorization: `Bearer ${PROVIDER_ENV.renderKey}`, accept: "application/json" }, signal });
       if (!response.ok) throw new Error(`Owner lookup returned ${response.status}`);
       return "Ready (deploys need GitHub connected)";
+    }),
+    timed("Curialy Voice", "voice", voiceConfigured(), async () => {
+      const probe = await probeVoice();
+      if (!probe.ok) throw new Error(probe.detail);
+      return probe.detail;
+    }),
+    // The remaining monthly budget is the operator's business: only in a deep check.
+    timed("Curialy Voice Studio", "voice-studio", studioConfigured(), async () => {
+      if (!deep) return "Ready for expressive speech (operator only)";
+      const probe = await probeStudio();
+      if (!probe.ok) throw new Error(probe.detail);
+      return probe.detail;
     }),
     timed("Gemini engine", "gemini", Boolean(PROVIDER_ENV.relayKey), async () => {
       if (!deep) return "Routed (run the live check to verify)";

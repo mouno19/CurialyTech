@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import type { LucideIcon } from "lucide-react";
-import { Check, CircleDashed, CircleHelp, CircleX, Cpu, Database, Gauge, HardDrive, Monitor, PlugZap, RefreshCw, Rocket, RotateCcw, Server, Sparkles, Telescope, TriangleAlert, Wrench } from "lucide-react";
+import { AudioLines, Check, CircleDashed, CircleHelp, CircleX, Cpu, Database, Gauge, HardDrive, Mic, Monitor, PlugZap, RefreshCw, Rocket, RotateCcw, Server, Sparkles, Telescope, TriangleAlert, Wrench } from "lucide-react";
 import { PICKER_MODELS, type ModelSpec } from "@shared/agent";
 import { AppShell, type TopbarAction } from "@/components/shell/AppShell";
 import { Button } from "@/components/common/Button";
@@ -10,10 +10,10 @@ import { healthStatus, needsOperator, summarizeHealth, useHealth } from "@/lib/a
 
 const GROUPS: { id: string; title: string; description: string; ids: string[] }[] = [
   { id: "engines", title: "Model engines", description: "The routes the models run on.", ids: ["core", "relay", "gemini", "fast"] },
-  { id: "services", title: "Agent services", description: "Tools the agent can call during a task.", ids: ["research", "browser", "deploy"] },
+  { id: "services", title: "Agent services", description: "Tools the agent can call during a task.", ids: ["research", "browser", "deploy", "voice", "voice-studio"] },
   { id: "storage", title: "Data and storage", description: "Where tasks, logs and files are kept.", ids: ["data", "vault"] },
 ];
-const ICONS: Record<string, LucideIcon> = { core: Cpu, relay: Server, gemini: Sparkles, fast: Gauge, research: Telescope, browser: Monitor, deploy: Rocket, data: Database, vault: HardDrive };
+const ICONS: Record<string, LucideIcon> = { core: Cpu, relay: Server, gemini: Sparkles, fast: Gauge, research: Telescope, browser: Monitor, deploy: Rocket, data: Database, vault: HardDrive, voice: Mic, "voice-studio": AudioLines };
 
 // Which picker models each engine serves (Gemini models are listed on their own engine).
 const PROVIDERS_FOR: Record<string, ModelSpec["provider"][]> = { core: ["core", "core-chat", "core-inference", "core-sql"], relay: ["relay"], fast: ["fast"] };

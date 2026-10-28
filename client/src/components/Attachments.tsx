@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "wouter";
 import type { LucideIcon } from "lucide-react";
-import { Archive, CodeXml, Database, Download, Eye, File, FileText, Image as ImageIcon, Paperclip, TriangleAlert } from "lucide-react";
+import { Archive, AudioLines, Clapperboard, CodeXml, Database, Download, Eye, File, FileText, Image as ImageIcon, Paperclip, TriangleAlert } from "lucide-react";
 import type { GeneratedSummary } from "@shared/agent";
 import { isGeneratedPath } from "@shared/generated";
 import { Markdown } from "@/components/Markdown";
@@ -21,14 +21,17 @@ import type { Attachment } from "@/lib/taskStream";
 // assets) is grouped and collapsed. Stored files are served from Curialy Vault; when storage was
 // unavailable they were kept in the workspace instead (source "workspace", no media id).
 
-const ICONS: Record<Attachment["kind"], LucideIcon> = { image: ImageIcon, pdf: FileText, archive: Archive, document: FileText, code: CodeXml, data: Database, other: File };
+const ICONS: Record<Attachment["kind"], LucideIcon> = { image: ImageIcon, audio: AudioLines, video: Clapperboard, pdf: FileText, archive: Archive, document: FileText, code: CodeXml, data: Database, other: File };
 const TEXT_PREVIEW = /\.(md|markdown|txt|csv|tsv|json|jsonl|ya?ml|xml|html?|sql|log|ini|toml|[cm]?[jt]sx?|py|go|rs|java|kt|rb|php|c|cc|cpp|h|hpp|cs|swift|sh|css|scss|vue|svelte)$/i;
 const VISIBLE = 6;
-const RANK: Record<Attachment["kind"], number> = { image: 1, pdf: 1, document: 1, archive: 2, data: 2, code: 3, other: 4 };
+const RANK: Record<Attachment["kind"], number> = { image: 1, audio: 1, video: 1, pdf: 1, document: 1, archive: 2, data: 2, code: 3, other: 4 };
 
 const isStored = (file: Attachment) => Boolean(file.mediaId);
-const isText = (file: Attachment) => file.kind !== "image" && file.kind !== "pdf" && TEXT_PREVIEW.test(file.filename) && file.sizeBytes <= 5 * 1024 * 1024;
-const canPreview = (file: Attachment) => file.kind === "image" || (file.kind === "pdf" && isStored(file)) || isText(file);
+const isText = (file: Attachment) => file.kind !== "image" && file.kind !== "pdf" && file.kind !== "audio" && file.kind !== "video" && TEXT_PREVIEW.test(file.filename) && file.sizeBytes <= 5 * 1024 * 1024;
+/** Played inline (the same types the server serves inline); others download. */
+const PLAYABLE = /^(audio\/(mpeg|mp4|aac|ogg|wav|webm|flac)|video\/(mp4|webm))$/;
+const isPlayable = (file: Attachment) => (file.kind === "audio" || file.kind === "video") && PLAYABLE.test(file.mimeType);
+const canPreview = (file: Attachment) => file.kind === "image" || isPlayable(file) || (file.kind === "pdf" && isStored(file)) || isText(file);
 const dirOf = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/") + 1) : "");
 
 /** Deliverables (primary first, then documents and images) and build output (older logs listed it). */
@@ -184,6 +187,7 @@ function AttachmentPreview({ taskId, file, onClose }: { taskId: string; file: At
   const text = isText(file);
   const [content, setContent] = useState<TextState>({ phase: "loading" });
   const [pdf, setPdf] = useState<"checking" | "ok" | number>("checking");
+  const [playError, setPlayError] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
@@ -239,6 +243,14 @@ function AttachmentPreview({ taskId, file, onClose }: { taskId: string; file: At
             {!fromWorkspace && file.mediaId ? <MediaImage id={file.mediaId} alt={file.filename} /> : <MediaImage src={agentApi.rawFileUrl(taskId, file.path)} alt={file.filename} />}
           </div>
         )}
+        {isPlayable(file) && (playError
+          ? <StateNotice variant="error" size="sm" title={`Couldn't play this ${file.kind}`}>It may have been removed, or this browser can't play the format. Download it instead.</StateNotice>
+          : (() => {
+            const src = !fromWorkspace && file.mediaId ? agentApi.mediaUrl(file.mediaId) : agentApi.rawFileUrl(taskId, file.path);
+            return file.kind === "audio"
+              ? <audio className="att-audio" controls preload="metadata" src={src} onError={() => setPlayError(true)}>Your browser can't play this audio; download it instead.</audio>
+              : <video className="att-video" controls preload="metadata" src={src} onError={() => setPlayError(true)}>Your browser can't play this video; download it instead.</video>;
+          })())}
         {file.kind === "pdf" && file.mediaId && (
           pdf === "ok" ? <iframe className="att-pdf" src={agentApi.mediaUrl(file.mediaId)} title={file.filename} />
             : pdf === "checking" ? <StateNotice variant="loading" size="sm" title="Opening the PDF…" />

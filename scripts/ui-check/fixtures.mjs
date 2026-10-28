@@ -854,6 +854,8 @@ export function createFixtures({ now = Date.now(), deployUrls = "vendor" } = {})
     { id: "fast", label: "Curialy Fast Reasoning", ok: true, latencyMs: 164, detail: "3 model(s) ready", configured: true },
     { id: "browser", label: "Curialy Live Browser", ok: true, latencyMs: 297, detail: "Ready · up to 3 concurrent sessions", configured: true },
     { id: "deploy", label: "Curialy Cloud Deploy", ok: true, latencyMs: 251, detail: "Ready (deploys need GitHub connected)", configured: true },
+    { id: "voice", label: "Curialy Voice", ok: true, latencyMs: 188, detail: "Ready: dictation, transcripts and narration", configured: true },
+    { id: "voice-studio", label: "Curialy Voice Studio", ok: true, latencyMs: 0, detail: "Ready for expressive speech (operator only)", configured: true },
     { id: "gemini", label: "Gemini engine", ok: true, latencyMs: 0, detail: "Routed (run the live check to verify)", configured: true },
     // File storage not set up (needs an operator; the client must not poll faster for it).
     { id: "vault", label: "Curialy Vault (media)", ok: false, latencyMs: 0, detail: "File storage is not set up yet: the storage location is missing or this server may not use it. An operator needs to run the storage setup.", configured: true },
@@ -1075,7 +1077,10 @@ export function createFixtures({ now = Date.now(), deployUrls = "vendor" } = {})
     { id: "00000000-0000-4000-8000-0000000000d2", code: "K7PQR-3MXWT", credits: 500, forUser: { id: free.id, login: "ada-lovelace" }, maxRedemptions: 1, redemptions: 1, expiresAt: null, disabledAt: null, note: null, createdAt: new Date(now - 3_600_000).toISOString(), state: "used_up" },
   ];
   routes.push(
-    ["GET", "/api/account", () => ({ json: { user: account(), credits: credits(), github } })],
+    ["GET", "/api/account", () => ({ json: { user: account(), credits: credits(), github, voice: { available: true } } })],
+    // Voice: dictation and read aloud answer from fixtures (no audio is recorded or played in a check).
+    ["POST", "/api/agent/voice/transcribe", () => ({ json: { text: "Build a landing page with a pricing table", seconds: 3.2, language: "en" } })],
+    ["POST", "/api/agent/tasks/:id/speech", () => ({ contentType: "audio/mpeg", body: "" })],
     ["GET", "/api/account/credits", () => ({ json: { credits: credits(), history: [] } })],
     ["GET", "/api/admin/overview", () => ({ json: { users: 3, newToday: 1, activeToday: 2, activeRuns: 1, creditsUsedToday: 87.25, activePromoCodes: 1, settings: { creditsPerWindow: 60, windowHours: 5, signupsOpen: true } } })],
     ["GET", "/api/admin/users", () => ({ json: { users: adminUsers, more: false } })],

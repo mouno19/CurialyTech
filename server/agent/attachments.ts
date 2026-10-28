@@ -73,7 +73,8 @@ export function uniqueAttachmentPath(root: string, filename: string, mediaId: st
   return path.join("attachments", `${stem}-${tag}-${mediaId}${ext}`);
 }
 
-export async function stageAttachments(root: string, refs: AttachmentRef[], opts: { vision: boolean; load?: (stagePath: string, mediaId: string) => Promise<Buffer> }) {
+/** transcribe: the run offers transcribe_audio (agent mode with voice set up), so recordings can be pointed at it. */
+export async function stageAttachments(root: string, refs: AttachmentRef[], opts: { vision: boolean; transcribe?: boolean; load?: (stagePath: string, mediaId: string) => Promise<Buffer> }) {
   // By id, so a file held in another storage account is reported, not looked up (or marked missing) here.
   const load = opts.load ?? ((_stagePath: string, mediaId: string) => loadMediaBytes(mediaId));
   const display: AttachmentDisplay[] = [];
@@ -110,6 +111,9 @@ export async function stageAttachments(root: string, refs: AttachmentRef[], opts
   if (images.length) note += `\n${images.length === 1 ? "The attached image is" : `${images.length} attached images are`} included above.`;
   if (notSeen.length) note += `\nNot shown as images (${opts.vision ? "too large or too many" : "this model cannot view images"}): ${notSeen.join(", ")}.`;
   if (failed.length) note += `\nCould not attach: ${failed.join(", ")}.`;
+  // Recordings are read with the transcription tool (charged to the task), not guessed from their name.
+  const recordings = display.filter(file => /^(audio|video)\//.test(file.mimeType) || /\.(mp3|wav|m4a|ogg|oga|opus|flac|aac|weba|webm|mp4|mov)$/i.test(file.filename));
+  if (recordings.length && opts.transcribe) note += `\nRecordings: ${recordings.map(file => file.path).join(", ")}. When you need what ${recordings.length === 1 ? "it says" : "they say"}, transcribe ${recordings.length === 1 ? "it" : "them"} with transcribe_audio.`;
   return { display, images, note };
 }
 

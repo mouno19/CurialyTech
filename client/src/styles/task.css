@@ -547,3 +547,7 @@ button.tl-head:focus-visible, .handoff-head:focus-visible, .progress-notes > sum
    in briefly. Panels kept mounted restart the animation when they leave display:none. */
 .inspector-panel { --rise-y: 6px; animation: rise 260ms var(--ease-out) backwards; }
 .pane-panel:not([hidden]) { animation: fade-in var(--dur-2) var(--ease-out) backwards; }
+
+/* Audio and video files a run produced (generate_speech and the like). */
+.att-audio { display: block; width: 100%; max-width: 560px; margin: 8px auto; }
+.att-video { display: block; width: 100%; max-height: min(70vh, 640px); border-radius: var(--r-md); background: var(--panel-3); }

@@ -38,7 +38,16 @@ const accounts = vi.hoisted(() => ({
   admin: { id: "admin", role: "admin" as const, login: "operator", displayName: "Operator", avatarUrl: null, email: null },
   other: { id: "user-b", role: "user" as const, login: "someone-else", displayName: "Someone Else", avatarUrl: null, email: null },
 }));
-const credits = vi.hoisted(() => ({ assertCanStart: vi.fn(async () => undefined) }));
+const credits = vi.hoisted(() => ({
+  assertCanStart: vi.fn(async () => undefined),
+  charge: vi.fn(async () => ({})),
+  getBalance: vi.fn(async () => ({ unlimited: false, allowance: 60, used: 0, remaining: 60, bonus: 0, available: 60, resetsAt: null, windowHours: 5 })),
+}));
+const voice = vi.hoisted(() => ({
+  transcribe: vi.fn(async () => ({ text: "Fix the login page", seconds: 90, language: "en", byParagraph: null })),
+  speakStandard: vi.fn(async (text: string) => ({ audio: Buffer.from("ID3audio"), mimeType: "audio/mpeg" as const, characters: text.length, engine: "standard" as const })),
+}));
+vi.mock("./voice/engines", async importOriginal => ({ ...(await importOriginal<typeof import("./voice/engines")>()), ...voice, voiceConfigured: () => true }));
 vi.mock("./auth", async importOriginal => {
   const actual = await importOriginal<typeof import("./auth")>();
   const who = (req: { headers: Record<string, unknown> }) => (req.headers["x-test-account"] === "other" ? accounts.other : accounts.admin);
@@ -48,7 +57,7 @@ vi.mock("./auth", async importOriginal => {
     requireAdmin: (req: never, res: { status: (code: number) => { json: (body: unknown) => void } }, next: () => void) => (who(req).role === "admin" ? next() : res.status(403).json({ error: "Only the operator can do this." })),
   };
 });
-vi.mock("./credits", async importOriginal => ({ ...(await importOriginal<typeof import("./credits")>()), assertCanStart: credits.assertCanStart }));
+vi.mock("./credits", async importOriginal => ({ ...(await importOriginal<typeof import("./credits")>()), assertCanStart: credits.assertCanStart, charge: credits.charge, getBalance: credits.getBalance }));
 // Free accounts run only when cloud sandboxes are in use; these tests run commands locally.
 const sandboxes = vi.hoisted(() => ({ ready: true }));
 vi.mock("./agent/sandbox", async importOriginal => ({ ...(await importOriginal<typeof import("./agent/sandbox")>()), cloudSandboxReady: () => sandboxes.ready }));
@@ -696,5 +705,53 @@ describe("accounts: each sees only its own", () => {
     const status = await fetch(`${base}/tasks/${OWN}/browser/${ID}`, as());
     expect(status.status).toBe(200);
     expect((await status.json()).viewer).toBeNull();
+  });
+});
+
+describe("voice", () => {
+  const dictate = (account: "other" | "admin" = "other") => {
+    const body = new FormData();
+    body.append("audio", new Blob([new Uint8Array(4096)], { type: "audio/webm" }), "dictation.webm");
+    return fetch(`${base}/voice/transcribe`, { method: "POST", body, headers: account === "other" ? { "x-test-account": "other" } : {} });
+  };
+
+  it("turns a recording into text and charges a free account for its minutes", async () => {
+    voice.transcribe.mockClear();
+    credits.charge.mockClear();
+    const response = await dictate();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ text: "Fix the login page", seconds: 90, language: "en" });
+    // No language from the browser: it is detected.
+    expect(voice.transcribe).toHaveBeenCalledWith(expect.any(Buffer), "audio/webm");
+    expect(credits.charge).toHaveBeenCalledWith("user-b", 0.15, null, "dictation (90 s)");
+  });
+
+  it("refuses a free account without credits before sending any audio", async () => {
+    voice.transcribe.mockClear();
+    credits.getBalance.mockResolvedValueOnce({ unlimited: false, allowance: 60, used: 60, remaining: 0, bonus: 0, available: 0, resetsAt: new Date(Date.now() + 60_000).toISOString(), windowHours: 5 });
+    const response = await dictate();
+    expect(response.status).toBe(402);
+    expect(await response.json()).toMatchObject({ code: "no_credits" });
+    expect(voice.transcribe).not.toHaveBeenCalled();
+  });
+
+  it("reads an answer aloud for its owner only, and never reads code", async () => {
+    scriptTask(session());
+    voice.speakStandard.mockClear();
+    const other = await fetch(`${base}/tasks/${TASK}/speech`, { method: "POST", headers: { "content-type": "application/json", "x-test-account": "other" }, body: JSON.stringify({ text: "Done." }) });
+    expect(other.status).toBe(404);
+    expect(voice.speakStandard).not.toHaveBeenCalled();
+
+    const own = await fetch(`${base}/tasks/${TASK}/speech`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "It builds.\n```js\nconst secret = 1;\n```" }) });
+    expect(own.status).toBe(200);
+    expect(own.headers.get("content-type")).toBe("audio/mpeg");
+    expect(Buffer.from(await own.arrayBuffer()).toString()).toBe("ID3audio");
+    expect(voice.speakStandard.mock.calls[0][0]).toBe("It builds.\n (code omitted)");
+
+    // Nothing speakable (an image and a bare link): refused, nothing synthesized or charged.
+    voice.speakStandard.mockClear();
+    const empty = await fetch(`${base}/tasks/${TASK}/speech`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "![shot](a.png) https://example.com" }) });
+    expect(empty.status).toBe(400);
+    expect(voice.speakStandard).not.toHaveBeenCalled();
   });
 });

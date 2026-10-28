@@ -18,6 +18,10 @@ previews.
   operator-only.
 - With `E2B_API_KEY` set, every task's commands, installs and builds run in a cloud sandbox of its
   own (`server/agent/e2b.ts`); this server keeps only the task's sources and build output.
+- Voice (`server/voice/engines.ts`): dictation in the composer, transcripts of recordings
+  (`transcribe_audio`), speech files (`generate_speech`) and reading answers aloud run on Deepgram;
+  ElevenLabs is used only for expressive speech on the operator's tasks, within a budget reserve.
+  Free accounts pay credits for voice (`shared/credits.ts` VOICE_RATES).
 
 ## Repository map
 

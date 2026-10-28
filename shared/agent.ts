@@ -204,7 +204,7 @@ export type AgentEventBody =
   | { type: "deployment"; deploymentId: string; callId?: string; status: "creating" | "building" | "live" | "failed" | "deleted" | "expired" | "removed" | "interrupted"; url?: string; detail: string; expiresAt?: string }
   /** Files attached to the chat (stored in Curialy Vault). auto = collected at the end of the run. */
   /** files[].source "workspace" (mediaId null): kept in the task's workspace because file storage was unavailable. */
-  | { type: "artifacts"; files: { mediaId: string | null; source?: "vault" | "workspace"; path: string; filename: string; mimeType: string; sizeBytes: number; kind: "image" | "pdf" | "archive" | "document" | "code" | "data" | "other"; primary: boolean }[]; auto: boolean; more: number; skipped: string[]; generated?: GeneratedSummary; partial?: boolean }
+  | { type: "artifacts"; files: { mediaId: string | null; source?: "vault" | "workspace"; path: string; filename: string; mimeType: string; sizeBytes: number; kind: "image" | "audio" | "video" | "pdf" | "archive" | "document" | "code" | "data" | "other"; primary: boolean }[]; auto: boolean; more: number; skipped: string[]; generated?: GeneratedSummary; partial?: boolean }
   /** liveUrl is no longer stored (it carries an access token); viewer says a live view can be requested. */
   | { type: "browser_session"; sessionId: string; status: "live" | "ended"; liveUrl: string | null; replayUrl: string; reason?: string; viewer?: boolean }
   | { type: "browser_action"; sessionId: string; action: string; detail: string; url: string; title: string }

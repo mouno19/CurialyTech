@@ -9,6 +9,7 @@ import {
 import { query } from "./db/pg";
 import { requestCancel } from "./agent/runner";
 import { getConnection, oauthConfigured } from "./services/github";
+import { voiceConfigured } from "./voice/engines";
 
 // /api/account: the signed-in account (credits, promo codes). /api/admin: the operator's dashboard
 // (accounts, credits, promo codes, settings). Every admin route requires the operator role.
@@ -30,7 +31,7 @@ export function accountRouter() {
   router.get("/", handle(async (req, res) => {
     const user = accountOf(req);
     const [credits, connection] = await Promise.all([getBalance(user.id), getConnection(user.id).catch(() => null)]);
-    res.json({ user, credits, github: { configured: oauthConfigured(), connected: Boolean(connection), login: connection?.login ?? null } });
+    res.json({ user, credits, github: { configured: oauthConfigured(), connected: Boolean(connection), login: connection?.login ?? null }, voice: { available: voiceConfigured() } });
   }));
 
   router.get("/credits", handle(async (req, res) => {
