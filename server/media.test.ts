@@ -245,6 +245,74 @@ describe("media storage (snowflake.ts)", () => {
     expect(sdk.accounts).toEqual(["media-snowflake_media_account", "test-snowflake_account"]);
   });
 
+  it("normalizes the account (base URL or host form) and records it with every stored file", async () => {
+    for (const name of ["SNOWFLAKE_MEDIA_USER", "SNOWFLAKE_MEDIA_ROLE", "SNOWFLAKE_MEDIA_PAT"]) vi.stubEnv(name, `media-${name.toLowerCase()}`);
+    vi.stubEnv("SNOWFLAKE_MEDIA_ACCOUNT", "https://AB12345.ap-southeast-7.aws.snowflakecomputing.com/");
+    const sf = await load();
+    expect(sf.normalizeAccount(" ab12345.ap-southeast-7.aws.snowflakecomputing.com ")).toBe("ab12345.ap-southeast-7.aws");
+    expect(sf.mediaAccount()).toBe("ab12345.ap-southeast-7.aws");
+    sdk.answer = sql => (sql.startsWith("LIST") ? { rows: [{ name: "user_media_stage/upload/x/a.png" }] } : { rows: [] });
+    const { query } = await import("./db/pg");
+    const insert = vi.mocked(query);
+    insert.mockClear();
+    await sf.storeMedia({ buffer: Buffer.from("png"), filename: "a.png", mimeType: "image/png", kind: "upload" });
+    expect(sdk.accounts).toEqual(["ab12345.ap-southeast-7.aws"]);
+    const values = insert.mock.calls.find(([text]) => String(text).includes("INSERT INTO curialy.file_metadata"))?.[1] as unknown[];
+    expect(values.at(-1)).toBe("ab12345.ap-southeast-7.aws");
+    // Recorded elsewhere, unrecorded (looked up here first), recorded here.
+    expect(sf.placement({ id: "a", stage_account: "og1.ap-southeast-7.aws" })).toBe("elsewhere");
+    expect(sf.placement({ id: "b", stage_account: null })).toBe("unknown");
+    expect(sf.placement({ id: "c", stage_account: "ab12345.ap-southeast-7.aws" })).toBe("here");
+  });
+
+  it("deletes a file held in another account: clears this stage too, and reports the other copy as kept", async () => {
+    const sf = await load();
+    const { query } = await import("./db/pg");
+    vi.mocked(query).mockImplementation((async (text: string) => (text.startsWith("SELECT id, filename")
+      ? { rows: [{ id: "00000000-0000-4000-8000-000000000001", stage_path: "upload/1/a.png", state: "stored", stage_account: "other.region.aws" }], rowCount: 1 }
+      : { rows: [], rowCount: 1 })) as never);
+    expect(await sf.deleteMedia("00000000-0000-4000-8000-000000000001")).toBe("kept");
+    expect(sdk.executes.filter(sql => sql.startsWith("REMOVE"))).toHaveLength(1);
+    // An unrecorded file that turns out to be here is really removed.
+    sdk.answer = sql => (sql.startsWith("REMOVE") ? { rows: [{ name: "user_media_stage/upload/2/b.png", result: "removed" }] } : { rows: [] });
+    vi.mocked(query).mockImplementation((async (text: string) => (text.startsWith("SELECT id, filename")
+      ? { rows: [{ id: "00000000-0000-4000-8000-000000000002", stage_path: "upload/2/b.png", state: "stored", stage_account: null }], rowCount: 1 }
+      : { rows: [], rowCount: 1 })) as never);
+    expect(await sf.deleteMedia("00000000-0000-4000-8000-000000000002")).toBe("removed");
+  });
+
+  it("looks an unrecorded file up once: records it when found, remembers it as elsewhere (not missing) when not", async () => {
+    const sf = await load();
+    const { query } = await import("./db/pg");
+    vi.mocked(query).mockClear();
+    const legacy = { id: "00000000-0000-4000-8000-000000000003", stage_path: "upload/3/c.png", stage_account: null };
+    expect(sf.placement(legacy)).toBe("unknown");
+    await sf.openMedia(legacy);
+    expect(vi.mocked(query).mock.calls.some(([text]) => String(text).startsWith("UPDATE curialy.file_metadata SET stage_account"))).toBe(true);
+
+    const gone = { id: "00000000-0000-4000-8000-000000000004", stage_path: "upload/4/d.png", stage_account: null };
+    fetchMock.mockImplementation(async () => new Response(null, { status: 404 }));
+    await expect(sf.openMedia(gone)).rejects.toMatchObject({ kind: "elsewhere" });
+    expect(sf.placement(gone)).toBe("elsewhere");
+    const statements = sdk.executes.length;
+    await expect(sf.openMedia(gone)).rejects.toMatchObject({ kind: "elsewhere" });
+    expect(sdk.executes).toHaveLength(statements); // not looked up again
+
+    // A recorded file's 404 still means gone.
+    await expect(sf.openMedia({ id: "00000000-0000-4000-8000-000000000005", stage_path: "upload/5/e.png", stage_account: "test-snowflake_account" })).rejects.toMatchObject({ kind: "object_missing" });
+  });
+
+  it("treats every file as here when no media account is configured, so storage refuses as not configured", async () => {
+    const sf = await load(false);
+    expect(sf.placement({ id: "x", stage_account: null })).toBe("here");
+    expect(sf.isElsewhere({ id: "x", stage_account: "other.region.aws" })).toBe(false);
+  });
+
+  it("treats a login the driver refuses to create (404xxx) as not configured, so the breaker opens", async () => {
+    const { classifyStorageError } = await import("./media/storage-errors");
+    expect(classifyStorageError(Object.assign(new Error("Invalid account. The specified value must be a valid subdomain string."), { code: "404045" }))).toBe("not_configured");
+  });
+
   it("names the media variables still missing when SNOWFLAKE_MEDIA_* is only partly set", async () => {
     vi.stubEnv("SNOWFLAKE_MEDIA_ACCOUNT", "media-account");
     const sf = await load();

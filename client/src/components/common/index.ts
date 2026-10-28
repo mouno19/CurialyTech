@@ -9,6 +9,7 @@ export { StateNotice, EmptyState, type StateNoticeProps, type StateVariant } fro
 export { ConfirmDialog, type ConfirmDialogProps } from "./ConfirmDialog";
 export { Dialog, type DialogProps } from "./Dialog";
 export { PathLabel } from "./PathLabel";
+export { Reveal } from "./Reveal";
 export { GitHubMark } from "./GitHubMark";
 export { AppToaster } from "./Toaster";
 export { useCountdown } from "./useCountdown";

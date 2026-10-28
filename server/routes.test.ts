@@ -18,6 +18,8 @@ const db = vi.hoisted(() => ({ calls: [] as Call[], handler: (_call: Call): unkn
 const media = vi.hoisted(() => ({
   getMedia: vi.fn(), listMedia: vi.fn(async () => []), markMediaMissing: vi.fn(async () => undefined), mediaStatus: vi.fn(), openStoredObject: vi.fn(),
   storeMedia: vi.fn(), assertStorageAvailable: vi.fn(), deleteMedia: vi.fn(), aiComplete: vi.fn(), fetchMediaBytes: vi.fn(),
+  isElsewhere: vi.fn((row: { stage_account?: string | null }) => row.stage_account !== "acct-now"), storageConfig: vi.fn(() => ({ ok: true, missing: [] as string[] })),
+  openMedia: vi.fn(),
 }));
 const publish = vi.hoisted(() => ({ createRepo: vi.fn(), pushProjectToRepo: vi.fn(), createPullRequest: vi.fn(), deployPreview: vi.fn(), commitAndPush: vi.fn(), branchHead: vi.fn(), githubApi: vi.fn() }));
 const github = vi.hoisted(() => ({ getConnection: vi.fn() }));
@@ -66,7 +68,7 @@ afterAll(async () => {
 const ID = "00000000-0000-4000-8000-0000000000d1";
 const TASK = "00000000-0000-4000-8000-0000000000e1";
 const RUN = "10000000-0000-4000-8000-0000000000e1";
-const mediaRow = (patch: Record<string, unknown> = {}) => ({ id: ID, filename: "shot.png", mime_type: "image/png", size_bytes: 7, kind: "upload", stage_path: "upload/x/shot.png", created_at: new Date(), session_id: null, source_path: null, state: "stored", ...patch });
+const mediaRow = (patch: Record<string, unknown> = {}) => ({ id: ID, filename: "shot.png", mime_type: "image/png", size_bytes: 7, kind: "upload", stage_path: "upload/x/shot.png", created_at: new Date(), session_id: null, source_path: null, state: "stored", stage_account: "acct-now", ...patch });
 const INTERNALS = /snowflake|cortex|sql|stage|curialy_db|warehouse|amazonaws|@/i;
 
 beforeEach(() => {
@@ -77,6 +79,30 @@ beforeEach(() => {
   media.mediaStatus.mockResolvedValue({ ok: true, state: "ok", kind: null, retryAfter: 0, detail: "File storage is ready." });
   media.listMedia.mockResolvedValue([]);
   media.markMediaMissing.mockResolvedValue(undefined);
+  media.isElsewhere.mockImplementation((row: { stage_account?: string | null }) => row.stage_account !== "acct-now");
+  media.storageConfig.mockImplementation(() => ({ ok: true, missing: [] }));
+  // Routes open files through openMedia (placement rules); here it reaches the storage mock directly.
+  media.openMedia.mockImplementation((row: { stage_path: string }, signal?: AbortSignal) => media.openStoredObject(row.stage_path, signal));
+});
+
+describe("files stored in another storage account", () => {
+  it("answers 410 media_elsewhere without asking storage, and never marks them missing", async () => {
+    media.getMedia.mockResolvedValue(mediaRow({ stage_account: "older.region.aws" }));
+    media.openMedia.mockRejectedValue(new StorageError("elsewhere"));
+    const response = await fetch(`${base}/media/${ID}`);
+    expect(response.status).toBe(410);
+    expect(await response.json()).toMatchObject({ code: "media_elsewhere" });
+    const head = await fetch(`${base}/media/${ID}`, { method: "HEAD" });
+    expect(head.status).toBe(410);
+    expect(media.openStoredObject).not.toHaveBeenCalled();
+    expect(media.markMediaMissing).not.toHaveBeenCalled();
+  });
+
+  it("says when deleting removed the record but kept the copy in the other account", async () => {
+    media.deleteMedia.mockResolvedValue("kept");
+    const response = await fetch(`${base}/media/${ID}`, { method: "DELETE" });
+    expect(await response.json()).toEqual({ deleted: true, kept: true });
+  });
 });
 
 describe("GET /media/:id", () => {
@@ -218,9 +244,9 @@ describe("DELETE /media/:id", () => {
     expect(down.headers.get("retry-after")).toBe("15");
     media.deleteMedia.mockResolvedValueOnce(false);
     expect((await fetch(`${base}/media/${ID}`, { method: "DELETE" })).status).toBe(404);
-    media.deleteMedia.mockResolvedValueOnce(true);
+    media.deleteMedia.mockResolvedValueOnce("removed");
     const deleted = await fetch(`${base}/media/${ID}`, { method: "DELETE" });
-    expect(await deleted.json()).toEqual({ deleted: true });
+    expect(await deleted.json()).toEqual({ deleted: true, kept: false });
   });
 });
 

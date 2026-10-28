@@ -16,11 +16,14 @@ import { useGitHub, useHealth } from "@/lib/appStatus";
 import { MQ, useMediaQuery } from "@/lib/breakpoints";
 import { mediaHealth, useMediaHealth } from "@/lib/mediaHealth";
 import { useCountdown } from "@/components/common/useCountdown";
+import { Spinner } from "@/components/common/Spinner";
+import { TypingText } from "@/components/common/TypingText";
+import { usePresence, useTypewriter } from "@/lib/motion";
 import { AttachmentTray, MAX_ATTACHMENTS, useAttachments } from "@/lib/useAttachments";
+// The unsent prompt survives a reload, the GitHub sign-in round trip and a hand-off from the homepage.
+import { PREFS_KEY, readDraft, writeDraft } from "@/lib/composerDraft";
 
 type Prefs = { model: string; mode: TaskMode; effort: ThinkingLevel; webSearch: boolean; team: boolean };
-const PREFS_KEY = "curialy.composer.v2";
-const DRAFT_KEY = "curialy.composer.draft";
 const DEFAULT_PREFS: Prefs = { model: "auto", mode: "agent", effort: "medium", webSearch: false, team: false };
 
 function readPrefs(): Prefs {
@@ -31,19 +34,11 @@ function readPrefs(): Prefs {
   // retired entries to their replacement, anything else to Auto.
   const saved = getModel(REPLACED[prefs.model] ?? prefs.model);
   if (!saved || saved.hidden) return { ...prefs, model: "auto" };
+  // Saved elsewhere (e.g. a homepage hand-off into Dev Team): the model must suit the mode, as update() ensures.
+  if (prefs.mode === "agent" && (!saved.tools || (prefs.team && !teamCapable(saved)))) return { ...prefs, model: "auto" };
   return { ...prefs, model: saved.id, effort: aliasEffort(prefs.model) ?? prefs.effort };
 }
 
-// The unsent prompt survives a reload or the GitHub sign-in round trip (this tab only).
-function readDraft() {
-  try { return sessionStorage.getItem(DRAFT_KEY) ?? ""; } catch { return ""; }
-}
-function writeDraft(text: string) {
-  try {
-    if (text) sessionStorage.setItem(DRAFT_KEY, text);
-    else sessionStorage.removeItem(DRAFT_KEY);
-  } catch { /* storage unavailable */ }
-}
 
 // ---- Model picker ----
 
@@ -259,16 +254,28 @@ function OptionsPopover({ agent, effort, onEffort, effortReason, team, onTeam, w
 
 // ---- The composer ----
 
-export type ComposerSeed = { text: string; nonce: number; mode?: TaskMode };
+export type ComposerSeed = { text: string; nonce: number; mode?: TaskMode; team?: boolean };
+
+const MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
 const STORAGE_NOTE = "File storage isn't available right now, so attachments are paused. You can still run the task without them.";
 
 const hasFiles = (event: DragEvent | ClipboardEvent) =>
   "dataTransfer" in event ? Boolean(event.dataTransfer?.types.includes("Files")) : (event.clipboardData?.files.length ?? 0) > 0;
 
-export function OmniComposer({ onSubmit, busy, autoFocus, seed }: { onSubmit: (request: CreateTaskRequest) => Promise<void>; busy: boolean; autoFocus?: boolean; seed?: ComposerSeed }) {
+export function OmniComposer({ onSubmit, busy, autoFocus, seed, examples }: {
+  onSubmit: (request: CreateTaskRequest) => Promise<void>;
+  busy: boolean;
+  /** Focus on arrival when a draft is waiting (otherwise the typing examples invite input). */
+  autoFocus?: boolean;
+  seed?: ComposerSeed;
+  /** Example tasks the empty, unfocused composer types out (the reference's typewriter). */
+  examples?: readonly string[];
+}) {
   const [prefs, setPrefs] = useState<Prefs>(readPrefs);
   const [prompt, setPrompt] = useState(readDraft);
+  const [focused, setFocused] = useState(false);
+  const [submitted, setSubmitted] = useState("");
   const [repo, setRepo] = useState<GitHubRepo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -278,6 +285,24 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed }: { onSubmit: (r
   const coarse = useMediaQuery(MQ.coarsePointer);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const hintId = useId();
+  const ghost = Boolean(examples?.length) && !prompt && !focused && !busy;
+  const typing = useTypewriter(examples ?? [], ghost);
+  const starting = usePresence(busy);
+  const [arrivedWithDraft] = useState(() => readDraft().trim().length > 0);
+
+  // Ctrl+/ (⌘/ on a Mac) anywhere on the page starts typing here. A chord, not a bare "/": a
+  // single-character shortcut would fire while dictating or reading (WCAG 2.1.4) and hide Quick Find.
+  useEffect(() => {
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "/" || !(event.ctrlKey || event.metaKey) || event.altKey || event.defaultPrevented) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("[role='dialog'], [role='menu'], [role='listbox']")) return;
+      event.preventDefault();
+      textarea.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const agent = prefs.mode === "agent";
   const spec = prefs.model === "auto" ? undefined : getModel(prefs.model);
@@ -322,10 +347,13 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed }: { onSubmit: (r
   useEffect(() => {
     if (!seed) return;
     setPrompt(seed.text);
-    if (seed.mode && seed.mode !== prefs.mode) update({ mode: seed.mode });
+    if ((seed.mode && seed.mode !== prefs.mode) || (seed.team !== undefined && seed.team !== prefs.team)) {
+      update({ ...(seed.mode ? { mode: seed.mode } : {}), ...(seed.team !== undefined ? { team: seed.team } : {}) });
+    }
     const element = textarea.current;
     if (!element) return;
-    element.focus();
+    // The caller scrolls the composer into view (smoothly); focusing must not jump there first.
+    element.focus({ preventScroll: true });
     requestAnimationFrame(() => element.setSelectionRange(element.value.length, element.value.length));
   }, [seed]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -333,6 +361,7 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed }: { onSubmit: (r
     if (busy || runBlocked) return;
     const sent = attachments.ids;
     setError(null);
+    setSubmitted(text);
     try {
       await onSubmit({
         prompt: text,
@@ -392,29 +421,35 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed }: { onSubmit: (r
 
   return (
     <div className="omni">
-      <form className={cx("composer omni-composer", attachments.dragging && !storageDown && "dragging")} aria-busy={busy || undefined} onSubmit={event => { event.preventDefault(); void submit(); }} {...dropProps}>
+      <form className={cx("composer omni-composer", attachments.dragging && !storageDown && "dragging")} data-ghost={ghost || undefined} aria-busy={busy || undefined} onSubmit={event => { event.preventDefault(); void submit(); }} {...dropProps}>
         <div className="composer-head">
           <span className="eyebrow omni-eyebrow">
-            <span className="spark-dot" data-live={busy ? "" : undefined} aria-hidden="true" />
+            <span className={cx("spark-dot", (busy || ghost) && "m-spark")} aria-hidden="true" />
             New task
           </span>
+          {!coarse && <span className="omni-slash" aria-hidden="true"><kbd>{MAC ? "⌘" : "Ctrl"}</kbd>+<kbd>/</kbd> to type</span>}
           <ModeSwitch value={prefs.mode} onChange={mode => update({ mode })} />
         </div>
         <label className="sr-only" htmlFor="omni-prompt">Describe the task</label>
         <span id={hintId} className="sr-only">{coarse ? "Use the Run button to start the task." : "Press Enter to run the task, Shift+Enter for a new line."}</span>
-        <textarea
-          id="omni-prompt"
-          ref={textarea}
-          className="composer-input"
-          rows={3}
-          value={prompt}
-          autoFocus={autoFocus && !coarse}
-          placeholder={placeholder}
-          aria-describedby={hintId}
-          onChange={event => setPrompt(event.target.value)}
-          onPaste={onPaste}
-          onKeyDown={onKeyDown}
-        />
+        <div className="omni-field">
+          <textarea
+            id="omni-prompt"
+            ref={textarea}
+            className="composer-input"
+            rows={3}
+            value={prompt}
+            autoFocus={autoFocus && !coarse && arrivedWithDraft}
+            placeholder={placeholder}
+            aria-describedby={hintId}
+            onChange={event => setPrompt(event.target.value)}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            onPaste={onPaste}
+            onKeyDown={onKeyDown}
+          />
+          {ghost && <div className="omni-ghost" aria-hidden="true"><TypingText text={typing} /></div>}
+        </div>
         <AttachmentTray files={attachments.files} uploading={attachments.uploading} onRemove={attachments.remove} />
         <p className="sr-only" role="status">
           {attachments.uploading ? `Uploading ${attachments.uploading === 1 ? "a file" : `${attachments.uploading} files`}…` : files ? `${files} ${files === 1 ? "file" : "files"} attached` : ""}
@@ -467,6 +502,16 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed }: { onSubmit: (r
             </Tip>
           </div>
         </div>
+        {starting.mounted && (
+          <div className="m-collapse omni-starting" data-open={starting.open || undefined}>
+            <div>
+              <div className="omni-starting-panel panel-ink">
+                <p className="omni-starting-you"><span>you ›</span> {submitted}</p>
+                <p className="omni-starting-step"><Spinner size={14} /> Creating the task…</p>
+              </div>
+            </div>
+          </div>
+        )}
       </form>
       {failure && (
         <div className="notice omni-message" data-tone="danger" role="alert">

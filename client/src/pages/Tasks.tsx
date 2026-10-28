@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { Link, useSearch } from "wouter";
 import * as ToggleGroup from "@radix-ui/react-toggle-group";
 import { Plus, RefreshCw, RotateCcw, Search, TriangleAlert, X } from "lucide-react";
@@ -358,7 +358,7 @@ export default function Tasks() {
                   </tbody>
                 </table>
               </div>
-              <ul className="tasks-cards" aria-label="Tasks, newest first">
+              <ul className="tasks-cards m-stagger" aria-label="Tasks, newest first" style={{ "--stagger": "40ms" } as CSSProperties}>
                 {visible.map(task => <TaskCard key={task.id} task={task} />)}
               </ul>
             </>

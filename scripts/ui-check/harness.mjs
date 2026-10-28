@@ -62,6 +62,9 @@ export function buildPlan(fx, { viewports = VIEWPORTS, only = null } = {}) {
     { id: "skills", path: "/skills" },
     { id: "keys", path: "/keys" },
     { id: "login", path: "/login", signedOut: true },
+    // The public homepage: scrolled through first (every reveal fires), then captured whole.
+    { id: "home", path: "/", signedOut: true, fullPage: true, action: "scroll-through" },
+    { id: "welcome", path: "/welcome", fullPage: true, action: "scroll-through" },
     { id: "not-found", path: "/no-such-page/at-all" },
   ];
   const checks = [];
@@ -82,6 +85,7 @@ export function buildPlan(fx, { viewports = VIEWPORTS, only = null } = {}) {
     const phone = viewport.width <= PHONE_MAX;
     if (preview) checks.push({ id: "task-preview-export", path: `/tasks/${preview.id}`, scenario: "preview", task: true, viewport, phone, action: "export-overwrite" });
     if (fx.redeployTaskId) checks.push({ id: "task-redeploy", path: `/tasks/${fx.redeployTaskId}`, scenario: "redeploy", task: true, viewport, phone });
+    checks.push({ id: "dashboard-starters", path: "/", viewport, phone, action: "starters" });
   }
   const selected = only ? checks.filter(check => only.test(`${check.id}@${vp(check.viewport)}`)) : checks;
   const width = String(selected.length).length < 2 ? 2 : String(selected.length).length;

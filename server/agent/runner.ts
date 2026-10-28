@@ -13,7 +13,7 @@ import { addMessage, createAgentTask, getAgentTask, getConversation, settleTaskW
 import { query } from "../db/pg";
 import { executeTool, isVerificationCommand, shellQuote, toolsFor, type ToolOutcome } from "./tools";
 import { materializeWorkspace, snapshotWorkspace, withWorkspaceLock } from "./workspaces";
-import { aiComplete, fetchMediaBytes } from "../media/snowflake";
+import { aiComplete, loadMediaBytes } from "../media/snowflake";
 import { getConnection } from "../services/github";
 import { linkedRepo } from "./repos";
 import { brandText, ENGINE_ALIAS } from "@shared/brand";
@@ -1058,7 +1058,7 @@ async function streamTurn(ctx: RunContext, conversation: Anthropic.MessageParam[
   ctx.emit({ type: "turn_start", turn, model: ctx.spec.id });
   const messages = await hydrateImages(conversation, ctx.images, async mediaId => {
     const media = await getMedia(mediaId);
-    return media && media.state !== "missing" ? fetchMediaBytes(media.stage_path) : null;
+    return media && media.state !== "missing" ? loadMediaBytes(media.id) : null;
   }, message => { if (!ctx.imageNoticeSent) { ctx.imageNoticeSent = true; ctx.emit({ type: "notice", level: "warn", message }); } });
   const stream = client.messages.stream({
     model: wireModel(ctx.spec, ctx.effort),
@@ -1278,7 +1278,7 @@ async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unkno
     try {
     const messages = await hydrateOpenAIImages(conversation as { role: string; content: unknown }[], ctx.images, async mediaId => {
       const media = await getMedia(mediaId);
-      return media && media.state !== "missing" ? fetchMediaBytes(media.stage_path) : null;
+      return media && media.state !== "missing" ? loadMediaBytes(media.id) : null;
     }, ctx.spec.vision, message => { if (!ctx.imageNoticeSent) { ctx.imageNoticeSent = true; ctx.emit({ type: "notice", level: "warn", message }); } });
     for await (const chunk of streamOpenAIChat({
       provider: ctx.spec.provider, model: wireModel(ctx.spec, ctx.effort), messages: [system(), ...messages], tools: tools.length ? tools : undefined,

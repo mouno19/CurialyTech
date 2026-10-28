@@ -133,7 +133,7 @@ export function MediaImage({ id, src, alt, mime, variant = "full", width, height
   );
 
   if (!base || notImage) return shell(<MediaTile variant={variant} icon={ImageOff} title="No preview" alt={alt} />, "empty");
-  if (phase === "gone") return shell(<MediaTile variant={variant} icon={ImageOff} title="No longer available" detail="This file was removed from storage." alt={alt} />, "gone");
+  if (phase === "gone") return shell(<MediaTile variant={variant} icon={ImageOff} title="No longer available here" detail="It was removed, or it is in a storage location this server no longer reads." alt={alt} />, "gone");
   if (gated) return shell(<StorageTile variant={variant} alt={alt} />, "unavailable");
   if (phase === "broken") return shell(<MediaTile variant={variant} icon={ImageOff} title="Can't display this image" detail="The file may be damaged or in a format the browser cannot show." alt={alt} />, "broken");
   if (phase === "error") return shell(<FailedTile variant={variant} alt={alt} retryAt={retryAt} onRetry={retry} />, "error");

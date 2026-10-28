@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Link, useLocation } from "wouter";
 import type { LucideIcon } from "lucide-react";
 import { ArrowRight, Bot, Check, CircleX, Info, MessageSquare, RotateCcw, TriangleAlert, Unplug, X } from "lucide-react";
@@ -11,6 +11,9 @@ import { StateNotice } from "@/components/common/StateNotice";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { useOverflowEdges } from "@/components/common/useOverflowEdges";
 import { OmniComposer, type ComposerSeed } from "@/components/composer/OmniComposer";
+import { StarterTabs } from "@/components/StarterTabs";
+import { prefersReducedMotion, useCountUp } from "@/lib/motion";
+import type { StarterTask } from "@/lib/starterTasks";
 import { agentApi, formatTokens, relativeTime, type TaskStats } from "@/lib/api";
 import { useHealth } from "@/lib/appStatus";
 import { modeLabel, modelLabel, statusTime, TaskDuration, taskNote, TaskSkeleton, tokenTotal, useTaskList } from "./Tasks";
@@ -31,6 +34,15 @@ const GITHUB_NOTICES: Record<string, { tone: "success" | "warning"; text: string
 };
 
 const RECENT = 6;
+/** The composer's typing placeholder cycles through these while it is empty and not focused. */
+const EXAMPLES = [
+  "Build a landing page with a pricing table and a signup form, and make sure the build passes",
+  "Find out why the checkout test fails and fix it with a regression test",
+  "Migrate this Express API to TypeScript, one module at a time",
+  "Explain how auth works in this repo, with file-and-line references",
+];
+/** The hero's staggered entrance (motion.css .m-rise). */
+const step = (index: number) => ({ "--i": index, "--m-dur": "700ms", "--rise-y": "18px" }) as CSSProperties;
 const compact = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
 const count = (value: number | null | undefined) => (value === null || value === undefined ? "—" : value >= 10_000 ? compact.format(value) : value.toLocaleString());
 
@@ -72,6 +84,13 @@ export default function Dashboard() {
   };
 
   const focusComposer = () => document.getElementById("omni-prompt")?.focus();
+  // The composer takes focus without scrolling, so bring it into view (no-op when already visible with "nearest").
+  const revealComposer = (block: ScrollLogicalPosition) =>
+    document.getElementById("omni-prompt")?.closest(".omni")?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block });
+  const pickStarter = (task: StarterTask) => {
+    setSeed({ text: task.prompt, mode: "agent", team: task.team ?? false, nonce: Date.now() });
+    revealComposer("center");
+  };
   const notice = githubNotice ? GITHUB_NOTICES[githubNotice] ?? { tone: "warning" as const, text: `Connecting GitHub didn't work (${githubNotice}). Try Connect GitHub again; if it keeps failing, the server log has the details.` } : null;
   const inProgress = list.tasks ? list.tasks.filter(task => isActiveStatus(task.status)).length : activeTasks;
 
@@ -87,30 +106,30 @@ export default function Dashboard() {
             </div>
           )}
 
-          <section className="dash-hero" aria-labelledby="dash-title">
+          <section className="dash-hero" aria-labelledby="dash-title" data-motion="parts">
             <div className="dash-hero-main">
-              <p className="eyebrow dash-eyebrow"><span className="dash-mark" aria-hidden="true">§</span>Autonomous agent workspace</p>
-              <h2 id="dash-title" className="display dash-title">Bring the messy part. <em>Watch every step.</em></h2>
-              <p className="dash-lede">
-                Describe a task and the agent plans it, edits the files, and runs your checks and tests in its own isolated workspace, fixing what fails.
-                Its reasoning, terminal output and diffs stream in while it works.
+              <p className="eyebrow dash-eyebrow m-rise" style={step(0)}><span className="dash-mark" aria-hidden="true">§</span>Autonomous agent workspace</p>
+              <h2 id="dash-title" className="display dash-title m-rise" style={step(1)}>Bring the messy part. <em>Watch every step.</em></h2>
+              <p className="dash-lede m-rise" style={step(2)}>
+                Describe a task and the agent plans it, edits the files, and runs your checks and tests in its own workspace, fixing what fails.
+                Its commands run as an unprivileged, resource-limited user, and its reasoning, terminal output and diffs stream in while it works.
               </p>
             </div>
-            <aside className="dash-margin" aria-label="Right now">
+            <aside className="dash-margin m-rise" style={step(3)} aria-label="Right now">
               <p className="micro" data-accent="">Right now</p>
-              <p>{inProgress ? `${inProgress} ${inProgress === 1 ? "task" : "tasks"} in progress` : "Nothing in progress"}</p>
+              <p className="dash-now">{inProgress > 0 && <span className="spark-dot" data-live="" aria-hidden="true" />}{inProgress ? `${inProgress} ${inProgress === 1 ? "task" : "tasks"} in progress` : "Nothing in progress"}</p>
               <p><Link href="/integrations" className="ink-link">{summary.label}</Link></p>
             </aside>
           </section>
 
-          <OmniComposer onSubmit={start} busy={busy} autoFocus seed={seed} />
+          <OmniComposer onSubmit={start} busy={busy} autoFocus seed={seed} examples={EXAMPLES} />
 
           <div className="dash-quick-wrap">
             <span className="micro dash-quick-label" id="dash-quick-label">Try</span>
-            <ul className="dash-quick" ref={quickRef} aria-labelledby="dash-quick-label">
+            <ul className="dash-quick m-stagger" ref={quickRef} aria-labelledby="dash-quick-label" style={{ "--stagger": "50ms", "--m-delay": "120ms" } as CSSProperties}>
               {QUICK.map(item => (
                 <li key={item.text}>
-                  <button type="button" className="quick-chip" title={item.text} onClick={() => setSeed({ text: item.text, mode: item.mode, nonce: Date.now() })}>
+                  <button type="button" className="quick-chip" title={item.text} onClick={() => { setSeed({ text: item.text, mode: item.mode, nonce: Date.now() }); revealComposer("nearest"); }}>
                     {item.mode === "chat" ? <MessageSquare size={14} aria-hidden="true" /> : <Bot size={14} aria-hidden="true" />}
                     <span className="clamp-1">{item.text}</span>
                     <span className="sr-only"> ({item.mode === "chat" ? "starts in Chat mode" : "starts in Agent mode"})</span>
@@ -140,10 +159,18 @@ export default function Dashboard() {
                 Your tasks appear here with their status, model and timing. Each one runs in its own workspace, and you can follow every step as it happens.
               </StateNotice>
             ) : (
-              <ul className="recent-list">
+              <ul className="recent-list m-stagger" style={{ "--stagger": "45ms" } as CSSProperties}>
                 {list.tasks.slice(0, RECENT).map(task => <RecentRow key={task.id} task={task} />)}
               </ul>
             )}
+          </section>
+
+          <section className="dash-starters" aria-labelledby="dash-starters-title">
+            <div className="dash-starters-head">
+              <p className="eyebrow dash-eyebrow"><span className="dash-mark" aria-hidden="true">§</span>Starter tasks</p>
+              <h2 id="dash-starters-title" className="dash-starters-title">Not sure where to start? <em>Hand it one of these.</em></h2>
+            </div>
+            <StarterTabs size="md" idPrefix="dash-starter" useLabel="Put it in the composer" onUse={pickStarter} />
           </section>
         </div>
       </div>
@@ -199,19 +226,25 @@ function StatsRow({ stats, failed, tasks, tasksFailed, onRetry }: { stats: TaskS
               {tile.icon && <tile.icon size={14} aria-hidden="true" />}
               {tile.label}
             </span>
-            {tile.loading ? <span className="skeleton dash-stat-skeleton" aria-hidden="true" /> : <span className="dash-stat-value">{count(tile.value)}</span>}
+            {tile.loading ? <span className="skeleton dash-stat-skeleton" aria-hidden="true" /> : <StatValue value={tile.value} />}
             {tile.hint && <span className="dash-stat-hint">{tile.hint}</span>}
           </Link>
         ))}
         <div className="dash-stat" data-static="">
           <span className="dash-stat-label">Success rate</span>
-          {!stats || outcomesLoading ? <span className="skeleton dash-stat-skeleton" aria-hidden="true" /> : <span className="dash-stat-value">{rate === null ? "—" : `${rate}%`}</span>}
+          {!stats || outcomesLoading ? <span className="skeleton dash-stat-skeleton" aria-hidden="true" /> : <StatValue value={rate} suffix="%" />}
           {rateHint && <span className="dash-stat-hint">{rateHint}</span>}
           {rate !== null && <span className="dash-meter" aria-hidden="true"><span style={{ width: `${rate}%` }} /></span>}
         </div>
       </div>
     </section>
   );
+}
+
+/** A tile's number counts up the first time it is known (static under reduced motion). */
+function StatValue({ value, suffix = "" }: { value: number | null | undefined; suffix?: string }) {
+  const shown = useCountUp(value);
+  return <span className="dash-stat-value tabular">{shown === null || shown === undefined ? "—" : `${count(shown)}${suffix}`}</span>;
 }
 
 function RecentRow({ task }: { task: AgentTaskSummary }) {

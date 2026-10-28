@@ -230,6 +230,15 @@ const MIGRATIONS: { id: number; sql: string }[] = [
       ALTER TABLE curialy.workspace_files ADD COLUMN IF NOT EXISTS role text NOT NULL DEFAULT 'source';
     `,
   },
+  {
+    id: 7,
+    sql: `
+      -- Which storage account holds each file (normalized account identifier). NULL: stored before
+      -- this was recorded. A file whose account is not the one the server uses now is reported as
+      -- stored elsewhere, never as missing (switching accounts back must find it again).
+      ALTER TABLE curialy.file_metadata ADD COLUMN IF NOT EXISTS stage_account text;
+    `,
+  },
 ];
 
 export async function migrate() {

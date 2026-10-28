@@ -242,8 +242,8 @@ function AttachmentPreview({ taskId, file, onClose }: { taskId: string; file: At
         {file.kind === "pdf" && file.mediaId && (
           pdf === "ok" ? <iframe className="att-pdf" src={agentApi.mediaUrl(file.mediaId)} title={file.filename} />
             : pdf === "checking" ? <StateNotice variant="loading" size="sm" title="Opening the PDF…" />
-              : <StateNotice variant={pdf === 404 || pdf === 410 ? "unavailable" : "error"} size="sm" title={pdf === 404 || pdf === 410 ? "This file is no longer available" : "Couldn't open the PDF"} actions={pdf === 404 || pdf === 410 ? undefined : <Button size="sm" onClick={() => setAttempt(value => value + 1)}>Try again</Button>}>
-                  {pdf === 503 ? "File storage isn't responding right now." : pdf === 404 || pdf === 410 ? "It was removed from storage." : "Check your connection and try again."}
+              : <StateNotice variant={pdf === 404 || pdf === 410 ? "unavailable" : "error"} size="sm" title={pdf === 404 || pdf === 410 ? "No longer available here" : "Couldn't open the PDF"} actions={pdf === 404 || pdf === 410 ? undefined : <Button size="sm" onClick={() => setAttempt(value => value + 1)}>Try again</Button>}>
+                  {pdf === 503 ? "File storage isn't responding right now." : pdf === 404 || pdf === 410 ? "It was removed, or it is in a storage location this server no longer reads." : "Check your connection and try again."}
                 </StateNotice>
         )}
         {text && (

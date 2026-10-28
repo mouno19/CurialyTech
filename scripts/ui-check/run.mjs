@@ -177,7 +177,7 @@ async function settle(page, driver, check, record, { quietMs = 400, budgetMs = 1
     const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
     if (document.fonts && document.fonts.ready) await Promise.race([document.fonts.ready, wait(2000)]);
     const finite = document.getAnimations().filter(animation => animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming?.().endTime));
-    await Promise.race([Promise.allSettled(finite.map(animation => animation.finished)), wait(800)]);
+    await Promise.race([Promise.allSettled(finite.map(animation => animation.finished)), wait(1800)]);
   }).catch(() => undefined);
   await sleep(200);
 }
@@ -194,6 +194,23 @@ async function act(page, check, record) {
       await page.getByRole("button", { name: "More inspector views" }).first().click({ timeout: 6000 });
       await page.getByRole("menuitem", { name: /Raw log/ }).first().click({ timeout: 5000 });
       await page.locator("ol.raw, [aria-label=\"Events\"]").first().waitFor({ state: "visible", timeout: 5000 });
+    } else if (check.action === "scroll-through") {
+      await page.evaluate(async () => {
+        const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+        // Instant jumps: the homepage scrolls smoothly, and overlapping smooth scrolls never arrive.
+        for (let y = 0; y < document.documentElement.scrollHeight; y += Math.round(window.innerHeight * 0.6)) {
+          window.scrollTo({ top: y, behavior: "instant" });
+          await wait(160);
+        }
+        window.scrollTo({ top: 0, behavior: "instant" });
+        await wait(900);
+      });
+    } else if (check.action === "starters") {
+      // The dashboard's starter tasks: scroll to them and switch tabs (the panel swaps).
+      await page.locator("#dash-starters-title").first().scrollIntoViewIfNeeded({ timeout: 6000 });
+      await page.getByRole("tab", { name: /Fix bugs/ }).first().click({ timeout: 5000 });
+      await page.getByRole("tabpanel").getByText(/Paste the stack trace/).first().waitFor({ state: "visible", timeout: 5000 });
+      await sleep(500);
     } else if (check.action === "export-overwrite") {
       // Topbar "Push" (inline on wide screens, in the overflow menu on phones).
       const inline = page.getByRole("button", { name: /^Push$/ }).first();
@@ -236,7 +253,7 @@ async function runCheck(page, driver, check, record, ctx) {
   record.facts = await page.evaluate(opts => window.__uiCheck.facts(opts), { vendor: { source: VENDOR_PATTERN.source, flags: VENDOR_PATTERN.flags }, phone: check.phone, touchMin: config.touchMin });
   if (check.action === "model-menu") record.menu = await page.evaluate(() => window.__uiCheck.menu());
   const file = path.join(config.out, check.shot);
-  await page.screenshot({ path: file, type: "png", animations: "disabled", timeout: 20_000 });
+  await page.screenshot({ path: file, type: "png", animations: "disabled", fullPage: Boolean(check.fullPage), timeout: 20_000 });
   record.screenshot = file;
 
   // Reduced motion before the focus walk: it also makes focus-ring transitions instant.

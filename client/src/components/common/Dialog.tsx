@@ -20,6 +20,8 @@ export type DialogProps = {
   side?: "left" | "right";
   /** false: Esc and outside clicks do not close it (e.g. while a request is in flight). */
   dismissible?: boolean;
+  /** Runs when it has closed, before focus returns to the opener; preventDefault() keeps focus where you put it. */
+  onCloseAutoFocus?: (event: Event) => void;
   className?: string;
 };
 
@@ -27,7 +29,7 @@ export type DialogProps = {
  * Modal dialog or side sheet on Radix Dialog: focus trap, Esc, focus return to the opener,
  * background inert for assistive tech, scroll lock. Phones show dialogs as bottom sheets.
  */
-export function Dialog({ open, onOpenChange, trigger, title, description, children, footer, size = "md", side, dismissible = true, className }: DialogProps) {
+export function Dialog({ open, onOpenChange, trigger, title, description, children, footer, size = "md", side, dismissible = true, onCloseAutoFocus, className }: DialogProps) {
   const focus = useReturnFocus();
   const block = (event: Event) => {
     if (!dismissible) event.preventDefault();
@@ -44,7 +46,10 @@ export function Dialog({ open, onOpenChange, trigger, title, description, childr
           onEscapeKeyDown={block}
           onPointerDownOutside={block}
           onOpenAutoFocus={focus.onOpenAutoFocus}
-          onCloseAutoFocus={focus.onCloseAutoFocus}
+          onCloseAutoFocus={event => {
+            onCloseAutoFocus?.(event);
+            if (!event.defaultPrevented) focus.onCloseAutoFocus(event);
+          }}
           {...(description ? {} : { "aria-describedby": undefined })}
         >
           <div className={side ? "sheet-head" : "dialog-head"}>

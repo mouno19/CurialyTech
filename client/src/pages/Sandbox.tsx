@@ -334,7 +334,7 @@ export default function Sandbox() {
             <div>
               <span className="eyebrow">Workspace files</span>
               <h2 className="page-title">Code Sandbox</h2>
-              <p className="page-sub">Browse the files an agent task works on. While a task is active they live in its isolated scratch workspace; after an hour idle the workspace is archived, and it comes back when you send a follow-up.</p>
+              <p className="page-sub">Browse the files an agent task works on. While a task is active they live in its scratch workspace; after an hour idle the workspace is archived, and it comes back when you send a follow-up.</p>
             </div>
           </header>
           {body}

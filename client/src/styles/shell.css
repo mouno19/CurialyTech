@@ -84,8 +84,11 @@
 .nav-item[aria-current="page"] { background: var(--selected); color: var(--text); font-weight: 600; }
 .nav-item[aria-current="page"] > .lucide { color: var(--vermilion-deep); }
 /* Current page: indicator bar as well as the wash, so it never relies on colour alone. */
-.nav-item[aria-current="page"]::before { content: ""; position: absolute; left: -10px; top: 8px; bottom: 8px; width: 3px; border-radius: 0 3px 3px 0; background: var(--vermilion-deep); }
+.nav-item[aria-current="page"]::before { content: ""; position: absolute; left: -10px; top: 8px; bottom: 8px; width: 3px; border-radius: 0 3px 3px 0; background: var(--vermilion-deep); animation: grow-y var(--dur-3) var(--ease-out) backwards; }
 .nav-item[aria-disabled="true"], .nav-item[data-muted] { color: var(--text-3); }
+/* Toggles in the footer (Pause animations): pressed reads like a selected item. */
+.nav-item[aria-pressed="true"] { background: var(--selected); color: var(--text); }
+.nav-item[aria-pressed="true"] > .lucide { color: var(--vermilion-deep); }
 .nav-item[aria-disabled="true"]:hover, .nav-item[data-muted]:hover { background: none; color: var(--text-3); }
 .nav-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .nav-badge { flex: none; margin-left: auto; min-width: 20px; height: 18px; padding: 0 6px; border-radius: var(--r-pill); background: var(--ink); color: var(--paper); font: 500 10.5px/18px var(--font-mono); font-variant-numeric: tabular-nums; text-align: center; }
@@ -197,6 +200,13 @@
 .login-column { width: 100%; max-width: 440px; display: flex; flex-direction: column; align-items: center; gap: 28px; }
 .login-card { width: 100%; display: flex; flex-direction: column; gap: 16px; padding: 28px; border-color: var(--ink); background: var(--composer); box-shadow: var(--shadow-ink); }
 .login-note { margin-top: -8px; font-size: 13.5px; }
+/* Entrance: the wordmark settles (the reference's hero figure), then the card rises. */
+.login { position: relative; }
+.login-mark { display: inline-flex; --m-dur: 1100ms; }
+.lp-login-rise { --rise-y: 22px; animation: rise var(--dur-hero) var(--ease-out) 160ms backwards; }
+.login-home { position: absolute; top: max(20px, env(safe-area-inset-top)); left: max(20px, env(safe-area-inset-left)); z-index: 1; display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px 0 12px; border: 1px solid var(--rule); border-radius: var(--r-pill); background: rgb(243 239 230 / 0.8); color: var(--ink-soft); font-size: 13px; text-decoration: none; transition: color var(--dur-2) var(--ease-out), border-color var(--dur-2) var(--ease-out); }
+.login-home:hover { border-color: var(--ink); color: var(--ink); }
+.login-home:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 @media (max-width: 639.98px) { .login-card { padding: 22px 18px; box-shadow: var(--shadow-ink-sm); } }
 
 /* ---------- Crash screen (components/ErrorBoundary.tsx) ---------- */

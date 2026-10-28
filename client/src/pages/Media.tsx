@@ -121,7 +121,7 @@ export default function Media() {
   };
 
   const askDelete = (file: MediaFile) => {
-    // Stored files need storage to be removed; a missing file's record can always go.
+    // Removing needs storage (an elsewhere file is also cleared from this stage); a missing file's record can always go.
     if (file.state !== "missing" && storageDown) {
       toast.error("Can't delete while storage is unavailable", { description: "Nothing was deleted. Try again once file storage is back." });
       return;
@@ -135,10 +135,11 @@ export default function Media() {
     if (!file) return;
     const drop = () => setData(current => current && { ...current, files: current.files.filter(item => item.id !== file.id) });
     try {
-      await agentApi.removeMedia(file.id);
+      const result = await agentApi.removeMedia(file.id);
       drop();
       refocusGrid.current = true;
-      toast.success(file.state === "missing" ? `Removed ${file.filename}` : `Deleted ${file.filename}`);
+      if (result.kept) toast.success(`Removed ${file.filename} from the list`, { description: "Its copy in the earlier storage location was not deleted there." });
+      else toast.success(file.state === "stored" ? `Deleted ${file.filename}` : `Removed ${file.filename}`);
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) {
         drop();
@@ -259,15 +260,17 @@ export default function Media() {
       <ConfirmDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
-        title={target?.state === "missing" ? `Remove ${target.filename}?` : `Delete ${target?.filename ?? "this file"}?`}
-        confirmLabel={target?.state === "missing" ? "Remove" : "Delete file"}
-        busyLabel={target?.state === "missing" ? "Removing…" : "Deleting…"}
+        title={target && target.state !== "stored" ? `Remove ${target.filename}?` : `Delete ${target?.filename ?? "this file"}?`}
+        confirmLabel={target && target.state !== "stored" ? "Remove" : "Delete file"}
+        busyLabel={target && target.state !== "stored" ? "Removing…" : "Deleting…"}
         tone="danger"
         onConfirm={remove}
       >
         {target?.state === "missing"
           ? "The file itself is already gone from storage; this removes it from the list."
-          : "The file is removed from storage for good. Tasks that used it keep their history, but can no longer show or download it."}
+          : target?.state === "elsewhere"
+            ? "This file is in an earlier storage location this server no longer reads. Removing it deletes its record here; the copy there is not deleted."
+            : "The file is removed from storage for good. Tasks that used it keep their history, but can no longer show or download it."}
       </ConfirmDialog>
     </AppShell>
   );
@@ -294,7 +297,8 @@ function StorageNotice({ setup }: { setup: boolean }) {
 }
 
 function VaultTile({ file, storageDown, onDelete }: { file: MediaFile; storageDown: boolean; onDelete: (file: MediaFile) => void }) {
-  const missing = file.state === "missing";
+  // Missing (gone) and elsewhere (in an earlier storage account) both have nothing to show here.
+  const missing = file.state !== "stored";
   const image = file.mimeType.startsWith("image/");
   const Glyph = fileGlyph(file);
   const ext = extension(file.filename);
@@ -304,7 +308,7 @@ function VaultTile({ file, storageDown, onDelete }: { file: MediaFile; storageDo
         <span className="vault-thumb" data-empty="">
           <span className="vault-glyph">
             <ImageOff size={20} aria-hidden="true" />
-            <span className="vault-glyph-label">No longer available</span>
+            <span className="vault-glyph-label">{file.state === "elsewhere" ? "In an earlier storage location" : "No longer available"}</span>
           </span>
         </span>
       ) : (

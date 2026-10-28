@@ -1,11 +1,13 @@
 import { useId, useState, type FormEvent } from "react";
-import { ArrowRight, Eye, EyeOff, TriangleAlert } from "lucide-react";
+import { Link } from "wouter";
+import { ArrowLeft, ArrowRight, Eye, EyeOff, TriangleAlert } from "lucide-react";
 import { Wordmark } from "@/components/brand/Logo";
 import { Button } from "@/components/common/Button";
 import { IconButton } from "@/components/common/IconButton";
 import { authApi, errorMessage } from "@/lib/api";
 
-export default function Login({ configured, onSignedIn }: { configured: boolean; onSignedIn: () => void }) {
+/** onSignedIn resolves once the session is confirmed, or throws a message to show here. */
+export default function Login({ configured, onSignedIn }: { configured: boolean; onSignedIn: () => Promise<void> | void }) {
   const [password, setPassword] = useState("");
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -19,7 +21,7 @@ export default function Login({ configured, onSignedIn }: { configured: boolean;
     setError(null);
     try {
       await authApi.login(password);
-      onSignedIn();
+      await onSignedIn();
     } catch (loginError) {
       setError(errorMessage(loginError, "Sign-in failed. Try again."));
       setBusy(false);
@@ -28,9 +30,10 @@ export default function Login({ configured, onSignedIn }: { configured: boolean;
 
   return (
     <main className="login grid-paper grain">
+      <Link href="/" className="login-home m-nudge"><ArrowLeft size={15} aria-hidden="true" />Curialy home</Link>
       <div className="login-column">
-        <Wordmark size="lg" />
-        <form className="card login-card" onSubmit={submit} noValidate>
+        <span className="login-mark m-settle"><Wordmark size="lg" /></span>
+        <form className="card login-card lp-login-rise" onSubmit={submit} noValidate>
           <h1 className="serif-title">Sign in</h1>
           <p className="muted login-note">This workspace runs an autonomous agent that executes code on this server, so access is limited to its operator.</p>
           {!configured && (

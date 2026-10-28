@@ -21,9 +21,18 @@ snowflake.configure({ logLevel: "ERROR", logFilePath: "STDOUT", additionalLogToC
 // Without SNOWFLAKE_MEDIA_ACCOUNT both use SNOWFLAKE_* (and share one connection).
 type Login = { prefix: "SNOWFLAKE_" | "SNOWFLAKE_MEDIA_"; account?: string; username?: string; role?: string; token?: string; warehouse: string };
 
+/**
+ * Account identifiers arrive in several forms (locator.region.cloud, org-account, or the account's
+ * https base URL): all become the bare, lowercase identifier the driver expects.
+ */
+export function normalizeAccount(raw: string | undefined) {
+  const value = raw?.trim().replace(/^https?:\/\//i, "").replace(/\.snowflakecomputing\.(com|cn)(\/.*)?$/i, "").replace(/\/+$/, "").toLowerCase();
+  return value || undefined;
+}
+
 function login(prefix: Login["prefix"]): Login {
   const env = process.env;
-  return { prefix, account: env[`${prefix}ACCOUNT`], username: env[`${prefix}USER`], role: env[`${prefix}ROLE`], token: env[`${prefix}PAT`], warehouse: env[`${prefix}WAREHOUSE`] || "COMPUTE_WH" };
+  return { prefix, account: normalizeAccount(env[`${prefix}ACCOUNT`]), username: env[`${prefix}USER`], role: env[`${prefix}ROLE`], token: env[`${prefix}PAT`], warehouse: env[`${prefix}WAREHOUSE`] || "COMPUTE_WH" };
 }
 const mediaLogin = () => login(process.env.SNOWFLAKE_MEDIA_ACCOUNT ? "SNOWFLAKE_MEDIA_" : "SNOWFLAKE_");
 const sqlLogin = () => login("SNOWFLAKE_");
@@ -35,6 +44,8 @@ function loginStatus(l: Login) {
   return { ok: missing.length === 0, missing };
 }
 export const storageConfig = () => loginStatus(mediaLogin());
+/** The account the media stage is in now (recorded with every stored file). */
+export const mediaAccount = () => mediaLogin().account ?? null;
 
 const withDeadline = <T>(promise: Promise<T>, ms: number, label: string, onTimeout?: () => void) => {
   let timer: NodeJS.Timeout | undefined;
@@ -174,9 +185,9 @@ export async function storeMedia(input: { buffer: Buffer; filename: string; mime
     const stagePath = key.slice(key.indexOf("/") + 1); // strip the stage's own name prefix
     try {
       await query(
-        `INSERT INTO curialy.file_metadata (id, session_id, kind, filename, mime_type, size_bytes, storage, stage_path, source_path)
-         VALUES ($1, $2, $3, $4, $5, $6, 'snowflake_stage', $7, $8)`,
-        [id, input.sessionId ?? null, input.kind, filename, input.mimeType, input.buffer.length, stagePath, input.sourcePath ?? null],
+        `INSERT INTO curialy.file_metadata (id, session_id, kind, filename, mime_type, size_bytes, storage, stage_path, source_path, stage_account)
+         VALUES ($1, $2, $3, $4, $5, $6, 'snowflake_stage', $7, $8, $9)`,
+        [id, input.sessionId ?? null, input.kind, filename, input.mimeType, input.buffer.length, stagePath, input.sourcePath ?? null, mediaAccount()],
       );
     } catch (error) {
       // No orphan objects: the row is the only way to find a stored file again.
@@ -187,12 +198,31 @@ export async function storeMedia(input: { buffer: Buffer; filename: string; mime
   });
 }
 
-export type MediaRow = { id: string; filename: string; mime_type: string; size_bytes: number; kind: string; stage_path: string; created_at: Date; session_id: string | null; source_path: string | null; state: string };
+export type MediaRow = { id: string; filename: string; mime_type: string; size_bytes: number; kind: string; stage_path: string; created_at: Date; session_id: string | null; source_path: string | null; state: string; stage_account: string | null };
+
+/**
+ * Where a file is, relative to the stage in use now:
+ *  - here: recorded in this account (a 404 here really means gone);
+ *  - unknown: stored before accounts were recorded; looked up here once, recorded when found, and
+ *    otherwise remembered (until restart) as not here, never marked missing;
+ *  - elsewhere: recorded in another account (or known not to be here): never looked up here.
+ * With no media account configured everything is "here", so guarded() refuses as not configured.
+ */
+export type Placement = "here" | "unknown" | "elsewhere";
+const notHere = new Set<string>();
+
+export function placement(media: Pick<MediaRow, "id" | "stage_account">): Placement {
+  const now = mediaAccount();
+  if (now === null || media.stage_account === now) return "here";
+  if (media.stage_account === null) return notHere.has(media.id) ? "elsewhere" : "unknown";
+  return "elsewhere";
+}
+export const isElsewhere = (media: Pick<MediaRow, "id" | "stage_account">) => placement(media) === "elsewhere";
 
 export async function getMedia(id: string): Promise<MediaRow | undefined> {
   if (!/^[0-9a-f-]{36}$/i.test(id)) return undefined;
   const { rows } = await query<MediaRow>(
-    "SELECT id, filename, mime_type, size_bytes, kind, stage_path, created_at, session_id, source_path, state FROM curialy.file_metadata WHERE id = $1", [id],
+    "SELECT id, filename, mime_type, size_bytes, kind, stage_path, created_at, session_id, source_path, state, stage_account FROM curialy.file_metadata WHERE id = $1", [id],
   );
   return rows[0];
 }
@@ -202,7 +232,14 @@ export async function markMediaMissing(id: string) {
 }
 
 export async function listMedia(limit = 200) {
-  const { rows } = await query("SELECT id, filename, mime_type AS \"mimeType\", size_bytes AS \"sizeBytes\", kind, session_id AS \"sessionId\", created_at AS \"createdAt\", state FROM curialy.file_metadata ORDER BY created_at DESC LIMIT $1", [limit]);
+  // "elsewhere": recorded in another storage account, or known (this process) not to be here.
+  const { rows } = await query(
+    `SELECT id, filename, mime_type AS "mimeType", size_bytes AS "sizeBytes", kind, session_id AS "sessionId", created_at AS "createdAt",
+            CASE WHEN state = 'stored' AND $2::text IS NOT NULL AND ((stage_account IS NOT NULL AND stage_account <> $2) OR (stage_account IS NULL AND id = ANY($3::uuid[])))
+                 THEN 'elsewhere' ELSE state END AS state
+     FROM curialy.file_metadata ORDER BY created_at DESC LIMIT $1`,
+    [limit, mediaAccount(), Array.from(notHere)],
+  );
   return rows;
 }
 
@@ -251,9 +288,42 @@ export async function openStoredObject(stagePath: string, signal?: AbortSignal) 
   throw new StorageError("object_missing");
 }
 
-/** Fetch staged bytes into memory (used to restore attachments into an agent workspace), capped. */
+/**
+ * Open a stored file wherever its row says it is: StorageError "elsewhere" for another account's
+ * file; an unrecorded file found here is recorded, and one not found here is remembered as elsewhere
+ * (not marked missing: its account may come back). A "here" file's 404 stays object_missing.
+ */
+export async function openMedia(media: Pick<MediaRow, "id" | "stage_path" | "stage_account">, signal?: AbortSignal) {
+  const where = placement(media);
+  if (where === "elsewhere") throw new StorageError("elsewhere");
+  try {
+    const response = await openStoredObject(media.stage_path, signal);
+    if (where === "unknown") {
+      await query("UPDATE curialy.file_metadata SET stage_account = $2 WHERE id = $1 AND stage_account IS NULL", [media.id, mediaAccount()]).catch(() => undefined);
+    }
+    return response;
+  } catch (error) {
+    if (where === "unknown" && error instanceof StorageError && error.kind === "object_missing") {
+      notHere.add(media.id);
+      throw new StorageError("elsewhere");
+    }
+    throw error;
+  }
+}
+
+/** A stored file's bytes by id (restoring attachments into a workspace, images for a model), capped. */
+export async function loadMediaBytes(id: string) {
+  const media = await getMedia(id);
+  if (!media || media.state === "missing") throw new StorageError("object_missing");
+  return readCapped(await openMedia(media));
+}
+
+/** Fetch staged bytes into memory by stage path (no placement check: prefer loadMediaBytes), capped. */
 export async function fetchMediaBytes(stagePath: string) {
-  const response = await openStoredObject(stagePath);
+  return readCapped(await openStoredObject(stagePath));
+}
+
+async function readCapped(response: Response) {
   const reader = response.body!.getReader();
   const chunks: Buffer[] = [];
   let total = 0;
@@ -270,16 +340,26 @@ export async function fetchMediaBytes(stagePath: string) {
   return Buffer.concat(chunks);
 }
 
-/** Remove a file. Refused (StorageError) while storage is unavailable, so a row is never dropped while its object remains. */
-export async function deleteMedia(id: string) {
+/**
+ * Remove a file: "removed", or "kept" when its bytes are in another storage account (the record
+ * goes, the stored copy stays there), or false when there is no such file. Refused (StorageError)
+ * while storage is unavailable, so a record is never dropped while its object here remains.
+ */
+export async function deleteMedia(id: string): Promise<"removed" | "kept" | false> {
   const media = await getMedia(id);
   if (!media) return false;
+  let kept = false;
   if (media.state !== "missing") {
-    await guarded("delete", () => run(`REMOVE '${STAGE}/${media.stage_path.replace(/'/g, "")}'`));
+    // Always remove from this stage (a no-op when the path is not here), so a file whose account was
+    // never recorded cannot be orphaned here; it counts as kept only if nothing was removed and its
+    // row says it may live elsewhere.
+    const removed = await guarded("delete", () => run(`REMOVE '${STAGE}/${media.stage_path.replace(/'/g, "")}'`));
+    kept = removed.length === 0 && placement(media) !== "here";
   }
   presigned.delete(media.stage_path);
+  notHere.delete(id);
   await query("DELETE FROM curialy.file_metadata WHERE id = $1", [id]);
-  return true;
+  return kept ? "kept" : "removed";
 }
 
 // ---- Cortex AI_COMPLETE (models Cortex serves only through SQL, e.g. Gemini 4 Argon) ----

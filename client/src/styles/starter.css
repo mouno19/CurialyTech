@@ -1,0 +1,72 @@
+/* Starter tasks (components/StarterTabs): the reference's use-case tabs. Shared by the homepage
+   and the dashboard, so it lays itself out by its own width (container "starter"). */
+.st { container: starter / inline-size; }
+.st-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 32px 24px; }
+.st-tabs { display: flex; gap: 8px; overflow-x: auto; margin: -5px -5px 0; padding: 5px 5px 6px; scrollbar-width: none; }
+.st-tabs::-webkit-scrollbar { display: none; }
+.st-tab {
+  display: flex; flex: none; align-items: center; justify-content: space-between; gap: 24px;
+  min-height: 44px; padding: 8px 18px;
+  border: 1px solid var(--rule); border-radius: var(--r-pill);
+  background: transparent; color: var(--ink-soft); text-align: left; cursor: pointer;
+  transition: color var(--dur-2) var(--ease-out), background-color var(--dur-2) var(--ease-out), border-color var(--dur-2) var(--ease-out);
+}
+.st-tab[aria-selected="true"] { border-color: var(--ink); background: var(--ink); color: var(--paper); }
+.st-tab:hover:not([aria-selected="true"]) { border-color: var(--rule-strong); color: var(--ink); }
+.st-tab:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.st-tab-label { display: flex; align-items: baseline; gap: 16px; }
+.st-tab-name { font-size: 15px; white-space: nowrap; }
+.st-index { display: none; font: 12px var(--font-mono); color: var(--graphite); }
+.st-tab[aria-selected="true"] .st-index { color: var(--vermilion-ink); }
+.st-arrow { display: none; flex: none; opacity: 0; transform: translateX(-8px); transition: transform var(--dur-3) var(--ease-out), opacity var(--dur-3) var(--ease-out), color var(--dur-3) var(--ease-out); }
+.st-tab[aria-selected="true"] .st-arrow { opacity: 1; transform: none; color: var(--vermilion-deep); }
+.st-tab:hover .st-arrow { opacity: 0.6; }
+.st-tab[aria-selected="true"]:hover .st-arrow { opacity: 1; }
+.st-panel { min-width: 0; border-radius: 10px; }
+.st-panel:focus { outline: none; }
+.st-panel:focus-visible { outline: 2px solid var(--focus); outline-offset: 8px; }
+.st-headline { margin: 0; font: 400 2.25rem/1.05 var(--font-display); color: var(--ink); text-wrap: balance; }
+.st-example { margin: 28px 0 0; padding: 20px; border: 1px solid var(--ink); border-radius: 12px; background: var(--composer); }
+.st-example > figcaption { font: 500 10.5px/1.4 var(--font-mono); letter-spacing: 0.18em; text-transform: uppercase; color: var(--graphite); }
+.st-example > blockquote { margin: 8px 0 0; font: 14px/1.65 var(--font-mono); color: var(--ink); overflow-wrap: anywhere; }
+.st-example > blockquote > span { color: var(--vermilion-ink); }
+.st-foot { display: grid; gap: 28px; margin-top: 28px; }
+.st-outcomes { display: flex; flex-direction: column; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.st-outcomes > li { display: flex; align-items: flex-start; gap: 12px; font-size: 15.5px; line-height: 1.5; color: var(--ink-soft); }
+.st-outcomes svg { flex: none; margin-top: 4px; color: var(--vermilion-deep); }
+.st-deliver { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding-left: 16px; border-left: 2px solid var(--vermilion); }
+.st-deliver-label { margin: 0; font: 500 11px/1.4 var(--font-mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--graphite); }
+.st-deliver-value { max-width: 17rem; margin: 0 0 8px; font: 400 1.5rem/1.15 var(--font-display); color: var(--ink); text-wrap: balance; }
+.st-use {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 44px; padding: 0 18px;
+  border: 1px solid var(--ink); border-radius: var(--r-pill);
+  background: var(--ink); color: var(--paper); font-size: 14px; font-weight: 500; white-space: nowrap; cursor: pointer;
+  transition: background-color var(--dur-2) var(--ease-out), border-color var(--dur-2) var(--ease-out);
+}
+.st-use:hover { border-color: var(--vermilion-ink); background: var(--vermilion-ink); }
+.st-use:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+
+@container starter (min-width: 560px) {
+  .st-foot { grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
+  .st-deliver { align-items: flex-end; padding: 0 16px 0 0; border-left: 0; border-right: 2px solid var(--vermilion); text-align: right; }
+}
+@container starter (min-width: 900px) {
+  .st-grid { grid-template-columns: repeat(12, minmax(0, 1fr)); }
+  .st-tabs { grid-column: span 4; flex-direction: column; gap: 0; margin: 0; padding: 0; overflow: visible; border-top: 1px solid var(--ink); }
+  .st-tab { padding: 22px 0; border: 0; border-bottom: 1px solid var(--rule); border-radius: 0; }
+  .st-tab[aria-selected="true"] { border-color: var(--rule); background: transparent; color: var(--ink); }
+  .st-tab:hover:not([aria-selected="true"]) { border-color: var(--rule); }
+  .st-tab-label { min-width: 0; }
+  .st-tab-name { font: 400 2rem/1.05 var(--font-display); white-space: normal; text-wrap: balance; }
+  .st-index, .st-arrow { display: inline-block; }
+  .st-panel { grid-column: 6 / span 7; }
+  .st-headline { font-size: 3rem; }
+}
+/* The dashboard's version: one size down. */
+.st[data-size="md"] .st-headline { font-size: 1.9rem; }
+@container starter (min-width: 900px) {
+  .st[data-size="md"] .st-tab { padding-block: 18px; }
+  .st[data-size="md"] .st-tab-name { font-size: 1.6rem; }
+  .st[data-size="md"] .st-headline { font-size: 2.4rem; }
+}

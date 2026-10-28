@@ -1,7 +1,7 @@
 import { StorageError } from "../media/storage-errors";
 import fs from "node:fs";
 import path from "node:path";
-import { fetchMediaBytes } from "../media/snowflake";
+import { loadMediaBytes } from "../media/snowflake";
 import { writeWorkspaceBytes } from "./sandbox";
 
 // User attachments (first message or any follow-up): copied into the task workspace under
@@ -73,8 +73,9 @@ export function uniqueAttachmentPath(root: string, filename: string, mediaId: st
   return path.join("attachments", `${stem}-${tag}-${mediaId}${ext}`);
 }
 
-export async function stageAttachments(root: string, refs: AttachmentRef[], opts: { vision: boolean; load?: (stagePath: string) => Promise<Buffer> }) {
-  const load = opts.load ?? fetchMediaBytes;
+export async function stageAttachments(root: string, refs: AttachmentRef[], opts: { vision: boolean; load?: (stagePath: string, mediaId: string) => Promise<Buffer> }) {
+  // By id, so a file held in another storage account is reported, not looked up (or marked missing) here.
+  const load = opts.load ?? ((_stagePath: string, mediaId: string) => loadMediaBytes(mediaId));
   const display: AttachmentDisplay[] = [];
   const images: VisionImage[] = [];
   const notSeen: string[] = [];
@@ -85,7 +86,7 @@ export async function stageAttachments(root: string, refs: AttachmentRef[], opts
     let bytes: Buffer;
     try {
       if (ref.sizeBytes > MAX_ATTACHMENT_BYTES) throw new Error("larger than 25 MB");
-      bytes = await load(ref.stagePath);
+      bytes = await load(ref.stagePath, ref.id);
     } catch (error) {
       failed.push(`${ref.filename} (${error instanceof StorageError ? error.message : error instanceof Error && error.message === "larger than 25 MB" ? error.message : "unavailable"})`);
       continue;

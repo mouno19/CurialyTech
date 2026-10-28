@@ -1,0 +1,134 @@
+/* ==========================================================================
+   Motion: the reference design's language, for the whole site.
+   Things rise into place on one curve (--ease-out, the reference's [0.22, 1, 0.36, 1]),
+   siblings staggered by --stagger; long pages reveal as they scroll in; figures settle and
+   draw themselves; a few live elements (spark, caret, marquee) loop gently. Hover moves are
+   small and directional (arrows nudge the way they point).
+   Reduced motion: base.css collapses every animation and transition, and content that starts
+   hidden (reveals) is shown in its final state below. JS-driven motion (lib/motion.ts) checks
+   the same preference and renders the end state.
+   ========================================================================== */
+
+@keyframes rise { from { opacity: 0; transform: translate3d(0, var(--rise-y, 18px), 0); } }
+@keyframes fall { to { opacity: 0; transform: translate3d(0, var(--fall-y, -10px), 0); } }
+@keyframes settle { from { opacity: 0; transform: scale(var(--settle-from, 0.97)); } }
+@keyframes marquee { to { transform: translate3d(-50%, 0, 0); } }
+@keyframes draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes caret-blink { 50% { opacity: 0; } }
+@keyframes float {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); }
+  50% { transform: translate3d(0, var(--float-y, -6px), 0) rotate(var(--float-r, -1deg)); }
+}
+@keyframes grow-y { from { transform: scaleY(0); } }
+@keyframes grow-x { from { transform: scaleX(0); } }
+@keyframes spark {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(255 74 28 / 0.45); }
+  50% { box-shadow: 0 0 0 6px rgb(255 74 28 / 0); }
+}
+
+/* ---------- Entrances (on mount) ---------- */
+/* One element: class="m-rise" style={{ "--i": n }} (n x --stagger), or --m-delay for an offset. */
+/* Fill "backwards" only: once done, no transform lingers (it would trap fixed-position children). */
+.m-rise {
+  animation: rise var(--m-dur, var(--dur-enter)) var(--ease-out) backwards;
+  animation-delay: calc(var(--i, 0) * var(--stagger) + var(--m-delay, 0ms));
+}
+/* Every child of a container, in order. */
+.m-stagger > * { animation: rise var(--m-dur, var(--dur-enter)) var(--ease-out) backwards; animation-delay: var(--m-delay, 0ms); }
+.m-stagger > :nth-child(2) { animation-delay: calc(var(--m-delay, 0ms) + var(--stagger)); }
+.m-stagger > :nth-child(3) { animation-delay: calc(var(--m-delay, 0ms) + var(--stagger) * 2); }
+.m-stagger > :nth-child(4) { animation-delay: calc(var(--m-delay, 0ms) + var(--stagger) * 3); }
+.m-stagger > :nth-child(5) { animation-delay: calc(var(--m-delay, 0ms) + var(--stagger) * 4); }
+.m-stagger > :nth-child(6) { animation-delay: calc(var(--m-delay, 0ms) + var(--stagger) * 5); }
+.m-stagger > :nth-child(7) { animation-delay: calc(var(--m-delay, 0ms) + var(--stagger) * 6); }
+.m-stagger > :nth-child(8) { animation-delay: calc(var(--m-delay, 0ms) + var(--stagger) * 7); }
+.m-stagger > :nth-child(n + 9) { animation-delay: calc(var(--m-delay, 0ms) + var(--stagger) * 8); }
+/* Figures: scale in slowly, like the reference's hero illustration. */
+.m-settle { animation: settle var(--m-dur, var(--dur-figure)) var(--ease-out) backwards; animation-delay: var(--m-delay, 0ms); }
+
+/* ---------- Scroll reveals (components/common/Reveal) ---------- */
+[data-reveal] {
+  opacity: 0;
+  transform: translate3d(0, var(--reveal-y, 18px), 0);
+  transition: opacity var(--dur-reveal) var(--ease-out), transform var(--dur-reveal) var(--ease-out);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+[data-reveal][data-inview] { opacity: 1; transform: none; }
+/* Keyboard users never wait for a reveal: focus shows the content at once. */
+[data-reveal]:focus-within { opacity: 1; transform: none; transition-duration: 0ms; transition-delay: 0ms; }
+@media (prefers-reduced-motion: reduce) { [data-reveal] { opacity: 1; transform: none; } }
+:root[data-motion="reduced"] [data-reveal] { opacity: 1; transform: none; }
+
+/* ---------- Presence: swaps and expanding panels (lib/motion useSwap / usePresence) ---------- */
+.m-swap { animation: rise var(--dur-swap) var(--ease-out) backwards; --rise-y: 14px; }
+.m-swap[data-leaving] { animation: fall calc(var(--dur-swap) * 0.55) var(--ease-in) both; }
+/* Height "auto" without measuring: 0fr -> 1fr. The child clips while it grows. */
+.m-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows var(--dur-collapse) var(--ease-out), opacity var(--dur-collapse) var(--ease-out);
+}
+.m-collapse[data-open] { grid-template-rows: 1fr; opacity: 1; }
+.m-collapse > * { min-height: 0; overflow: hidden; }
+
+/* ---------- Live elements ---------- */
+/* The reference's "New task" spark: a vermilion dot that breathes. */
+.m-spark { animation: spark 2.2s ease-in-out infinite; }
+/* Typing caret: an empty element after the text (common/TypingText, streaming text, terminals). */
+.caret {
+  display: inline-block;
+  width: 0.55ch;
+  min-width: 6px;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: -0.15em;
+  background: var(--vermilion);
+  animation: caret-blink 1s steps(1) infinite;
+}
+/* Marquee: the track holds the list twice and slides by half; hover or focus pauses it. */
+.m-marquee { position: relative; overflow: hidden; mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent); }
+.m-marquee-track { display: flex; width: max-content; animation: marquee var(--marquee-dur, 38s) linear infinite; }
+.m-marquee:hover .m-marquee-track, .m-marquee:focus-within .m-marquee-track { animation-play-state: paused; }
+/* SVG strokes that draw themselves: give the path pathLength="1". */
+.m-draw { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw var(--m-dur, 1600ms) var(--ease-out) forwards; animation-delay: var(--m-delay, 0ms); }
+.m-float { animation: float var(--float-dur, 6s) ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+@media (prefers-reduced-motion: reduce) {
+  .m-marquee-track, .m-float, .m-spark, .caret { animation: none; }
+  .m-draw { stroke-dashoffset: 0; }
+}
+:root[data-motion="reduced"] :is(.m-marquee-track, .m-float, .m-spark, .caret) { animation: none; }
+:root[data-motion="reduced"] .m-draw { stroke-dashoffset: 0; }
+
+/* Printing shows everything in its final state (nothing waits for a scroll that never comes). */
+@media print {
+  [data-reveal] { opacity: 1 !important; transform: none !important; }
+  .m-rise, .m-settle, .m-stagger > *, .m-swap, .m-marquee-track, .m-float, .m-spark, .caret { animation: none !important; }
+  .m-draw { animation: none !important; stroke-dashoffset: 0 !important; }
+}
+
+/* ---------- Hover micro-interactions ---------- */
+/* Arrows nudge the way they point; "open" arrows lift. Use on links and buttons with an end icon. */
+.m-nudge > .lucide, .m-nudge .m-nudge-icon, .btn > .lucide { transition: transform var(--dur-2) var(--ease-out); }
+.m-nudge:hover > .lucide-arrow-right, .m-nudge:hover .m-nudge-icon.lucide-arrow-right,
+.btn:hover:not(:disabled):not([aria-disabled="true"]) > .lucide-arrow-right:last-child { transform: translateX(3px); }
+.m-nudge:hover > .lucide-arrow-left:first-child,
+.btn:hover:not(:disabled):not([aria-disabled="true"]) > .lucide-arrow-left:first-child { transform: translateX(-3px); }
+.m-nudge:hover > .lucide-arrow-up-right, .m-nudge:hover .m-nudge-icon.lucide-arrow-up-right,
+.btn:hover:not(:disabled):not([aria-disabled="true"]) > .lucide-arrow-up-right:last-child { transform: translate(2px, -2px); }
+.m-nudge:hover > .lucide-arrow-up, .btn:hover:not(:disabled):not([aria-disabled="true"]) > .lucide-arrow-up { transform: translateY(-2px); }
+
+/* ---------- Screens ---------- */
+/* When a screen opens (AppShell marks <main data-entering> for its first second), its blocks rise
+   in, staggered; blocks swapped in later (filters, empty states) just appear. A block marked
+   data-motion="parts" animates its own parts instead. */
+/* :where() keeps this at the specificity of the rules below, so their delays and opt-out still win. */
+:where([data-entering]) :is(.page > :not(.page-narrow, .page-wide), .page-narrow > *, .page-wide > *) { --rise-y: 14px; animation: rise var(--dur-enter) var(--ease-out) backwards; }
+/* Staggered lists in a screen also play only as it opens, not each time a filter brings them back. */
+.app-content:not([data-entering]) .m-stagger > * { animation: none; }
+:is(.page, .page-narrow, .page-wide) > :nth-child(2) { animation-delay: calc(var(--stagger) * 1); }
+:is(.page, .page-narrow, .page-wide) > :nth-child(3) { animation-delay: calc(var(--stagger) * 2); }
+:is(.page, .page-narrow, .page-wide) > :nth-child(4) { animation-delay: calc(var(--stagger) * 3); }
+:is(.page, .page-narrow, .page-wide) > :nth-child(5) { animation-delay: calc(var(--stagger) * 4); }
+:is(.page, .page-narrow, .page-wide) > :nth-child(n + 6) { animation-delay: calc(var(--stagger) * 5); }
+:is(.page, .page-narrow, .page-wide) > [data-motion="parts"] { animation: none; }

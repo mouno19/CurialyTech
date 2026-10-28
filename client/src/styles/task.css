@@ -41,8 +41,8 @@
   .convo, .run-block { gap: 12px; }
 }
 
-@keyframes entry-in { from { opacity: 0; transform: translateY(6px); } }
-.convo [data-fresh] { animation: entry-in 160ms var(--ease-out) both; }
+/* New entries rise into place (motion.css); replayed history appears at once. */
+.convo [data-fresh] { --rise-y: 8px; animation: rise 320ms var(--ease-out) both; }
 
 .convo-foot { flex: none; padding: 10px max(24px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left)); border-top: 1px solid var(--border); background: var(--bg); }
 .convo-foot-inner { max-width: var(--chat-max); margin: 0 auto; padding-right: 4px; }
@@ -123,8 +123,6 @@
 .progress-notes-body { display: flex; flex-direction: column; gap: 12px; padding: 4px 14px 14px; }
 .outcome .progress-notes { margin: 12px 16px 0; background: var(--surface-raised); }
 .working-line { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--text-2); font-size: 13px; }
-@keyframes caret-blink { 50% { opacity: 0; } }
-.caret { display: inline-block; width: 7px; height: 1.05em; margin-left: 2px; vertical-align: text-bottom; background: var(--vermilion); animation: caret-blink 1s steps(2) infinite; }
 
 /* ---------- Outcome of a run ---------- */
 .outcome { position: relative; min-width: 0; overflow: hidden; border: 1px solid var(--tone-border, var(--border)); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--shadow-hair); }
@@ -544,3 +542,8 @@ button.tl-head:focus-visible, .handoff-head:focus-visible, .progress-notes > sum
   .diff-gap-btn, .raw-line { min-height: 40px; }
   .choice { min-height: 44px; }
 }
+
+/* Switching Inspector tabs (and the phone's Conversation/Inspector panes): the shown panel rises
+   in briefly. Panels kept mounted restart the animation when they leave display:none. */
+.inspector-panel { --rise-y: 6px; animation: rise 260ms var(--ease-out) backwards; }
+.pane-panel:not([hidden]) { animation: fade-in var(--dur-2) var(--ease-out) backwards; }

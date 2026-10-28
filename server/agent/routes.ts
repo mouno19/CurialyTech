@@ -8,7 +8,7 @@ import { Router, type NextFunction, type Request, type Response } from "express"
 import { z } from "zod";
 import { MODELS, type AgentEvent, type AgentEventBody } from "@shared/agent";
 import { isActiveStatus, isFinalStatus } from "@shared/taskStatus";
-import { deleteMedia, getMedia, listMedia, markMediaMissing, mediaStatus, openStoredObject, storeMedia, assertStorageAvailable } from "../media/snowflake";
+import { deleteMedia, getMedia, isElsewhere, listMedia, markMediaMissing, mediaStatus, openMedia, storageConfig, storeMedia, assertStorageAvailable } from "../media/snowflake";
 import { redact, StorageError } from "../media/storage-errors";
 import { isLive, liveChannel } from "./bus";
 import { deployConfigured, deploymentSession, destroyDeployment, listDeployments, listTaskDeployments } from "./deploy";
@@ -56,6 +56,7 @@ async function resolveAttachments(ids: string[]) {
     const media = await getMedia(id);
     if (!media) throw new TaskRejected(`Attachment ${id} not found.`);
     if (media.state === "missing") throw new TaskRejected(`${media.filename} is no longer available; attach it again.`);
+    if (isElsewhere(media)) throw new TaskRejected(`${media.filename} is in an earlier storage location this server no longer reads; attach it again.`);
     refs.push({ id: media.id, filename: media.filename, stagePath: media.stage_path, mimeType: media.mime_type, sizeBytes: media.size_bytes });
   }
   return refs;
@@ -90,6 +91,7 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 
 
 function sendStorageError(res: Response, error: StorageError) {
   if (error.kind === "object_missing") return res.status(410).json({ error: error.message, code: "media_gone" });
+  if (error.kind === "elsewhere") return res.status(410).json({ error: error.message, code: "media_elsewhere" });
   if (error.unavailable) {
     const retryAfter = Math.max(5, error.retryAfterSec || 30);
     res.setHeader("Retry-After", String(retryAfter));
@@ -175,7 +177,8 @@ export function agentRouter() {
         { id: "browser", label: "Live Browser", configured: Boolean(PROVIDER_ENV.browserbaseKey), masked: mask(PROVIDER_ENV.browserbaseKey) },
         { id: "deploy", label: "Cloud Deploy", configured: Boolean(PROVIDER_ENV.renderKey), masked: mask(PROVIDER_ENV.renderKey) },
         { id: "data", label: "Curialy Data (database)", configured: Boolean(env.TIGER_DATABASE_URL), masked: env.TIGER_DATABASE_URL ? "connected" : null },
-        { id: "vault", label: "Curialy Vault (media storage)", configured: Boolean(env.SNOWFLAKE_PAT), masked: env.SNOWFLAKE_PAT ? "set" : null },
+        // The vault's own login (it may be a separate account): only whether it is complete.
+        { id: "vault", label: "Curialy Vault (media storage)", configured: storageConfig().ok, masked: storageConfig().ok ? "set" : null },
         { id: "tuning", label: "Model tuning", configured: Boolean(env.TINKER_API_KEY), masked: mask(env.TINKER_API_KEY), note: "Stored for fine-tuning; no tuned models are routable yet." },
         { id: "github-oauth", label: "GitHub app", configured: oauthConfigured(), masked: env.GITHUB_CLIENT_ID ? `••••${env.GITHUB_CLIENT_ID.slice(-4)}` : null, note: "Connected-account tokens are stored encrypted (AES-256-GCM)." },
         { id: "session", label: "Session signing secret", configured: (env.SESSION_SECRET ?? "").length >= 32, masked: env.SESSION_SECRET ? "set" : null },
@@ -215,8 +218,9 @@ export function agentRouter() {
       await destroyDeployment(deployment.id, "user").then(() => { previewsRemoved++; }).catch(error => console.error(`[agent] delete ${task.id}: preview ${deployment.id}:`, redact(error.message)));
     }
     const { rows: files } = await query<{ id: string }>("SELECT id FROM curialy.file_metadata WHERE session_id = $1", [task.id]);
+    // Kept: storage refused the delete, or the copy lives in another storage account.
     let filesKept = 0;
-    for (const file of files) await deleteMedia(file.id).catch(() => { filesKept++; });
+    for (const file of files) await deleteMedia(file.id).then(result => { if (result === "kept") filesKept++; }, () => { filesKept++; });
     await withWorkspaceLock(task.id, async () => removeWorkspace(task.id));
     res.json({ deleted: await deleteAgentTask(task.id), previewsRemoved, filesRemoved: files.length - filesKept, filesKept });
   }));
@@ -478,8 +482,9 @@ export function agentRouter() {
     if (!media) return res.status(404).end();
     const health = await mediaStatus();
     // Same answer as GET: an artifact whose archived workspace copy matches is served from there.
-    if ((media.state === "missing" || !health.ok) && (await snapshotMatches(media))) return res.status(200).end();
-    if (media.state === "missing") return res.status(410).end();
+    const elsewhere = media.state !== "missing" && isElsewhere(media);
+    if ((media.state === "missing" || elsewhere || !health.ok) && (await snapshotMatches(media))) return res.status(200).end();
+    if (media.state === "missing" || elsewhere) return res.status(410).end();
     if (!health.ok) {
       res.setHeader("Retry-After", String(Math.max(5, health.retryAfter || 30)));
       return res.status(503).end();
@@ -506,7 +511,8 @@ export function agentRouter() {
     req.on("close", () => abort.abort());
     let upstream: globalThis.Response;
     try {
-      upstream = await openStoredObject(media.stage_path, abort.signal);
+      // openMedia never looks up another account's file, and never reports an unrecorded one as missing.
+      upstream = await openMedia(media, abort.signal);
     } catch (error) {
       if (abort.signal.aborted) return; // the viewer went away; nothing to answer
       if (!(error instanceof StorageError)) throw error;
@@ -534,7 +540,7 @@ export function agentRouter() {
     let buffer: Buffer | null = null;
     if (media.state !== "missing") {
       try {
-        const upstream = await openStoredObject(media.stage_path);
+        const upstream = await openMedia(media);
         buffer = Buffer.from(await upstream.arrayBuffer());
       } catch (error) {
         if (!(error instanceof StorageError)) throw error;
@@ -554,7 +560,8 @@ export function agentRouter() {
   router.delete("/media/:id", handle(async (req, res) => {
     const deleted = await deleteMedia(String(req.params.id));
     if (!deleted) return res.status(404).json({ error: "Not found.", code: "media_not_found" });
-    res.json({ deleted });
+    // kept: the record is gone, but the stored copy is in another storage account (not removed there).
+    res.json({ deleted: true, kept: deleted === "kept" });
   }));
 
   // ---- GitHub ----

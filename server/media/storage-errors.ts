@@ -2,7 +2,7 @@
 // (no vendor, database or stage names), a circuit breaker so an outage costs one probe instead of a
 // warehouse query per thumbnail, and log lines without tokens or signed URLs.
 
-export type StorageFailure = "not_configured" | "unauthorized" | "stage_missing" | "unreachable" | "object_missing" | "rejected";
+export type StorageFailure = "not_configured" | "unauthorized" | "stage_missing" | "unreachable" | "object_missing" | "elsewhere" | "rejected";
 
 const PUBLIC_MESSAGE: Record<StorageFailure, string> = {
   not_configured: "File storage is not configured on this server.",
@@ -10,6 +10,7 @@ const PUBLIC_MESSAGE: Record<StorageFailure, string> = {
   stage_missing: "File storage is not set up yet: the storage location is missing or this server may not use it. An operator needs to run the storage setup.",
   unreachable: "File storage is temporarily unreachable.",
   object_missing: "This file is no longer available.",
+  elsewhere: "This file was saved in an earlier storage location that this server no longer reads.",
   rejected: "File storage could not process this file.",
 };
 
@@ -34,6 +35,9 @@ export function classifyStorageError(error: unknown): StorageFailure {
   const e = (error ?? {}) as SdkLike;
   const code = String(e.code ?? "");
   const message = String(e.message ?? error ?? "");
+  // The driver refused its own settings before any request (404xxx: ERR_CONN_CREATE_*, e.g. an
+  // account value that is not an account identifier): a configuration problem, not a bad file.
+  if (/^404\d{3}$/.test(code)) return "not_configured";
   if (e.name === "AbortError" || e.name === "TimeoutError" || /^(ECONN|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|UND_ERR)/.test(code)) return "unreachable";
   if (code === "002003" || code === "003001" || code === "391707" || e.sqlState === "02000" || /does not exist or (is )?not authorized|insufficient privileges/i.test(message)) return "stage_missing";
   if (/^390\d{3}$/.test(code) || /incorrect username or password|invalid (oauth|programmatic access) token|token (is )?(invalid|expired)|authentication failed|role .* (does not exist|is not granted)/i.test(message)) return "unauthorized";
@@ -106,7 +110,7 @@ export class StorageBreaker {
   }
 
   failed(kind: StorageFailure) {
-    if (kind === "object_missing" || kind === "rejected") return;
+    if (kind === "object_missing" || kind === "elsewhere" || kind === "rejected") return;
     const now = this.now();
     if (!CONFIG_FAILURES.has(kind)) {
       this.recentNetwork = [...this.recentNetwork.filter(at => now - at < 30_000), now];
@@ -127,7 +131,7 @@ export class StorageBreaker {
     this.probing ??= probe().then(() => { this.succeeded(); return true; }, error => {
       // A probe that fails in an unexpected way still failed: stay open for the next, longer window.
       const kind = classifyStorageError(error);
-      this.failed(kind === "object_missing" || kind === "rejected" ? this.kind ?? "unreachable" : kind);
+      this.failed(kind === "object_missing" || kind === "elsewhere" || kind === "rejected" ? this.kind ?? "unreachable" : kind);
       return false;
     }).finally(() => { this.probing = null; });
     const ok = await this.probing;

@@ -40,7 +40,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     >
       {busy ? <Spinner size={ICON_SIZE[size]} /> : Icon ? <Icon size={ICON_SIZE[size]} aria-hidden="true" /> : null}
       {children}
-      {IconEnd && !busy ? <IconEnd size={ICON_SIZE[size]} aria-hidden="true" /> : null}
+      {IconEnd && !busy ? <IconEnd size={ICON_SIZE[size]} className="btn-icon-end" aria-hidden="true" /> : null}
     </button>
   );
 });

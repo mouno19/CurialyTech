@@ -511,11 +511,11 @@ export default function TaskWorkspace({ id }: { id: string }) {
         <p>This permanently removes:</p>
         <ul className="confirm-list">
           <li>the workspace files</li>
-          <li>files stored for this task (uploads, screenshots, attachments)</li>
+          <li>files this task stored (screenshots and attachments it produced)</li>
           <li>live previews (taken down now)</li>
           <li>the conversation and its log</li>
         </ul>
-        <p>Repositories on GitHub are not changed.</p>
+        <p>Files you uploaded stay in the Media Vault. Repositories on GitHub are not changed.</p>
       </ConfirmDialog>
       {agentTask && <ExportDialog open={exportOpen} onOpenChange={setExportOpen} taskId={id} onExported={onExported} />}
     </AppShell>

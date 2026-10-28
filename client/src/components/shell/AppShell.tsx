@@ -1,10 +1,11 @@
 import { Fragment, useEffect, useRef, useState, type MouseEvent, type ReactElement, type ReactNode, type RefObject, useLayoutEffect } from "react";
 import { Link, useLocation } from "wouter";
+import { setMotionPaused, useMotionPaused } from "@/lib/motion";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Popover from "@radix-ui/react-popover";
 import type { LucideIcon } from "lucide-react";
-import { Activity, ChevronsUpDown, ExternalLink, Images, KeyRound, LayoutDashboard, LogOut, Menu, MoreHorizontal, PanelLeftClose, PanelLeftOpen, PlugZap, RefreshCw, SquareTerminal, Store, Unplug, X } from "lucide-react";
+import { Activity, ChevronsUpDown, ExternalLink, House, Images, KeyRound, LayoutDashboard, LogOut, Menu, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pause, PlugZap, RefreshCw, SquareTerminal, Store, Unplug, X } from "lucide-react";
 import { toast } from "sonner";
 import { agentApi, authApi, errorMessage, relativeTime, type ProviderProbe } from "@/lib/api";
 import { needsOperator, useGitHub, useHealth } from "@/lib/appStatus";
@@ -86,6 +87,11 @@ const externalProps = (href: string) => (/^https?:\/\//.test(href) ? { target: "
 
 let shellMountedBefore = false;
 /** After a client-side navigation the old page (and the focused link) is gone: move focus to the new title. */
+/** After signing in (Login is outside the shell), the first shell also takes focus off <body>. */
+export function rescueFocusOnNextShell() {
+  shellMountedBefore = true;
+}
+
 function useFocusRescue(target: RefObject<HTMLElement | null>) {
   useEffect(() => {
     if (!shellMountedBefore) {
@@ -126,6 +132,22 @@ export function AppShell({ title, crumb, crumbHref, titleAddon, actions, topbarA
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const titleRef = useRef<HTMLHeadingElement>(null);
+  // A screen's entrance (motion.css [data-entering]) plays once, in its first second; content
+  // swapped in after that (filters, empty states) simply appears. Rises still running at the
+  // cut-off finish first, so a block that arrived late never snaps into place.
+  const mainRef = useRef<HTMLElement>(null);
+  const [entering, setEntering] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      const running = mainRef.current?.getAnimations({ subtree: true }).filter(animation => (animation as CSSAnimation).animationName === "rise") ?? [];
+      void Promise.allSettled(running.map(animation => animation.finished)).then(() => { if (!cancelled) setEntering(false); });
+    }, 1100);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, []);
 
   useEffect(() => {
     try {
@@ -203,7 +225,7 @@ export function AppShell({ title, crumb, crumbHref, titleAddon, actions, topbarA
             {titleAddon && <div className="topbar-addon">{titleAddon}</div>}
             {(actions || (topbarActions && topbarActions.length > 0)) && <TopbarActions legacy={actions} items={topbarActions ?? []} desktop={desktop} crowded={Boolean(titleAddon)} />}
           </header>
-          <main id="main" className="app-content" tabIndex={-1}>
+          <main id="main" ref={mainRef} className="app-content" tabIndex={-1} data-entering={entering || undefined}>
             {children}
           </main>
         </div>
@@ -257,6 +279,8 @@ function SidebarBody({ rail, headEnd, onNavigate }: { rail: boolean; headEnd?: R
       <div className="sidebar-foot">
         <HealthStatus rail={rail} />
         <GitHubAccount rail={rail} />
+        <HomepageLink rail={rail} />
+        <MotionSwitch rail={rail} />
         <SignOut rail={rail} />
       </div>
     </>
@@ -425,6 +449,29 @@ function GitHubAccount({ rail }: { rail: boolean }) {
       </ConfirmDialog>
     </>
   );
+}
+
+/** The public homepage, as visitors see it (it opens at /welcome while signed in). */
+function HomepageLink({ rail }: { rail: boolean }) {
+  const link = (
+    <Link href="/welcome" className="nav-item">
+      <House size={17} aria-hidden="true" />
+      <span className="nav-text">Homepage</span>
+    </Link>
+  );
+  return rail ? <Tip content="Homepage" side="right">{link}</Tip> : link;
+}
+
+/** "Pause animations" (WCAG 2.2.2): stops the typing examples and every other loop, site-wide. */
+function MotionSwitch({ rail }: { rail: boolean }) {
+  const paused = useMotionPaused();
+  const button = (
+    <button type="button" className="nav-item" aria-pressed={paused} onClick={() => setMotionPaused(!paused)}>
+      <Pause size={17} aria-hidden="true" />
+      <span className="nav-text">Pause animations</span>
+    </button>
+  );
+  return rail ? <Tip content="Pause animations" side="right">{button}</Tip> : button;
 }
 
 function SignOut({ rail }: { rail: boolean }) {

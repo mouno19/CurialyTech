@@ -163,6 +163,15 @@
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
   --ease-in: cubic-bezier(0.5, 0, 0.75, 0);  /* exits */
+  /* Expressive motion (the reference's language, see motion.css): things rise into place on the
+     same curve, staggered; long pages reveal as they scroll in; figures settle and draw. */
+  --dur-enter: 560ms;        /* in-app entrances */
+  --dur-swap: 400ms;         /* tab panels and other content swaps */
+  --dur-collapse: 450ms;     /* expanding panels */
+  --dur-reveal: 750ms;       /* scroll reveals */
+  --dur-hero: 900ms;         /* landing hero entrance */
+  --dur-figure: 1200ms;      /* illustrations settling in */
+  --stagger: 70ms;           /* between siblings */
 
   /* Layout */
   --sidebar-w: 248px;

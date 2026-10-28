@@ -147,11 +147,25 @@
 .omni-switch-row[data-disabled] .omni-opt-title { color: var(--text-3); }
 .omni-switch-row > .switch { margin-top: 1px; }
 
+/* Typing examples over the empty composer (the textarea's own placeholder hides meanwhile). */
+.omni-field { position: relative; }
+.omni-ghost { position: absolute; inset: 0; overflow: hidden; padding: 14px 18px 6px; color: var(--text-3); font-size: 15.5px; line-height: 1.55; pointer-events: none; }
+.omni-composer[data-ghost] .composer-input::placeholder { color: transparent; }
+@media (forced-colors: active) { .omni-ghost { display: none; } .omni-composer[data-ghost] .composer-input::placeholder { color: GrayText; } }
+.omni-slash { margin: 0 10px 0 auto; font-size: 11.5px; color: var(--text-3); white-space: nowrap; }
+/* While the task is being created: your prompt and the one real step, in an ink strip. */
+.omni-starting { margin-inline: 10px; transition: grid-template-rows var(--dur-collapse) var(--ease-out), opacity var(--dur-collapse) var(--ease-out), margin var(--dur-collapse) var(--ease-out); }
+.omni-starting[data-open] { margin-bottom: 10px; }
+.omni-starting-panel { padding: 12px 14px; border-radius: 12px; background: var(--ink); font: 12.5px/1.6 var(--font-mono); color: var(--panel-text-2); }
+.omni-starting-you { display: -webkit-box; margin: 0; overflow: hidden; color: var(--panel-muted); overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.omni-starting-you > span { color: var(--vermilion); }
+.omni-starting-step { display: flex; align-items: center; gap: 8px; margin: 8px 0 0; color: var(--panel-text); }
 .omni-message { align-items: center; }
 .omni-message > .icon-btn { margin: -6px -8px -6px auto; }
 
 @container composer (max-width: 640px) {
   .omni-composer .pick-label { max-width: 16ch; }
+  .omni-slash { display: none; }
 }
 @container composer (max-width: 440px) {
   .omni-composer .composer-head { padding-inline: 12px 10px; }
@@ -218,6 +232,7 @@
 .dash-lede { max-width: 62ch; margin-top: 16px; font-size: 15.5px; line-height: 1.6; color: var(--text-2); text-wrap: pretty; }
 .dash-margin { align-self: end; display: flex; flex-direction: column; gap: 3px; padding-left: 16px; border-left: 1px solid var(--ink); font: 12px/1.6 var(--font-mono); color: var(--text-2); }
 .dash-margin a { color: var(--text-2); }
+.dash-now { display: inline-flex; align-items: center; gap: 8px; }
 .dash-margin a:hover { color: var(--text); }
 @container page (min-width: 860px) { .dash-hero { grid-template-columns: minmax(0, 1fr) 210px; } }
 @container page (max-width: 859.98px) { .dash-margin { flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 2px 14px; align-self: start; } }
@@ -283,7 +298,7 @@ a.dash-stat:focus-visible { z-index: 1; outline-offset: -3px; }
 a.dash-stat:hover .dash-stat-hint { color: var(--text-3-sunk); }
 .dash-stat-skeleton { width: 56px; height: 31px; border-radius: 6px; }
 .dash-meter { display: block; height: 4px; margin-top: auto; overflow: hidden; border-radius: 2px; background: var(--paper-deep); }
-.dash-meter > span { display: block; height: 100%; border-radius: inherit; background: var(--ink-soft); }
+.dash-meter > span { display: block; height: 100%; border-radius: inherit; background: var(--ink-soft); transform-origin: left; animation: grow-x 900ms var(--ease-out) 250ms backwards; }
 .dash-stats-error { margin-top: 30px; }
 @container page (max-width: 980px) { .dash-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @container page (max-width: 520px) { .dash-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .dash-stat-value { font-size: 24px; } }
@@ -531,3 +546,9 @@ a.vault-thumb:focus-visible { outline-offset: -3px; }
   .key-status { grid-area: status; }
   .key-value { grid-area: value; }
 }
+
+/* Starter tasks (components/StarterTabs) under the recent tasks. */
+.dash-starters { margin-top: 44px; padding-top: 28px; border-top: 1px solid var(--ink); }
+.dash-starters-head { margin-bottom: 26px; }
+.dash-starters-title { margin: 12px 0 0; font-family: var(--font-display); font-weight: 400; font-size: clamp(26px, 1.4vw + 16px, 36px); line-height: 1.05; letter-spacing: -0.01em; color: var(--text); text-wrap: balance; }
+.dash-starters-title em { font-style: italic; color: var(--vermilion-deep); }

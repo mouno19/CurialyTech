@@ -69,7 +69,8 @@ export type HealthResponse = { providers: ProviderProbe[]; activeTasks: number }
 export type KeyStatus = { id: string; label: string; configured: boolean; masked: string | null; note?: string };
 export type TreeEntry = { path: string; type: "file" | "dir"; size: number };
 export type UploadedFile = { id: string; filename: string; mimeType: string; sizeBytes: number; kind?: string };
-export type MediaFile = UploadedFile & { kind: string; sessionId: string | null; createdAt: string; state: "stored" | "missing" };
+/** elsewhere: stored in an earlier storage account the server no longer reads (never fetched). */
+export type MediaFile = UploadedFile & { kind: string; sessionId: string | null; createdAt: string; state: "stored" | "missing" | "elsewhere" };
 export type MediaHealth = { ok: boolean; state: "ok" | "unavailable" | "not_configured"; kind: string | null; retryAfter: number; detail: string };
 export type MediaList = { files: MediaFile[]; stage: { ok: boolean; detail: string }; storage: MediaHealth };
 export type GitHubRepo = { id: number; name: string; full_name: string; private: boolean; default_branch: string; description: string | null; updated_at: string; language: string | null };
@@ -185,7 +186,8 @@ export const agentApi = {
   mediaUrl: (id: string) => `/api/agent/media/${enc(id)}`,
   mediaDownloadUrl: (id: string) => `/api/agent/media/${enc(id)}?download=1`,
   mediaText: (id: string) => api<{ filename: string; content: string; truncated: boolean; bytes: number }>(`/api/agent/media/${enc(id)}/text`),
-  removeMedia: (id: string) => api<{ deleted: boolean }>(`/api/agent/media/${enc(id)}`, { method: "DELETE" }),
+  /** kept: the record is gone, but the copy in an earlier storage account was not deleted there. */
+  removeMedia: (id: string) => api<{ deleted: boolean; kept?: boolean }>(`/api/agent/media/${enc(id)}`, { method: "DELETE" }),
 
   github: () => api<GitHubStatus>("/api/agent/github"),
   githubRepos: () => api<{ login: string; repos: GitHubRepo[] }>("/api/github/repos"),
