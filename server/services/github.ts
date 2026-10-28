@@ -56,9 +56,25 @@ export function oauthConfigured() {
   return Boolean(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET && process.env.GITHUB_TOKEN_KEY);
 }
 
-export function authorizeUrl(redirectUri: string, state: string) {
-  const params = new URLSearchParams({ client_id: process.env.GITHUB_CLIENT_ID!, redirect_uri: redirectUri, scope: GITHUB_SCOPES.join(" "), state, allow_signup: "false" });
+/** Signing in only reads the profile; repository access is asked for separately, when it is needed. */
+export const LOGIN_SCOPES = ["read:user", "user:email"];
+
+export function authorizeUrl(redirectUri: string, state: string, scopes = GITHUB_SCOPES) {
+  const params = new URLSearchParams({ client_id: process.env.GITHUB_CLIENT_ID!, redirect_uri: redirectUri, scope: scopes.join(" "), state, allow_signup: "true" });
   return `https://github.com/login/oauth/authorize?${params}`;
+}
+
+export type GitHubProfile = { id: number; login: string; name: string | null; avatarUrl: string | null; email: string | null };
+
+/** The GitHub account a token belongs to, with its primary verified email when the profile hides it. */
+export async function githubProfile(token: string): Promise<GitHubProfile> {
+  const user = await githubApi<{ id: number; login: string; name: string | null; avatar_url: string; email: string | null }>(token, "/user");
+  let email = user.email;
+  if (!email) {
+    const emails = await githubApi<{ email: string; primary: boolean; verified: boolean }[]>(token, "/user/emails").catch(() => []);
+    email = emails.find(entry => entry.primary && entry.verified)?.email ?? null;
+  }
+  return { id: user.id, login: user.login, name: user.name, avatarUrl: user.avatar_url ?? null, email };
 }
 
 export async function exchangeCode(code: string, redirectUri: string) {
@@ -72,15 +88,12 @@ export async function exchangeCode(code: string, redirectUri: string) {
   return { token: data.access_token as string, scopes: String(data.scope ?? "") };
 }
 
-export async function saveConnection(token: string, scopes: string) {
-  const user = await githubApi<{ id: number; login: string; name: string | null; avatar_url: string; email: string | null }>(token, "/user");
-  let email = user.email;
-  if (!email) {
-    const emails = await githubApi<{ email: string; primary: boolean; verified: boolean }[]>(token, "/user/emails").catch(() => []);
-    email = emails.find(entry => entry.primary && entry.verified)?.email ?? null;
-  }
+/** Store an account's repository connection (one per account). */
+export async function saveConnection(userId: string, token: string, scopes: string) {
+  const profile = await githubProfile(token);
+  const user = { id: profile.id, login: profile.login, name: profile.name, avatar_url: profile.avatarUrl };
+  const email = profile.email;
   const encrypted = encryptToken(token);
-  const userId = await adminUserId();
   await query(
     `INSERT INTO curialy.github_connections (user_id, github_id, login, name, email, avatar_url, scopes, token_ciphertext, token_iv, token_tag)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
@@ -94,9 +107,10 @@ export async function saveConnection(token: string, scopes: string) {
 
 export type GitHubConnection = { login: string; name: string | null; email: string | null; avatarUrl: string | null; scopes: string; connectedAt: string };
 
-export async function getConnection(): Promise<(GitHubConnection & { token: string }) | null> {
+/** An account's repository connection (its own GitHub token; never another account's). */
+export async function getConnection(userId: string): Promise<(GitHubConnection & { token: string }) | null> {
   const { rows } = await query<{ login: string; name: string | null; email: string | null; avatar_url: string | null; scopes: string; connected_at: Date; token_ciphertext: Buffer; token_iv: Buffer; token_tag: Buffer }>(
-    `SELECT c.* FROM curialy.github_connections c JOIN curialy.users u ON u.id = c.user_id WHERE u.handle = 'admin'`,
+    "SELECT * FROM curialy.github_connections WHERE user_id = $1", [userId],
   );
   const row = rows[0];
   if (!row) return null;
@@ -106,8 +120,8 @@ export async function getConnection(): Promise<(GitHubConnection & { token: stri
   };
 }
 
-export async function disconnect() {
-  const connection = await getConnection().catch(() => null);
+export async function disconnect(userId: string) {
+  const connection = await getConnection(userId).catch(() => null);
   if (connection && process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET) {
     // Revoke the grant on GitHub's side too, so the token stops working everywhere.
     const basic = Buffer.from(`${process.env.GITHUB_CLIENT_ID}:${process.env.GITHUB_CLIENT_SECRET}`).toString("base64");
@@ -117,14 +131,14 @@ export async function disconnect() {
       body: JSON.stringify({ access_token: connection.token }),
     }).catch(() => undefined);
   }
-  await query("DELETE FROM curialy.github_connections WHERE user_id = (SELECT id FROM curialy.users WHERE handle = 'admin')");
+  await query("DELETE FROM curialy.github_connections WHERE user_id = $1", [userId]);
 }
 
-/** Token for repo operations: the connected account, else the optional GITHUB_TOKEN fallback. */
-export async function repoToken() {
-  const connection = await getConnection().catch(() => null);
+/** Token for an account's repo operations: its connection, else (operator only) the optional GITHUB_TOKEN fallback. */
+export async function repoToken(userId: string) {
+  const connection = await getConnection(userId).catch(() => null);
   if (connection) return { token: connection.token, login: connection.login };
-  if (process.env.GITHUB_TOKEN) {
+  if (process.env.GITHUB_TOKEN && userId === (await adminUserId())) {
     const user = await githubApi<{ login: string }>(process.env.GITHUB_TOKEN, "/user");
     return { token: process.env.GITHUB_TOKEN, login: user.login };
   }

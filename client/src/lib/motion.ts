@@ -1,65 +1,17 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { usePrefersReducedMotion } from "./breakpoints";
 
 // JS-driven motion for the reference design's live elements: scroll reveals, typing prompts,
-// counters, a scroll-linked spine, swaps and presence. Everything renders its final state under
-// reduced motion (the system setting or the visitor's own switch, below) and does no work while
-// hidden. The math lives in pure functions.
+// counters, a scroll-linked spine, swaps and presence. Everything renders its final state under the
+// system's reduced-motion setting and does no work while hidden. The math lives in pure functions.
 
-// ---- The visitor's own switch (the homepage's "Pause animations") ----
-// Stored per browser and mirrored as <html data-motion="reduced">, which every CSS rule written for
-// prefers-reduced-motion also honours; JS motion asks useReducedMotion(). Same effect as the system setting.
-
-const MOTION_KEY = "curialy.motion";
-const motionListeners = new Set<() => void>();
-let motionPaused = (() => {
-  try { return typeof localStorage !== "undefined" && localStorage.getItem(MOTION_KEY) === "reduced"; } catch { return false; }
-})();
-function applyMotionAttribute() {
-  if (typeof document === "undefined") return;
-  if (motionPaused) document.documentElement.dataset.motion = "reduced";
-  else delete document.documentElement.dataset.motion;
-}
-applyMotionAttribute();
-// The switch in another tab applies here too.
-if (typeof window !== "undefined") {
-  window.addEventListener("storage", event => {
-    if (event.key !== MOTION_KEY) return;
-    motionPaused = event.newValue === "reduced";
-    applyMotionAttribute();
-    motionListeners.forEach(listener => listener());
-  });
-}
-
-export function setMotionPaused(paused: boolean) {
-  motionPaused = paused;
-  try {
-    if (paused) localStorage.setItem(MOTION_KEY, "reduced");
-    else localStorage.removeItem(MOTION_KEY);
-  } catch { /* storage unavailable: still applies for this visit */ }
-  applyMotionAttribute();
-  motionListeners.forEach(listener => listener());
-}
-
-export function useMotionPaused() {
-  return useSyncExternalStore(
-    listener => {
-      motionListeners.add(listener);
-      return () => motionListeners.delete(listener);
-    },
-    () => motionPaused,
-    () => false,
-  );
-}
-
-/** Reduced motion from the system setting or from the visitor's own switch. */
+/** Reduced motion: the system setting. */
 export function useReducedMotion() {
-  const system = usePrefersReducedMotion();
-  return useMotionPaused() || system;
+  return usePrefersReducedMotion();
 }
 
 /** The same, outside React (event handlers choosing between smooth and instant scrolling). */
-export const prefersReducedMotion = () => motionPaused || (typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+export const prefersReducedMotion = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 // ---- Pure helpers ----
 

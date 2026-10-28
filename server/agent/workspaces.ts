@@ -2,10 +2,11 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { query } from "../db/pg";
-import { ensureWorkspace, removeWorkspace, shareWorkspaceFiles, workspacePath, writeWorkspaceBytes } from "./sandbox";
+import { ensureWorkspace, refreshWorkspace, removeWorkspace, shareWorkspaceFiles, workspacePath, writeWorkspaceBytes } from "./sandbox";
 import { idleWorkspaces, loadWorkspaceSnapshot, saveWorkspaceSnapshot, updateAgentTask, type SnapshotRole } from "./store";
 import { linkedRepo, linkedSnapshotFiles, restoreLinkedRepo } from "./repos";
 import { getConnection } from "../services/github";
+import { taskOwner } from "./store";
 
 // Workspaces on the VPS are scratch space only. The durable copy of an agent's files is the
 // snapshot in Tiger; the directory is removed once a session has been idle for IDLE_MINUTES
@@ -44,8 +45,9 @@ function readDir(root: string, dir: string) {
   }
 }
 
-/** The project's sources, after making what the agent's tools wrote owner-only readable (see shareWorkspaceFiles). */
+/** The project's sources, current with the task's cloud sandbox and readable here (see shareWorkspaceFiles). */
 export async function readWorkspaceFiles(root: string) {
+  await refreshWorkspace(root);
   await shareWorkspaceFiles(root, SKIP_DIRS);
   return collectWorkspaceFiles(root);
 }
@@ -130,6 +132,8 @@ function collectBuildFiles(root: string, dir: string) {
 export async function snapshotWorkspace(taskId: string) {
   const root = workspacePath(taskId);
   if (!fs.existsSync(root)) return null;
+  // What a cloud sandbox changed since its last command is part of the archive too.
+  await refreshWorkspace(root);
   await shareWorkspaceFiles(root, SKIP_DIRS);
   const repo = await linkedRepo(taskId);
   if (repo) {
@@ -208,7 +212,8 @@ export async function materializeWorkspace(taskId: string) {
   try {
     const repo = await linkedRepo(taskId);
     if (repo) {
-      const connection = await getConnection().catch(() => null);
+      const owner = await taskOwner(taskId);
+      const connection = owner ? await getConnection(owner).catch(() => null) : null;
       if (!connection) throw new Error(`Reconnect GitHub to restore ${repo.fullName} into this workspace.`);
       await restoreLinkedRepo(root, repo, connection.token);
     }

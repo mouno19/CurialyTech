@@ -170,7 +170,8 @@ export function assertStorageAvailable() {
 
 export type StoredMedia = { id: string; filename: string; mimeType: string; sizeBytes: number; kind: string; stagePath: string };
 
-export async function storeMedia(input: { buffer: Buffer; filename: string; mimeType: string; kind: "upload" | "screenshot" | "artifact"; sessionId?: string | null; sourcePath?: string | null }): Promise<StoredMedia> {
+/** `userId`: the uploader; files a task produces (screenshots, attachments) belong to the task's owner. */
+export async function storeMedia(input: { buffer: Buffer; filename: string; mimeType: string; kind: "upload" | "screenshot" | "artifact"; sessionId?: string | null; sourcePath?: string | null; userId?: string | null }): Promise<StoredMedia> {
   if (input.buffer.length > MAX_BYTES) throw new StorageError("rejected", 0, `over ${MAX_BYTES / 1024 / 1024} MB`);
   const id = randomUUID();
   const filename = safeName(input.filename);
@@ -185,9 +186,9 @@ export async function storeMedia(input: { buffer: Buffer; filename: string; mime
     const stagePath = key.slice(key.indexOf("/") + 1); // strip the stage's own name prefix
     try {
       await query(
-        `INSERT INTO curialy.file_metadata (id, session_id, kind, filename, mime_type, size_bytes, storage, stage_path, source_path, stage_account)
-         VALUES ($1, $2, $3, $4, $5, $6, 'snowflake_stage', $7, $8, $9)`,
-        [id, input.sessionId ?? null, input.kind, filename, input.mimeType, input.buffer.length, stagePath, input.sourcePath ?? null, mediaAccount()],
+        `INSERT INTO curialy.file_metadata (id, session_id, kind, filename, mime_type, size_bytes, storage, stage_path, source_path, stage_account, user_id)
+         VALUES ($1, $2::uuid, $3, $4, $5, $6, 'snowflake_stage', $7, $8, $9, COALESCE($10::uuid, (SELECT user_id FROM curialy.chat_sessions WHERE id = $2::uuid)))`,
+        [id, input.sessionId ?? null, input.kind, filename, input.mimeType, input.buffer.length, stagePath, input.sourcePath ?? null, mediaAccount(), input.userId ?? null],
       );
     } catch (error) {
       // No orphan objects: the row is the only way to find a stored file again.
@@ -198,7 +199,7 @@ export async function storeMedia(input: { buffer: Buffer; filename: string; mime
   });
 }
 
-export type MediaRow = { id: string; filename: string; mime_type: string; size_bytes: number; kind: string; stage_path: string; created_at: Date; session_id: string | null; source_path: string | null; state: string; stage_account: string | null };
+export type MediaRow = { id: string; filename: string; mime_type: string; size_bytes: number; kind: string; stage_path: string; created_at: Date; session_id: string | null; source_path: string | null; state: string; stage_account: string | null; user_id: string | null };
 
 /**
  * Where a file is, relative to the stage in use now:
@@ -222,7 +223,7 @@ export const isElsewhere = (media: Pick<MediaRow, "id" | "stage_account">) => pl
 export async function getMedia(id: string): Promise<MediaRow | undefined> {
   if (!/^[0-9a-f-]{36}$/i.test(id)) return undefined;
   const { rows } = await query<MediaRow>(
-    "SELECT id, filename, mime_type, size_bytes, kind, stage_path, created_at, session_id, source_path, state, stage_account FROM curialy.file_metadata WHERE id = $1", [id],
+    "SELECT id, filename, mime_type, size_bytes, kind, stage_path, created_at, session_id, source_path, state, stage_account, user_id FROM curialy.file_metadata WHERE id = $1", [id],
   );
   return rows[0];
 }
@@ -231,16 +232,25 @@ export async function markMediaMissing(id: string) {
   await query("UPDATE curialy.file_metadata SET state = 'missing', missing_at = now() WHERE id = $1 AND state <> 'missing'", [id]);
 }
 
-export async function listMedia(limit = 200) {
+/** An account's files, newest first. */
+export async function listMedia(userId: string, limit = 200) {
   // "elsewhere": recorded in another storage account, or known (this process) not to be here.
   const { rows } = await query(
     `SELECT id, filename, mime_type AS "mimeType", size_bytes AS "sizeBytes", kind, session_id AS "sessionId", created_at AS "createdAt",
             CASE WHEN state = 'stored' AND $2::text IS NOT NULL AND ((stage_account IS NOT NULL AND stage_account <> $2) OR (stage_account IS NULL AND id = ANY($3::uuid[])))
                  THEN 'elsewhere' ELSE state END AS state
-     FROM curialy.file_metadata ORDER BY created_at DESC LIMIT $1`,
-    [limit, mediaAccount(), Array.from(notHere)],
+     FROM curialy.file_metadata WHERE user_id = $4 ORDER BY created_at DESC LIMIT $1`,
+    [limit, mediaAccount(), Array.from(notHere), userId],
   );
   return rows;
+}
+
+/** What an account stores (files not known to be gone), for its storage quota. */
+export async function mediaUsage(userId: string) {
+  const { rows } = await query<{ files: string; bytes: string }>(
+    "SELECT count(*) AS files, COALESCE(sum(size_bytes), 0) AS bytes FROM curialy.file_metadata WHERE user_id = $1 AND state <> 'missing'", [userId],
+  );
+  return { files: Number(rows[0].files), bytes: Number(rows[0].bytes) };
 }
 
 // Presigned URLs for immutable objects are reused until shortly before they expire (memory only).

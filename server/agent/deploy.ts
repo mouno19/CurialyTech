@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { deriveDeploymentState, type DeploymentState } from "@shared/taskStatus";
-import { db, query } from "../db/pg";
+import { adminUserId, db, query } from "../db/pg";
 import { createRepo, pushProjectToRepo, repoToken, retireRepo, throwIfAborted } from "../services/github";
 import { appendTaskEvent } from "./events";
 import { PROVIDER_ENV } from "./providers";
 import { isPublishExcluded, readWorkspaceFiles } from "./workspaces";
+import { taskOwner } from "./store";
 
 // Temporary live previews on Render, which only deploys from Git. Every preview builds from its own
 // throwaway PRIVATE repository in the connected account; a preview never writes to a repository the
@@ -58,7 +59,8 @@ const sleep = (ms: number, signal: AbortSignal) => new Promise<void>((resolve, r
 export async function deployPreview(req: DeployRequest) {
   const config = deployConfigured();
   if (!config.ok) throw new Error("Live previews are not configured on this server.");
-  const github = await repoToken();
+  const owner = await taskOwner(req.sessionId);
+  const github = owner ? await repoToken(owner) : null;
   if (!github) throw new Error("Connect GitHub first (sidebar → Connect GitHub): live previews are built from a Git repository.");
   // Uploads and local secrets never go into a repository, even a private temporary one.
   const files = (await readWorkspaceFiles(req.root)).files.filter(file => !isPublishExcluded(file.path));
@@ -140,7 +142,10 @@ export type RemovalReason = "expired" | "failed" | "cancelled" | "interrupted" |
 /** Retire a preview's temporary repository; on failure it stays "repo pending" for the sweeper. */
 async function retireTempRepo(id: string, repo: string) {
   try {
-    const github = await repoToken();
+    // The repository is in the account of the task that deployed it (the operator for older rows).
+    const { rows: [row] } = await query<{ session_id: string | null }>("SELECT session_id FROM curialy.deployments WHERE id = $1", [id]);
+    const owner = (row?.session_id ? await taskOwner(row.session_id) : null) ?? (await adminUserId());
+    const github = await repoToken(owner);
     if (!github) throw new Error("GitHub is disconnected");
     const outcome = await retireRepo(github.token, repo);
     await query("UPDATE curialy.deployments SET cleanup_detail = $2, last_error = NULL WHERE id = $1", [id, `service deleted; repo ${outcome}`]);

@@ -147,7 +147,7 @@ export type TaskStatus = "queued" | "running" | "cancelling" | "completed" | "fa
 /** Why a task reached its current status (stored with the row and carried on status/done events). */
 export type StatusReason =
   | "user_cancel" | "cancel_timeout" | "server_restart" | "worker_lost" | "lease_expired"
-  | "start_failed" | "error" | "follow_up" | "retry" | "deploy" | "prompt";
+  | "start_failed" | "error" | "follow_up" | "retry" | "deploy" | "prompt" | "credits";
 
 /** How a run was started. */
 export type RunTrigger = "prompt" | "follow_up" | "retry" | "deploy";
@@ -195,7 +195,8 @@ export type AgentEventBody =
   | { type: "heal"; iteration: number; reason: string; model: string }
   /** Self-healing around a model turn: what failed and what was done about it. */
   | { type: "recovery"; kind: string; action: string; detail: string; attempt: number; delayMs?: number; model?: string }
-  | { type: "usage"; turn: number; model: string; inputTokens: number; outputTokens: number; thinkingTokens: number; cacheReadTokens: number }
+  /** cacheWriteTokens: input written to the prompt cache (charged a quarter more); partial: the response was cut off, output estimated. */
+  | { type: "usage"; turn: number; model: string; inputTokens: number; outputTokens: number; thinkingTokens: number; cacheReadTokens: number; cacheWriteTokens?: number; partial?: boolean }
   | { type: "external"; source: "research" | "research"; status: string; detail: string; url?: string }
   /** unavailable: the image could not be kept (file storage down and too large to inline). */
   | { type: "media"; callId: string; mediaId: string | null; filename: string; mimeType: string; caption: string; inlineDataUrl?: string; unavailable?: boolean }

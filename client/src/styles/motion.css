@@ -57,7 +57,6 @@
 /* Keyboard users never wait for a reveal: focus shows the content at once. */
 [data-reveal]:focus-within { opacity: 1; transform: none; transition-duration: 0ms; transition-delay: 0ms; }
 @media (prefers-reduced-motion: reduce) { [data-reveal] { opacity: 1; transform: none; } }
-:root[data-motion="reduced"] [data-reveal] { opacity: 1; transform: none; }
 
 /* ---------- Presence: swaps and expanding panels (lib/motion useSwap / usePresence) ---------- */
 .m-swap { animation: rise var(--dur-swap) var(--ease-out) backwards; --rise-y: 14px; }
@@ -97,8 +96,6 @@
   .m-marquee-track, .m-float, .m-spark, .caret { animation: none; }
   .m-draw { stroke-dashoffset: 0; }
 }
-:root[data-motion="reduced"] :is(.m-marquee-track, .m-float, .m-spark, .caret) { animation: none; }
-:root[data-motion="reduced"] .m-draw { stroke-dashoffset: 0; }
 
 /* Printing shows everything in its final state (nothing waits for a scroll that never comes). */
 @media print {

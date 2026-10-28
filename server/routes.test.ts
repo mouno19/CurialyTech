@@ -33,6 +33,25 @@ vi.mock("./db/pg", () => {
   return { query: vi.fn(run), heartbeatQuery: vi.fn(run), db: () => { throw new Error("no pool in tests"); }, adminUserId: async () => "admin" };
 });
 vi.mock("./media/snowflake", () => media);
+// Requests are the operator's unless they carry x-test-account: other (a free account that owns nothing here).
+const accounts = vi.hoisted(() => ({
+  admin: { id: "admin", role: "admin" as const, login: "operator", displayName: "Operator", avatarUrl: null, email: null },
+  other: { id: "user-b", role: "user" as const, login: "someone-else", displayName: "Someone Else", avatarUrl: null, email: null },
+}));
+const credits = vi.hoisted(() => ({ assertCanStart: vi.fn(async () => undefined) }));
+vi.mock("./auth", async importOriginal => {
+  const actual = await importOriginal<typeof import("./auth")>();
+  const who = (req: { headers: Record<string, unknown> }) => (req.headers["x-test-account"] === "other" ? accounts.other : accounts.admin);
+  return {
+    ...actual,
+    accountOf: who,
+    requireAdmin: (req: never, res: { status: (code: number) => { json: (body: unknown) => void } }, next: () => void) => (who(req).role === "admin" ? next() : res.status(403).json({ error: "Only the operator can do this." })),
+  };
+});
+vi.mock("./credits", async importOriginal => ({ ...(await importOriginal<typeof import("./credits")>()), assertCanStart: credits.assertCanStart }));
+// Free accounts run only when cloud sandboxes are in use; these tests run commands locally.
+const sandboxes = vi.hoisted(() => ({ ready: true }));
+vi.mock("./agent/sandbox", async importOriginal => ({ ...(await importOriginal<typeof import("./agent/sandbox")>()), cloudSandboxReady: () => sandboxes.ready }));
 vi.mock("./services/github", async importOriginal => ({
   ...(await importOriginal<typeof import("./services/github")>()),
   createRepo: publish.createRepo, pushProjectToRepo: publish.pushProjectToRepo, createPullRequest: publish.createPullRequest, getConnection: github.getConnection,
@@ -68,7 +87,7 @@ afterAll(async () => {
 const ID = "00000000-0000-4000-8000-0000000000d1";
 const TASK = "00000000-0000-4000-8000-0000000000e1";
 const RUN = "10000000-0000-4000-8000-0000000000e1";
-const mediaRow = (patch: Record<string, unknown> = {}) => ({ id: ID, filename: "shot.png", mime_type: "image/png", size_bytes: 7, kind: "upload", stage_path: "upload/x/shot.png", created_at: new Date(), session_id: null, source_path: null, state: "stored", stage_account: "acct-now", ...patch });
+const mediaRow = (patch: Record<string, unknown> = {}) => ({ id: ID, filename: "shot.png", mime_type: "image/png", size_bytes: 7, kind: "upload", stage_path: "upload/x/shot.png", created_at: new Date(), session_id: null, source_path: null, state: "stored", stage_account: "acct-now", user_id: "admin", ...patch });
 const INTERNALS = /snowflake|cortex|sql|stage|curialy_db|warehouse|amazonaws|@/i;
 
 beforeEach(() => {
@@ -99,6 +118,7 @@ describe("files stored in another storage account", () => {
   });
 
   it("says when deleting removed the record but kept the copy in the other account", async () => {
+    media.getMedia.mockResolvedValue(mediaRow());
     media.deleteMedia.mockResolvedValue("kept");
     const response = await fetch(`${base}/media/${ID}`, { method: "DELETE" });
     expect(await response.json()).toEqual({ deleted: true, kept: true });
@@ -238,6 +258,7 @@ describe("POST /media", () => {
 
 describe("DELETE /media/:id", () => {
   it("deletes nothing while storage is unavailable", async () => {
+    media.getMedia.mockResolvedValue(mediaRow());
     media.deleteMedia.mockRejectedValueOnce(new StorageError("unreachable", 15));
     const down = await fetch(`${base}/media/${ID}`, { method: "DELETE" });
     expect(down.status).toBe(503);
@@ -258,7 +279,7 @@ const session = (patch: Session = {}): Session => ({
   usage: { inputTokens: 0, outputTokens: 0, thinkingTokens: 0 }, files_changed: 0, workspace_state: "archived", github_repo: null, github_repo_url: null, github_pushed_at: null,
   github_mode: null, github_branch: null, team: false, created_at: new Date("2026-10-27T10:00:00Z"), updated_at: new Date("2026-10-27T10:05:00Z"), status_reason: null,
   status_changed_at: new Date("2026-10-27T10:05:00Z"), started_at: null, finished_at: new Date("2026-10-27T10:05:00Z"), run_id: RUN, attempt: 1, cancel_requested_at: null, outcome: null,
-  worker_id: null, lease_live: false, lease_expired_for: null, cancel_requested: false, ...patch,
+  worker_id: null, lease_live: false, lease_expired_for: null, cancel_requested: false, user_id: "admin", ...patch,
 });
 
 function scriptTask(row: Session, extra: (call: Call) => unknown = () => undefined) {
@@ -390,7 +411,7 @@ describe("GET /tasks/:id/deployments", () => {
       ["live", "live", true], ["stale", "expired", true], ["building", "interrupted", true], ["removed", "removed", false],
     ]);
     expect(body.deployments[0].target).toEqual({ kind: "temp_repo", repo: "octo/curialy-preview-live", private: true });
-    expect(body.capabilities).toEqual({ configured: false, github: false });
+    expect(body.capabilities).toEqual({ configured: false, github: false, allowed: true });
   });
 });
 
@@ -600,5 +621,80 @@ describe("GET /tasks/:id/preview", () => {
 
     workspaceWith({ "index.html": TEMPLATE, "src/main.tsx": "x" });
     expect(await (await fetch(`${base}/tasks/${TASK}/preview`)).json()).toEqual({ available: false, workspace: true, archived: false, build: null, restorable: false, running: false });
+  });
+});
+
+describe("accounts: each sees only its own", () => {
+  const as = (init: RequestInit = {}) => ({ ...init, headers: { "content-type": "application/json", "x-test-account": "other", ...(init.headers ?? {}) } });
+
+  it("answers 404 for another account's task, its events and its files, and changes nothing", async () => {
+    scriptTask(session());
+    media.getMedia.mockResolvedValue(mediaRow());
+    for (const [method, url] of [["GET", `/tasks/${TASK}`], ["GET", `/tasks/${TASK}/events`], ["POST", `/tasks/${TASK}/cancel`], ["DELETE", `/tasks/${TASK}`], ["GET", `/tasks/${TASK}/tree`], ["GET", `/media/${ID}`], ["GET", `/media/${ID}/text`], ["DELETE", `/media/${ID}`]] as const) {
+      const response = await fetch(`${base}${url}`, as({ method, ...(method === "POST" ? { body: "{}" } : {}) }));
+      expect(response.status, `${method} ${url}`).toBe(404);
+    }
+    expect(media.deleteMedia).not.toHaveBeenCalled();
+    expect(db.calls.some(call => call.text.startsWith("DELETE FROM curialy.chat_sessions"))).toBe(false);
+    // The owner still sees it.
+    expect((await fetch(`${base}/tasks/${TASK}`)).status).toBe(200);
+  });
+
+  it("keeps the operator's pages and public previews to the operator", async () => {
+    scriptTask(session());
+    expect((await fetch(`${base}/keys`, as())).status).toBe(403);
+    expect((await fetch(`${base}/deployments`, as())).status).toBe(403);
+    expect((await fetch(`${base}/tasks/${TASK}/deploy`, as({ method: "POST", body: JSON.stringify({ confirm: true }) }))).status).toBe(403);
+    expect(publish.deployPreview).not.toHaveBeenCalled();
+  });
+
+  it("lists and counts the account's own tasks only", async () => {
+    db.handler = () => ({ rows: [] });
+    await fetch(`${base}/tasks`, as());
+    const list = db.calls.find(call => call.text.includes("FROM curialy.chat_sessions WHERE user_id = $1"));
+    expect(list?.values[0]).toBe("user-b");
+  });
+
+  it("refuses to attach another account's file to a task", async () => {
+    media.getMedia.mockResolvedValue(mediaRow());
+    db.handler = call => (call.text.includes("count(*) AS n FROM curialy.chat_sessions") ? { rows: [{ n: "0" }] } : { rows: [], rowCount: 0 });
+    const response = await fetch(`${base}/tasks`, as({ method: "POST", body: JSON.stringify({ prompt: "Use my screenshot", attachmentIds: [ID] }) }));
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toMatch(/not found/);
+  });
+
+  it("answers 402 without credits and 429 while another run of the account is active", async () => {
+    const { CreditError } = await import("./credits");
+    const balance = { unlimited: false, allowance: 60, used: 60, remaining: 0, bonus: 0, available: 0, resetsAt: new Date(Date.now() + 3_600_000).toISOString(), windowHours: 5 };
+    db.handler = call => (call.text.includes("count(*) AS n FROM curialy.chat_sessions") ? { rows: [{ n: "0" }] } : { rows: [], rowCount: 0 });
+    credits.assertCanStart.mockRejectedValueOnce(new CreditError("You've used this window's credits.", "no_credits", 402, balance));
+    const broke = await fetch(`${base}/tasks`, as({ method: "POST", body: JSON.stringify({ prompt: "Build it" }) }));
+    expect(broke.status).toBe(402);
+    expect(await broke.json()).toMatchObject({ code: "no_credits", credits: { available: 0 } });
+
+    db.handler = call => (call.text.includes("count(*) AS n FROM curialy.chat_sessions") ? { rows: [{ n: "1" }] } : { rows: [], rowCount: 0 });
+    const busy = await fetch(`${base}/tasks`, as({ method: "POST", body: JSON.stringify({ prompt: "Build it" }) }));
+    expect(busy.status).toBe(429);
+    expect(await busy.json()).toMatchObject({ code: "busy" });
+  });
+
+  it("never runs a free account's task on this server: without cloud sandboxes it answers 503", async () => {
+    db.handler = call => (call.text.includes("count(*) AS n FROM curialy.chat_sessions") ? { rows: [{ n: "0" }] } : { rows: [], rowCount: 0 });
+    sandboxes.ready = false;
+    try {
+      const response = await fetch(`${base}/tasks`, as({ method: "POST", body: JSON.stringify({ prompt: "Build it" }) }));
+      expect(response.status).toBe(503);
+      expect(await response.json()).toMatchObject({ code: "sandbox_unavailable" });
+    } finally {
+      sandboxes.ready = true;
+    }
+  });
+
+  it("answers the browser status of the account's own task, never with a viewer address", async () => {
+    const OWN = "00000000-0000-4000-8000-0000000000f1";
+    scriptTask(session({ id: OWN, user_id: "user-b" }));
+    const status = await fetch(`${base}/tasks/${OWN}/browser/${ID}`, as());
+    expect(status.status).toBe(200);
+    expect((await status.json()).viewer).toBeNull();
   });
 });

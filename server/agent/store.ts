@@ -1,7 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { AgentEvent, AgentEventBody, AgentTaskSummary, PhaseId, RunOutcome, StatusReason, TaskMode, TaskStatus, ThinkingLevel } from "@shared/agent";
 import { ACTIVE_STATUSES, LEGACY_RESTART_ERROR } from "@shared/taskStatus";
-import { adminUserId, db, query } from "../db/pg";
+import { db, query } from "../db/pg";
 import { cleanText, toJsonb } from "../db/json";
 import { LEASE_SECONDS, WORKER_ID } from "./lifecycle";
 
@@ -37,8 +37,9 @@ function fromRow(row: SessionRow): AgentTaskSummary & { workspaceState: string }
 }
 
 /** Insert a new task already claimed by this worker for its first run (so a crash before it starts is recoverable). */
-export async function createAgentTask(task: { id: string; runId: string; prompt: string; mode: TaskMode; model: string; effort: ThinkingLevel; webSearch: boolean; format: ConversationFormat; team?: boolean }) {
-  const userId = await adminUserId();
+export async function createAgentTask(task: { id: string; userId: string; runId: string; prompt: string; mode: TaskMode; model: string; effort: ThinkingLevel; webSearch: boolean; format: ConversationFormat; team?: boolean }) {
+  const userId = task.userId;
+  owners.set(task.id, userId);
   await query(
     `INSERT INTO curialy.chat_sessions (id, user_id, prompt, status, mode, model, effort, web_search, conversation_format, team,
        run_id, attempt, worker_id, lease_expires_at, status_reason, status_changed_at)
@@ -142,13 +143,35 @@ export async function getConversation(id: string): Promise<{ format: Conversatio
 }
 
 /** Task list rows: everything but the full answer text (lists poll; the answer is on the task page). */
-export async function listAgentTasks(limit = 200) {
-  const { rows } = await query<SessionRow>(`SELECT ${SUMMARY_COLUMNS.replace("answer, ", "NULL::text AS answer, ")} FROM curialy.chat_sessions ORDER BY created_at DESC LIMIT $1`, [limit]);
+/** An account's tasks, newest first. */
+export async function listAgentTasks(userId: string, limit = 200) {
+  const { rows } = await query<SessionRow>(`SELECT ${SUMMARY_COLUMNS.replace("answer, ", "NULL::text AS answer, ")} FROM curialy.chat_sessions WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2`, [userId, limit]);
   return rows.map(fromRow);
+}
+
+// A task's owner never changes, so it is cached once read.
+const owners = new Map<string, string | null>();
+
+/** The account a task belongs to (null: no such task). Runs act with this account's connections and credits. */
+export async function taskOwner(id: string): Promise<string | null> {
+  if (owners.has(id)) return owners.get(id)!;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+  const { rows } = await query<{ user_id: string | null }>("SELECT user_id FROM curialy.chat_sessions WHERE id = $1", [id]);
+  const owner = rows[0]?.user_id ?? null;
+  if (rows[0]) owners.set(id, owner);
+  if (owners.size > 10_000) owners.delete(owners.keys().next().value!);
+  return owner;
+}
+
+/** Active runs of an account (queued, running or stopping). */
+export async function activeRunsOf(userId: string) {
+  const { rows } = await query<{ n: string }>("SELECT count(*) AS n FROM curialy.chat_sessions WHERE user_id = $1 AND status = ANY($2::text[])", [userId, ACTIVE_STATUSES]);
+  return Number(rows[0].n);
 }
 
 export async function deleteAgentTask(id: string) {
   const { rowCount } = await query("DELETE FROM curialy.chat_sessions WHERE id = $1", [id]);
+  owners.delete(id);
   return (rowCount ?? 0) > 0;
 }
 
@@ -203,7 +226,8 @@ export async function listEventsAfter(taskId: string, afterSeq: number, beforeSe
   });
 }
 
-export async function agentStats() {
+/** Task counts for one account. */
+export async function agentStats(userId: string) {
   // Legacy restart rows (failed + the old restart text) count as interrupted, not as failures.
   const { rows } = await query<Record<string, string | null>>(`SELECT COUNT(*) AS total,
       COUNT(*) FILTER (WHERE status = 'completed') AS completed,
@@ -213,7 +237,7 @@ export async function agentStats() {
       COUNT(*) FILTER (WHERE status = 'failed' AND error IS DISTINCT FROM $1) AS failed,
       COUNT(*) FILTER (WHERE status = 'cancelled') AS cancelled,
       COUNT(*) FILTER (WHERE status = 'interrupted' OR (status = 'failed' AND error = $1)) AS interrupted,
-      COUNT(*) FILTER (WHERE status = ANY($2::text[])) AS running, COALESCE(SUM(files_changed), 0) AS files FROM curialy.chat_sessions`, [LEGACY_RESTART_ERROR, ACTIVE_STATUSES]);
+      COUNT(*) FILTER (WHERE status = ANY($2::text[])) AS running, COALESCE(SUM(files_changed), 0) AS files FROM curialy.chat_sessions WHERE user_id = $3`, [LEGACY_RESTART_ERROR, ACTIVE_STATUSES, userId]);
   const row = rows[0];
   return {
     total: Number(row.total), completed: Number(row.completed), completedWithIssues: Number(row.completed_with_issues ?? 0), failed: Number(row.failed), cancelled: Number(row.cancelled),

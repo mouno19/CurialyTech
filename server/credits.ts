@@ -1,0 +1,242 @@
+import { randomBytes } from "node:crypto";
+import { DEFAULT_CREDIT_SETTINGS, MIN_CREDITS_TO_START, type CreditBalance, type CreditSettings } from "@shared/credits";
+import { db, query } from "./db/pg";
+
+// Credits: each account gets an allowance per window (default 60 every 5 hours). A window opens with
+// the first credit spent after the previous one ended. Bonus credits (promo codes, grants) are spent
+// after the window's and never expire. Admins are not charged. Every change is a credit_events row.
+
+export type UserCredits = {
+  id: string; role: string; credit_allowance: number | null; bonus_credits: string; window_started_at: Date | null; window_used: string;
+};
+
+export class CreditError extends Error {
+  constructor(message: string, readonly code: "no_credits" | "invalid_code" | "code_used" | "busy", readonly status = 402, readonly balance?: CreditBalance) {
+    super(message);
+  }
+}
+
+// ---- Settings (one row, cached briefly: every run start reads them) ----
+
+let settingsCache: { at: number; value: CreditSettings } | null = null;
+
+export async function getSettings(): Promise<CreditSettings> {
+  if (settingsCache && Date.now() - settingsCache.at < 30_000) return settingsCache.value;
+  const { rows } = await query<{ value: Partial<CreditSettings> }>("SELECT value FROM curialy.app_settings WHERE key = 'credits'");
+  const value = { ...DEFAULT_CREDIT_SETTINGS, ...(rows[0]?.value ?? {}) };
+  settingsCache = { at: Date.now(), value };
+  return value;
+}
+
+export async function saveSettings(patch: Partial<CreditSettings>, by: string) {
+  const next = { ...(await getSettings()), ...patch };
+  if (!Number.isInteger(next.creditsPerWindow) || next.creditsPerWindow < 0 || next.creditsPerWindow > 100_000) throw new CreditError("Credits per window must be a whole number from 0 to 100000.", "invalid_code", 400);
+  if (!(next.windowHours >= 1 && next.windowHours <= 168)) throw new CreditError("A window lasts from 1 to 168 hours.", "invalid_code", 400);
+  await query(
+    "INSERT INTO curialy.app_settings (key, value, updated_by, updated_at) VALUES ('credits', $1, $2, now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()",
+    [JSON.stringify(next), by],
+  );
+  settingsCache = { at: Date.now(), value: next };
+  return next;
+}
+
+// ---- Balance ----
+
+export function balanceOf(row: UserCredits, settings: CreditSettings, now = Date.now()): CreditBalance {
+  const allowance = row.credit_allowance ?? settings.creditsPerWindow;
+  const bonus = Number(row.bonus_credits);
+  const windowMs = settings.windowHours * 3_600_000;
+  const open = row.window_started_at !== null && now < row.window_started_at.getTime() + windowMs;
+  const used = open ? Number(row.window_used) : 0;
+  const remaining = Math.max(0, allowance - used);
+  return {
+    unlimited: row.role === "admin",
+    allowance, used: round(used), remaining: round(remaining), bonus: round(bonus), available: round(remaining + bonus),
+    resetsAt: open ? new Date(row.window_started_at!.getTime() + windowMs).toISOString() : null,
+    windowHours: settings.windowHours,
+  };
+}
+
+const round = (value: number) => Math.round(value * 100) / 100;
+const COLUMNS = "id, role, credit_allowance, bonus_credits, window_started_at, window_used";
+
+export async function getBalance(userId: string): Promise<CreditBalance> {
+  const [{ rows }, settings] = await Promise.all([query<UserCredits>(`SELECT ${COLUMNS} FROM curialy.users WHERE id = $1`, [userId]), getSettings()]);
+  if (!rows[0]) throw new CreditError("Account not found.", "invalid_code", 404);
+  return balanceOf(rows[0], settings);
+}
+
+/** Refuse to start a run without credits; admins always can. */
+export async function assertCanStart(userId: string) {
+  const balance = await getBalance(userId);
+  if (balance.unlimited || balance.available >= MIN_CREDITS_TO_START) return balance;
+  throw new CreditError(outOfCreditsMessage(balance), "no_credits", 402, balance);
+}
+
+/** In words that read right in any time zone (the client shows the clock time itself). */
+export function outOfCreditsMessage(balance: CreditBalance) {
+  if (!balance.resetsAt) return "Your account has no credits right now. Redeem a promo code to continue.";
+  const minutes = Math.max(1, Math.ceil((Date.parse(balance.resetsAt) - Date.now()) / 60_000));
+  const wait = minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h${minutes % 60 ? ` ${minutes % 60} min` : ""}`;
+  return `You've used this window's credits. They refill in ${wait}; a promo code adds more now.`;
+}
+
+/**
+ * Charge credits for usage: from the window first (opening one if none is open), then bonus credits.
+ * Never fails for lack of credits (a response already happened); returns the balance afterwards.
+ */
+export async function charge(userId: string, amount: number, sessionId: string | null, detail: string): Promise<CreditBalance> {
+  const settings = await getSettings();
+  const client = await db().connect();
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query<UserCredits>(`SELECT ${COLUMNS} FROM curialy.users WHERE id = $1 FOR UPDATE`, [userId]);
+    const row = rows[0];
+    if (!row) throw new Error("Account not found.");
+    if (row.role === "admin" || amount <= 0) {
+      await client.query("COMMIT");
+      return balanceOf(row, settings);
+    }
+    const now = Date.now();
+    const before = balanceOf(row, settings, now);
+    const windowStart = before.resetsAt ? row.window_started_at! : new Date(now);
+    const fromWindow = Math.min(before.remaining, amount);
+    const fromBonus = Math.min(before.bonus, amount - fromWindow);
+    // Whatever neither covers still counts against the window (it ends at the reset).
+    const windowUsed = before.used + amount - fromBonus;
+    const { rows: [updated] } = await client.query<UserCredits>(
+      `UPDATE curialy.users SET window_started_at = $2, window_used = $3, bonus_credits = bonus_credits - $4 WHERE id = $1 RETURNING ${COLUMNS}`,
+      [userId, windowStart, round(windowUsed), round(fromBonus)],
+    );
+    await client.query("INSERT INTO curialy.credit_events (user_id, kind, amount, session_id, detail) VALUES ($1, 'usage', $2, $3, $4)", [userId, -round(amount), sessionId, detail]);
+    await client.query("COMMIT");
+    return balanceOf(updated, settings, now);
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/** Admin: add (or, with a negative amount, remove) bonus credits. */
+export async function grant(userId: string, amount: number, by: string, note: string) {
+  if (!Number.isFinite(amount) || amount === 0 || Math.abs(amount) > 1_000_000) throw new CreditError("Enter a number of credits (not zero).", "invalid_code", 400);
+  const { rowCount } = await query("UPDATE curialy.users SET bonus_credits = GREATEST(0, bonus_credits + $2) WHERE id = $1", [userId, round(amount)]);
+  if (!rowCount) throw new CreditError("Account not found.", "invalid_code", 404);
+  await query("INSERT INTO curialy.credit_events (user_id, kind, amount, detail, created_by) VALUES ($1, 'grant', $2, $3, $4)", [userId, round(amount), note.slice(0, 200) || null, by]);
+  return getBalance(userId);
+}
+
+/** Admin: a per-window allowance for one account (null: back to the default). */
+export async function setAllowance(userId: string, allowance: number | null, by: string) {
+  if (allowance !== null && (!Number.isInteger(allowance) || allowance < 0 || allowance > 100_000)) throw new CreditError("The allowance is a whole number from 0 to 100000.", "invalid_code", 400);
+  const { rowCount } = await query("UPDATE curialy.users SET credit_allowance = $2 WHERE id = $1", [userId, allowance]);
+  if (!rowCount) throw new CreditError("Account not found.", "invalid_code", 404);
+  await query("INSERT INTO curialy.credit_events (user_id, kind, amount, detail, created_by) VALUES ($1, 'adjust', 0, $2, $3)", [userId, allowance === null ? "allowance reset to the default" : `allowance set to ${allowance} per window`, by]);
+  return getBalance(userId);
+}
+
+// ---- Promo codes ----
+
+export type PromoCode = {
+  id: string; code: string; credits: number; forUser: { id: string; login: string | null } | null; maxRedemptions: number | null;
+  redemptions: number; expiresAt: string | null; disabledAt: string | null; note: string | null; createdAt: string;
+  state: "active" | "used_up" | "expired" | "disabled";
+};
+
+const CODE_PATTERN = /^[A-Z0-9][A-Z0-9-]{3,31}$/;
+export const normalizeCode = (code: string) => code.trim().toUpperCase();
+
+function newCode() {
+  // No look-alike characters (0/O, 1/I/L).
+  const alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  const bytes = randomBytes(10);
+  const body = Array.from(bytes, byte => alphabet[byte % alphabet.length]).join("");
+  return `${body.slice(0, 5)}-${body.slice(5)}`;
+}
+
+type PromoRow = {
+  id: string; code: string; credits: number; for_user_id: string | null; for_login: string | null; max_redemptions: number | null; redemptions: number;
+  expires_at: Date | null; disabled_at: Date | null; note: string | null; created_at: Date;
+};
+
+function promoOf(row: PromoRow): PromoCode {
+  const state = row.disabled_at ? "disabled" : row.expires_at && row.expires_at.getTime() <= Date.now() ? "expired" : row.max_redemptions !== null && row.redemptions >= row.max_redemptions ? "used_up" : "active";
+  return {
+    id: row.id, code: row.code, credits: row.credits, forUser: row.for_user_id ? { id: row.for_user_id, login: row.for_login } : null,
+    maxRedemptions: row.max_redemptions, redemptions: row.redemptions, expiresAt: row.expires_at?.toISOString() ?? null,
+    disabledAt: row.disabled_at?.toISOString() ?? null, note: row.note, createdAt: row.created_at.toISOString(), state,
+  };
+}
+
+export async function listPromoCodes(): Promise<PromoCode[]> {
+  const { rows } = await query<PromoRow>(
+    `SELECT p.*, u.login AS for_login FROM curialy.promo_codes p LEFT JOIN curialy.users u ON u.id = p.for_user_id ORDER BY p.created_at DESC LIMIT 500`,
+  );
+  return rows.map(promoOf);
+}
+
+export async function createPromoCode(input: { code?: string; credits: number; forUserId?: string | null; maxRedemptions?: number | null; expiresAt?: string | null; note?: string }, by: string) {
+  const code = input.code ? normalizeCode(input.code) : newCode();
+  if (!CODE_PATTERN.test(code)) throw new CreditError("A code is 4 to 32 letters, digits or dashes.", "invalid_code", 400);
+  if (!Number.isInteger(input.credits) || input.credits < 1 || input.credits > 1_000_000) throw new CreditError("Credits must be a whole number from 1 to 1000000.", "invalid_code", 400);
+  // A code for one person is redeemable once unless the admin says otherwise.
+  const max = input.maxRedemptions === undefined ? (input.forUserId ? 1 : null) : input.maxRedemptions;
+  if (max !== null && (!Number.isInteger(max) || max < 1 || max > 1_000_000)) throw new CreditError("Uses must be a whole number from 1 to 1000000, or unlimited.", "invalid_code", 400);
+  const expires = input.expiresAt ? new Date(input.expiresAt) : null;
+  if (expires && (Number.isNaN(expires.getTime()) || expires.getTime() <= Date.now())) throw new CreditError("The expiry must be a date in the future.", "invalid_code", 400);
+  try {
+    const { rows } = await query<{ id: string }>(
+      "INSERT INTO curialy.promo_codes (code, credits, for_user_id, max_redemptions, expires_at, note, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
+      [code, input.credits, input.forUserId || null, max, expires, input.note?.trim().slice(0, 200) || null, by],
+    );
+    return (await listPromoCodes()).find(promo => promo.id === rows[0].id)!;
+  } catch (error) {
+    if ((error as { code?: string }).code === "23505") throw new CreditError("That code already exists.", "code_used", 409);
+    if ((error as { code?: string }).code === "23503") throw new CreditError("That account doesn't exist.", "invalid_code", 404);
+    throw error;
+  }
+}
+
+export async function disablePromoCode(id: string) {
+  const { rowCount } = await query("UPDATE curialy.promo_codes SET disabled_at = coalesce(disabled_at, now()) WHERE id = $1", [id]);
+  if (!rowCount) throw new CreditError("Promo code not found.", "invalid_code", 404);
+}
+
+/** A user redeems a code: its credits become bonus credits. */
+export async function redeemPromoCode(userId: string, rawCode: string) {
+  const code = normalizeCode(rawCode);
+  if (!CODE_PATTERN.test(code)) throw new CreditError("That code isn't valid.", "invalid_code", 400);
+  const client = await db().connect();
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query<PromoRow>("SELECT *, NULL::text AS for_login FROM curialy.promo_codes WHERE upper(code) = $1 FOR UPDATE", [code]);
+    const promo = rows[0] ? promoOf(rows[0]) : null;
+    // One message for unknown codes and codes meant for someone else: a code's existence is not revealed.
+    if (!promo || (promo.forUser && promo.forUser.id !== userId)) throw new CreditError("That code isn't valid.", "invalid_code", 400);
+    if (promo.state === "disabled" || promo.state === "expired") throw new CreditError("That code has expired.", "invalid_code", 400);
+    if (promo.state === "used_up") throw new CreditError("That code has already been used.", "code_used", 409);
+    const inserted = await client.query("INSERT INTO curialy.promo_redemptions (code_id, user_id, credits) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", [promo.id, userId, promo.credits]);
+    if (!inserted.rowCount) throw new CreditError("You've already redeemed this code.", "code_used", 409);
+    await client.query("UPDATE curialy.promo_codes SET redemptions = redemptions + 1 WHERE id = $1", [promo.id]);
+    await client.query("UPDATE curialy.users SET bonus_credits = bonus_credits + $2 WHERE id = $1", [userId, promo.credits]);
+    await client.query("INSERT INTO curialy.credit_events (user_id, kind, amount, detail) VALUES ($1, 'promo', $2, $3)", [userId, promo.credits, `code ${promo.code}`]);
+    await client.query("COMMIT");
+    return { credits: promo.credits, balance: await getBalance(userId) };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/** Recent credit activity for an account (admin view and the account's own history). */
+export async function creditHistory(userId: string, limit = 50) {
+  const { rows } = await query<{ kind: string; amount: string; detail: string | null; session_id: string | null; created_at: Date }>(
+    "SELECT kind, amount, detail, session_id, created_at FROM curialy.credit_events WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2",
+    [userId, limit],
+  );
+  return rows.map(row => ({ kind: row.kind, amount: Number(row.amount), detail: row.detail, taskId: row.session_id, at: row.created_at.toISOString() }));
+}

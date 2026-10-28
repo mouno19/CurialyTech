@@ -239,6 +239,7 @@ async function runCheck(page, driver, check, record, ctx) {
   await page.goto(`${ORIGIN}/__ui-check/blank`, { waitUntil: "load", timeout: 15_000 });
   fx.reset();
   fx.state.signedIn = !check.signedOut;
+  fx.state.account = check.account ?? "operator";
   driver.state.inflight.clear();
   driver.state.lastActivity = Date.now();
   driver.state.record = record;

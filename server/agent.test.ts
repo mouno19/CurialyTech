@@ -56,6 +56,19 @@ describe("workspace confinement", () => {
   });
 });
 
+describe("operator-only tools", () => {
+  it("are never offered to a free account's run, and refused if one asks for them anyway", async () => {
+    const offered = (operator: boolean) => tools.toolsFor({ coding: true, web: true, eager: false, github: true, operator }).map(tool => tool.name);
+    for (const name of tools.OPERATOR_TOOLS) expect(offered(false)).not.toContain(name);
+    expect(offered(false)).toContain("run_command");
+    const { value } = ctx();
+    for (const name of ["deploy_preview", "delegate_research", "browser_click", "browser_type"]) {
+      const outcome = await tools.executeTool(name, {}, { ...value, operator: false });
+      expect(outcome, name).toMatchObject({ ok: false, summary: "Not available" });
+    }
+  });
+});
+
 describe("file tools", () => {
   it("creates, edits and reports diffs", async () => {
     const { value, events } = ctx();

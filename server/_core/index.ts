@@ -5,7 +5,8 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
-import { authConfigured, loginHandler, logoutHandler, requireAdmin, sameOriginOnly } from "../auth";
+import { loginHandler, logoutHandler, requireUser, sameOriginOnly, sessionsConfigured } from "../auth";
+import { accountRouter, adminRouter } from "../admin";
 import { agentRouter, githubReposHandler } from "../agent/routes";
 import { isBusy, shutdownRuns, startLifecycle } from "../agent/runner";
 import { startWorkspaceSweeper } from "../agent/workspaces";
@@ -13,6 +14,8 @@ import { startDeploymentSweeper } from "../agent/deploy";
 import { closeDb, migrate } from "../db/pg";
 import { registerGitHubAuth } from "../auth-github";
 import { previewHandler } from "../agent/preview";
+import { SANDBOX_MODE } from "../agent/sandbox";
+import { startCloudSandbox, stopCloudSandboxes } from "../agent/e2b";
 
 async function startServer() {
   const app = express();
@@ -24,7 +27,10 @@ async function startServer() {
   await migrate();
   // Runs whose worker is gone become interrupted (with terminal events), never "running" forever.
   await startLifecycle();
-  if (!authConfigured()) console.warn("[auth] ADMIN_PASSWORD_HASH / SESSION_SECRET missing: the workspace is locked until they are set.");
+  if (!sessionsConfigured()) console.warn("[auth] SESSION_SECRET missing: nobody can sign in until it is set.");
+  // Agent commands run in a cloud sandbox per task when it is configured, never on this server.
+  if (SANDBOX_MODE === "e2b") startCloudSandbox();
+  console.log(`[sandbox] agent commands run ${SANDBOX_MODE === "e2b" ? "in a cloud sandbox per task" : SANDBOX_MODE === "systemd" ? "on this server as the sandbox user" : "unsandboxed (development)"}`);
   startWorkspaceSweeper(isBusy);
   startDeploymentSweeper(isBusy);
   // Agent previews: token-authenticated, sandboxed (CSP), and mounted before the body parsers so
@@ -49,11 +55,18 @@ async function startServer() {
   });
   app.use("/api", sameOriginOnly);
   app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
-  app.post("/api/auth/login", loginHandler);
+  // Express 4 does not catch rejected async handlers.
+  app.post("/api/auth/login", (req, res) => void loginHandler(req, res).catch(error => {
+    console.error("[auth] sign-in failed:", error instanceof Error ? error.message : error);
+    if (!res.headersSent) res.status(503).json({ error: "Sign-in isn't available right now. Try again in a moment." });
+  }));
   app.post("/api/auth/logout", logoutHandler);
   registerGitHubAuth(app);
-  app.use("/api/agent", requireAdmin, agentRouter());
-  app.get("/api/github/repos", requireAdmin, (req, res) => void githubReposHandler(req, res).catch(error => res.status(502).json({ error: error instanceof Error ? error.message : "GitHub request failed" })));
+  // Every account reaches the agent; each route checks that the task, file or repository is its own.
+  app.use("/api/agent", requireUser, agentRouter());
+  app.use("/api/account", accountRouter());
+  app.use("/api/admin", adminRouter());
+  app.get("/api/github/repos", requireUser, (req, res) => void githubReposHandler(req, res).catch(error => res.status(502).json({ error: error instanceof Error ? error.message : "GitHub request failed" })));
   // tRPC API
   app.use(
     "/api/trpc",
@@ -87,6 +100,8 @@ async function startServer() {
     try {
       const stopped = await shutdownRuns(15_000);
       if (stopped) console.log(`[server] interrupted ${stopped} running task(s)`);
+      // Cloud sandboxes belong to this process; the next one would stop them anyway.
+      if (SANDBOX_MODE === "e2b") await Promise.race([stopCloudSandboxes(), new Promise(resolve => setTimeout(resolve, 5000))]);
     } catch (error) {
       console.error("[server] shutdown:", error instanceof Error ? error.message : error);
     }

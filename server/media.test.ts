@@ -258,7 +258,9 @@ describe("media storage (snowflake.ts)", () => {
     await sf.storeMedia({ buffer: Buffer.from("png"), filename: "a.png", mimeType: "image/png", kind: "upload" });
     expect(sdk.accounts).toEqual(["ab12345.ap-southeast-7.aws"]);
     const values = insert.mock.calls.find(([text]) => String(text).includes("INSERT INTO curialy.file_metadata"))?.[1] as unknown[];
-    expect(values.at(-1)).toBe("ab12345.ap-southeast-7.aws");
+    // The account, then the owner (null: the task's owner, or none for a direct upload without one).
+    expect(values.at(-2)).toBe("ab12345.ap-southeast-7.aws");
+    expect(values.at(-1)).toBeNull();
     // Recorded elsewhere, unrecorded (looked up here first), recorded here.
     expect(sf.placement({ id: "a", stage_account: "og1.ap-southeast-7.aws" })).toBe("elsewhere");
     expect(sf.placement({ id: "b", stage_account: null })).toBe("unknown");

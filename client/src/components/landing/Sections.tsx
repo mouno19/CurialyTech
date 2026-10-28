@@ -41,7 +41,7 @@ export function Capabilities() {
             </h2>
             <p className="lp-lede">
               Most AI tools autocomplete a line. Curialy owns the whole loop, from reading the ticket to handing you a tested
-              change and a live preview.
+              change you can see running.
             </p>
             <p className="lp-pill-note"><span className="lp-dot" data-tone="moss" aria-hidden="true" />Any language, any framework it can run in its sandbox</p>
           </Reveal>

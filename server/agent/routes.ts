@@ -8,7 +8,9 @@ import { Router, type NextFunction, type Request, type Response } from "express"
 import { z } from "zod";
 import { MODELS, type AgentEvent, type AgentEventBody } from "@shared/agent";
 import { isActiveStatus, isFinalStatus } from "@shared/taskStatus";
-import { deleteMedia, getMedia, isElsewhere, listMedia, markMediaMissing, mediaStatus, openMedia, storageConfig, storeMedia, assertStorageAvailable } from "../media/snowflake";
+import { deleteMedia, getMedia, isElsewhere, listMedia, markMediaMissing, mediaStatus, mediaUsage, openMedia, storageConfig, storeMedia, assertStorageAvailable } from "../media/snowflake";
+import { accountOf, rateLimited, requireAdmin } from "../auth";
+import { assertCanStart, CreditError } from "../credits";
 import { redact, StorageError } from "../media/storage-errors";
 import { isLive, liveChannel } from "./bus";
 import { deployConfigured, deploymentSession, destroyDeployment, listDeployments, listTaskDeployments } from "./deploy";
@@ -16,8 +18,8 @@ import { appendTaskEvent } from "./events";
 import { countActiveRuns, getLifecycleRow, judgeStaleness } from "./lifecycle";
 import { PROVIDER_ENV, probeProviders } from "./providers";
 import { activeTaskCount, followUp, isBusy, isRunning, requestCancel, RESTARTING, retryTask, startDeployRun, startTask, TaskRejected } from "./runner";
-import { listWorkspaceTree, removeWorkspace, resolveInWorkspace, SandboxError, workspacePath } from "./sandbox";
-import { agentStats, deleteAgentTask, getAgentTask, lastSeq, listAgentTasks, listEventsAfter, listWorkspaceSnapshot, loadWorkspaceSnapshot, readSnapshotFile } from "./store";
+import { cloudSandboxReady, listWorkspaceTree, removeWorkspace, resolveInWorkspace, SANDBOX_MODE, SandboxError, workspacePath } from "./sandbox";
+import { activeRunsOf, agentStats, deleteAgentTask, getAgentTask, lastSeq, listAgentTasks, listEventsAfter, listWorkspaceSnapshot, loadWorkspaceSnapshot, readSnapshotFile, taskOwner } from "./store";
 import { findArchivedBuild, findBuildDirs, isPublishExcluded, isUnbuiltTemplate, materializeWorkspace, readWorkspaceFiles, restoreWorkspace, withWorkspaceLock } from "./workspaces";
 import { query } from "../db/pg";
 import { branchHead, createRepo, disconnect, getConnection, GITHUB_SCOPES, githubApi, GitHubError, isValidRepoName, listRepos, oauthConfigured, pushProjectToRepo, RemoteChangedError } from "../services/github";
@@ -49,12 +51,12 @@ const followUpSchema = z.object({
 const runRefSchema = z.object({ runId: z.string().uuid().nullish() });
 const deploySchema = z.object({ confirm: z.literal(true, "Confirm the deploy to start it."), runId: z.string().uuid().nullish() });
 
-/** Resolve uploaded media ids (from /media) into attachment references. */
-async function resolveAttachments(ids: string[]) {
+/** Resolve uploaded media ids (from /media) into attachment references; only the account's own files. */
+async function resolveAttachments(ids: string[], userId: string) {
   const refs = [];
   for (const id of Array.from(new Set(ids))) {
     const media = await getMedia(id);
-    if (!media) throw new TaskRejected(`Attachment ${id} not found.`);
+    if (!media || media.user_id !== userId) throw new TaskRejected(`Attachment ${id} not found.`);
     if (media.state === "missing") throw new TaskRejected(`${media.filename} is no longer available; attach it again.`);
     if (isElsewhere(media)) throw new TaskRejected(`${media.filename} is in an earlier storage location this server no longer reads; attach it again.`);
     refs.push({ id: media.id, filename: media.filename, stagePath: media.stage_path, mimeType: media.mime_type, sizeBytes: media.size_bytes });
@@ -79,14 +81,17 @@ const exportSchema = z.object({
 });
 
 /** GET repositories for the picker: the shape the UI (and /api/github/repos) promises. */
-export async function githubReposHandler(_req: Request, res: Response) {
-  const connection = await getConnection();
+export async function githubReposHandler(req: Request, res: Response) {
+  const connection = await getConnection(accountOf(req).id);
   if (!connection) return res.status(409).json({ error: "Connect GitHub first.", repos: [] });
   const repos = await listRepos(connection.token, 50);
   res.json({ login: connection.login, repos: repos.map(({ id, name, full_name, private: isPrivate, default_branch, description, updated_at, language }) => ({ id, name, full_name, private: isPrivate, default_branch, description, updated_at, language })) });
 }
 
 // Uploads are held in memory and streamed straight to the file store; they never touch the VPS disk.
+// Free accounts get a bounded vault (the operator's is unbounded).
+const MEDIA_QUOTA_BYTES = 250 * 1024 * 1024;
+const MEDIA_QUOTA_FILES = 500;
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 1 } });
 
 function sendStorageError(res: Response, error: StorageError) {
@@ -118,10 +123,63 @@ const handle = (fn: (req: Request, res: Response) => Promise<unknown>) => (req: 
   fn(req, res).catch(error => (res.headersSent ? res.end() : sendError(res, error)));
 };
 
+/** The task, if it exists and the signed-in account may see it (its owner, or the operator); else 404. */
 async function taskOr404(req: Request, res: Response) {
-  const task = await getAgentTask(String(req.params.id));
+  const user = accountOf(req);
+  const id = String(req.params.id);
+  const owner = await taskOwner(id);
+  const task = owner === user.id || (owner && user.role === "admin") ? await getAgentTask(id) : undefined;
   if (!task) res.status(404).json({ error: "Task not found." });
   return task;
+}
+
+/** A media file the signed-in account owns (the operator may open any); else undefined (answered 404). */
+async function mediaFor(req: Request) {
+  const user = accountOf(req);
+  const media = await getMedia(String(req.params.id));
+  return media && (media.user_id === user.id || user.role === "admin") ? media : undefined;
+}
+
+/** The live browser view is clickable: only the operator gets its address (see browser.ts liveBrowser). */
+function viewerFor<T extends { viewer: string | null }>(req: Request, status: T): T {
+  return accountOf(req).role === "admin" ? status : { ...status, viewer: null };
+}
+
+// Starting a run is serialized per account, so "one run at a time" holds for simultaneous requests.
+const startChains = new Map<string, Promise<unknown>>();
+function oneAtATime<T>(userId: string, fn: () => Promise<T>): Promise<T> {
+  const previous = startChains.get(userId) ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(fn);
+  startChains.set(userId, next);
+  void next.finally(() => { if (startChains.get(userId) === next) startChains.delete(userId); }).catch(() => undefined);
+  return next;
+}
+
+/**
+ * Free accounts: their commands run only in a cloud sandbox of their own (never on this server, where
+ * tasks would share one user), with credits to start, one run at a time. The operator is not limited.
+ */
+async function admitRun(req: Request, res: Response) {
+  const user = accountOf(req);
+  if (user.role === "admin") return true;
+  if (!cloudSandboxReady()) {
+    res.status(503).json({ error: "Tasks can't start right now: the command sandbox isn't available. Try again later.", code: "sandbox_unavailable" });
+    return false;
+  }
+  if (await activeRunsOf(user.id) > 0) {
+    res.status(429).json({ error: "You already have a task running. Wait for it to finish (or stop it) before starting another.", code: "busy" });
+    return false;
+  }
+  try {
+    await assertCanStart(user.id);
+    return true;
+  } catch (error) {
+    if (error instanceof CreditError) {
+      res.status(402).json({ error: error.message, code: error.code, credits: error.balance });
+      return false;
+    }
+    throw error;
+  }
 }
 
 const MAX_VIEW_BYTES = 25 * 1024 * 1024;
@@ -144,8 +202,11 @@ export function agentRouter() {
   router.get("/models", (_req, res) => res.json({ models: MODELS }));
 
   router.get("/health", handle(async (req, res) => {
-    const deep = req.query.deep === "1";
-    if (!deep && healthCache && Date.now() - healthCache.at < 20_000) return res.json({ providers: healthCache.result, activeTasks: await activeRunsAnywhere() });
+    const user = accountOf(req);
+    // A deep check probes every provider: the operator's tool. Accounts see their own active runs.
+    const deep = req.query.deep === "1" && user.role === "admin";
+    const activeTasks = () => (user.role === "admin" ? activeRunsAnywhere() : activeRunsOf(user.id));
+    if (!deep && healthCache && Date.now() - healthCache.at < 20_000) return res.json({ providers: healthCache.result, activeTasks: await activeTasks() });
     const [providers, media, database] = await Promise.all([
       probeProviders(deep),
       // Answered from the storage breaker (no I/O) unless a deep check was asked for.
@@ -153,7 +214,7 @@ export function agentRouter() {
       (async () => {
         const started = Date.now();
         try {
-          await agentStats();
+          await query("SELECT 1");
           return { id: "data", label: "Curialy Data", ok: true, latencyMs: Date.now() - started, detail: "Database connected", configured: true };
         } catch (error) {
           return { id: "data", label: "Curialy Data", ok: false, latencyMs: Date.now() - started, detail: error instanceof Error ? brandText(redact(error.message)) : "error", configured: Boolean(process.env.TIGER_DATABASE_URL) };
@@ -162,10 +223,10 @@ export function agentRouter() {
     ]);
     const result = [database, ...providers, media];
     if (!deep) healthCache = { at: Date.now(), result };
-    res.json({ providers: result, activeTasks: await activeRunsAnywhere() });
+    res.json({ providers: result, activeTasks: await activeTasks() });
   }));
 
-  router.get("/keys", (_req, res) => {
+  router.get("/keys", requireAdmin, (_req, res) => {
     const mask = (value: string | undefined) => (value ? `••••${value.slice(-4)}` : null);
     const env = process.env;
     res.json({
@@ -176,6 +237,10 @@ export function agentRouter() {
         { id: "research", label: "Research Agent", configured: Boolean(PROVIDER_ENV.manusKey), masked: mask(PROVIDER_ENV.manusKey) },
         { id: "browser", label: "Live Browser", configured: Boolean(PROVIDER_ENV.browserbaseKey), masked: mask(PROVIDER_ENV.browserbaseKey) },
         { id: "deploy", label: "Cloud Deploy", configured: Boolean(PROVIDER_ENV.renderKey), masked: mask(PROVIDER_ENV.renderKey) },
+        {
+          id: "sandbox", label: "Cloud Sandbox (agent commands)", configured: SANDBOX_MODE === "e2b" && Boolean(env.E2B_API_KEY), masked: mask(env.E2B_API_KEY),
+          note: SANDBOX_MODE === "e2b" ? "Every task's commands, installs and builds run in a sandbox of its own, not on this server." : "Not in use: commands run on this server as the sandbox user.",
+        },
         { id: "data", label: "Curialy Data (database)", configured: Boolean(env.TIGER_DATABASE_URL), masked: env.TIGER_DATABASE_URL ? "connected" : null },
         // The vault's own login (it may be a separate account): only whether it is complete.
         { id: "vault", label: "Curialy Vault (media storage)", configured: storageConfig().ok, masked: storageConfig().ok ? "set" : null },
@@ -187,14 +252,21 @@ export function agentRouter() {
     });
   });
 
-  router.get("/stats", handle(async (_req, res) => res.json({ ...(await agentStats()), active: await activeRunsAnywhere() })));
+  router.get("/stats", handle(async (req, res) => {
+    const user = accountOf(req);
+    res.json({ ...(await agentStats(user.id)), active: await activeRunsOf(user.id) });
+  }));
 
-  router.get("/tasks", handle(async (_req, res) => res.json({ tasks: await listAgentTasks() })));
+  router.get("/tasks", handle(async (req, res) => res.json({ tasks: await listAgentTasks(accountOf(req).id) })));
 
   router.post("/tasks", handle(async (req, res) => {
     const input = createSchema.parse(req.body);
-    const taskId = await startTask(input, await resolveAttachments(input.attachmentIds), { clientMessageId: input.clientMessageId });
-    res.status(201).json({ taskId });
+    const user = accountOf(req);
+    await oneAtATime(user.id, async () => {
+      if (!(await admitRun(req, res))) return;
+      const taskId = await startTask(input, await resolveAttachments(input.attachmentIds, user.id), { clientMessageId: input.clientMessageId, userId: user.id, operator: user.role === "admin" });
+      res.status(201).json({ taskId });
+    });
   }));
 
   router.get("/tasks/:id", handle(async (req, res) => {
@@ -238,25 +310,33 @@ export function agentRouter() {
     const task = await taskOr404(req, res);
     if (!task) return;
     const { runId } = runRefSchema.parse(req.body ?? {});
-    const started = await retryTask(task.id, { expectedRunId: runId === undefined ? undefined : runId });
-    res.status(202).json({ status: "queued", ...started });
+    await oneAtATime(accountOf(req).id, async () => {
+      if (!(await admitRun(req, res))) return;
+      const started = await retryTask(task.id, { expectedRunId: runId === undefined ? undefined : runId });
+      res.status(202).json({ status: "queued", ...started });
+    });
   }));
 
   router.post("/tasks/:id/messages", handle(async (req, res) => {
     const task = await taskOr404(req, res);
     if (!task) return;
     const input = followUpSchema.parse(req.body);
-    const started = await followUp(task.id, input.prompt, await resolveAttachments(input.attachmentIds), { clientMessageId: input.clientMessageId, expectedRunId: input.expectedRunId });
-    res.status(202).json({ ok: true, status: "queued", ...started });
+    await oneAtATime(accountOf(req).id, async () => {
+      if (!(await admitRun(req, res))) return;
+      const started = await followUp(task.id, input.prompt, await resolveAttachments(input.attachmentIds, accountOf(req).id), { clientMessageId: input.clientMessageId, expectedRunId: input.expectedRunId });
+      res.status(202).json({ ok: true, status: "queued", ...started });
+    });
   }));
 
   // The Deploy action: a confirmed, separate run that may publish one temporary private preview.
-  router.post("/tasks/:id/deploy", handle(async (req, res) => {
+  // Operator only: a public preview is built from a repository in the operator's GitHub account and
+  // hosted on the operator's hosting account, so it is never offered for other accounts' code.
+  router.post("/tasks/:id/deploy", requireAdmin, handle(async (req, res) => {
     const task = await taskOr404(req, res);
     if (!task) return;
     const input = deploySchema.parse(req.body ?? {});
     if (!deployConfigured().ok) return res.status(409).json({ error: "Live previews are not configured on this server." });
-    if (!(await getConnection())) return res.status(409).json({ error: "Connect GitHub first: previews are built from a temporary private repository in your account." });
+    if (!(await getConnection(accountOf(req).id))) return res.status(409).json({ error: "Connect GitHub first: previews are built from a temporary private repository in your account." });
     const started = await startDeployRun(task.id, { expectedRunId: input.runId === undefined ? undefined : input.runId });
     res.status(202).json({ status: "queued", ...started });
   }));
@@ -409,9 +489,9 @@ export function agentRouter() {
 
   // ---- Media (file storage) ----
 
-  router.get("/media", handle(async (_req, res) => {
+  router.get("/media", handle(async (req, res) => {
     const storage = await mediaStatus();
-    res.json({ files: await listMedia(), stage: { ok: storage.ok, detail: storage.detail }, storage });
+    res.json({ files: await listMedia(accountOf(req).id), stage: { ok: storage.ok, detail: storage.detail }, storage });
   }));
 
   /** Storage health from memory; ?probe=1 runs one real check (rate-limited server-side). */
@@ -441,9 +521,38 @@ export function agentRouter() {
     next(error);
   });
 
-  router.post("/media", uploadGuard, uploadOne, handle(async (req, res) => {
+  // Free accounts: refuse before 25 MB is buffered in memory (quota from the declared size), and at
+  // most two uploads at a time each.
+  const uploading = new Map<string, number>();
+  const uploadQuota = (req: Request, res: Response, next: NextFunction) => {
+    const user = accountOf(req);
+    if (user.role === "admin") return next();
+    if ((uploading.get(user.id) ?? 0) >= 2) return res.status(429).json({ error: "Wait for your other uploads to finish.", code: "busy" });
+    void mediaUsage(user.id).then(usage => {
+      const declared = Number(req.headers["content-length"]) || 0;
+      if (usage.bytes + declared > MEDIA_QUOTA_BYTES + 64 * 1024 || usage.files >= MEDIA_QUOTA_FILES) {
+        return res.status(413).json({ error: `Your Media Vault is full (${Math.round(MEDIA_QUOTA_BYTES / 1024 / 1024)} MB or ${MEDIA_QUOTA_FILES} files). Delete files you no longer need, then try again.`, code: "quota" });
+      }
+      uploading.set(user.id, (uploading.get(user.id) ?? 0) + 1);
+      res.on("close", () => {
+        const left = (uploading.get(user.id) ?? 1) - 1;
+        if (left > 0) uploading.set(user.id, left);
+        else uploading.delete(user.id);
+      });
+      next();
+    }, next);
+  };
+
+  router.post("/media", uploadGuard, uploadQuota, uploadOne, handle(async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "Attach a file up to 25 MB." });
-    const stored = await storeMedia({ buffer: req.file.buffer, filename: path.basename(req.file.originalname), mimeType: req.file.mimetype || "application/octet-stream", kind: "upload" });
+    const user = accountOf(req);
+    if (user.role !== "admin") {
+      const usage = await mediaUsage(user.id);
+      if (usage.bytes + req.file.size > MEDIA_QUOTA_BYTES || usage.files >= MEDIA_QUOTA_FILES) {
+        return res.status(413).json({ error: `Your Media Vault is full (${Math.round(MEDIA_QUOTA_BYTES / 1024 / 1024)} MB or ${MEDIA_QUOTA_FILES} files). Delete files you no longer need, then try again.`, code: "quota" });
+      }
+    }
+    const stored = await storeMedia({ buffer: req.file.buffer, filename: path.basename(req.file.originalname), mimeType: req.file.mimetype || "application/octet-stream", kind: "upload", userId: user.id });
     res.status(201).json({ file: { id: stored.id, filename: stored.filename, mimeType: stored.mimeType, sizeBytes: stored.sizeBytes, kind: stored.kind } });
   }));
 
@@ -478,7 +587,7 @@ export function agentRouter() {
 
   /** Explains a failed <img> without touching storage: from the row and the storage breaker only. */
   router.head("/media/:id", handle(async (req, res) => {
-    const media = await getMedia(String(req.params.id));
+    const media = await mediaFor(req);
     if (!media) return res.status(404).end();
     const health = await mediaStatus();
     // Same answer as GET: an artifact whose archived workspace copy matches is served from there.
@@ -495,7 +604,7 @@ export function agentRouter() {
   // Streams through this origin (white-label: the storage host never appears in the browser).
   // 404 unknown, 410 gone, 503 storage unavailable (with Retry-After); never a 500 for storage.
   router.get("/media/:id", handle(async (req, res) => {
-    const media = await getMedia(String(req.params.id));
+    const media = await mediaFor(req);
     if (!media) return res.status(404).json({ error: "Not found.", code: "media_not_found" });
     const download = req.query.download === "1";
     if (req.headers["if-none-match"] === `"${media.id}"`) return res.status(304).end();
@@ -534,7 +643,7 @@ export function agentRouter() {
 
   // Text preview (Markdown, code, CSV, JSON...): first 512 KB as JSON, binary content refused.
   router.get("/media/:id/text", handle(async (req, res) => {
-    const media = await getMedia(String(req.params.id));
+    const media = await mediaFor(req);
     if (!media) return res.status(404).json({ error: "Not found.", code: "media_not_found" });
     if (media.size_bytes > 5 * 1024 * 1024) return res.status(413).json({ error: "Too large to preview; download it instead." });
     let buffer: Buffer | null = null;
@@ -558,7 +667,8 @@ export function agentRouter() {
   }));
 
   router.delete("/media/:id", handle(async (req, res) => {
-    const deleted = await deleteMedia(String(req.params.id));
+    const media = await mediaFor(req);
+    const deleted = media ? await deleteMedia(media.id) : false;
     if (!deleted) return res.status(404).json({ error: "Not found.", code: "media_not_found" });
     // kept: the record is gone, but the stored copy is in another storage account (not removed there).
     res.json({ deleted: true, kept: deleted === "kept" });
@@ -566,8 +676,8 @@ export function agentRouter() {
 
   // ---- GitHub ----
 
-  router.get("/github", handle(async (_req, res) => {
-    const connection = await getConnection();
+  router.get("/github", handle(async (req, res) => {
+    const connection = await getConnection(accountOf(req).id);
     const granted = new Set((connection?.scopes ?? "").split(/[,\s]+/).filter(Boolean));
     res.json({
       configured: oauthConfigured(),
@@ -581,8 +691,8 @@ export function agentRouter() {
     });
   }));
 
-  router.delete("/github", handle(async (_req, res) => {
-    await disconnect();
+  router.delete("/github", handle(async (req, res) => {
+    await disconnect(accountOf(req).id);
     res.json({ disconnected: true });
   }));
 
@@ -594,7 +704,7 @@ export function agentRouter() {
     if (!task) return;
     if (isBusy(task.id) || isActiveStatus(task.status)) return res.status(409).json({ error: "Wait for the task to finish before selecting a repository." });
     const input = linkSchema.parse(req.body ?? {});
-    const connection = await getConnection();
+    const connection = await getConnection(accountOf(req).id);
     if (!connection) return res.status(409).json({ error: "Connect GitHub first." });
     const result = await withWorkspaceLock(task.id, async () => {
       const { dir } = await materializeWorkspace(task.id);
@@ -640,7 +750,7 @@ export function agentRouter() {
   router.post("/tasks/:id/export/plan", handle(async (req, res) => {
     const task = await taskOr404(req, res);
     if (!task) return;
-    const connection = await getConnection();
+    const connection = await getConnection(accountOf(req).id);
     const linked = await linkedRepo(task.id);
     if (linked) return res.json({ target: { kind: "linked", repo: linked.fullName, defaultBranch: linked.branch, url: linked.url }, login: connection?.login ?? null });
     const { files, excluded } = await exportFiles(task.id);
@@ -660,7 +770,7 @@ export function agentRouter() {
     if (!task) return;
     if (isBusy(task.id) || isActiveStatus(task.status)) return res.status(409).json({ error: "Wait for the task to finish before exporting." });
     const input = exportSchema.parse(req.body ?? {});
-    const connection = await getConnection();
+    const connection = await getConnection(accountOf(req).id);
     if (!connection) return res.status(409).json({ error: "Connect GitHub first." });
     const linked = await linkedRepo(task.id);
     if (linked) {
@@ -760,6 +870,9 @@ export function agentRouter() {
     const task = await taskOr404(req, res);
     if (!task) return;
     if (isRunning(task.id)) return res.status(409).json({ error: "Wait for the run to finish; the agent is using the browser." });
+    // Each screenshot opens a cloud browser: capped for free accounts.
+    const user = accountOf(req);
+    if (user.role !== "admin" && rateLimited(`screenshot:${user.id}`, 10)) return res.status(429).json({ error: "That's a lot of screenshots. Wait a few minutes, then try again.", code: "busy" });
     const site = await findPreview(task.id);
     if (!site) return res.status(404).json({ error: "No built web output to screenshot." });
     const result = await browse({ url: previewBaseUrl(task.id, undefined, site.dir), screenshot: true, fullPage: true, waitMs: 1500, signal: AbortSignal.timeout(120_000) });
@@ -775,7 +888,7 @@ export function agentRouter() {
     const task = await taskOr404(req, res);
     if (!task) return;
     res.setHeader("Cache-Control", "no-store");
-    res.json(await sessionStatus(task.id, String(req.params.sessionId), req.query.fresh === "1"));
+    res.json(viewerFor(req, await sessionStatus(task.id, String(req.params.sessionId), req.query.fresh === "1")));
   }));
 
   // Reconnect the live view: only a session this process still drives is live. Anything else has
@@ -788,7 +901,7 @@ export function agentRouter() {
     const key = `${task.id}:${sessionId}`;
     if (Date.now() - (reconnects.get(key) ?? 0) < 5000) return res.status(429).json({ error: "Wait a few seconds before reconnecting again." });
     reconnects.set(key, Date.now());
-    const status = await sessionStatus(task.id, sessionId, true);
+    const status = viewerFor(req, await sessionStatus(task.id, sessionId, true));
     if (status.status === "live") return res.json(status);
     const events = await listEventsAfter(task.id, 0).catch(() => [] as AgentEvent[]);
     const last = [...events].reverse().find(event => event.type === "browser_session" && event.sessionId === sessionId);
@@ -805,8 +918,10 @@ export function agentRouter() {
     const task = await taskOr404(req, res);
     if (!task) return;
     res.setHeader("Cache-Control", "no-store");
-    const github = await getConnection().then(Boolean).catch(() => false);
-    res.json({ deployments: await listTaskDeployments(task.id, isRunning(task.id)), capabilities: { configured: deployConfigured().ok, github } });
+    const user = accountOf(req);
+    const github = await getConnection(user.id).then(Boolean).catch(() => false);
+    // allowed: public previews are an operator feature (see POST /tasks/:id/deploy).
+    res.json({ deployments: await listTaskDeployments(task.id, isRunning(task.id)), capabilities: { configured: deployConfigured().ok, github, allowed: user.role === "admin" } });
   }));
 
   // Links and frames point here instead of at the hosting provider: a redirect while the preview is
@@ -833,9 +948,9 @@ export function agentRouter() {
     res.json({ deployments: await listTaskDeployments(task.id, isRunning(task.id)) });
   }));
 
-  router.get("/deployments", handle(async (_req, res) => res.json({ deployments: await listDeployments(), configured: { ok: deployConfigured().ok } })));
+  router.get("/deployments", requireAdmin, handle(async (_req, res) => res.json({ deployments: await listDeployments(), configured: { ok: deployConfigured().ok } })));
 
-  router.delete("/deployments/:id", handle(async (req, res) => {
+  router.delete("/deployments/:id", requireAdmin, handle(async (req, res) => {
     const id = String(req.params.id);
     if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(404).json({ error: "Not found." });
     res.json({ deleted: await destroyDeployment(id, "user") });

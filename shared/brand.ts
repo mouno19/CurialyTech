@@ -11,6 +11,7 @@ export const BRAND = {
   vault: "Curialy Vault",
   data: "Curialy Data",
   tuning: "Curialy Tuning",
+  sandbox: "Curialy Sandbox",
 } as const;
 
 // Ordered so multi-word names are replaced before their parts.
@@ -27,10 +28,11 @@ const NAMES: [RegExp, string][] = [
   [/\bTiger( Cloud)?\b/g, BRAND.data],
   [/\bTimescale(DB)?\b/g, BRAND.data],
   [/\bRender\b/g, BRAND.deploy],
+  [/\bE2B\b/gi, BRAND.sandbox],
 ];
 
-const VENDOR_HOSTS = /\b(?:https?:\/\/|wss?:\/\/)?[\w.-]*(?:snowflakecomputing\.com|relaystation\.world|browserbase\.com|api\.render\.com|paperinstruments\.com|manus\.(?:ai|im)|tsdb\.cloud\.timescale\.com|timescale\.com|thinkingmachines\.dev)(?:[/?#][^\s"'<>)]*)?/gi;
-const VENDOR_ENV = /\b(SNOWFLAKE_[A-Z_]+|RELAY_API_[A-Z_]+|BROWSERBASE_[A-Z_]+|RENDER_[A-Z_]+|PAPER_API_[A-Z_]+|MANUS_[A-Z_]+|TIGER_[A-Z_]+|TINKER_[A-Z_]+)\b/g;
+const VENDOR_HOSTS = /\b(?:https?:\/\/|wss?:\/\/)?[\w.-]*(?:snowflakecomputing\.com|relaystation\.world|browserbase\.com|api\.render\.com|paperinstruments\.com|manus\.(?:ai|im)|tsdb\.cloud\.timescale\.com|timescale\.com|thinkingmachines\.dev|e2b\.(?:app|dev))(?:[/?#][^\s"'<>)]*)?/gi;
+const VENDOR_ENV = /\b(SNOWFLAKE_[A-Z_]+|RELAY_API_[A-Z_]+|BROWSERBASE_[A-Z_]+|RENDER_[A-Z_]+|PAPER_API_[A-Z_]+|MANUS_[A-Z_]+|TIGER_[A-Z_]+|TINKER_[A-Z_]+|E2B_[A-Z_]+)\b/g;
 
 /**
  * Scrub vendor names, endpoints and credential variable names from text the platform itself

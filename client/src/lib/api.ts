@@ -1,4 +1,5 @@
 import type { AgentTaskSummary, CreateTaskRequest, ModelSpec, StatusReason, TaskStatus } from "@shared/agent";
+import type { CreditBalance, CreditSettings } from "@shared/credits";
 import type { DeploymentState } from "@shared/taskStatus";
 import { markStorageUnavailable } from "./mediaHealth";
 
@@ -113,7 +114,8 @@ export type DeploymentView = {
   removedReason: string | null;
   canRemove: boolean;
 };
-export type TaskDeployments = { deployments: DeploymentView[]; capabilities: { configured: boolean; github: boolean } };
+/** allowed: public previews are the operator's feature; other accounts preview inside Curialy. */
+export type TaskDeployments = { deployments: DeploymentView[]; capabilities: { configured: boolean; github: boolean; allowed?: boolean } };
 /** Legacy global deployments list (GET /deployments). */
 export type Deployment = { id: string; sessionId: string | null; status: string; url: string | null; repo: string | null; serviceId: string | null; detail: string | null; expiresAt: string; createdAt: string; deletedAt: string | null };
 
@@ -227,6 +229,43 @@ export const agentApi = {
 export const authApi = {
   login: (password: string) => api<{ ok: true }>("/api/auth/login", { method: "POST", json: { password } }),
   logout: () => api<{ ok: true }>("/api/auth/logout", { method: "POST", json: {} }),
+};
+
+// ---- Accounts, credits and the operator's dashboard ----
+
+export type Account = { id: string; role: "admin" | "user"; login: string | null; displayName: string; avatarUrl: string | null; email: string | null };
+export type CreditEvent = { kind: "usage" | "grant" | "promo" | "adjust"; amount: number; detail: string | null; taskId: string | null; at: string };
+export type AccountInfo = { user: Account; credits: CreditBalance; github: { configured: boolean; connected: boolean; login: string | null } };
+
+export const accountApi = {
+  get: () => api<AccountInfo>("/api/account"),
+  credits: () => api<{ credits: CreditBalance; history: CreditEvent[] }>("/api/account/credits"),
+  redeem: (code: string) => api<{ credits: number; balance: CreditBalance }>("/api/account/redeem", { method: "POST", json: { code } }),
+};
+
+export type AdminUser = {
+  id: string; role: "admin" | "user"; login: string | null; name: string; avatarUrl: string | null; email: string | null; createdAt: string; lastSeenAt: string | null;
+  banned: boolean; tasks: number; activeRuns: number; creditsUsedTotal: number; customAllowance: number | null; credits: CreditBalance;
+};
+export type PromoCode = {
+  id: string; code: string; credits: number; forUser: { id: string; login: string | null } | null; maxRedemptions: number | null; redemptions: number;
+  expiresAt: string | null; disabledAt: string | null; note: string | null; createdAt: string; state: "active" | "used_up" | "expired" | "disabled";
+};
+export type AdminOverview = { users: number; newToday: number; activeToday: number; activeRuns: number; creditsUsedToday: number; activePromoCodes: number; settings: CreditSettings };
+
+export const adminApi = {
+  overview: () => api<AdminOverview>("/api/admin/overview"),
+  users: (q = "", offset = 0) => api<{ users: AdminUser[]; more: boolean }>(`/api/admin/users?q=${encodeURIComponent(q)}&offset=${offset}`),
+  history: (id: string) => api<{ credits: CreditBalance; history: CreditEvent[] }>(`/api/admin/users/${id}/credits`),
+  grant: (id: string, amount: number, note: string) => api<{ credits: CreditBalance }>(`/api/admin/users/${id}/credits`, { method: "POST", json: { amount, note } }),
+  allowance: (id: string, allowance: number | null) => api<{ credits: CreditBalance }>(`/api/admin/users/${id}/allowance`, { method: "PUT", json: { allowance } }),
+  ban: (id: string, banned: boolean) => api<{ banned: boolean }>(`/api/admin/users/${id}/ban`, { method: "POST", json: { banned } }),
+  promoCodes: () => api<{ codes: PromoCode[] }>("/api/admin/promo-codes"),
+  createPromoCode: (input: { code?: string; credits: number; forUserId?: string | null; maxRedemptions?: number | null; expiresAt?: string | null; note?: string }) =>
+    api<{ code: PromoCode }>("/api/admin/promo-codes", { method: "POST", json: input }),
+  disablePromoCode: (id: string) => api<{ codes: PromoCode[] }>(`/api/admin/promo-codes/${id}/disable`, { method: "POST", json: {} }),
+  settings: () => api<{ settings: CreditSettings }>("/api/admin/settings"),
+  saveSettings: (patch: Partial<CreditSettings>) => api<{ settings: CreditSettings }>("/api/admin/settings", { method: "PUT", json: patch }),
 };
 
 /** The message to show for any thrown value. */

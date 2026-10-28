@@ -340,6 +340,7 @@ export default function TaskWorkspace({ id }: { id: string }) {
     : active ? "Wait for the run to finish."
       : !caps ? (deployments.error ? "Couldn't check whether live previews are available." : "Checking whether live previews are available…")
         : !caps.configured ? "Live previews aren't set up on this server."
+          : caps.allowed === false ? "Public live previews are available on the operator's account only. Your app runs in the Preview tab."
           : !caps.github ? "Connect GitHub to deploy: previews are built from a temporary private repository in your account."
             : null;
   const deployAction = agentTask ? { disabledReason: deployReason, busy: deploying, onOpen: () => setDeployOpen(true) } : null;

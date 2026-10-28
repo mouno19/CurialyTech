@@ -14,12 +14,13 @@ import { StorageError } from "../media/storage-errors";
 /** Largest screenshot kept inline in the event log while file storage is unavailable (base64 chars). */
 const INLINE_SCREENSHOT_LIMIT = 400 * 1024;
 import { createPullRequest, getConnection, listRepos, repoDetails, resolveRepo, throwIfAborted } from "../services/github";
+import { taskOwner } from "./store";
 import { cloneIntoWorkspace, commitAndPush, linkedRepo } from "./repos";
 import { brandText } from "@shared/brand";
 import { storeArtifacts } from "./artifacts";
 import { absoluteAssetWarnings, detectPreviewRoot, previewBaseUrl, registerLiveServer, unregisterLiveServer, waitForPort } from "./preview";
 import type { BrowseResult } from "./browser";
-import { clip, deleteWorkspaceFile, listWorkspaceTree, readWorkspaceFile, runCommand, SandboxError, writeWorkspaceFile } from "./sandbox";
+import { clip, deleteWorkspaceFile, listWorkspaceTree, readWorkspaceFile, runCommand, SANDBOX_MODE, SandboxError, sandboxPortHost, writeWorkspaceFile } from "./sandbox";
 
 export type ToolContext = {
   root: string;
@@ -35,7 +36,16 @@ export type ToolContext = {
   onAttach?: (paths: string[]) => void;
   /** Publishing allowed in this run: a deploy only when the user asked for it or used the Deploy action. */
   grants?: { deploy?: boolean; deployUsed?: boolean; deployLive?: boolean };
+  /** The task belongs to the operator: operator-only tools (OPERATOR_TOOLS) are allowed. */
+  operator?: boolean;
 };
+
+/**
+ * Tools free accounts never get: public previews are hosted on the operator's accounts, research is
+ * delegated to a paid agent that fills in forms and signs up on websites, and clicking or typing on
+ * other people's websites could be used to act there in the operator's name.
+ */
+export const OPERATOR_TOOLS = new Set(["deploy_preview", "delegate_research", "browser_click", "browser_type"]);
 
 export type ToolOutcome = { ok: boolean; content: string; summary: string; exitCode?: number | null; image?: { mediaType: "image/jpeg"; base64: string } };
 
@@ -160,7 +170,9 @@ const CODING_TOOLS: ToolDef[] = [
   },
   {
     name: "run_command",
-    description: "Run a bash command in the workspace as an unprivileged sandbox user (Node 22, npm, Python 3.10 available; internet access, no access to the host). stdout/stderr stream live to the user. Use for installs, builds, typechecks, linters and tests.",
+    description: SANDBOX_MODE === "e2b"
+      ? "Run a bash command in the workspace, inside this task's own Linux sandbox (Debian 12, Node 20, npm, Python 3.11, git, passwordless sudo; internet access). stdout/stderr stream live to the user. Use for installs, builds, typechecks, linters and tests."
+      : "Run a bash command in the workspace as an unprivileged sandbox user (Node 22, npm, Python 3.10 available; internet access, no access to the host). stdout/stderr stream live to the user. Use for installs, builds, typechecks, linters and tests.",
     input_schema: { type: "object", properties: { command: { type: "string" }, timeout_sec: { type: "integer", description: "5-600, default 120" } }, required: ["command"] },
   },
 ];
@@ -242,7 +254,13 @@ const GITHUB_TOOLS: ToolDef[] = [
   },
 ];
 
-export function toolsFor(opts: { coding: boolean; web: boolean; eager: boolean; github?: boolean }): Anthropic.Tool[] {
+export function toolsFor(opts: { coding: boolean; web: boolean; eager: boolean; github?: boolean; operator?: boolean }): Anthropic.Tool[] {
+  const all = toolList(opts);
+  const tools = opts.operator === false ? all.filter(tool => !OPERATOR_TOOLS.has(tool.name)) : all;
+  return opts.eager ? tools.map(tool => ({ ...tool, eager_input_streaming: true })) : tools;
+}
+
+function toolList(opts: { coding: boolean; web: boolean; github?: boolean }): ToolDef[] {
   const tools: ToolDef[] = [];
   if (opts.coding) tools.push(...CODING_TOOLS, ATTACH_TOOL);
   if (opts.github) tools.push(...(opts.coding ? GITHUB_TOOLS : GITHUB_TOOLS.slice(0, 2)));
@@ -253,7 +271,7 @@ export function toolsFor(opts: { coding: boolean; web: boolean; eager: boolean; 
     tools.push(WEB_FETCH_TOOL);
     if (PROVIDER_ENV.manusKey) tools.push(DELEGATE_TOOL);
   }
-  return opts.eager ? tools.map(tool => ({ ...tool, eager_input_streaming: true })) : tools;
+  return tools;
 }
 
 function htmlToText(html: string) {
@@ -267,6 +285,7 @@ function htmlToText(html: string) {
 
 export async function executeTool(name: string, rawInput: unknown, ctx: ToolContext): Promise<ToolOutcome> {
   if (!(name in schemas)) return { ok: false, content: `Unknown tool: ${name}`, summary: "Unknown tool" };
+  if (OPERATOR_TOOLS.has(name) && ctx.operator === false) return { ok: false, content: `${name} is not available on this account. Continue without it.`, summary: "Not available" };
   const parsed = schemas[name as ToolName].safeParse(rawInput);
   if (!parsed.success) {
     const issues = parsed.error.issues.map(issue => `${issue.path.join(".") || "input"}: ${issue.message}`).join("; ");
@@ -337,7 +356,7 @@ async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOu
     case "search_files": {
       const { pattern, path } = input as z.infer<typeof schemas.search_files>;
       const command = `grep -rnIE --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist -- ${shellQuote(pattern)} ${shellQuote(path)} | head -200`;
-      const result = await runCommand({ root: ctx.root, command, timeoutSec: 30, signal: ctx.signal, onOutput: () => undefined });
+      const result = await runCommand({ root: ctx.root, command, timeoutSec: 30, signal: ctx.signal, onOutput: () => undefined, sync: "push" });
       const lines = result.output.trim() ? result.output.trim().split("\n").length : 0;
       return { ok: true, content: result.output.trim() || "No matches.", summary: `${lines} match${lines === 1 ? "" : "es"}` };
     }
@@ -353,7 +372,7 @@ async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOu
       if (!/^https?:\/\//i.test(url)) return { ok: false, content: "Only http(s) URLs are supported.", summary: "Rejected URL" };
       // Fetched from inside the sandbox so the firewall blocks loopback, metadata and private ranges.
       const command = `curl -sSL --proto '=http,https' --max-time 25 --max-filesize 3000000 -A 'CurialyAgent/1.0' -w '\\n__HTTP_STATUS__%{http_code} %{content_type}' -- ${shellQuote(url)} | head -c 3100000`;
-      const result = await runCommand({ root: ctx.root, command, timeoutSec: 40, signal: ctx.signal, onOutput: () => undefined });
+      const result = await runCommand({ root: ctx.root, command, timeoutSec: 40, signal: ctx.signal, onOutput: () => undefined, sync: "none" });
       const marker = result.output.lastIndexOf("__HTTP_STATUS__");
       const meta = marker >= 0 ? result.output.slice(marker + 15).trim() : "unknown";
       const body = marker >= 0 ? result.output.slice(0, marker) : result.output;
@@ -363,7 +382,7 @@ async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOu
     }
     case "browse": {
       const { url, screenshot, full_page, wait_ms } = input as z.infer<typeof schemas.browse>;
-      const live = await liveBrowser(ctx.sessionId, ctx.emit, ctx.signal);
+      const live = await liveBrowser(ctx.sessionId, ctx.emit, ctx.signal, ctx.operator !== false);
       ctx.emit({ type: "tool_output", callId: ctx.callId, stream: "stdout", chunk: `Curialy Live Browser session ${live.sessionId.slice(0, 8)}\nOpening ${url}\n` });
       const status = await navigate(live, url, wait_ms);
       return reportPage(ctx, await snapshot(live, { screenshot, fullPage: full_page, status }), url);
@@ -434,7 +453,9 @@ async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOu
 }
 
 async function runGitHubTool(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOutcome> {
-  const connection = await getConnection();
+  const owner = await taskOwner(ctx.sessionId);
+  // Always the task owner's own GitHub account.
+  const connection = owner ? await getConnection(owner) : null;
   if (!connection) return { ok: false, content: "GitHub is not connected. Ask the user to click Connect GitHub in the sidebar.", summary: "GitHub not connected" };
   const { token, login } = connection;
   const log = (chunk: string) => ctx.emit({ type: "tool_output", callId: ctx.callId, stream: "stdout", chunk });
@@ -559,14 +580,15 @@ async function visualTest(input: z.infer<typeof schemas.test_preview_visual>, ct
     let serverOutput = "";
     const done = runCommand({ root: ctx.root, command: input.start_command, timeoutSec: 600, signal: controller.signal, onOutput: (stream, chunk) => { serverOutput += chunk; log(chunk, stream); } });
     server = { controller, done };
-    const up = await Promise.race([waitForPort(input.port, 90_000, controller.signal), done.then(() => false)]);
+    const remoteHost = SANDBOX_MODE === "e2b" ? () => sandboxPortHost(ctx.sessionId, input.port) : undefined;
+    const up = await Promise.race([waitForPort(input.port, 90_000, controller.signal, remoteHost), done.then(() => false)]);
     if (!up) {
       controller.abort();
       await done.catch(() => undefined);
       ctx.signal.removeEventListener("abort", abort);
       return { ok: false, content: `The server never started listening on port ${input.port}.\n${clip(serverOutput, 8000)}`, summary: `Port ${input.port} never opened` };
     }
-    registerLiveServer(ctx.sessionId, input.port);
+    registerLiveServer(ctx.sessionId, input.port, remoteHost?.());
     url = `${previewBaseUrl(ctx.sessionId)}${page}`;
     ctx.emit({ type: "preview", url: previewBaseUrl(ctx.sessionId), dir: null, mode: "server" });
   } else {
@@ -581,7 +603,7 @@ async function visualTest(input: z.infer<typeof schemas.test_preview_visual>, ct
 
   try {
     log("Opening it in the Curialy Live Browser…\n");
-    const live = await liveBrowser(ctx.sessionId, ctx.emit, ctx.signal);
+    const live = await liveBrowser(ctx.sessionId, ctx.emit, ctx.signal, ctx.operator !== false);
     const status = await navigate(live, url, input.wait_ms);
     live.action("visual-test", "Capturing full-page screenshot for visual review");
     return await reportPage(ctx, await snapshot(live, { screenshot: true, fullPage: input.full_page, status }), url, extra);
@@ -600,7 +622,7 @@ async function runBrowserTool(name: ToolName, input: any, ctx: ToolContext): Pro
     await closeLiveBrowser(ctx.sessionId, "agent");
     return { ok: true, content: "Browser session closed.", summary: "Closed" };
   }
-  const live = await liveBrowser(ctx.sessionId, ctx.emit, ctx.signal);
+  const live = await liveBrowser(ctx.sessionId, ctx.emit, ctx.signal, ctx.operator !== false);
   const { page } = live;
   const where = () => `Now at ${page.url()}`;
   switch (name) {

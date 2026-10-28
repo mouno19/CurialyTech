@@ -1,13 +1,15 @@
 import type { CreateExpressContextOptions } from "@trpc/server/adapters/express";
 import type { User } from "../../drizzle/schema";
 import { sdk } from "./sdk";
-import { isAdminRequest } from "../auth";
+import { currentUser, type AppUser } from "../auth";
 
 export type TrpcContext = {
   req: CreateExpressContextOptions["req"];
   res: CreateExpressContextOptions["res"];
   user: User | null;
-  /** True when the request carries a valid Curialy admin session cookie. */
+  /** The signed-in Curialy account (GitHub or the operator's password), or null. */
+  account: AppUser | null;
+  /** The account is the operator. */
   admin?: boolean;
 };
 
@@ -23,10 +25,12 @@ export async function createContext(
     user = null;
   }
 
+  const account = await currentUser(opts.req);
   return {
     req: opts.req,
     res: opts.res,
     user,
-    admin: await isAdminRequest(opts.req),
+    account,
+    admin: account?.role === "admin",
   };
 }

@@ -70,8 +70,8 @@ export function WorkspacePreview({ signedIn }: { signedIn: boolean }) {
         <Reveal delay={0.1} y={40}>
           <p className="sr-only">
             A sample run: Curialy adds checkout to a storefront. It reads the repository, installs the payments package, writes the
-            session code, finds that discounts were applied after tax, fixes it and gets all 14 tests passing; after you confirm
-            Deploy, a live preview goes up.
+            session code, finds that discounts were applied after tax, fixes it, gets all 14 tests passing and opens the result in
+            the preview.
           </p>
           {/* Decorative and inert: nothing inside (e.g. the scrolling diff on phones) can take focus. */}
           <div ref={windowRef} className="lp-win" aria-hidden="true" inert>
@@ -157,15 +157,17 @@ export function WorkspacePreview({ signedIn }: { signedIn: boolean }) {
                 <dl className="lp-win-checks">
                   <div><dt>tests</dt><dd data-ok={deployed || undefined}>{deployed ? "14 / 14 ✓" : "12 / 14"}</dd></div>
                   <div><dt>types</dt><dd data-ok="">clean</dd></div>
-                  <div><dt>preview</dt><dd>{deployed ? "live · ~2 h" : "building"}</dd></div>
+                  <div><dt>preview</dt><dd>{deployed ? "running · screenshot" : "building"}</dd></div>
                 </dl>
               </div>
             </div>
           </div>
           <div className="lp-workspace-cta">
-            <Link href={signedIn ? "/" : "/login"} className="lp-pill lp-pill-paper m-nudge">
-              {signedIn ? "Open your workspace" : "Sign in to your workspace"} <ArrowUpRight size={16} aria-hidden="true" />
-            </Link>
+            {signedIn ? (
+              <Link href="/" className="lp-pill lp-pill-paper m-nudge">Open your workspace <ArrowUpRight size={16} aria-hidden="true" /></Link>
+            ) : (
+              <a href="/api/auth/github/login?next=%2F" className="lp-pill lp-pill-paper m-nudge">Start free with GitHub <ArrowUpRight size={16} aria-hidden="true" /></a>
+            )}
           </div>
         </Reveal>
       </div>

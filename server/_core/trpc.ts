@@ -44,7 +44,15 @@ export const adminProcedure = t.procedure.use(
   }),
 );
 
-/** Requires the Curialy admin session (single-operator deployment). */
+/** Requires a signed-in Curialy account. */
+export const accountProcedure = t.procedure.use(
+  t.middleware(async ({ ctx, next }) => {
+    if (!ctx.account) throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+    return next({ ctx });
+  }),
+);
+
+/** Requires the operator's account. */
 export const operatorProcedure = t.procedure.use(
   t.middleware(async ({ ctx, next }) => {
     if (!ctx.admin) throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });

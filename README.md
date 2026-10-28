@@ -6,12 +6,26 @@ with self-healing verification, 28 models across four routes, Dev Team mode (Arc
 Engineer, Reviewer), GitHub integration, live browser, visual preview testing and deploy
 previews.
 
+## Accounts, credits and sandboxes
+
+- Anyone signs in with GitHub (profile and email only; repository access is a separate "Connect
+  repositories" step). The operator account also has password sign-in and the Admin page.
+- Every task, file, deployment and GitHub connection belongs to one account; routes check it.
+- Free accounts get credits per window (default 60 every 5 hours, set on the Admin page). One
+  credit is 25,000 weighted tokens on a standard model (`shared/credits.ts`); runs are charged per
+  model response and stop when the account runs out. Promo codes and grants add bonus credits.
+- Public live previews, the Research Agent and clicking/typing on third-party sites are
+  operator-only.
+- With `E2B_API_KEY` set, every task's commands, installs and builds run in a cloud sandbox of its
+  own (`server/agent/e2b.ts`); this server keeps only the task's sources and build output.
+
 ## Repository map
 
 | Path | What |
 |---|---|
 | `client/` | React 19 + Vite UI (composer, task workspace, deck panels, integrations) |
-| `server/agent/` | Agent runtime: dispatch, loops, tools, sandbox, recovery, Dev Team, events |
+| `server/agent/` | Agent runtime: dispatch, loops, tools, sandbox (local or E2B), recovery, Dev Team, events |
+| `server/auth.ts`, `server/auth-github.ts`, `server/credits.ts`, `server/admin.ts` | Sessions, GitHub sign-in, credits and promo codes, account and admin APIs |
 | `server/media/` | Snowflake stage storage and SQL `AI_COMPLETE` |
 | `server/db/` | Tiger Cloud Postgres access and migrations |
 | `shared/` | Types shared by client and server: model catalog, events, white-label vocabulary |

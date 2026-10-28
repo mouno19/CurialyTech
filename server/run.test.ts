@@ -99,6 +99,9 @@ function answer(text: string, values: any[]): { rows: any[]; rowCount?: number }
   if (text.includes("type = 'browser_session' GROUP BY 1")) return { rows: [] };
   if (text.includes("github_mode = 'linked'")) return { rows: [] };
   if (text.startsWith("INSERT INTO curialy.messages")) { fake.messages.push(`${values[1]}: ${values[2]}`); return { rows: [], rowCount: 1 }; }
+  // Every task here is the operator's.
+  if (text.startsWith("SELECT user_id FROM curialy.chat_sessions WHERE id = $1")) return { rows: row ? [{ user_id: "admin" }] : [] };
+  if (text.startsWith("SELECT role FROM curialy.users WHERE id = $1")) return { rows: [{ role: "admin" }] };
   fake.unexpected.push(text.slice(0, 120));
   return { rows: [], rowCount: 0 };
 }

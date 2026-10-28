@@ -1,10 +1,9 @@
 import { useRef, useState, type MouseEvent } from "react";
 import { Link } from "wouter";
-import { ArrowUpRight, Menu, Pause } from "lucide-react";
+import { ArrowUpRight, Menu } from "lucide-react";
 import { Wordmark } from "@/components/brand/Logo";
 import { Dialog } from "@/components/common/Dialog";
-import { Tip } from "@/components/common/Tooltip";
-import { setMotionPaused, useMotionPaused, useScrolled } from "@/lib/motion";
+import { useScrolled } from "@/lib/motion";
 import { NAV_LINKS } from "./content";
 import { scrollToAnchor } from "./primitives";
 
@@ -12,7 +11,6 @@ import { scrollToAnchor } from "./primitives";
 export function Navbar({ signedIn }: { signedIn: boolean }) {
   const scrolled = useScrolled(12);
   const [menu, setMenu] = useState(false);
-  const paused = useMotionPaused();
   // A section picked in the sheet is scrolled to (and focused) once the sheet has fully closed:
   // its scroll lock and aria-hidden are gone then, and focus is not handed back to the menu button.
   const pendingJump = useRef<string | null>(null);
@@ -33,16 +31,6 @@ export function Navbar({ signedIn }: { signedIn: boolean }) {
       scrollToAnchor(href);
     }
   };
-  // WCAG 2.2.2: everything that moves on its own (marquee, sample run, figures) can be stopped.
-  // One constant name (it matches the tooltip, for voice control); aria-pressed and the filled style show the state.
-  const motionToggle = (
-    <Tip content="Pause animations">
-      <button type="button" className="lp-motion-toggle" aria-pressed={paused} aria-label="Pause animations" onClick={() => setMotionPaused(!paused)}>
-        <Pause size={16} aria-hidden="true" />
-      </button>
-    </Tip>
-  );
-
   return (
     <header className="lp-nav" data-scrolled={scrolled || undefined}>
       <nav className="lp-container lp-nav-inner" aria-label="Main">
@@ -57,7 +45,6 @@ export function Navbar({ signedIn }: { signedIn: boolean }) {
           ))}
         </ul>
         <div className="lp-nav-actions">
-          {motionToggle}
           {signedIn ? (
             <Link href="/" className="lp-pill m-nudge">Open the workspace <ArrowUpRight size={16} aria-hidden="true" /></Link>
           ) : (
@@ -68,7 +55,6 @@ export function Navbar({ signedIn }: { signedIn: boolean }) {
           )}
         </div>
         <div className="lp-nav-compact">
-          {motionToggle}
           <button type="button" className="lp-nav-menu" aria-label="Open the menu" aria-haspopup="dialog" aria-expanded={menu} onClick={() => setMenu(true)}>
             <Menu size={20} aria-hidden="true" />
           </button>

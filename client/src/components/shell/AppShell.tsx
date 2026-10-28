@@ -1,14 +1,15 @@
 import { Fragment, useEffect, useRef, useState, type MouseEvent, type ReactElement, type ReactNode, type RefObject, useLayoutEffect } from "react";
 import { Link, useLocation } from "wouter";
-import { setMotionPaused, useMotionPaused } from "@/lib/motion";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Popover from "@radix-ui/react-popover";
 import type { LucideIcon } from "lucide-react";
-import { Activity, ChevronsUpDown, ExternalLink, House, Images, KeyRound, LayoutDashboard, LogOut, Menu, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pause, PlugZap, RefreshCw, SquareTerminal, Store, Unplug, X } from "lucide-react";
+import { Activity, ChevronsUpDown, ExternalLink, House, Images, KeyRound, LayoutDashboard, LogOut, Menu, MoreHorizontal, PanelLeftClose, PanelLeftOpen, PlugZap, RefreshCw, ShieldCheck, SquareTerminal, Store, Unplug, X } from "lucide-react";
 import { toast } from "sonner";
 import { agentApi, authApi, errorMessage, relativeTime, type ProviderProbe } from "@/lib/api";
 import { needsOperator, useGitHub, useHealth } from "@/lib/appStatus";
+import { useAccount } from "@/lib/account";
+import { CreditsMeter } from "./CreditsMeter";
 import { useIsDesktop } from "@/lib/breakpoints";
 import { CurialyMark, Wordmark } from "@/components/brand/Logo";
 import { Button } from "@/components/common/Button";
@@ -62,14 +63,16 @@ export type AppShellProps = {
   children: ReactNode;
 };
 
-const NAV: { href: string; label: string; icon: LucideIcon; badge?: boolean }[] = [
+/** operator: shown to the operator's account only (the server enforces it too). */
+const NAV: { href: string; label: string; icon: LucideIcon; badge?: boolean; operator?: boolean }[] = [
   { href: "/", label: "Workspace Dashboard", icon: LayoutDashboard },
   { href: "/tasks", label: "Live Tasks", icon: Activity, badge: true },
   { href: "/sandbox", label: "Code Sandbox", icon: SquareTerminal },
   { href: "/media", label: "Media Vault", icon: Images },
   { href: "/integrations", label: "System Integrations", icon: PlugZap },
   { href: "/skills", label: "Skill Store", icon: Store },
-  { href: "/keys", label: "API Key Manager", icon: KeyRound },
+  { href: "/keys", label: "API Key Manager", icon: KeyRound, operator: true },
+  { href: "/admin", label: "Admin", icon: ShieldCheck, operator: true },
 ];
 
 const COLLAPSED_KEY = "curialy.sidebar.collapsed";
@@ -241,6 +244,7 @@ export function AppShell({ title, crumb, crumbHref, titleAddon, actions, topbarA
 function SidebarBody({ rail, headEnd, onNavigate }: { rail: boolean; headEnd?: ReactNode; onNavigate?: () => void }) {
   const [location] = useLocation();
   const { activeTasks } = useHealth();
+  const operator = useAccount().info?.user.role === "admin";
   return (
     <>
       <div className="sidebar-head">
@@ -251,7 +255,7 @@ function SidebarBody({ rail, headEnd, onNavigate }: { rail: boolean; headEnd?: R
       </div>
       <nav className="nav" aria-label="Main">
         <div className="nav-section micro" aria-hidden="true">Workspace</div>
-        {NAV.map(item => {
+        {NAV.filter(item => !item.operator || operator).map(item => {
           const current = isCurrent(location, item.href);
           const count = item.badge ? activeTasks : 0;
           const link = (
@@ -277,10 +281,10 @@ function SidebarBody({ rail, headEnd, onNavigate }: { rail: boolean; headEnd?: R
         })}
       </nav>
       <div className="sidebar-foot">
+        <CreditsMeter rail={rail} />
         <HealthStatus rail={rail} />
         <GitHubAccount rail={rail} />
         <HomepageLink rail={rail} />
-        <MotionSwitch rail={rail} />
         <SignOut rail={rail} />
       </div>
     </>
@@ -388,11 +392,12 @@ function GitHubAccount({ rail }: { rail: boolean }) {
     );
   }
   if (!status.connected) {
+    // Signing in with GitHub reads the profile only; repository access is this separate, explicit step.
     return withTip(
-      "Connect GitHub",
+      "Connect your GitHub repositories",
       <a className="nav-item" href="/api/auth/github/start">
         <GitHubMark />
-        <span className="nav-text">Connect GitHub</span>
+        <span className="nav-text">Connect repositories</span>
       </a>,
     );
   }
@@ -460,18 +465,6 @@ function HomepageLink({ rail }: { rail: boolean }) {
     </Link>
   );
   return rail ? <Tip content="Homepage" side="right">{link}</Tip> : link;
-}
-
-/** "Pause animations" (WCAG 2.2.2): stops the typing examples and every other loop, site-wide. */
-function MotionSwitch({ rail }: { rail: boolean }) {
-  const paused = useMotionPaused();
-  const button = (
-    <button type="button" className="nav-item" aria-pressed={paused} onClick={() => setMotionPaused(!paused)}>
-      <Pause size={17} aria-hidden="true" />
-      <span className="nav-text">Pause animations</span>
-    </button>
-  );
-  return rail ? <Tip content="Pause animations" side="right">{button}</Tip> : button;
 }
 
 function SignOut({ rail }: { rail: boolean }) {

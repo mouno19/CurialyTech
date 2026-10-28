@@ -21,8 +21,11 @@ const gh = vi.hoisted(() => ({
 }));
 
 vi.mock("./db/pg", () => ({
+  adminUserId: async () => "admin",
   query: vi.fn(async (text: string, values: unknown[] = []) => {
     db.calls.push({ text, values });
+    // Every task here is the operator's.
+    if (text.startsWith("SELECT user_id FROM curialy.chat_sessions WHERE id = $1")) return { rows: [{ user_id: "admin" }] };
     if (text.startsWith("INSERT INTO curialy.deployments")) {
       gh.order.push("insert");
       const [id, sessionId, , callId, name, repo] = values as string[];

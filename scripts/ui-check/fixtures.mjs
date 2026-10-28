@@ -440,7 +440,7 @@ const bundleMeta = name => {
 export function createFixtures({ now = Date.now(), deployUrls = "vendor" } = {}) {
   const ago = minutes => iso(now - minutes * 60_000);
   const deployUrl = deployUrls === "branded" ? brandedDeployUrl : vendorDeployUrl;
-  const state = { signedIn: true };
+  const state = { signedIn: true, account: "operator" };
   const tasks = new Map();
   const add = task => tasks.set(task.row.id, task);
   const lastTs = events => events[events.length - 1].ts;
@@ -1058,8 +1058,46 @@ export function createFixtures({ now = Date.now(), deployUrls = "vendor" } = {})
   ];
 
   /** tRPC procedures (httpBatchLink + superjson): name -> plain JSON result. */
+  // Signed in as the operator (unlimited) unless a check asks for a free account (state.account = "free").
+  const operator = { id: "00000000-0000-4000-8000-0000000000aa", role: "admin", login: "mouno19", displayName: "Operator", avatarUrl: null, email: null };
+  const free = { id: "00000000-0000-4000-8000-0000000000bb", role: "user", login: "ada-lovelace", displayName: "Ada Lovelace", avatarUrl: null, email: null };
+  const account = () => (state.account === "free" ? free : operator);
+  const freeCredits = { unlimited: false, allowance: 60, used: 41.5, remaining: 18.5, bonus: 25, available: 43.5, resetsAt: new Date(now + 2 * 3_600_000 + 14 * 60_000).toISOString(), windowHours: 5 };
+  const operatorCredits = { unlimited: true, allowance: 60, used: 0, remaining: 60, bonus: 0, available: 60, resetsAt: null, windowHours: 5 };
+  const credits = () => (state.account === "free" ? freeCredits : operatorCredits);
+  const adminUsers = [
+    { id: operator.id, role: "admin", login: "mouno19", name: "Operator", avatarUrl: null, email: null, createdAt: new Date(now - 4 * 86_400_000).toISOString(), lastSeenAt: new Date(now - 60_000).toISOString(), banned: false, tasks: 45, activeRuns: 1, creditsUsedTotal: 0, customAllowance: null, credits: operatorCredits },
+    { id: free.id, role: "user", login: "ada-lovelace", name: "Ada Lovelace", avatarUrl: null, email: "ada@example.com", createdAt: new Date(now - 2 * 86_400_000).toISOString(), lastSeenAt: new Date(now - 25 * 60_000).toISOString(), banned: false, tasks: 7, activeRuns: 0, creditsUsedTotal: 132.4, customAllowance: null, credits: freeCredits },
+    { id: "00000000-0000-4000-8000-0000000000cc", role: "user", login: "grace-hopper-with-a-long-login", name: "Grace Hopper", avatarUrl: null, email: null, createdAt: new Date(now - 6 * 3_600_000).toISOString(), lastSeenAt: null, banned: true, tasks: 1, activeRuns: 0, creditsUsedTotal: 3, customAllowance: 120, credits: { ...freeCredits, allowance: 120, remaining: 117, used: 3, bonus: 0, available: 117 } },
+  ];
+  const promoCodes = [
+    { id: "00000000-0000-4000-8000-0000000000d1", code: "LAUNCH-2026", credits: 100, forUser: null, maxRedemptions: 50, redemptions: 12, expiresAt: new Date(now + 20 * 86_400_000).toISOString(), disabledAt: null, note: "Launch post", createdAt: new Date(now - 86_400_000).toISOString(), state: "active" },
+    { id: "00000000-0000-4000-8000-0000000000d2", code: "K7PQR-3MXWT", credits: 500, forUser: { id: free.id, login: "ada-lovelace" }, maxRedemptions: 1, redemptions: 1, expiresAt: null, disabledAt: null, note: null, createdAt: new Date(now - 3_600_000).toISOString(), state: "used_up" },
+  ];
+  routes.push(
+    ["GET", "/api/account", () => ({ json: { user: account(), credits: credits(), github } })],
+    ["GET", "/api/account/credits", () => ({ json: { credits: credits(), history: [] } })],
+    ["GET", "/api/admin/overview", () => ({ json: { users: 3, newToday: 1, activeToday: 2, activeRuns: 1, creditsUsedToday: 87.25, activePromoCodes: 1, settings: { creditsPerWindow: 60, windowHours: 5, signupsOpen: true } } })],
+    ["GET", "/api/admin/users", () => ({ json: { users: adminUsers, more: false } })],
+    ["GET", "/api/admin/promo-codes", () => ({ json: { codes: promoCodes } })],
+    ["GET", "/api/admin/settings", () => ({ json: { settings: { creditsPerWindow: 60, windowHours: 5, signupsOpen: true } } })],
+    ["PUT", "/api/admin/settings", () => ({ json: { settings: { creditsPerWindow: 60, windowHours: 5, signupsOpen: true } } })],
+    ["POST", "/api/account/redeem", () => ({ status: 400, json: { error: "That code isn't valid.", code: "invalid_code" } })],
+    ["GET", "/api/admin/users/:id/credits", ({ params }) => ({ json: { credits: adminUsers.find(user => user.id === params.id)?.credits ?? freeCredits, history: [] } })],
+    ["POST", "/api/admin/users/:id/credits", () => ({ json: { credits: freeCredits } })],
+    ["PUT", "/api/admin/users/:id/allowance", () => ({ json: { credits: freeCredits } })],
+    ["POST", "/api/admin/users/:id/ban", () => ({ json: { banned: true } })],
+    ["POST", "/api/admin/promo-codes", () => ({ status: 201, json: { code: promoCodes[0] } })],
+    ["POST", "/api/admin/promo-codes/:id/disable", () => ({ json: { codes: promoCodes } })],
+    // GitHub sign-in leaves the site: the check never follows it.
+    ["GET", "/api/auth/github/login", () => ({ status: 302, headers: { location: "/login" } })],
+  );
+
   const trpc = {
-    "auth.me": () => ({ admin: state.signedIn, configured: true }),
+    "auth.me": () => {
+      const user = account();
+      return { user: state.signedIn ? { id: user.id, login: user.login, name: user.displayName, avatarUrl: null, role: user.role } : null, admin: state.signedIn && user.role === "admin", configured: true, github: true, signupsOpen: true };
+    },
     "auth.logout": () => ({ success: true }),
     "skills.list": () => [],
   };
@@ -1075,6 +1113,7 @@ export function createFixtures({ now = Date.now(), deployUrls = "vendor" } = {})
     baitValues: new Set([SECRET_LIVE_URL, SECRET_REPLAY_URL, ...[...tasks.values()].flatMap(task => task.deployments.map(view => view.url))]),
     reset() {
       state.signedIn = true;
+      state.account = "operator";
     },
   };
 }

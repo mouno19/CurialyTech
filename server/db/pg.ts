@@ -239,6 +239,78 @@ const MIGRATIONS: { id: number; sql: string }[] = [
       ALTER TABLE curialy.file_metadata ADD COLUMN IF NOT EXISTS stage_account text;
     `,
   },
+  {
+    id: 8,
+    sql: `
+      -- Public accounts: everyone signs in with GitHub. The operator account (handle 'admin') keeps its
+      -- data and its password sign-in; signing in with the GitHub account it connected reaches it too.
+      ALTER TABLE curialy.users ALTER COLUMN role SET DEFAULT 'user';
+      ALTER TABLE curialy.users ADD COLUMN IF NOT EXISTS github_id bigint;
+      ALTER TABLE curialy.users ADD COLUMN IF NOT EXISTS login text;
+      ALTER TABLE curialy.users ADD COLUMN IF NOT EXISTS avatar_url text;
+      ALTER TABLE curialy.users ADD COLUMN IF NOT EXISTS email text;
+      ALTER TABLE curialy.users ADD COLUMN IF NOT EXISTS banned_at timestamptz;
+      ALTER TABLE curialy.users ADD COLUMN IF NOT EXISTS session_version integer NOT NULL DEFAULT 0;
+      ALTER TABLE curialy.users ADD COLUMN IF NOT EXISTS last_seen_at timestamptz;
+      -- Credits: an allowance per window (NULL: the default in settings), bonus credits from promo codes
+      -- and grants (spent after the window's, never expire), and the current window.
+      ALTER TABLE curialy.users ADD COLUMN IF NOT EXISTS credit_allowance integer;
+      ALTER TABLE curialy.users ADD COLUMN IF NOT EXISTS bonus_credits numeric(12,2) NOT NULL DEFAULT 0;
+      ALTER TABLE curialy.users ADD COLUMN IF NOT EXISTS window_started_at timestamptz;
+      ALTER TABLE curialy.users ADD COLUMN IF NOT EXISTS window_used numeric(12,2) NOT NULL DEFAULT 0;
+      CREATE UNIQUE INDEX IF NOT EXISTS users_github_id_key ON curialy.users (github_id) WHERE github_id IS NOT NULL;
+
+      INSERT INTO curialy.users (handle, display_name, role) VALUES ('admin', 'Operator', 'admin') ON CONFLICT (handle) DO NOTHING;
+      UPDATE curialy.users u SET github_id = c.github_id, login = c.login, avatar_url = c.avatar_url, email = c.email
+        FROM curialy.github_connections c WHERE c.user_id = u.id AND u.handle = 'admin' AND u.github_id IS NULL;
+      -- Rows from before ownership was recorded: a file belongs to its task's owner, everything else to the operator.
+      UPDATE curialy.file_metadata f SET user_id = s.user_id FROM curialy.chat_sessions s
+        WHERE f.user_id IS NULL AND f.session_id = s.id AND s.user_id IS NOT NULL;
+      UPDATE curialy.file_metadata SET user_id = (SELECT id FROM curialy.users WHERE handle = 'admin') WHERE user_id IS NULL;
+      UPDATE curialy.chat_sessions SET user_id = (SELECT id FROM curialy.users WHERE handle = 'admin') WHERE user_id IS NULL;
+      CREATE INDEX IF NOT EXISTS chat_sessions_user_idx ON curialy.chat_sessions (user_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS file_metadata_user_idx ON curialy.file_metadata (user_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS curialy.credit_events (
+        id bigserial PRIMARY KEY,
+        user_id uuid NOT NULL REFERENCES curialy.users(id) ON DELETE CASCADE,
+        kind text NOT NULL,
+        amount numeric(12,2) NOT NULL,
+        session_id uuid REFERENCES curialy.chat_sessions(id) ON DELETE SET NULL,
+        detail text,
+        created_by uuid REFERENCES curialy.users(id) ON DELETE SET NULL,
+        created_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS credit_events_user_idx ON curialy.credit_events (user_id, created_at DESC);
+      CREATE TABLE IF NOT EXISTS curialy.promo_codes (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        code text NOT NULL,
+        credits integer NOT NULL CHECK (credits > 0),
+        for_user_id uuid REFERENCES curialy.users(id) ON DELETE CASCADE,
+        max_redemptions integer CHECK (max_redemptions IS NULL OR max_redemptions > 0),
+        redemptions integer NOT NULL DEFAULT 0,
+        expires_at timestamptz,
+        disabled_at timestamptz,
+        note text,
+        created_by uuid REFERENCES curialy.users(id) ON DELETE SET NULL,
+        created_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS promo_codes_code_key ON curialy.promo_codes (upper(code));
+      CREATE TABLE IF NOT EXISTS curialy.promo_redemptions (
+        code_id uuid NOT NULL REFERENCES curialy.promo_codes(id) ON DELETE CASCADE,
+        user_id uuid NOT NULL REFERENCES curialy.users(id) ON DELETE CASCADE,
+        credits integer NOT NULL,
+        redeemed_at timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (code_id, user_id)
+      );
+      CREATE TABLE IF NOT EXISTS curialy.app_settings (
+        key text PRIMARY KEY,
+        value jsonb NOT NULL,
+        updated_by uuid REFERENCES curialy.users(id) ON DELETE SET NULL,
+        updated_at timestamptz NOT NULL DEFAULT now()
+      );
+    `,
+  },
 ];
 
 export async function migrate() {
@@ -269,11 +341,14 @@ export async function migrate() {
   }
 }
 
-/** The single operator account; auth itself is a stateless signed cookie. */
-export async function adminUserId() {
-  const { rows } = await query<{ id: string }>(
+/** The operator account (handle 'admin'): password sign-in and everything from before public accounts. */
+let operatorId: Promise<string> | null = null;
+export function adminUserId() {
+  operatorId ??= query<{ id: string }>(
     `INSERT INTO curialy.users (handle, display_name, role) VALUES ('admin', 'Operator', 'admin')
      ON CONFLICT (handle) DO UPDATE SET handle = EXCLUDED.handle RETURNING id`,
-  );
-  return rows[0].id;
+  ).then(({ rows }) => rows[0].id);
+  // A failed lookup is retried next time instead of being cached.
+  operatorId.catch(() => { operatorId = null; });
+  return operatorId;
 }

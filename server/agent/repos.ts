@@ -134,7 +134,7 @@ export async function computeChanges(root: string, repo: LinkedRepo, signal?: Ab
   const repoDir = repo.repoPath === "." ? "." : repo.repoPath;
   // NUL-separated (-z) so any file name (spaces, tabs, quotes, newlines) survives intact.
   const command = `cd -- ${JSON.stringify(repoDir)} && { git -c core.quotepath=off diff --name-status -z --no-renames ${repo.baseSha} -- . 2>/dev/null; printf '\\0::untracked::\\0'; git ls-files -z --others --exclude-standard 2>/dev/null; }`;
-  const result = await runCommand({ root, command, timeoutSec: 120, signal, onOutput: () => undefined, raw: true });
+  const result = await runCommand({ root, command, timeoutSec: 120, signal, onOutput: () => undefined, raw: true, sync: "push" });
   if (result.exitCode !== 0) throw new Error(`Could not list repository changes (git exit ${result.exitCode}).`);
   const [diffPart, untrackedPart = ""] = result.output.split("\0::untracked::\0");
   const tokens = diffPart.split("\0").filter(Boolean);

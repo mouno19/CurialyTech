@@ -6,7 +6,6 @@
 
 html.lp-document { scroll-behavior: smooth; scroll-padding-top: 5rem; }
 @media (prefers-reduced-motion: reduce) { html.lp-document { scroll-behavior: auto; } }
-html.lp-document[data-motion="reduced"] { scroll-behavior: auto; }
 .lp { min-height: 100vh; background: var(--paper); color: var(--ink); overflow-x: clip; }
 .lp-main { outline: none; }
 .lp-container { width: 100%; margin-inline: auto; padding-inline: 1.25rem; }
@@ -17,7 +16,7 @@ html.lp-document[data-motion="reduced"] { scroll-behavior: auto; }
 .lp-enter { --rise-y: 22px; animation: rise var(--dur-hero) var(--ease-out) backwards; animation-delay: var(--m-delay, 0ms); }
 /* Entrances inside a block that has not scrolled in yet wait for it (figures draw on arrival). */
 @media (prefers-reduced-motion: no-preference) {
-  :root:not([data-motion="reduced"]) [data-reveal]:not([data-inview]):not(:focus-within) :is(.m-draw, .m-rise, .m-settle, .m-stagger > *) { animation-play-state: paused; }
+  [data-reveal]:not([data-inview]):not(:focus-within) :is(.m-draw, .m-rise, .m-settle, .m-stagger > *) { animation-play-state: paused; }
 }
 
 /* ---------- Type ---------- */
@@ -449,8 +448,6 @@ html.lp-document[data-motion="reduced"] { scroll-behavior: auto; }
   .lp-figure .fig-spark-ring, .lp-figure .fig-lit, .lp-win-state-dot, .lp-win-refresh { animation: none; }
   .lp-figure .fig-spark-ring { opacity: 0; }
 }
-:root[data-motion="reduced"] :is(.lp-figure .fig-spark-ring, .lp-figure .fig-lit, .lp-win-state-dot, .lp-win-refresh) { animation: none; }
-:root[data-motion="reduced"] .lp-figure .fig-spark-ring { opacity: 0; }
 
 /* Without motion the marquee is a still list: show every item, wrapped, without the edge fade. */
 @media (prefers-reduced-motion: reduce) {
@@ -459,17 +456,7 @@ html.lp-document[data-motion="reduced"] { scroll-behavior: auto; }
   .lp-strip-track > li { padding-inline-end: 32px; }
   .lp-strip-track > [aria-hidden="true"] { display: none; }
 }
-:root[data-motion="reduced"] .lp-strip-marquee { mask-image: none; }
-:root[data-motion="reduced"] .lp-strip-track { width: auto; flex-wrap: wrap; row-gap: 12px; }
-:root[data-motion="reduced"] .lp-strip-track > li { padding-inline-end: 32px; }
-:root[data-motion="reduced"] .lp-strip-track > [aria-hidden="true"] { display: none; }
 
-/* The "Pause animations" switch in the navbar. */
-.lp-motion-toggle { display: inline-flex; flex: none; width: 44px; height: 44px; align-items: center; justify-content: center; border: 1px solid var(--rule); border-radius: 50%; background: transparent; color: var(--ink); cursor: pointer; transition: border-color var(--dur-2) var(--ease-out), background-color var(--dur-2) var(--ease-out); }
-.lp-motion-toggle:hover { border-color: var(--ink); }
-.lp-motion-toggle[aria-pressed="true"] { border-color: var(--ink); background: var(--ink); color: var(--paper); }
-.lp-motion-toggle:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
-@media (min-width: 1024px) { .lp-motion-toggle { width: 40px; height: 40px; } }
 
 /* Forced colours: the ghost text would sit on top of the forced placeholder. */
 @media (forced-colors: active) { .lp-composer-ghost { display: none; } }

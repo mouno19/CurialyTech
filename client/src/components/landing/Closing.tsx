@@ -79,13 +79,15 @@ export function FinalCTA({ signedIn }: { signedIn: boolean }) {
                   <em>Curialy</em> picked up.
                 </h2>
                 <p className="lp-lede">
-                  Sign in to your workspace, connect GitHub and hand over your first task. It starts in its own sandboxed workspace in seconds.
+                  Sign in with GitHub and hand over your first task. It's free, with credits that refill every 5 hours, and every task gets a sandbox of its own in seconds.
                 </p>
               </div>
               <div className="lp-final-side">
-                <Link href={signedIn ? "/" : "/login"} className="lp-pill lp-pill-lg lp-pill-accent m-nudge">
-                  {signedIn ? "Open the workspace" : "Sign in to the workspace"} <ArrowRight size={16} aria-hidden="true" />
-                </Link>
+                {signedIn ? (
+                  <Link href="/" className="lp-pill lp-pill-lg lp-pill-accent m-nudge">Open the workspace <ArrowRight size={16} aria-hidden="true" /></Link>
+                ) : (
+                  <a href="/api/auth/github/login?next=%2F" className="lp-pill lp-pill-lg lp-pill-accent m-nudge">Start free with GitHub <ArrowRight size={16} aria-hidden="true" /></a>
+                )}
                 <p className="lp-final-note">
                   Or <a href="#composer" className="ink-link" onClick={jump}>write the task now</a> and press Assign: it's waiting in the composer when you sign in.
                 </p>

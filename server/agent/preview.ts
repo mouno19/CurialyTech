@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
+import https from "node:https";
 import net from "node:net";
 import path from "node:path";
 import type { Request, Response } from "express";
@@ -94,12 +95,33 @@ export function absoluteAssetWarnings(indexHtml: string) {
 
 // ---- Live dev servers (registered only while the visual-test tool is running) ----
 
-const liveServers = new Map<string, number>();
-export const registerLiveServer = (taskId: string, port: number) => liveServers.set(taskId, port);
+type LiveServer = { port: number; host?: string };
+const liveServers = new Map<string, LiveServer>();
+/** `host`: the server runs in the task's cloud sandbox and is reached through that public host. */
+export const registerLiveServer = (taskId: string, port: number, host?: string | null) => liveServers.set(taskId, host ? { port, host } : { port });
 export const unregisterLiveServer = (taskId: string) => liveServers.delete(taskId);
 
-export function waitForPort(port: number, timeoutMs: number, signal: AbortSignal) {
+/**
+ * Resolves true once something listens on the port: on this machine, or, with `remoteHost`, in the
+ * task's cloud sandbox (the host is known once the sandbox exists; it answers 502 until the port opens).
+ */
+export function waitForPort(port: number, timeoutMs: number, signal: AbortSignal, remoteHost?: () => string | null) {
   const deadline = Date.now() + timeoutMs;
+  if (remoteHost) {
+    return (async () => {
+      while (!signal.aborted && Date.now() < deadline) {
+        const host = remoteHost();
+        if (host) {
+          const status = await fetch(`https://${host}/`, { redirect: "manual", signal: AbortSignal.timeout(8000) })
+            .then(response => { void response.body?.cancel(); return response.status; })
+            .catch(() => 0);
+          if (status && status !== 502) return true;
+        }
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      return false;
+    })();
+  }
   return new Promise<boolean>(resolve => {
     const attempt = () => {
       if (signal.aborted || Date.now() > deadline) return resolve(false);
@@ -114,18 +136,22 @@ export function waitForPort(port: number, timeoutMs: number, signal: AbortSignal
 const HOP_HEADERS = new Set(["connection", "keep-alive", "proxy-authorization", "proxy-connection", "te", "trailer", "transfer-encoding", "upgrade"]);
 const STRIP_REQUEST = new Set(["cookie", "authorization", "x-forwarded-for", "x-real-ip", "x-forwarded-proto", "origin", "referer"]);
 
-function proxy(req: Request, res: Response, port: number, subPath: string) {
+function proxy(req: Request, res: Response, server: LiveServer, subPath: string) {
   const headers: http.OutgoingHttpHeaders = {};
   for (const [key, value] of Object.entries(req.headers)) if (!HOP_HEADERS.has(key) && !STRIP_REQUEST.has(key)) headers[key] = value;
-  headers.host = `127.0.0.1:${port}`;
-  const upstream = http.request({ host: "127.0.0.1", port, method: req.method, path: subPath + (req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : ""), headers, timeout: 30_000 }, response => {
+  headers.host = server.host ?? `127.0.0.1:${server.port}`;
+  const target = { method: req.method, path: subPath + (req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : ""), headers, timeout: 30_000 };
+  const onResponse = (response: http.IncomingMessage) => {
     const out: Record<string, string | string[]> = {};
     for (const [key, value] of Object.entries(response.headers)) if (value !== undefined && !HOP_HEADERS.has(key) && key !== "set-cookie" && key !== "content-security-policy" && key !== "x-frame-options") out[key] = value as string | string[];
     // Keep redirects inside the preview path.
     if (typeof out.location === "string" && out.location.startsWith("/")) out.location = `${req.baseUrl}${out.location}`;
     res.writeHead(response.statusCode ?? 502, { ...out, "content-security-policy": PREVIEW_CSP });
     response.pipe(res);
-  });
+  };
+  const upstream = server.host
+    ? https.request({ ...target, host: server.host, port: 443, servername: server.host }, onResponse)
+    : http.request({ ...target, host: "127.0.0.1", port: server.port }, onResponse);
   upstream.on("timeout", () => upstream.destroy(new Error("timeout")));
   upstream.on("error", error => { if (!res.headersSent) res.status(502).type("text/plain").send(`Preview server error: ${error.message}`); else res.end(); });
   req.pipe(upstream);
@@ -140,8 +166,8 @@ export function previewHandler(req: Request, res: Response) {
   res.setHeader("X-Robots-Tag", "noindex");
   if (!/^[0-9a-f-]{36}$/i.test(taskId) || !verifyPreviewToken(taskId, token)) return res.status(403).type("text/plain").send("Preview link expired or invalid.");
   const subPath = decodeURIComponent(req.path || "/");
-  const port = liveServers.get(taskId);
-  if (port) return proxy(req, res, port, subPath);
+  const server = liveServers.get(taskId);
+  if (server) return proxy(req, res, server, subPath);
   if (req.method !== "GET" && req.method !== "HEAD") return res.status(405).end();
   // The signed dir wins; ?dir= is accepted for links created before dirs were signed into tokens.
   const signed = previewTokenDir(token);

@@ -140,14 +140,14 @@ describe("task rows", () => {
 
   it("never sends answers in the task list", async () => {
     db.handler = async () => ({ rows: [] });
-    await store.listAgentTasks();
+    await store.listAgentTasks("user-1");
     expect(db.calls[0].text).toContain("NULL::text AS answer");
     expect(db.calls[0].text).not.toMatch(/,\s*answer,/);
   });
 
   it("counts legacy restart rows as interrupted, not failed", async () => {
     db.handler = async () => ({ rows: [{ total: "5", completed: "2", failed: "1", cancelled: "0", interrupted: "2", running: "0", files: "3" }] });
-    expect(await store.agentStats()).toEqual({ total: 5, completed: 2, completedWithIssues: 0, failed: 1, cancelled: 0, interrupted: 2, running: 0, filesChanged: 3 });
-    expect(db.calls[0].values).toEqual([LEGACY_RESTART_ERROR, ["queued", "running", "cancelling"]]);
+    expect(await store.agentStats("user-1")).toEqual({ total: 5, completed: 2, completedWithIssues: 0, failed: 1, cancelled: 0, interrupted: 2, running: 0, filesChanged: 3 });
+    expect(db.calls[0].values).toEqual([LEGACY_RESTART_ERROR, ["queued", "running", "cancelling"], "user-1"]);
   });
 });

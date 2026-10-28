@@ -22,9 +22,9 @@ export const STARTER_TASKS: StarterTask[] = [
     outcomes: [
       "Scaffolds the frontend, API and data model in the stack you name",
       "Runs the build and the tests, and fixes what fails",
-      "Ready for a temporary live preview with one confirmed Deploy click",
+      "Opens the running app in a real browser and checks it, with a screenshot",
     ],
-    deliverable: "Workspace files · a live preview on request · GitHub export",
+    deliverable: "Workspace files · a preview · GitHub export",
     team: true,
   },
   {

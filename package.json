@@ -62,6 +62,7 @@
     "dompurify": "^3.4.17",
     "dotenv": "^17.2.2",
     "drizzle-orm": "^0.44.5",
+    "e2b": "2.56.0",
     "embla-carousel-react": "^8.6.0",
     "express": "^4.21.2",
     "framer-motion": "^12.23.22",

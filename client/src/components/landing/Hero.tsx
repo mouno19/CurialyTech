@@ -30,8 +30,8 @@ export function Hero({ signedIn, seed }: { signedIn: boolean; seed?: ComposerSee
             <br className="lp-br-sm" /> pull request.
           </h1>
           <p className="lp-hero-lede lp-enter" style={enter(0.18)}>
-            Curialy AI is the autonomous coding agent that plans, writes, debugs, tests and deploys real software inside its own
-            sandboxed workspace, so you review instead of type.
+            Curialy AI is the autonomous coding agent that plans, writes, debugs and tests real software in a sandbox of its
+            own, so you review instead of type.
           </p>
           <div className="lp-hero-ctas lp-enter" style={enter(0.26)}>
             <a href="#composer" className="lp-pill lp-pill-lg m-nudge" onClick={event => jump(event, "#composer")}>
@@ -43,7 +43,7 @@ export function Hero({ signedIn, seed }: { signedIn: boolean; seed?: ComposerSee
             </a>
           </div>
           <p className="lp-hero-fine lp-enter" style={enter(0.32)}>
-            Its own workspace for every task · GitHub export, branches and pull requests · Live previews that clean up after themselves
+            Free to start: credits every 5 hours · Sign in with GitHub · Its own sandbox for every task · Branches and pull requests
           </p>
         </div>
 
@@ -58,7 +58,7 @@ export function Hero({ signedIn, seed }: { signedIn: boolean; seed?: ComposerSee
 
         <aside className="lp-hero-note lp-enter" style={enter(0.5)} aria-label="Margin note">
           <p className="lp-note-label">margin note</p>
-          <p>Every task runs in its own workspace: a real terminal, a real browser, a real runtime. On repositories you link it can push a branch and open a pull request for you to review; new repositories and live previews wait for your confirmation.</p>
+          <p>Every task runs in a sandbox of its own: a real terminal, a real browser, a real runtime. On repositories you link it can push a branch and open a pull request for you to review; a new repository waits for your confirmation.</p>
           <p className="lp-note-fact">one workspace · per task</p>
           <p className="lp-note-fact">every step · on the record</p>
         </aside>

@@ -27,7 +27,7 @@ export const COMPOSER_SUGGESTIONS = [
 export const NEXT_STEPS = [
   { label: "Reads the task and the code", detail: "files, docs and anything you attach" },
   { label: "Plans the work", detail: "in Dev Team mode an Architect writes the plan" },
-  { label: "Builds in its own workspace", detail: "a real terminal, browser and runtime" },
+  { label: "Builds in its own sandbox", detail: "a real terminal, browser and runtime" },
   { label: "Verifies before it hands over", detail: "build, tests and checks, fixing what fails" },
 ];
 
@@ -75,10 +75,10 @@ export const CAPABILITIES = [
     artifact: "build ✓ · tests ✓ · screenshot",
   },
   {
-    verb: "Deploys",
-    title: "Ships a live preview you can open and share.",
-    body: "One confirmed click builds the project from a temporary private repository and serves a live preview that takes itself down after about two hours.",
-    artifact: "live preview · removed after ~2 h",
+    verb: "Previews",
+    title: "Shows you the running app.",
+    body: "It starts what it built and opens it in a real browser inside the workspace, with a full-page screenshot on the record, so you see the result before you read the code.",
+    artifact: "preview · screenshot · console clean",
   },
 ];
 
@@ -100,7 +100,7 @@ export const STEPS = [
   },
   {
     title: "It builds in its own workspace.",
-    body: "Every task gets its own workspace with a real terminal, a real browser and a real runtime, and its commands run as an unprivileged, resource-limited user. It writes, runs, breaks and fixes on its own.",
+    body: "Every task gets a sandbox of its own with a real terminal, a real browser and a real runtime, so tasks never see each other's files. It writes, runs, breaks and fixes on its own.",
     snippet: "$ npm test  ✓ 14 passed",
   },
   {
@@ -109,8 +109,8 @@ export const STEPS = [
     snippet: "⚑ 1 issue: refund flow has no test",
   },
   {
-    title: "Review it, then merge or deploy.",
-    body: "Read the answer, the diff and the test output. On a repository you linked it has already pushed a branch and opened a pull request for you to review and merge; otherwise export to GitHub. A live preview takes one confirmed Deploy click.",
+    title: "Review it, then merge.",
+    body: "Read the answer, the diff and the test output, and open the running app in the Preview tab. On a repository you linked it has already pushed a branch and opened a pull request for you to review and merge; otherwise export the project to GitHub.",
     snippet: "pull request · ready for review",
   },
 ];
@@ -124,7 +124,7 @@ export const TASK_PROGRESS = [
   { label: "Install the payments SDK", time: "1:31", state: "done" },
   { label: "Implement createSession()", time: "3:58", state: "done" },
   { label: "Fix the failing discount test", time: "running", state: "active" },
-  { label: "Ready for your Deploy click", time: "—", state: "pending" },
+  { label: "Ready for your review", time: "—", state: "pending" },
 ] as const;
 
 export const DIFF_LINES: { kind: "ctx" | "add" | "del"; text: string }[] = [
@@ -154,15 +154,15 @@ export const TERMINAL_LINES: { tone: "cmd" | "out" | "ok" | "err" | "agent"; tex
   { tone: "agent", text: "  ● curialy: discount applied after tax, moving it before tax in cart.ts:88" },
   { tone: "cmd", text: "$ npm test checkout" },
   { tone: "ok", text: "  ✓ 14 passed · 0 failed · 1.9s" },
-  { tone: "agent", text: "  ● curialy: ready for review; a live preview is one Deploy click away" },
-  { tone: "ok", text: "  ▲ you confirmed Deploy · live preview ready · removed after ~2 h" },
+  { tone: "agent", text: "  ● curialy: opening the preview in the browser to check the checkout page" },
+  { tone: "ok", text: "  ▲ preview running · screenshot attached · ready for review" },
 ];
 
 /** The principles ledger: facts about how the workspace behaves. */
 export const PRINCIPLES = [
   { value: "1:1", label: "workspace per task, with its own folder and command log" },
   { value: "0", label: "repositories made public without your explicit confirmation" },
-  { value: "~2 h", label: "before a live preview takes itself down" },
+  { value: "5 h", label: "until your free credits refill: sign in with GitHub, no card needed" },
   { value: "Every", label: "step of every run on the record: plan, commands, files, results" },
 ];
 

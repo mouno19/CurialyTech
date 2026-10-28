@@ -14,7 +14,10 @@ import { OmniComposer, type ComposerSeed } from "@/components/composer/OmniCompo
 import { StarterTabs } from "@/components/StarterTabs";
 import { prefersReducedMotion, useCountUp } from "@/lib/motion";
 import type { StarterTask } from "@/lib/starterTasks";
-import { agentApi, formatTokens, relativeTime, type TaskStats } from "@/lib/api";
+import { agentApi, ApiError, formatTokens, relativeTime, type TaskStats } from "@/lib/api";
+import { clockText, refreshAccount, untilText, useAccount } from "@/lib/account";
+import { CreditsDialog, creditsLine, refillLine } from "@/components/shell/CreditsMeter";
+import type { CreditBalance } from "@shared/credits";
 import { useHealth } from "@/lib/appStatus";
 import { modeLabel, modelLabel, statusTime, TaskDuration, taskNote, TaskSkeleton, tokenTotal, useTaskList } from "./Tasks";
 
@@ -53,6 +56,8 @@ export default function Dashboard() {
   const [stats, setStats] = useState<TaskStats | null>(null);
   const [statsFailed, setStatsFailed] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [creditsOpen, setCreditsOpen] = useState(false);
+  const account = useAccount().info;
   const [seed, setSeed] = useState<ComposerSeed>();
   const [githubNotice, setGithubNotice] = useState(() => new URLSearchParams(window.location.search).get("github"));
   const quickRef = useRef<HTMLUListElement>(null);
@@ -69,7 +74,10 @@ export default function Dashboard() {
   const seen = useRef<string | null>(null);
   useEffect(() => {
     if (signature === null) return;
-    if (seen.current !== null && seen.current !== signature) void loadStats();
+    if (seen.current !== null && seen.current !== signature) {
+      void loadStats();
+      void refreshAccount();
+    }
     seen.current = signature;
   }, [signature, loadStats]);
 
@@ -77,7 +85,19 @@ export default function Dashboard() {
     setBusy(true);
     try {
       const { taskId } = await agentApi.create(request);
+      void refreshAccount();
       navigate(`/tasks/${taskId}`);
+    } catch (error) {
+      // Out of credits: say when they refill (local time) and offer a promo code; the task stays in the composer.
+      if (error instanceof ApiError && error.code === "no_credits") {
+        void refreshAccount();
+        setCreditsOpen(true);
+        const balance = (error.data as { credits?: CreditBalance } | undefined)?.credits;
+        throw new Error(balance?.resetsAt
+          ? `You're out of credits until ${clockText(balance.resetsAt)} (${untilText(balance.resetsAt)}). Your task stays here; a promo code adds credits now.`
+          : "Your account has no credits right now. Redeem a promo code to continue.");
+      }
+      throw error;
     } finally {
       setBusy(false);
     }
@@ -111,16 +131,23 @@ export default function Dashboard() {
               <p className="eyebrow dash-eyebrow m-rise" style={step(0)}><span className="dash-mark" aria-hidden="true">§</span>Autonomous agent workspace</p>
               <h2 id="dash-title" className="display dash-title m-rise" style={step(1)}>Bring the messy part. <em>Watch every step.</em></h2>
               <p className="dash-lede m-rise" style={step(2)}>
-                Describe a task and the agent plans it, edits the files, and runs your checks and tests in its own workspace, fixing what fails.
-                Its commands run as an unprivileged, resource-limited user, and its reasoning, terminal output and diffs stream in while it works.
+                Describe a task and the agent plans it, edits the files, and runs your checks and tests in a sandbox of its own, fixing what fails.
+                Its reasoning, terminal output and diffs stream in while it works.
               </p>
             </div>
             <aside className="dash-margin m-rise" style={step(3)} aria-label="Right now">
               <p className="micro" data-accent="">Right now</p>
               <p className="dash-now">{inProgress > 0 && <span className="spark-dot" data-live="" aria-hidden="true" />}{inProgress ? `${inProgress} ${inProgress === 1 ? "task" : "tasks"} in progress` : "Nothing in progress"}</p>
               <p><Link href="/integrations" className="ink-link">{summary.label}</Link></p>
+              {account && !account.credits.unlimited && (
+                <p className="dash-credits">
+                  <button type="button" className="ink-link" onClick={() => setCreditsOpen(true)}>{creditsLine(account.credits)}</button>
+                  <span className="dash-credits-refill">{refillLine(account.credits)}</span>
+                </p>
+              )}
             </aside>
           </section>
+          {account && <CreditsDialog open={creditsOpen} onOpenChange={setCreditsOpen} credits={account.credits} />}
 
           <OmniComposer onSubmit={start} busy={busy} autoFocus seed={seed} examples={EXAMPLES} />
 

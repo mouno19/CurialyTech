@@ -103,7 +103,11 @@ const sessions = new Map<string, LiveSession>();
 const opening = new Map<string, Promise<LiveSession>>();
 
 /** The task's live browser, created (and announced to the UI) on first use. */
-export function liveBrowser(taskId: string, emit: Emit, signal?: AbortSignal): Promise<LiveSession> {
+/**
+ * interactive: the operator's tasks get the live view (an embeddable, clickable remote browser).
+ * Other accounts get none: they see the agent's screenshots, and can't act on websites themselves.
+ */
+export function liveBrowser(taskId: string, emit: Emit, signal?: AbortSignal, interactive = true): Promise<LiveSession> {
   const existing = sessions.get(taskId);
   if (existing && !existing.closed) {
     existing.touch();
@@ -120,7 +124,7 @@ export function liveBrowser(taskId: string, emit: Emit, signal?: AbortSignal): P
       const page = context.pages()[0] ?? (await context.newPage());
       await page.setViewportSize({ width: 1280, height: 800 });
       if (signal?.aborted) throw signal.reason ?? new Error("Cancelled");
-      const liveUrl = await liveViewUrl(session.id).catch(() => null);
+      const liveUrl = interactive ? await liveViewUrl(session.id).catch(() => null) : null;
       const live = new LiveSession(taskId, session.id, browser, page, liveUrl, emit, () => { if (sessions.get(taskId) === live) sessions.delete(taskId); });
       sessions.set(taskId, live);
       console.log(`[browser] ${taskId} session ${session.id} opened`);

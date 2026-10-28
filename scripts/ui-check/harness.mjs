@@ -61,6 +61,8 @@ export function buildPlan(fx, { viewports = VIEWPORTS, only = null } = {}) {
     { id: "integrations", path: "/integrations" },
     { id: "skills", path: "/skills" },
     { id: "keys", path: "/keys" },
+    // The operator's dashboard (accounts, promo codes, settings).
+    { id: "admin", path: "/admin" },
     { id: "login", path: "/login", signedOut: true },
     // The public homepage: scrolled through first (every reveal fires), then captured whole.
     { id: "home", path: "/", signedOut: true, fullPage: true, action: "scroll-through" },
@@ -86,6 +88,8 @@ export function buildPlan(fx, { viewports = VIEWPORTS, only = null } = {}) {
     if (preview) checks.push({ id: "task-preview-export", path: `/tasks/${preview.id}`, scenario: "preview", task: true, viewport, phone, action: "export-overwrite" });
     if (fx.redeployTaskId) checks.push({ id: "task-redeploy", path: `/tasks/${fx.redeployTaskId}`, scenario: "redeploy", task: true, viewport, phone });
     checks.push({ id: "dashboard-starters", path: "/", viewport, phone, action: "starters" });
+    // A free account: the credits meter and the dashboard's credits line.
+    checks.push({ id: "dashboard-free", path: "/", viewport, phone, account: "free" });
   }
   const selected = only ? checks.filter(check => only.test(`${check.id}@${vp(check.viewport)}`)) : checks;
   const width = String(selected.length).length < 2 ? 2 : String(selected.length).length;

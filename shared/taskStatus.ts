@@ -58,6 +58,7 @@ const REASON_TEXT: Record<StatusReason, string> = {
   retry: "Retry requested",
   deploy: "Deploy requested",
   prompt: "Task started",
+  credits: "Stopped: your account ran out of credits",
 };
 
 export function statusReasonText(reason: StatusReason | null | undefined) {

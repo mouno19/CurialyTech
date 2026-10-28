@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { appRouter } from "./routers";
 import { COOKIE_NAME } from "../shared/const";
-import { ADMIN_COOKIE } from "./auth";
+import { ADMIN_COOKIE, USER_COOKIE } from "./auth";
 import type { TrpcContext } from "./_core/context";
 
 type CookieCall = {
@@ -51,7 +51,7 @@ describe("auth.logout", () => {
 
     expect(result).toEqual({ success: true });
     // Clears the legacy platform session and the Curialy admin session.
-    expect(clearedCookies.map(cookie => cookie.name)).toEqual([COOKIE_NAME, ADMIN_COOKIE]);
+    expect(clearedCookies.map(cookie => cookie.name)).toEqual([COOKIE_NAME, ADMIN_COOKIE, USER_COOKIE]);
     expect(clearedCookies[0]?.name).toBe(COOKIE_NAME);
     expect(clearedCookies[0]?.options).toMatchObject({
       maxAge: -1,

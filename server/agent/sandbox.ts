@@ -2,15 +2,52 @@ import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-// Each task gets its own directory under WORKSPACE_ROOT. Commands run as the
-// unprivileged sandbox user inside a transient systemd scope (memory/CPU/task limits,
-// killed as a unit afterwards). File tools run in this process, so every path is
-// resolved through realpath and confined to the workspace to defeat symlink escapes.
+// Each task gets its own directory under WORKSPACE_ROOT. With E2B configured, its commands run in
+// a cloud sandbox of its own (e2b.ts) and the directory keeps only sources and build output;
+// otherwise they run here as the unprivileged sandbox user inside a transient systemd scope
+// (memory/CPU/task limits, killed as a unit afterwards). File tools run in this process, so every
+// path is resolved through realpath and confined to the workspace to defeat symlink escapes.
 
 export const WORKSPACE_ROOT = process.env.AGENT_WORKSPACE_ROOT || "/srv/curialy-workspaces";
 const SANDBOX_USER = process.env.AGENT_SANDBOX_USER || "curialy-agent";
-// "systemd" (production) or "none" (local development without the sandbox user).
-const SANDBOX_MODE = process.env.AGENT_SANDBOX === "none" ? "none" : "systemd";
+// "e2b" (production: one cloud sandbox per task), "systemd" (commands on this server as the sandbox
+// user) or "none" (local development and tests). Unset: E2B when its key is configured.
+export const SANDBOX_MODE: "e2b" | "systemd" | "none" =
+  process.env.AGENT_SANDBOX === "none" ? "none"
+  : process.env.AGENT_SANDBOX === "systemd" ? "systemd"
+  : process.env.AGENT_SANDBOX === "e2b" || process.env.E2B_API_KEY ? "e2b" : "systemd";
+
+/** Free accounts' tasks run only in cloud sandboxes (one each); on this server they would share a user. */
+export const cloudSandboxReady = () => SANDBOX_MODE === "e2b" && Boolean(process.env.E2B_API_KEY);
+
+/** Directories created by the sandbox user (systemd mode, or before a switch to E2B) need its rights to change. */
+function agentOwned(dir: string) {
+  if (SANDBOX_MODE === "none") return false;
+  if (SANDBOX_MODE === "systemd") return true;
+  const uid = process.getuid?.();
+  return uid !== undefined && fs.statSync(dir, { throwIfNoEntry: false })?.uid !== uid;
+}
+
+// Set by e2b.ts when the cloud sandbox is in use: commands, a refresh of the local copy before it is
+// read as a whole (archive, export, deploy), and teardown when the workspace goes away.
+type RemoteSandbox = {
+  run: (opts: CommandOptions) => Promise<CommandResult>;
+  refresh: (taskId: string, root: string) => Promise<void>;
+  removed: (taskId: string) => void;
+  host: (taskId: string, port: number) => string | null;
+};
+let remote: RemoteSandbox | null = null;
+export function useRemoteSandbox(sandbox: RemoteSandbox) {
+  remote = sandbox;
+}
+
+/** The public host of a port in the task's cloud sandbox, once it exists (null when commands run here). */
+export const sandboxPortHost = (taskId: string, port: number) => remote?.host(taskId, port) ?? null;
+
+/** Bring back what the task's cloud sandbox changed since its last command (no-op otherwise). */
+export async function refreshWorkspace(root: string) {
+  if (remote && path.dirname(root) === WORKSPACE_ROOT) await remote.refresh(path.basename(root), root);
+}
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 
 export class SandboxError extends Error {}
@@ -96,8 +133,9 @@ export function writeWorkspaceBytes(root: string, requested: string, content: Bu
 /** Remove a task's scratch directory with the sandbox user's privileges (it owns files created by commands). */
 export function removeWorkspace(taskId: string) {
   const dir = workspacePath(taskId);
+  remote?.removed(taskId);
   if (!fs.existsSync(dir) || path.dirname(dir) !== WORKSPACE_ROOT) return;
-  if (SANDBOX_MODE === "systemd") spawnSync("sudo", ["-n", "-u", SANDBOX_USER, "rm", "-rf", "--", dir], { stdio: "ignore" });
+  if (agentOwned(dir)) spawnSync("sudo", ["-n", "-u", SANDBOX_USER, "rm", "-rf", "--", dir], { stdio: "ignore" });
   if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
 }
 
@@ -108,7 +146,7 @@ export function removeWorkspace(taskId: string) {
  * Best effort: anything still unreadable makes the caller fail, so nothing is left out silently.
  */
 export function shareWorkspaceFiles(root: string, skipDirs: Iterable<string>) {
-  if (SANDBOX_MODE !== "systemd" || path.dirname(root) !== WORKSPACE_ROOT || !fs.existsSync(root)) return Promise.resolve();
+  if (path.dirname(root) !== WORKSPACE_ROOT || !fs.existsSync(root) || !agentOwned(root)) return Promise.resolve();
   const prune = [...skipDirs].flatMap(name => ["-type", "d", "-name", name, "-prune", "-o"]);
   const unreadable = ["(", "-type", "d", "!", "-perm", "-0050", "-o", "-type", "f", "!", "-perm", "-0040", ")"];
   return new Promise<void>(resolve => {
@@ -165,11 +203,7 @@ export function listWorkspaceTree(root: string, sub = ".", maxDepth = 4, limit =
 
 export type CommandResult = { exitCode: number | null; timedOut: boolean; output: string; durationMs: number };
 
-// Commands share a single small VPS with production; run them one at a time.
-let commandQueue: Promise<unknown> = Promise.resolve();
-let commandCounter = 0;
-
-export function runCommand(opts: {
+export type CommandOptions = {
   root: string;
   command: string;
   timeoutSec: number;
@@ -177,7 +211,22 @@ export function runCommand(opts: {
   onOutput: (stream: "stdout" | "stderr", chunk: string) => void;
   /** Keep NUL bytes in `output` (machine-readable output such as git -z); streamed chunks are always clean. */
   raw?: boolean;
-}): Promise<CommandResult> {
+  /**
+   * Cloud sandbox only: "full" (default) uploads local edits first and brings back what the command
+   * changed; "push" only uploads (read-only commands such as search or git diff); "none" skips both
+   * (commands that never touch the workspace, such as a web fetch).
+   */
+  sync?: "full" | "push" | "none";
+};
+
+// Commands share a single small VPS with production; run them one at a time.
+let commandQueue: Promise<unknown> = Promise.resolve();
+let commandCounter = 0;
+
+export function runCommand(opts: CommandOptions): Promise<CommandResult> {
+  if (SANDBOX_MODE === "e2b") {
+    return remote ? remote.run(opts) : Promise.resolve({ exitCode: null, timedOut: false, output: "The command sandbox is not available on this server yet.", durationMs: 0 });
+  }
   // A run cancelled while its command waits behind another task's gets its answer at once (and the
   // command never starts), instead of waiting its turn in the queue.
   return new Promise<CommandResult>(resolve => {
@@ -201,7 +250,7 @@ export function runCommand(opts: {
 
 const OUTPUT_CAP = 400_000;
 
-function runCommandNow({ root, command, timeoutSec, signal, onOutput, raw }: Parameters<typeof runCommand>[0]): Promise<CommandResult> {
+function runCommandNow({ root, command, timeoutSec, signal, onOutput, raw }: CommandOptions): Promise<CommandResult> {
   const started = Date.now();
   const timeout = Math.max(5, Math.min(600, Math.round(timeoutSec)));
   const unit = `curialy-agent-${process.pid}-${++commandCounter}-${Date.now()}`;

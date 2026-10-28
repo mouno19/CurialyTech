@@ -21,6 +21,7 @@ const Media = lazy(() => import("./pages/Media"));
 const Integrations = lazy(() => import("./pages/Integrations"));
 const Skills = lazy(() => import("./pages/Skills"));
 const ApiKeys = lazy(() => import("./pages/ApiKeys"));
+const Admin = lazy(() => import("./pages/Admin"));
 // The public homepage has its own chunk and stylesheet.
 const Landing = lazy(() => import("./pages/Landing"));
 
@@ -60,7 +61,7 @@ function Gate() {
   const signedIn = useCallback(async () => {
     rescueFocusOnNextShell();
     const result = await me.refetch();
-    if (result.data?.admin) return;
+    if (result.data?.user) return;
     // A failed refetch keeps the previous (signed-out) data, so tell the two cases apart by the error.
     throw new Error(result.isError
       ? "The password was accepted, but the server couldn't confirm the session. Check your connection, then sign in again."
@@ -68,12 +69,12 @@ function Gate() {
   }, [me]);
 
   useEffect(() => {
-    // Any API call that comes back 401 (expired session) sends the operator to sign in. Signed out,
-    // "/" is the public homepage, so a session that ends on the dashboard goes to the sign-in page.
+    // Any API call that comes back 401 (expired session) asks to sign in again. Signed out, "/" is
+    // the public homepage, so a session that ends on the dashboard goes to the sign-in page instead.
     const onUnauthorized = () => {
-      const wasAdmin = me.data?.admin === true;
+      const wasSignedIn = Boolean(me.data?.user);
       void me.refetch().then(result => {
-        if (wasAdmin && result.data && !result.data.admin && window.location.pathname === "/") navigate("/login", { replace: true });
+        if (wasSignedIn && result.data && !result.data.user && window.location.pathname === "/") navigate("/login", { replace: true });
       });
     };
     window.addEventListener("curialy:unauthorized", onUnauthorized);
@@ -96,12 +97,13 @@ function Gate() {
       </div>
     );
   }
-  if (!(me.data?.admin ?? false)) {
+  const admin = me.data?.admin ?? false;
+  if (!me.data?.user) {
     // Visitors get the homepage at "/"; every other address asks them to sign in (and stays put,
     // so a shared task link opens after signing in).
     // After signing in, auth.me is fetched again; the signed-in routes then take over (and send
     // /login to the dashboard), so nothing else shows in between.
-    const signIn = <Login configured={me.data?.configured ?? false} onSignedIn={signedIn} />;
+    const signIn = <Login configured={me.data?.configured ?? false} github={me.data?.github ?? false} signupsOpen={me.data?.signupsOpen ?? true} onSignedIn={signedIn} />;
     return (
       <ErrorBoundary>
         <Switch>
@@ -127,7 +129,9 @@ function Gate() {
           <Route path="/media" component={Media} />
           <Route path="/integrations" component={Integrations} />
           <Route path="/skills" component={Skills} />
-          <Route path="/keys" component={ApiKeys} />
+          {/* The operator's pages: other accounts land on the dashboard. */}
+          <Route path="/keys">{admin ? <ApiKeys /> : <Redirect to="/" />}</Route>
+          <Route path="/admin">{admin ? <Admin /> : <Redirect to="/" />}</Route>
           <Route component={NotFound} />
         </Switch>
       </Suspense>
