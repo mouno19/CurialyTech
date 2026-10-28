@@ -9,6 +9,8 @@
 #   sudo -n systemctl stop curialy-agent-*.scope
 #   sudo -n install -d -o curialy-agent -g curialy-agent -m 2775 /srv/curialy-workspaces/<task>
 #   sudo -n -u curialy-agent rm -rf -- /srv/curialy-workspaces/<task>
+#   sudo -n -u curialy-agent timeout 60 find /srv/curialy-workspaces/<task> ... -exec chmod g+rX -- {} +
+#     (before an archive, export or deploy: makes owner-only files the agent's tools wrote readable to the app)
 # (On curialy-tech the app user has general sudo from the cloud image; a narrower sudoers
 # rule covering only the lines above is the stricter option.)
 set -euo pipefail

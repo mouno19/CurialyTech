@@ -101,6 +101,24 @@ export function removeWorkspace(taskId: string) {
   if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
 }
 
+/**
+ * Let the app (a member of the sandbox group) read what the agent's commands wrote: some tools
+ * create owner-only files and folders, which the archive, an export or a deploy could not read.
+ * Runs as the sandbox user, which owns them, and leaves `skipDirs` (caches, dependencies) alone.
+ * Best effort: anything still unreadable makes the caller fail, so nothing is left out silently.
+ */
+export function shareWorkspaceFiles(root: string, skipDirs: Iterable<string>) {
+  if (SANDBOX_MODE !== "systemd" || path.dirname(root) !== WORKSPACE_ROOT || !fs.existsSync(root)) return Promise.resolve();
+  const prune = [...skipDirs].flatMap(name => ["-type", "d", "-name", name, "-prune", "-o"]);
+  const unreadable = ["(", "-type", "d", "!", "-perm", "-0050", "-o", "-type", "f", "!", "-perm", "-0040", ")"];
+  return new Promise<void>(resolve => {
+    // Started inside the workspace: find can't run its -exec from a directory the sandbox user can't enter (the app's).
+    const child = spawn("sudo", ["-n", "-u", SANDBOX_USER, "timeout", "60", "find", root, ...prune, ...unreadable, "-exec", "chmod", "g+rX", "--", "{}", "+"], { cwd: root, stdio: "ignore" });
+    child.on("error", () => resolve());
+    child.on("close", () => resolve());
+  });
+}
+
 export function copyIntoWorkspace(root: string, source: string, requested: string) {
   const { absolute } = resolveInWorkspace(root, requested);
   fs.mkdirSync(path.dirname(absolute), { recursive: true, mode: 0o2775 });

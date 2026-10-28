@@ -35,7 +35,9 @@ vi.mock("./db/pg", () => ({
   }),
 }));
 
-const { collectWorkspaceFiles, findBuildDirs, isPublishExcluded, isUnbuiltTemplate, snapshotWorkspace, materializeWorkspace } = await import("./agent/workspaces");
+const { archiveWorkspace, collectWorkspaceFiles, findBuildDirs, isPublishExcluded, isUnbuiltTemplate, snapshotWorkspace, materializeWorkspace } = await import("./agent/workspaces");
+// Permission checks mean nothing to root.
+const asRoot = process.getuid?.() === 0;
 
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
@@ -92,6 +94,16 @@ describe("collectWorkspaceFiles", () => {
     fs.symlinkSync("/etc/hostname", path.join(root, "link.txt"));
     const { files } = collectWorkspaceFiles(root);
     expect(files).toEqual([{ path: "a.txt", content: Buffer.from("hello"), sha256: "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824" }]);
+  });
+
+  it.skipIf(asRoot)("fails instead of leaving out a folder it can't read", () => {
+    const root = workspace({ "a.txt": "a", "private/b.txt": "b" });
+    fs.chmodSync(path.join(root, "private"), 0o000);
+    try {
+      expect(() => collectWorkspaceFiles(root)).toThrow("The workspace folder private can't be read (EACCES).");
+    } finally {
+      fs.chmodSync(path.join(root, "private"), 0o755);
+    }
   });
 });
 
@@ -163,5 +175,14 @@ describe("archive and restore", () => {
     await expect(materializeWorkspace(TASK)).rejects.toThrow("connection reset");
     expect(fs.existsSync(live)).toBe(false);
     archive.failLoad = false;
+  });
+
+  it.skipIf(asRoot)("keeps the workspace when part of it can't be read (it is archived on a later sweep)", async () => {
+    const other = path.join(process.env.AGENT_WORKSPACE_ROOT!, "00000000-0000-4000-8000-0000000000b1");
+    fs.mkdirSync(path.join(other, "src"), { recursive: true });
+    fs.writeFileSync(path.join(other, "src/App.tsx"), "x");
+    fs.writeFileSync(path.join(other, "src/.init.json"), "{}", { mode: 0o000 });
+    await expect(archiveWorkspace("00000000-0000-4000-8000-0000000000b1")).rejects.toThrow("EACCES");
+    expect(fs.readdirSync(path.join(other, "src")).sort()).toEqual([".init.json", "App.tsx"]);
   });
 });

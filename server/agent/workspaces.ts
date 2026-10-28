@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { query } from "../db/pg";
-import { ensureWorkspace, removeWorkspace, workspacePath, writeWorkspaceBytes } from "./sandbox";
+import { ensureWorkspace, removeWorkspace, shareWorkspaceFiles, workspacePath, writeWorkspaceBytes } from "./sandbox";
 import { idleWorkspaces, loadWorkspaceSnapshot, saveWorkspaceSnapshot, updateAgentTask, type SnapshotRole } from "./store";
 import { linkedRepo, linkedSnapshotFiles, restoreLinkedRepo } from "./repos";
 import { getConnection } from "../services/github";
@@ -33,15 +33,30 @@ const BUILD_DIR_NAMES = new Set(["dist", "build", "out"]);
 const MAX_BUILD_FILES = 600;
 const MAX_BUILD_BYTES = 15 * 1024 * 1024;
 
+/** A folder's entries. One that can't be read fails the walk: it is never silently left out of an archive, export or deploy. */
+function readDir(root: string, dir: string) {
+  try {
+    return fs.readdirSync(dir, { withFileTypes: true });
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return [];
+    throw new Error(`The workspace folder ${path.relative(root, dir) || "."} can't be read (${code ?? "error"}).`);
+  }
+}
+
+/** The project's sources, after making what the agent's tools wrote owner-only readable (see shareWorkspaceFiles). */
+export async function readWorkspaceFiles(root: string) {
+  await shareWorkspaceFiles(root, SKIP_DIRS);
+  return collectWorkspaceFiles(root);
+}
+
 /** The project's sources (build output folders and caches left out), as exported, deployed and archived. */
 export function collectWorkspaceFiles(root: string) {
   const files: { path: string; content: Buffer; sha256: string }[] = [];
   let total = 0;
   let skipped = 0;
   const walk = (dir: string) => {
-    let entries: fs.Dirent[];
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
-    for (const entry of entries) {
+    for (const entry of readDir(root, dir)) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         // Build output is kept separately (role 'build', see buildFor); lockfiles and sources stay.
@@ -97,9 +112,7 @@ function collectBuildFiles(root: string, dir: string) {
   const files: { path: string; content: Buffer; sha256: string; role: SnapshotRole }[] = [];
   let total = 0;
   const walk = (current: string) => {
-    let entries: fs.Dirent[];
-    try { entries = fs.readdirSync(current, { withFileTypes: true }); } catch { return; }
-    for (const entry of entries) {
+    for (const entry of readDir(root, current)) {
       const full = path.join(current, entry.name);
       if (entry.isDirectory()) { walk(full); continue; }
       if (!entry.isFile() || entry.name.endsWith(".map")) continue;
@@ -117,6 +130,7 @@ function collectBuildFiles(root: string, dir: string) {
 export async function snapshotWorkspace(taskId: string) {
   const root = workspacePath(taskId);
   if (!fs.existsSync(root)) return null;
+  await shareWorkspaceFiles(root, SKIP_DIRS);
   const repo = await linkedRepo(taskId);
   if (repo) {
     // Linked GitHub repo: archive only the agent's edits (plus anything outside the repo folder);

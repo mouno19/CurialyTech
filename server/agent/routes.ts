@@ -18,7 +18,7 @@ import { PROVIDER_ENV, probeProviders } from "./providers";
 import { activeTaskCount, followUp, isBusy, isRunning, requestCancel, RESTARTING, retryTask, startDeployRun, startTask, TaskRejected } from "./runner";
 import { listWorkspaceTree, removeWorkspace, resolveInWorkspace, SandboxError, workspacePath } from "./sandbox";
 import { agentStats, deleteAgentTask, getAgentTask, lastSeq, listAgentTasks, listEventsAfter, listWorkspaceSnapshot, loadWorkspaceSnapshot, readSnapshotFile } from "./store";
-import { collectWorkspaceFiles, findArchivedBuild, findBuildDirs, isPublishExcluded, isUnbuiltTemplate, materializeWorkspace, restoreWorkspace, withWorkspaceLock } from "./workspaces";
+import { findArchivedBuild, findBuildDirs, isPublishExcluded, isUnbuiltTemplate, materializeWorkspace, readWorkspaceFiles, restoreWorkspace, withWorkspaceLock } from "./workspaces";
 import { query } from "../db/pg";
 import { branchHead, createRepo, disconnect, getConnection, GITHUB_SCOPES, githubApi, GitHubError, isValidRepoName, listRepos, oauthConfigured, pushProjectToRepo, RemoteChangedError } from "../services/github";
 import { cloneIntoWorkspace, commitAndPush, linkedRepo } from "./repos";
@@ -608,7 +608,7 @@ export function agentRouter() {
   /** The files an export would publish (sources only, never uploads or local secrets). */
   async function exportFiles(taskId: string) {
     const dir = workspacePath(taskId);
-    const all = fs.existsSync(dir) ? collectWorkspaceFiles(dir).files : (await loadWorkspaceSnapshot(taskId, ["source"])).map(file => ({ path: file.path, content: file.content }));
+    const all = fs.existsSync(dir) ? (await readWorkspaceFiles(dir)).files : (await loadWorkspaceSnapshot(taskId, ["source"])).map(file => ({ path: file.path, content: file.content }));
     const files = all.filter(file => !isPublishExcluded(file.path));
     return { files, excluded: all.filter(file => isPublishExcluded(file.path)).map(file => file.path) };
   }

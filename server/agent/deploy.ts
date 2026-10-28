@@ -4,7 +4,7 @@ import { db, query } from "../db/pg";
 import { createRepo, pushProjectToRepo, repoToken, retireRepo, throwIfAborted } from "../services/github";
 import { appendTaskEvent } from "./events";
 import { PROVIDER_ENV } from "./providers";
-import { collectWorkspaceFiles, isPublishExcluded } from "./workspaces";
+import { isPublishExcluded, readWorkspaceFiles } from "./workspaces";
 
 // Temporary live previews on Render, which only deploys from Git. Every preview builds from its own
 // throwaway PRIVATE repository in the connected account; a preview never writes to a repository the
@@ -61,7 +61,7 @@ export async function deployPreview(req: DeployRequest) {
   const github = await repoToken();
   if (!github) throw new Error("Connect GitHub first (sidebar → Connect GitHub): live previews are built from a Git repository.");
   // Uploads and local secrets never go into a repository, even a private temporary one.
-  const files = collectWorkspaceFiles(req.root).files.filter(file => !isPublishExcluded(file.path));
+  const files = (await readWorkspaceFiles(req.root)).files.filter(file => !isPublishExcluded(file.path));
   if (!files.length) throw new Error("The workspace is empty; nothing to deploy.");
   throwIfAborted(req.signal);
 
