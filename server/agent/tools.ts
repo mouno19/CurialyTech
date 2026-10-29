@@ -6,7 +6,9 @@ import { z } from "zod";
 import type { PlanStep } from "@shared/agent";
 import type { Emit } from "./bus";
 import { PROVIDER_ENV, runManusTask } from "./providers";
-import { browserConfigured, closeLiveBrowser, liveBrowser, navigate, snapshot } from "./browser";
+import { browserConfigured, closeLiveBrowser, liveBrowser, MAX_SHOT_HEIGHT, navigate, snapshot, visualCheck } from "./browser";
+import { auditPage, auditText } from "./design/audit";
+import type { DesignAudit, Surface } from "./design/types";
 import { deployConfigured, deployPreview } from "./deploy";
 import { assertStorageAvailable, storeMedia } from "../media/snowflake";
 import { StorageError } from "../media/storage-errors";
@@ -46,6 +48,8 @@ export type ToolContext = {
   charge?: (credits: number, detail: string) => void;
   /** Whether the task's account can cover `credits` now (always for the operator). */
   canSpend?: (credits: number) => Promise<boolean>;
+  /** The run's design brief, for the visual test's audit: the kind of interface and the looks the user asked for. */
+  design?: { surface: Surface; allowed: string[] };
 };
 
 /**
@@ -55,7 +59,9 @@ export type ToolContext = {
  */
 export const OPERATOR_TOOLS = new Set(["deploy_preview", "delegate_research", "browser_click", "browser_type"]);
 
-export type ToolOutcome = { ok: boolean; content: string; summary: string; exitCode?: number | null; image?: { mediaType: "image/jpeg"; base64: string } };
+export type ToolImage = { mediaType: "image/jpeg"; base64: string };
+/** images: screenshots for the model (vision models only); audit: the visual test's design audit, for the harness. */
+export type ToolOutcome = { ok: boolean; content: string; summary: string; exitCode?: number | null; images?: ToolImage[]; audit?: DesignAudit | null };
 
 const VERIFY_PATTERN = /\b(tsc|vitest|jest|pytest|eslint|ruff|mypy|pyright|go (test|vet)|cargo (test|check)|node --test|(npm|pnpm|yarn)( run)? (test|lint|check|typecheck|build))\b/;
 export const isVerificationCommand = (command: string) => VERIFY_PATTERN.test(command);
@@ -127,6 +133,7 @@ const schemas = {
     port: z.number().int().min(1024).max(65535).refine(port => ![3000, 3100, 8082].includes(port), "That port is reserved").default(4173),
     full_page: z.boolean().default(true),
     wait_ms: z.number().int().min(0).max(15000).default(1500),
+    audit: z.boolean().default(true),
   }),
   attach_files: z.object({ paths: z.array(z.string().min(1).max(500)).min(1).max(20), note: z.string().max(500).optional() }),
   github_list_repos: z.object({ query: z.string().max(100).default("") }),
@@ -245,7 +252,7 @@ const MAX_TRANSCRIBE_BYTES_FREE = 10 * 1024 * 1024;
 
 const VISUAL_TOOL: ToolDef = {
   name: "test_preview_visual",
-  description: "Visually test the web app you built: serve it, open it in a real Chromium (cloud browser), and get back a full-page screenshot plus HTTP status, console errors and the rendered text. Static mode (default) serves the build output: index.html in dir, else dist/, build/, out/, public/ or the workspace root, so run the build first and use relative asset paths (Vite: base: './', CRA: \"homepage\": \".\"). Server mode: pass start_command (e.g. 'npm run dev -- --host 127.0.0.1 --port 4173' or 'node server.js') and the port it listens on; the server runs only for the duration of the test. Inspect the screenshot and fix layout or styling problems before finishing.",
+  description: "Visually test the web app you built: serve it, open it in a real Chromium (cloud browser), and get back a screenshot at desktop size (full page by default; full_page: false shows the first screen at full resolution), a screenshot of the top of the page at phone width (390 px, reduced motion), HTTP status, console errors, the rendered text and a design audit measured in the page (contrast, focus styles, target sizes, sideways scroll, labels, type scale, reduced motion and common template tells). Static mode (default) serves the build output: index.html in dir, else dist/, build/, out/, public/ or the workspace root, so run the build first and use relative asset paths (Vite: base: './', CRA: \"homepage\": \".\"). Server mode: pass start_command (e.g. 'npm run dev -- --host 127.0.0.1 --port 4173' or 'node server.js') and the port it listens on; the server runs only for the duration of the test. Inspect the screenshots, fix the audit's findings marked \"fix\" and layout or styling problems before finishing.",
   input_schema: {
     type: "object",
     properties: {
@@ -253,8 +260,9 @@ const VISUAL_TOOL: ToolDef = {
       page: { type: "string", description: "Path to open, default /" },
       start_command: { type: "string", description: "Server mode: command that starts the app" },
       port: { type: "integer", description: "Server mode: port the app listens on (default 4173)" },
-      full_page: { type: "boolean", description: "Full-page screenshot, default true" },
+      full_page: { type: "boolean", description: "Full-page desktop screenshot, default true" },
       wait_ms: { type: "integer", description: "Extra wait for network idle, default 1500" },
+      audit: { type: "boolean", description: "Phone screenshot and design audit, default true" },
     },
   },
 };
@@ -570,43 +578,59 @@ async function runGitHubTool(name: ToolName, input: any, ctx: ToolContext): Prom
   }
 }
 
-/** Shared by browse and test_preview_visual: log, store the screenshot, and build the model-facing result. */
-async function reportPage(ctx: ToolContext, page: BrowseResult, displayUrl: string, extra: string[] = []): Promise<ToolOutcome> {
-  const safeUrl = (value: string) => value.replace(/\/api\/workspace\/preview\/([^/]+)\/[^/]+\//, "/api/workspace/preview/$1/<token>/");
-  ctx.emit({ type: "tool_output", callId: ctx.callId, stream: "stdout", chunk: `HTTP ${page.status ?? "?"} · ${safeUrl(page.finalUrl)}\ntitle: ${page.title}\n${page.consoleErrors.length ? `console errors:\n${page.consoleErrors.join("\n")}\n` : ""}` });
-  let image: ToolOutcome["image"];
-  if (page.screenshot) {
-    const caption = `${page.title || safeUrl(displayUrl)} (${safeUrl(page.finalUrl)})`;
-    let mediaId: string | null = null;
-    // Same gate as artifacts: skip while storage is known to be down, otherwise try (after an
-    // outage's window this upload is the one call that finds out storage is back).
-    let storageUp = true;
-    try { assertStorageAvailable(); } catch { storageUp = false; }
-    if (storageUp) {
-      try {
-        mediaId = (await storeMedia({ buffer: page.screenshot, filename: "screenshot.jpg", mimeType: "image/jpeg", kind: "screenshot", sessionId: ctx.sessionId })).id;
-      } catch (error) {
-        ctx.emit({ type: "tool_output", callId: ctx.callId, stream: "stderr", chunk: `Could not store the screenshot: ${error instanceof StorageError ? error.message : "file storage error"}\n` });
-      }
+/** Store a screenshot in Curialy Vault (inline in the log while storage is down) and show it in the run. */
+async function showScreenshot(ctx: ToolContext, screenshot: Buffer, filename: string, caption: string) {
+  let mediaId: string | null = null;
+  // Same gate as artifacts: skip while storage is known to be down, otherwise try (after an
+  // outage's window this upload is the one call that finds out storage is back).
+  let storageUp = true;
+  try { assertStorageAvailable(); } catch { storageUp = false; }
+  if (storageUp) {
+    try {
+      mediaId = (await storeMedia({ buffer: screenshot, filename, mimeType: "image/jpeg", kind: "screenshot", sessionId: ctx.sessionId })).id;
+    } catch (error) {
+      ctx.emit({ type: "tool_output", callId: ctx.callId, stream: "stderr", chunk: `Could not store the screenshot: ${error instanceof StorageError ? error.message : "file storage error"}\n` });
     }
-    // Without file storage a small screenshot travels inside the event log; a large one is not
-    // kept (the model still sees it below), so the log cannot balloon.
-    const base64 = mediaId ? "" : page.screenshot.toString("base64");
-    const inline = !mediaId && base64.length <= INLINE_SCREENSHOT_LIMIT;
-    ctx.emit({ type: "media", callId: ctx.callId, mediaId, filename: "screenshot.jpg", mimeType: "image/jpeg", caption, ...(inline ? { inlineDataUrl: `data:image/jpeg;base64,${base64}` } : {}), ...(!mediaId && !inline ? { unavailable: true } : {}) });
-    if (ctx.vision) image = { mediaType: "image/jpeg", base64: page.screenshot.toString("base64") };
+  }
+  // Without file storage a small screenshot travels inside the event log; a large one is not
+  // kept (the model still sees it), so the log cannot balloon.
+  const base64 = mediaId ? "" : screenshot.toString("base64");
+  const inline = !mediaId && base64.length <= INLINE_SCREENSHOT_LIMIT;
+  ctx.emit({ type: "media", callId: ctx.callId, mediaId, filename, mimeType: "image/jpeg", caption, ...(inline ? { inlineDataUrl: `data:image/jpeg;base64,${base64}` } : {}), ...(!mediaId && !inline ? { unavailable: true } : {}) });
+}
+
+/** Shared by browse and test_preview_visual: log, store the screenshots, and build the model-facing result. */
+async function reportPage(ctx: ToolContext, page: BrowseResult, displayUrl: string, extra: string[] = [], more: { phone?: Buffer | null } = {}): Promise<ToolOutcome> {
+  // Preview URLs carry a signed token; it never reaches the log or the model (console errors quote URLs too).
+  const safeUrl = (value: string) => value.replace(/\/api\/workspace\/preview\/([^/\s'"]+)\/[^/\s'"]+\//g, "/api/workspace/preview/$1/<token>/");
+  const consoleErrors = page.consoleErrors.map(safeUrl);
+  ctx.emit({ type: "tool_output", callId: ctx.callId, stream: "stdout", chunk: `HTTP ${page.status ?? "?"} · ${safeUrl(page.finalUrl)}\ntitle: ${page.title}\n${consoleErrors.length ? `console errors:\n${consoleErrors.join("\n")}\n` : ""}` });
+  const images: ToolImage[] = [];
+  const caption = `${page.title || safeUrl(displayUrl)} (${safeUrl(page.finalUrl)})`;
+  if (page.screenshot) {
+    await showScreenshot(ctx, page.screenshot, "screenshot.jpg", caption);
+    if (ctx.vision) images.push({ mediaType: "image/jpeg", base64: page.screenshot.toString("base64") });
+  }
+  if (more.phone) {
+    await showScreenshot(ctx, more.phone, "screenshot-phone.jpg", `Phone width · ${caption}`);
+    if (ctx.vision) images.push({ mediaType: "image/jpeg", base64: more.phone.toString("base64") });
   }
   const ok = page.status === null || page.status < 400;
+  const seen = images.length === 2
+    ? "Two screenshots are attached: the page at desktop size, then the top of the page at phone width (390 px, reduced motion). Check layout, spacing, colours, fonts and that key controls are visible."
+    : images.length ? "The screenshot is attached: check layout, spacing, colours, fonts and that key controls are visible."
+      : page.screenshot ? "(This model cannot view images; rely on the text, the design audit and console output.)" : "";
   const body = [
     `HTTP ${page.status ?? "unknown"} · final URL ${safeUrl(page.finalUrl)}`,
     `Title: ${page.title}`,
-    page.consoleErrors.length ? `Console errors:\n${page.consoleErrors.join("\n")}` : "No console errors.",
+    consoleErrors.length ? `Console errors:\n${consoleErrors.join("\n")}` : "No console errors.",
     ...extra,
-    image ? "The screenshot is attached: check layout, spacing, colours, fonts and that key controls are visible." : page.screenshot ? "(This model cannot view images; rely on the text and console output.)" : "",
+    seen,
+    page.clippedFrom ? `The page is ${page.clippedFrom} px tall; the desktop screenshot shows its first ${MAX_SHOT_HEIGHT} px.` : "",
     "",
     clip(page.text, 30_000),
   ].filter(line => line !== "").join("\n");
-  return { ok, content: body, summary: `HTTP ${page.status ?? "?"} · ${page.title.slice(0, 60) || "page"}`, image };
+  return { ok, content: body, summary: `HTTP ${page.status ?? "?"} · ${page.title.slice(0, 60) || "page"}`, ...(images.length ? { images } : {}) };
 }
 
 const duration = (seconds: number) => (seconds >= 60 ? `${Math.floor(seconds / 60)} min ${Math.round(seconds % 60)} s` : `${Math.round(seconds)} s`);
@@ -719,9 +743,18 @@ async function visualTest(input: z.infer<typeof schemas.test_preview_visual>, ct
   try {
     log("Opening it in the Curialy Live Browser…\n");
     const live = await liveBrowser(ctx.sessionId, ctx.emit, ctx.signal, ctx.operator !== false);
-    const status = await navigate(live, url, input.wait_ms);
-    live.action("visual-test", "Capturing full-page screenshot for visual review");
-    return await reportPage(ctx, await snapshot(live, { screenshot: true, fullPage: input.full_page, status }), url, extra);
+    const check = await visualCheck(live, url, { waitMs: input.wait_ms, fullPage: input.full_page, audit: input.audit, signal: ctx.signal });
+    const audit = input.audit ? auditPage(check.facts.desktop, check.facts.phone, { surface: ctx.design?.surface, allowed: ctx.design?.allowed }) : null;
+    if (audit) audit.problems.unshift(...check.problems);
+    if (audit) {
+      const text = auditText(audit);
+      extra.push(text);
+      log(`${text}\n`);
+    } else if (input.audit) {
+      extra.push(`The design audit could not run${check.problems.length ? ` (${check.problems.join("; ")})` : ""}; judge the screenshots yourself.`);
+    }
+    const outcome = await reportPage(ctx, check.desktop, url, extra, { phone: check.phoneShot });
+    return { ...outcome, audit };
   } finally {
     if (server) {
       unregisterLiveServer(ctx.sessionId);

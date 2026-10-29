@@ -12,7 +12,7 @@ process.env.AGENT_WORKSPACE_ROOT = tmp;
 process.env.AGENT_SANDBOX = "none";
 
 type Block = Record<string, unknown>;
-const calls: { role: string; model: string; tools: string[]; messages: { role: string; content: unknown }[] }[] = [];
+const calls: { role: string; model: string; tools: string[]; messages: { role: string; content: unknown }[]; system: string[] }[] = [];
 let reviewerRounds = 0;
 type Script = (role: string, messages: { role: string; content: unknown }[]) => Block[];
 
@@ -46,7 +46,7 @@ class FakeStream {
   private message: Record<string, unknown>;
   constructor(params: { system: { text: string }[]; messages: { role: string; content: unknown }[]; model: string; tools?: { name: string }[] }) {
     const role = roleOf(params.system[0].text);
-    calls.push({ role, model: params.model, tools: (params.tools ?? []).map(tool => tool.name), messages: JSON.parse(JSON.stringify(params.messages)) });
+    calls.push({ role, model: params.model, tools: (params.tools ?? []).map(tool => tool.name), messages: JSON.parse(JSON.stringify(params.messages)), system: params.system.map(block => block.text) });
     const content = script(role, params.messages);
     this.message = { id: "msg", type: "message", role: "assistant", model: params.model, content, stop_reason: content.some(block => block.type === "tool_use") ? "tool_use" : "end_turn", stop_sequence: null, usage: { input_tokens: 10, output_tokens: 5 } };
   }
@@ -197,6 +197,40 @@ describe("Dev Team orchestration", () => {
     const reviewerText = events.filter(event => event.type === "text_delta" && event.agent === "reviewer").map(event => event.blockId);
     expect(reviewerText).toHaveLength(9);
     expect(new Set(reviewerText).size).toBe(9);
+  });
+
+  it("carries the Architect's design direction to the Engineer and Reviewer, each with the brief for its role", { timeout: 60_000 }, async () => {
+    const { runTeam } = await import("./agent/team");
+    const { buildBrief } = await import("./agent/design");
+    const { ctx, events } = await setup("00000000-0000-4000-8000-0000000000dd");
+    const request = "Build a landing page for Lumen, a SaaS that turns support tickets into product insights.";
+    ctx.design = buildBrief({ root: ctx.root, original: request, latest: request, imageAttached: false, facts: { hasUi: false, existing: false, framework: null, styling: [], libraries: [], tokens: 0, designDoc: null } });
+    calls.length = 0;
+    reviewerRounds = 1;
+    const direction = { concept: "A quiet research notebook: ticket excerpts are the hero, not illustrations.", palette: "Paper #f7f5f0, ink #1c1b19, accent signal teal #0f766e (5.4:1 on paper)", avoid: ["gradient hero", "3-up icon features"] };
+    script = (role, messages) => {
+      if (role === "architect") return [{ type: "tool_use", id: "tu_plan", name: "submit_plan", input: { summary: "A static landing page built from real ticket excerpts.", design: direction, steps: [{ title: "Design direction and tokens", detail: "tokens.css", acceptance: "Contrast 4.5:1, phone layout at 390 px" }], test_plan: "Run test_preview_visual" } }];
+      return happyPath(role, messages);
+    };
+
+    await runTeam(ctx, [{ role: "user", content: request }]);
+
+    // The plan's direction reaches the Engineer, the Reviewer and the plan card the user sees.
+    const plan = events.find(event => event.type === "handoff" && event.kind === "plan");
+    expect(plan.content).toContain("**Design direction**\nA quiet research notebook");
+    expect(plan.content).toContain("- _Avoid:_ gradient hero; 3-up icon features");
+    expect(JSON.stringify(byRole("engineer")[0].messages)).toContain("A quiet research notebook");
+    expect(JSON.stringify(byRole("reviewer")[0].messages)).toContain("signal teal #0f766e");
+    // Each role's system prompt keeps its static text first, then the brief written for it.
+    expect(byRole("architect")[0].system[0]).toContain("You are the Architect");
+    expect(byRole("architect")[0].system.at(-1)).toContain("Fill submit_plan's design field");
+    expect(byRole("engineer")[0].system.at(-1)).toContain("Direction first.");
+    expect(byRole("reviewer")[0].system.at(-1)).toContain("Judge the build against the plan's design direction");
+    expect(byRole("reviewer")[0].system.at(-1)!.length).toBeLessThan(byRole("engineer")[0].system.at(-1)!.length);
+    // Same brief on every turn of a member.
+    expect(new Set(byRole("engineer").map(call => call.system.at(-1))).size).toBe(1);
+    // The hand-off sequence is unchanged.
+    expect(events.filter(event => event.type === "handoff").map(event => `${event.from}->${event.to}:${event.kind}`)).toEqual(["architect->engineer:plan", "reviewer->user:review", "reviewer->user:report"]);
   });
 
   it("marks the active member and the waiting ones as stopped when the run is cancelled", { timeout: 60_000 }, async () => {

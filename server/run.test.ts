@@ -128,13 +128,14 @@ vi.mock("./agent/deploy", async importOriginal => ({ ...(await importOriginal<ty
 vi.mock("./media/snowflake", async importOriginal => ({ ...(await importOriginal<typeof import("./media/snowflake")>()), storeMedia: publish.storeMedia }));
 
 // The model: each turn's blocks come from `script`; a "hang" turn streams until the run is stopped.
-const model = vi.hoisted(() => ({ script: (_turn: number): Record<string, any>[] | "hang" => [], turns: 0, hanging: false }));
+const model = vi.hoisted(() => ({ script: (_turn: number): Record<string, any>[] | "hang" => [], turns: 0, hanging: false, systems: [] as { text: string }[][] }));
 vi.mock("./agent/providers", async importOriginal => ({
   ...(await importOriginal<typeof import("./agent/providers")>()),
   anthropicClient: () => ({
     messages: {
-      stream: (params: { model: string }, options: { signal?: AbortSignal } = {}) => {
+      stream: (params: { model: string; system?: { text: string }[] }, options: { signal?: AbortSignal } = {}) => {
         const turn = ++model.turns;
+        model.systems.push(JSON.parse(JSON.stringify(params.system ?? [])));
         const planned = model.script(turn);
         const content = planned === "hang" ? [] : planned;
         const message = { id: `msg${turn}`, type: "message", role: "assistant", model: params.model, content, stop_reason: content.some(block => block.type === "tool_use") ? "tool_use" : "end_turn", stop_sequence: null, usage: { input_tokens: 10, output_tokens: 5 } };
@@ -211,6 +212,7 @@ function expectWellFormed(id: string) {
 beforeEach(() => {
   model.turns = 0;
   model.hanging = false;
+  model.systems.length = 0;
   fake.unexpected.length = 0;
   fake.messages.length = 0;
   for (const spy of Object.values(publish)) spy.mockClear();
@@ -381,6 +383,141 @@ describe("a run another instance took over", () => {
 });
 
 // Last: a shutdown leaves the runner draining for the rest of this file.
+describe("design brief and design check", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("sends interface work a design brief as its own system block, the same on every turn, and nothing for other work", async () => {
+    const id = seedTask();
+    model.script = turn => (turn === 1 ? [{ type: "tool_use", id: "tu_ls", name: "list_files", input: {} }] : [{ type: "text", text: "Done." }]);
+    await runner.retryTask(id);
+    await finished(id);
+    expect(model.systems.length).toBeGreaterThanOrEqual(2);
+    // The static prompt stays first and unchanged (it is what caches); the brief follows it.
+    expect(model.systems[0][0].text).toBe(runner.AGENT_SYSTEM);
+    const brief = model.systems[0].at(-1)!.text;
+    expect(brief).toContain("Design brief for this task");
+    expect(brief).toContain("### Recipe: product landing page");
+    expect(model.systems[1]).toEqual(model.systems[0]);
+    expect(latestRun(id).some(entry => entry.type === "notice" && /^Design brief: landing, brand register, \d+ guidelines\.$/.test(entry.data.message))).toBe(true);
+
+    const other = seedTask({ prompt: "Write a cron job that rotates the logs", conversation: [{ role: "user", content: "Write a cron job that rotates the logs" }] });
+    model.systems.length = 0;
+    model.script = () => [{ type: "text", text: "Done." }];
+    await runner.retryTask(other);
+    await finished(other);
+    expect(model.systems[0]).toHaveLength(1);
+    expect(fake.unexpected).toEqual([]);
+  });
+
+  it("sends interface work that was never looked at back once for a visual check, without failing the run", async () => {
+    vi.stubEnv("BROWSERBASE_API_KEY", "bb-test");
+    vi.stubEnv("BROWSERBASE_PROJECT_ID", "bb-project");
+    const id = seedTask();
+    model.script = turn => (turn === 1 ? [{ type: "tool_use", id: "tu_write", name: "write_file", input: { path: "index.html", content: "<!doctype html><title>Lumen</title><h1>Lumen</h1>" } }] : [{ type: "text", text: `Done (${turn}).` }]);
+    await runner.retryTask(id);
+    await finished(id);
+    const row = fake.rows.get(id)!;
+    expect(row).toMatchObject({ status: "completed", answer: "Done (3)." });
+    const checks = (row.conversation as { role: string; content: unknown }[]).filter(message => message.role === "user" && typeof message.content === "string" && message.content.startsWith("[Design check]"));
+    expect(checks).toHaveLength(1);
+    expect(checks[0].content).toContain("You changed the interface (index.html) but never looked at it");
+    expect(latestRun(id).some(entry => entry.type === "notice" && entry.data.message === "Design check: the interface was not checked visually; asking for another look.")).toBe(true);
+    // The only extra statement is the run handing over its new file; the design check itself sends no SQL.
+    expect(fake.unexpected.filter(statement => !statement.startsWith("INSERT INTO curialy.workspace_files"))).toEqual([]);
+  });
+
+  it("raises each reason once, at most two per run, and never for read-only roles, tests, generated output or identical rebuilds", async () => {
+    vi.stubEnv("BROWSERBASE_API_KEY", "bb-test");
+    vi.stubEnv("BROWSERBASE_PROJECT_ID", "bb-project");
+    const { uiFingerprint } = await import("./agent/design");
+    const root = fs.mkdtempSync(path.join(tmp, "design-"));
+    const state = () => ({ printCache: new Map(), startPrint: uiFingerprint(root), checkedPrint: null as Map<string, string> | null, lastAudit: null as any, raised: new Set<"unchecked" | "stale" | "fix">() });
+    const ctx: any = { root, design: { intent: {}, facts: {}, entries: [] }, designState: state() };
+    // Notes, build output, tests, stories and dot-directories are not the interface.
+    fs.writeFileSync(path.join(root, "README.md"), "notes");
+    for (const dir of ["dist", "src", ".svelte-kit"]) fs.mkdirSync(path.join(root, dir));
+    fs.writeFileSync(path.join(root, "dist/index.html"), "<h1>built</h1>");
+    fs.writeFileSync(path.join(root, "src/App.test.tsx"), "test('x', () => {});");
+    fs.writeFileSync(path.join(root, "src/Button.stories.tsx"), "export default {};");
+    fs.writeFileSync(path.join(root, ".svelte-kit/out.css"), "body{}");
+    expect(runner.designCheck(ctx)).toBeNull();
+    fs.writeFileSync(path.join(root, "styles.css"), "body{}");
+    expect(runner.designCheck({ ...ctx, readOnly: true })).toBeNull();
+    expect(runner.designCheck({ ...ctx, design: null })).toBeNull();
+    expect(runner.designCheck({ ...ctx, allowedTools: new Set(["write_file"]) })).toBeNull();
+    expect(runner.designCheck(ctx)?.reason).toBe("the interface was not checked visually");
+    expect(runner.designCheck(ctx)).toBeNull();
+    ctx.designState.checkedPrint = uiFingerprint(root);
+    ctx.designState.lastAudit = { findings: [{ id: "contrast", level: "fix", viewport: "desktop", message: "Text contrast too low on 2 elements." }, { id: "measure", level: "improve", viewport: "desktop", message: "Long lines." }], stats: [] };
+    const fix = runner.designCheck(ctx)!;
+    expect(fix.reason).toBe("1 design finding still to fix");
+    expect(fix.message).toContain("- Text contrast too low on 2 elements.");
+    expect(fix.message).not.toContain("Long lines.");
+    expect(runner.designCheck(ctx)).toBeNull();
+
+    // After a check: rewriting a file with the same bytes (a rebuild) is no change; new content is.
+    const fresh: any = { ...ctx, designState: state() };
+    fs.writeFileSync(path.join(root, "app.jsx"), "export default 1;");
+    fresh.designState.checkedPrint = uiFingerprint(root);
+    fs.writeFileSync(path.join(root, "app.jsx"), "export default 1;");
+    expect(runner.designCheck(fresh)).toBeNull();
+    fs.writeFileSync(path.join(root, "app.jsx"), "export default 2;");
+    expect(runner.designCheck(fresh)?.reason).toBe("the interface changed after its last visual check");
+    // Two reasons raised ("unchecked" earlier on another state is not this one's): unchecked + stale, then the cap.
+    const capped: any = { ...ctx, designState: state() };
+    fs.writeFileSync(path.join(root, "nav.css"), "nav{}");
+    expect(runner.designCheck(capped)?.reason).toBe("the interface was not checked visually");
+    capped.designState.checkedPrint = uiFingerprint(root);
+    fs.writeFileSync(path.join(root, "nav.css"), "nav{color:red}");
+    expect(runner.designCheck(capped)?.reason).toBe("the interface changed after its last visual check");
+    capped.designState.checkedPrint = uiFingerprint(root);
+    capped.designState.lastAudit = { findings: [{ id: "contrast", level: "fix", viewport: "desktop", message: "Text contrast too low." }], stats: [], measured: { desktop: true, phone: true }, problems: [] };
+    expect(runner.designCheck(capped)).toBeNull(); // "fix" was never raised: only the cap stops it
+    expect(capped.designState.raised.has("fix")).toBe(false);
+    vi.unstubAllEnvs();
+    expect(runner.designCheck({ ...ctx, designState: state() })).toBeNull();
+  });
+
+  it("asks a free account to cover a follow-up of about six turns before a design check", async () => {
+    const asked: number[] = [];
+    const canSpend = async (credits: number) => { asked.push(credits); return credits < 3; };
+    expect(await runner.designCheckAffordable({ canSpend, turnCredits: () => 0.4 })).toBe(true);
+    expect(await runner.designCheckAffordable({ canSpend, turnCredits: () => 0.05 })).toBe(true);
+    expect(await runner.designCheckAffordable({ canSpend, turnCredits: () => 1 })).toBe(false);
+    expect(asked.map(value => Math.round(value * 100) / 100)).toEqual([2.4, 1, 6]);
+  });
+
+  it("delivers the accepted answer when a design check's follow-up runs out of turns, instead of failing the run", async () => {
+    vi.stubEnv("BROWSERBASE_API_KEY", "bb-test");
+    vi.stubEnv("BROWSERBASE_PROJECT_ID", "bb-project");
+    const id = seedTask();
+    // Writes the page, browses for a while, answers at turn 50 (the last turn a check may be raised), then keeps using tools.
+    model.script = turn => (turn === 1 ? [{ type: "tool_use", id: "tu_write", name: "write_file", input: { path: "index.html", content: "<!doctype html><title>Lumen</title>" } }]
+      : turn === 50 ? [{ type: "text", text: "Accepted answer at turn 50." }]
+        : [{ type: "tool_use", id: `tu_ls${turn}`, name: "list_files", input: {} }]);
+    await runner.retryTask(id);
+    await finished(id);
+    const row = fake.rows.get(id)!;
+    expect(row).toMatchObject({ status: "completed", answer: "Accepted answer at turn 50." });
+    expect(model.turns).toBe(60);
+    expect(latestRun(id).some(entry => entry.type === "notice" && /didn't finish within the turn limit/.test(entry.data.message))).toBe(true);
+  }, 30_000);
+
+  it("reads the user's own latest request: past retry notes, without the clone note", () => {
+    const { latestRequest } = runner;
+    expect(latestRequest([
+      { role: "user", content: "Build a landing page\n\n[The repository acme/portfolio has already been cloned into the workspace: acme/portfolio@main · 12 files.]" },
+    ])).toEqual({ text: "Build a landing page", image: false });
+    expect(latestRequest([
+      { role: "user", content: "Create an API endpoint that stores orders" },
+      { role: "assistant", content: [{ type: "text", text: "Done." }] },
+      { role: "user", content: [{ type: "image", source: { type: "curialy_vault", media_id: "m1", media_type: "image/png" } }, { type: "text", text: "Now build a dashboard like this" }] },
+      { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "list_files", input: {} }] },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }, { type: "text", text: "[Retry] The previous run was cancelled. Continue the user's request from where it stopped." }] },
+    ])).toEqual({ text: "Now build a dashboard like this", image: true });
+  });
+});
+
 describe("shutdown", () => {
   it("records a running run as interrupted by the restart, not failed, and refuses new runs", async () => {
     const id = seedTask();

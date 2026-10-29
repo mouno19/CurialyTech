@@ -55,6 +55,8 @@ describe("workspace preview handler", () => {
     expect(asset.status).toBe(200);
     expect(await asset.text()).toContain("built");
     expect(asset.headers.get("content-security-policy")).toMatch(/^sandbox/);
+    // The sandboxed page has an opaque origin: its module scripts, crossorigin CSS and fonts are CORS loads.
+    expect(asset.headers.get("access-control-allow-origin")).toBe("*");
   });
 
   it("rejects a token whose signed folder was changed", async () => {

@@ -22,6 +22,10 @@ previews.
   (`transcribe_audio`), speech files (`generate_speech`) and reading answers aloud run on Deepgram;
   ElevenLabs is used only for expressive speech on the operator's tasks, within a budget reserve.
   Free accounts pay credits for voice (`shared/credits.ts` VOICE_RATES).
+- Design intelligence (`server/agent/design/`): interface work gets a design brief retrieved from a
+  design knowledge base for that kind of interface, and `test_preview_visual` returns desktop and
+  phone screenshots with a design audit measured in the page (contrast, focus, targets, reflow,
+  type, motion, template tells). See [docs/design-intelligence.md](docs/design-intelligence.md).
 
 ## Repository map
 
@@ -40,6 +44,7 @@ previews.
 
 - [SETUP.md](SETUP.md): architecture and local development.
 - [deploy/README.md](deploy/README.md): the production host, model routes, rebuilding from scratch, deploy and rollback.
+- [docs/design-intelligence.md](docs/design-intelligence.md): the design brief, the design audit, adding knowledge, sources and credits.
 
 ## Commands
 

@@ -12,7 +12,9 @@ export const TEAM_ROLES: { id: TeamRole; label: string; title: string; defaultMo
   { id: "engineer", label: "Engineer", title: "Implements the plan", defaultModel: "auto" },
   { id: "reviewer", label: "Reviewer", title: "Reviews the code and runs the tests", defaultModel: "claude-opus-5" },
 ];
-export type TeamPlan = { summary: string; steps: { title: string; detail: string; acceptance: string }[]; risks: string[]; test_plan: string };
+/** The visual direction the Architect sets for interface work (absent on plans for other work, and on older plans). */
+export type DesignDirection = { concept: string; palette?: string; typography?: string; layout?: string; motion?: string; avoid?: string[] };
+export type TeamPlan = { summary: string; design?: DesignDirection; steps: { title: string; detail: string; acceptance: string }[]; risks: string[]; test_plan: string };
 export type TeamReview = { verdict: "approve" | "request_changes"; summary: string; issues: { severity: "blocker" | "major" | "minor"; file?: string; description: string; suggestion: string }[]; tests_run: { command: string; result: string }[] };
 
 export type ModelSpec = {

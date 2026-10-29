@@ -179,8 +179,11 @@ const trimText = (text: string, max: number) => (text.length > max ? `${text.sli
 /** Prefix of the user turn that carries tool screenshots in the OpenAI format (tool messages are text-only). */
 export const TOOL_SCREENSHOTS = "[Tool screenshots]";
 
-/** Harness-injected user turns (continue prompts, verification feedback, tool screenshots) are not user requests. */
-const INJECTED = /^(Your previous reply (was cut off|ran out of output)|Automated verification failed|\[Tool screenshots\])/;
+/** Prefix of the harness's design-check turn (runner.ts designCheck). */
+export const DESIGN_CHECK = "[Design check]";
+
+/** Harness-injected user turns (continue prompts, verification feedback, design checks, tool screenshots) are not user requests. */
+const INJECTED = /^(Your previous reply (was cut off|ran out of output)|Automated verification failed|\[Tool screenshots\]|\[Design check\])/;
 
 /** Index of the most recent message the user actually wrote (not tool results or harness text). */
 export function latestRequestIndex(conversation: { role: string; content: unknown }[]) {

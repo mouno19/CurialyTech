@@ -2,7 +2,7 @@ import { memo, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   Bot, Brain, Check, ChevronDown, Circle, CircleDashed, CircleDot, CircleSlash, ExternalLink, FilePen, FileSearch, FolderTree, GitBranch, GitCommitHorizontal,
-  GitPullRequest, Globe, ImageOff, Info, ListChecks, Minus, Paperclip, RefreshCw, Rocket, Route, Search, ShieldCheck, SquareTerminal, Trash2, TriangleAlert,
+  GitPullRequest, Globe, ImageOff, Info, ListChecks, Minus, Paperclip, RefreshCw, Rocket, Route, ScanEye, Search, ShieldCheck, SquareTerminal, Trash2, TriangleAlert,
   Unplug, Wrench, X, CircleX,
 } from "lucide-react";
 import { getModel, PHASES, type PhaseId, type PhaseState, type PlanStep, type RunTrigger } from "@shared/agent";
@@ -158,7 +158,7 @@ export const ThinkingBlock = memo(function ThinkingBlock({ item, usage, streamin
 const TOOL_ICONS: Record<string, LucideIcon> = {
   run_command: SquareTerminal, verify: ShieldCheck, read_file: FileSearch, write_file: FilePen, edit_file: FilePen, delete_file: Trash2,
   list_files: FolderTree, search_files: Search, web_fetch: Globe, delegate_research: Bot, research_agent: Bot, update_plan: ListChecks,
-  browse: Globe, deploy_preview: Rocket, browser_click: Globe, browser_type: Globe, browser_scroll: Globe, browser_extract: Globe, browser_screenshot: Globe, browser_close: Globe, attach_files: Paperclip,
+  browse: Globe, test_preview_visual: ScanEye, deploy_preview: Rocket, browser_click: Globe, browser_type: Globe, browser_scroll: Globe, browser_extract: Globe, browser_screenshot: Globe, browser_close: Globe, attach_files: Paperclip,
   github_list_repos: GitBranch, github_get_repo: GitBranch, github_clone_to_workspace: GitBranch, github_commit_and_push: GitBranch, github_create_pr: GitBranch,
 };
 

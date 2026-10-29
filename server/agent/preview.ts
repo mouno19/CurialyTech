@@ -146,7 +146,7 @@ function proxy(req: Request, res: Response, server: LiveServer, subPath: string)
     for (const [key, value] of Object.entries(response.headers)) if (value !== undefined && !HOP_HEADERS.has(key) && key !== "set-cookie" && key !== "content-security-policy" && key !== "x-frame-options") out[key] = value as string | string[];
     // Keep redirects inside the preview path.
     if (typeof out.location === "string" && out.location.startsWith("/")) out.location = `${req.baseUrl}${out.location}`;
-    res.writeHead(response.statusCode ?? 502, { ...out, "content-security-policy": PREVIEW_CSP });
+    res.writeHead(response.statusCode ?? 502, { ...out, "content-security-policy": PREVIEW_CSP, "access-control-allow-origin": "*" });
     response.pipe(res);
   };
   const upstream = server.host
@@ -162,6 +162,10 @@ export function previewHandler(req: Request, res: Response) {
   const { taskId, token } = req.params as { taskId: string; token: string };
   res.removeHeader("X-Frame-Options");
   res.setHeader("Content-Security-Policy", PREVIEW_CSP);
+  // The sandbox gives the page an opaque origin, so its module scripts, crossorigin stylesheets and
+  // fonts are cross-origin requests to this server and were blocked ("from origin 'null'"). Previews
+  // are capability URLs without cookies, so allowing any origin exposes nothing a link holder lacks.
+  res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("X-Robots-Tag", "noindex");
   if (!/^[0-9a-f-]{36}$/i.test(taskId) || !verifyPreviewToken(taskId, token)) return res.status(403).type("text/plain").send("Preview link expired or invalid.");

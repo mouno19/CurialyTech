@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getModel, teamCapable, type ModelSpec, type TeamPlan, type TeamReview, type TeamRole } from "@shared/agent";
 import { changedSince, workspaceManifest } from "./artifacts";
 import type { Emit } from "./bus";
+import { renderBrief } from "./design";
 import { AGENT_SYSTEM, describeError, emitText, forkContext, runAgentLoop, type RunContext, type VirtualTool } from "./runner";
 import { getTeamState, saveTeamState, settleTeamWrites } from "./store";
 
@@ -33,8 +34,18 @@ const ROLE_TOOLS: Record<TeamRole, string[]> = {
 const PUBLISH_TOOLS = ["github_commit_and_push", "github_create_pr"];
 const PUBLISH_INTENT = /\b(push|commit|pull request|PR|merge|deploy|publish|ship|release|live preview|github)\b/i;
 
+const designSchema = z.object({
+  concept: z.string().min(3).max(1000),
+  palette: z.string().max(1200).optional(),
+  typography: z.string().max(1000).optional(),
+  layout: z.string().max(1500).optional(),
+  motion: z.string().max(1000).optional(),
+  avoid: z.array(z.string().max(300)).max(10).optional(),
+});
+
 const planSchema = z.object({
   summary: z.string().min(10).max(4000),
+  design: designSchema.optional(),
   steps: z.array(z.object({ title: z.string().min(3).max(300), detail: z.string().max(4000).default(""), acceptance: z.string().max(1500).default("") })).min(1).max(20),
   risks: z.array(z.string().max(600)).max(12).default([]),
   test_plan: z.string().max(3000).default(""),
@@ -55,6 +66,19 @@ const SUBMIT_PLAN: VirtualTool = {
       type: "object",
       properties: {
         summary: { type: "string", description: "What will be built/changed and the approach, in a few sentences" },
+        design: {
+          type: "object",
+          description: "User-interface work only: the visual direction the Engineer builds to and the Reviewer checks against",
+          properties: {
+            concept: { type: "string", description: "One or two sentences: the idea, grounded in the subject and audience" },
+            palette: { type: "string", description: "4-6 named colors with roles and hex/OKLCH values (surface, text, muted text, accent, status)" },
+            typography: { type: "string", description: "Faces by role and the size scale" },
+            layout: { type: "string", description: "Grid, spacing scale, what leads each section, phone layout" },
+            motion: { type: "string", description: "What moves, durations and easing, the reduced-motion behavior" },
+            avoid: { type: "array", items: { type: "string" }, description: "Generic choices deliberately not made" },
+          },
+          required: ["concept"],
+        },
         steps: { type: "array", items: { type: "object", properties: { title: { type: "string" }, detail: { type: "string", description: "Files, functions and concrete approach" }, acceptance: { type: "string", description: "How to tell this step is done" } }, required: ["title", "detail", "acceptance"] } },
         risks: { type: "array", items: { type: "string" } },
         test_plan: { type: "string", description: "Commands/checks that prove the whole change works" },
@@ -93,6 +117,7 @@ Investigate the workspace and the request (list_files, read_file, search_files; 
 
 Then call submit_plan exactly once with a plan the Engineer can follow without guessing:
 - summary: the approach in a few sentences;
+- design (user-interface work only): the visual direction (concept, palette, type, layout, motion, what to avoid), following the design brief when one is provided;
 - steps: ordered, each with concrete detail (files, functions, data shapes, libraries) and acceptance criteria;
 - risks: pitfalls and edge cases to handle;
 - test_plan: the exact commands or checks that prove it works (include setting up a test script if the project has none).
@@ -104,9 +129,9 @@ ${TEAM_INTRO} You are the Engineer. Implement the Architect's plan fully and kee
 
 const REVIEWER_SYSTEM = `${TEAM_INTRO} You are the Reviewer and QA. You cannot modify source files (commands may build and test, but any source change they make is reverted).
 
-Review the Engineer's changes (the diff is provided; read surrounding code as needed) against the user's request and the plan's acceptance criteria: correctness, edge cases, error handling, security, and consistency with the codebase. Run the test plan and any other relevant checks yourself with run_command; for user interfaces, use test_preview_visual and look at the screenshot.
+Review the Engineer's changes (the diff is provided; read surrounding code as needed) against the user's request and the plan's acceptance criteria: correctness, edge cases, error handling, security, and consistency with the codebase. Run the test plan and any other relevant checks yourself with run_command; for user interfaces, use test_preview_visual and look at the screenshots and the design audit, and check the result against the plan's design direction.
 
-Then call submit_review exactly once. Approve only when there are no blocker or major issues and the checks pass. Otherwise request_changes with specific, actionable issues (file, what is wrong, how to fix it). Do not nitpick style or ask for unrelated work.`;
+Then call submit_review exactly once. Approve only when there are no blocker or major issues and the checks pass. Otherwise request_changes with specific, actionable issues (file, what is wrong, how to fix it). Do not nitpick code style or ask for unrelated work.`;
 
 const effortFor: Record<TeamRole, "low" | "medium" | "high"> = { architect: "high", engineer: "medium", reviewer: "medium" };
 
@@ -121,10 +146,22 @@ const reviewerFor = (engineer: ModelSpec) => (engineer.id === "claude-opus-5" ? 
 
 const bullet = (items: string[]) => items.map(item => `- ${item}`).join("\n");
 
+function designMarkdown(design: NonNullable<TeamPlan["design"]>) {
+  const parts: [string, string | undefined][] = [["Palette", design.palette], ["Type", design.typography], ["Layout", design.layout], ["Motion", design.motion]];
+  return [
+    "**Design direction**",
+    design.concept,
+    ...parts.filter(([, value]) => value).map(([label, value]) => `- _${label}:_ ${value}`),
+    ...(design.avoid?.length ? [`- _Avoid:_ ${design.avoid.join("; ")}`] : []),
+    "",
+  ];
+}
+
 export function planMarkdown(plan: TeamPlan) {
   return [
     plan.summary,
     "",
+    ...(plan.design ? designMarkdown(plan.design) : []),
     ...plan.steps.map((step, index) => `${index + 1}. **${step.title}**${step.detail ? `\n   ${step.detail.replace(/\n/g, "\n   ")}` : ""}${step.acceptance ? `\n   _Done when:_ ${step.acceptance}` : ""}`),
     ...(plan.risks.length ? ["", "**Risks**", bullet(plan.risks)] : []),
     ...(plan.test_plan ? ["", "**Test plan**", plan.test_plan] : []),
@@ -208,12 +245,18 @@ export async function runTeam(ctx: RunContext, conversation: Anthropic.MessagePa
   const status = (role: TeamRole, value: "waiting" | "working" | "done" | "failed", activity: string) =>
     ctx.emit({ type: "team_agent", role, status: value, model: models[role].id, activity });
   // Each loop gets its own run id so block/call ids never repeat across rounds.
-  const member = (role: TeamRole, history: Anthropic.MessageParam[], runId: string, opts: { virtualTools?: Record<string, VirtualTool>; tools?: string[] } = {}) => forkContext(parent, {
-    role, spec: models[role], effort: role === "engineer" ? ctx.effort : effortFor[role],
-    system: role === "architect" ? ARCHITECT_SYSTEM : role === "engineer" ? ENGINEER_SYSTEM : REVIEWER_SYSTEM,
-    conversation: history, persist: save, allowedTools: new Set(opts.tools ?? ROLE_TOOLS[role]), virtualTools: opts.virtualTools,
-    readOnly: role !== "engineer", runId: `${ctx.runId}-${runId}`,
-  });
+  // Each member reads the design brief written for its role (plan it, build to it, check against it).
+  const briefs: Partial<Record<TeamRole, string>> = {};
+  const member = (role: TeamRole, history: Anthropic.MessageParam[], runId: string, opts: { virtualTools?: Record<string, VirtualTool>; tools?: string[] } = {}) => {
+    const fork = forkContext(parent, {
+      role, spec: models[role], effort: role === "engineer" ? ctx.effort : effortFor[role],
+      system: role === "architect" ? ARCHITECT_SYSTEM : role === "engineer" ? ENGINEER_SYSTEM : REVIEWER_SYSTEM,
+      conversation: history, persist: save, allowedTools: new Set(opts.tools ?? ROLE_TOOLS[role]), virtualTools: opts.virtualTools,
+      readOnly: role !== "engineer", runId: `${ctx.runId}-${runId}`,
+    });
+    fork.designText = ctx.design ? (briefs[role] ??= renderBrief(ctx.design, role)) : undefined;
+    return fork;
+  };
   const engineerRun = async (runId: string, opts?: { tools?: string[]; verify?: boolean; maxTurns?: number }) => {
     const before = workspaceManifest(ctx.root);
     const fork = member("engineer", state.engineer, runId, { tools: opts?.tools });
