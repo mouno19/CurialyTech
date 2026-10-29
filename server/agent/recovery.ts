@@ -167,6 +167,67 @@ export function stripImages(conversation: Message[], keepLast = 0) {
   return removed;
 }
 
+/**
+ * A visual test's screenshots go stale once a later visual test of the same page exists, and every
+ * image in the history is re-sent on each turn. Per page (build folder, path, static or server
+ * mode), only the newest visual test keeps its images; older results keep their text and audit
+ * (the user still sees every screenshot in the run log). Works on both conversation formats;
+ * returns how many images were dropped.
+ */
+export function pruneSupersededShots(conversation: Message[]) {
+  const VISUAL = "test_preview_visual";
+  const NOTE = "(Screenshots of this earlier visual test were dropped: a later test of the same page replaces them.)";
+  const target = (input: unknown) => {
+    const args = (typeof input === "string" ? (() => { try { return JSON.parse(input); } catch { return {}; } })() : input ?? {}) as Record<string, unknown>;
+    return `${args.dir ?? ""}|${String(args.page ?? "/").replace(/^\/?/, "/")}|${args.start_command ? "server" : "static"}`;
+  };
+  let dropped = 0;
+  // Anthropic format: tool_result blocks that still carry images, matched to their tool_use.
+  const pageOf = new Map<string, string>();
+  for (const message of conversation) {
+    if (message.role === "assistant" && Array.isArray(message.content)) for (const block of message.content as Block[]) if (block.type === "tool_use" && block.name === VISUAL) pageOf.set(block.id, target(block.input));
+  }
+  const latest = new Map<string, Block>();
+  const withShots: [Block, string][] = [];
+  for (const message of conversation) {
+    if (!Array.isArray(message.content)) continue;
+    for (const block of message.content as Block[]) {
+      const page = block.type === "tool_result" ? pageOf.get(block.tool_use_id) : undefined;
+      if (page === undefined || !Array.isArray(block.content) || !block.content.some((part: Block) => part.type === "image")) continue;
+      withShots.push([block, page]);
+      latest.set(page, block);
+    }
+  }
+  for (const [block, page] of withShots) {
+    if (latest.get(page) === block) continue;
+    const kept = (block.content as Block[]).filter(part => part.type !== "image");
+    dropped += (block.content as Block[]).length - kept.length;
+    block.content = [...kept, { type: "text", text: NOTE }];
+  }
+  // OpenAI format: screenshots travel in a user turn after the tool messages; its pages are the
+  // visual-test calls of the assistant turn before it. Only turns of visual tests alone are pruned.
+  const turns: [Message, string[]][] = [];
+  conversation.forEach((message, index) => {
+    const parts = Array.isArray(message.content) ? (message.content as Block[]) : [];
+    const head = parts[0]?.type === "text" && typeof parts[0].text === "string" ? parts[0].text : "";
+    if (message.role !== "user" || !head.startsWith(`${TOOL_SCREENSHOTS} Screenshot`) || !head.endsWith(`returned by ${VISUAL}:`) || !parts.some(part => part.type === "image_url")) return;
+    for (let back = index - 1; back >= 0; back--) {
+      const call = conversation[back] as unknown as { role: string; tool_calls?: { function?: { name?: string; arguments?: string } }[] };
+      if (call.role !== "assistant" || !call.tool_calls) continue;
+      turns.push([message, call.tool_calls.filter(tool => tool.function?.name === VISUAL).map(tool => target(tool.function?.arguments))]);
+      break;
+    }
+  });
+  const newest = new Map<string, Message>();
+  for (const [message, pages] of turns) for (const page of pages) newest.set(page, message);
+  for (const [message, pages] of turns) {
+    if (!pages.length || pages.some(page => newest.get(page) === message)) continue;
+    dropped += (message.content as Block[]).filter(part => part.type === "image_url").length;
+    message.content = [{ type: "text", text: `${TOOL_SCREENSHOTS} ${NOTE}` }] as Message["content"];
+  }
+  return dropped;
+}
+
 const trimText = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)}\n… [trimmed ${text.length - max} characters to fit the context window]` : text);
 
 /**

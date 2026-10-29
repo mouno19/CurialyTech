@@ -22,7 +22,7 @@ import { linkedRepo } from "./repos";
 import { brandText, ENGINE_ALIAS } from "@shared/brand";
 import { browserConfigured, closeLiveBrowser } from "./browser";
 import { allowedLooks, blockingFindings, designBriefFor, renderBrief, uiChanges, uiFingerprint, type DesignAudit, type DesignBrief, type PrintCache } from "./design";
-import { DESIGN_CHECK, diagnose, latestRequestIndex, RecoveryEngine, repairOpenAIContent, repairOpenAIToolPairing, repairToolPairing, TOOL_SCREENSHOTS, ToolFailureWatch, type RecoveryFlags } from "./recovery";
+import { DESIGN_CHECK, diagnose, latestRequestIndex, pruneSupersededShots, RecoveryEngine, repairOpenAIContent, repairOpenAIToolPairing, repairToolPairing, TOOL_SCREENSHOTS, ToolFailureWatch, type RecoveryFlags } from "./recovery";
 import { runTeam } from "./team";
 import { z } from "zod";
 import { hydrateImages, hydrateOpenAIImages, stageAttachments, userContent, type AttachmentDisplay, type AttachmentRef } from "./attachments";
@@ -1328,6 +1328,8 @@ export async function runAgentLoop(ctx: RunContext, conversation: Anthropic.Mess
         results.push(await runToolCall(ctx, use));
       }
       conversation.push({ role: "user", content: results });
+      // A new visual test makes the earlier ones' screenshots stale (each image is re-sent every turn).
+      if (toolUses.some(use => use.name === "test_preview_visual")) pruneSupersededShots(conversation);
       ctx.persist(conversation);
       // A successful terminal call (e.g. submit_review) hands the result back to the orchestrator.
       if (opts.terminal) {
@@ -1604,6 +1606,7 @@ async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unkno
             ...screenshots.map(shot => ({ type: "image_url", image_url: { url: `data:${shot.image.mediaType};base64,${shot.image.base64}` } })),
           ],
         });
+        if (screenshots.some(shot => shot.name === "test_preview_visual")) pruneSupersededShots(conversation as never);
       }
       updateAgentTask(ctx.taskId, { conversation }, ctx.runToken);
       continue;

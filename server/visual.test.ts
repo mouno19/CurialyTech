@@ -175,3 +175,39 @@ describe("test_preview_visual", () => {
     expect(asked.content).not.toContain("Purple/indigo gradients");
   });
 });
+
+describe("screenshots of superseded visual tests", () => {
+  it("keeps images only for the newest visual test of each page, in both conversation formats", async () => {
+    const { pruneSupersededShots } = await import("./agent/recovery");
+    const shot = { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "AAAA" } };
+    const visual = (id: string, input: Record<string, unknown>) => ({ role: "assistant", content: [{ type: "tool_use", id, name: "test_preview_visual", input }] });
+    const result = (id: string, images = 2) => ({ role: "user", content: [{ type: "tool_result", tool_use_id: id, content: [{ type: "text", text: `audit ${id}` }, ...Array(images).fill(shot)] }] });
+    const conversation: any[] = [
+      { role: "user", content: "Build a landing page" },
+      visual("v1", {}), result("v1"),
+      { role: "assistant", content: [{ type: "tool_use", id: "b1", name: "browse", input: { url: "https://example.com" } }] }, result("b1", 1),
+      visual("v2", { page: "/pricing" }), result("v2"),
+      visual("v3", { page: "/" }), result("v3"),
+    ];
+    expect(pruneSupersededShots(conversation)).toBe(2);
+    const content = (index: number) => conversation[index].content[0].content as any[];
+    expect(content(2).filter(part => part.type === "image")).toHaveLength(0);
+    expect(content(2).map(part => part.text)).toEqual(["audit v1", expect.stringContaining("a later test of the same page replaces them")]);
+    expect(content(4).filter(part => part.type === "image")).toHaveLength(1); // browse is not a visual test
+    expect(content(6).filter(part => part.type === "image")).toHaveLength(2); // another page
+    expect(content(8).filter(part => part.type === "image")).toHaveLength(2); // the newest of "/"
+    expect(pruneSupersededShots(conversation)).toBe(0);
+
+    const { TOOL_SCREENSHOTS } = await import("./agent/recovery");
+    const call = (id: string, args: Record<string, unknown>) => ({ role: "assistant", content: "", tool_calls: [{ id, type: "function", function: { name: "test_preview_visual", arguments: JSON.stringify(args) } }] });
+    const shots = () => ({ role: "user", content: [{ type: "text", text: `${TOOL_SCREENSHOTS} Screenshots returned by test_preview_visual:` }, { type: "image_url", image_url: { url: "data:image/jpeg;base64,AAAA" } }, { type: "image_url", image_url: { url: "data:image/jpeg;base64,BBBB" } }] });
+    const openai: any[] = [
+      { role: "user", content: "Build it" },
+      call("c1", { dir: "dist" }), { role: "tool", tool_call_id: "c1", content: "audit 1" }, shots(),
+      call("c2", { dir: "dist" }), { role: "tool", tool_call_id: "c2", content: "audit 2" }, shots(),
+    ];
+    expect(pruneSupersededShots(openai)).toBe(2);
+    expect(openai[3].content).toEqual([{ type: "text", text: expect.stringContaining("a later test of the same page replaces them") }]);
+    expect(openai[6].content.filter((part: any) => part.type === "image_url")).toHaveLength(2);
+  });
+});
