@@ -25,7 +25,7 @@ export const SURFACES: DesignEntry[] = [
     surfaces: ["storefront"],
     related: ["collections", "overlays", "type-choice", "imagery"],
     rules: [
-      "Product imagery leads: a calm palette and generous space let the products carry the color; one aspect ratio (4:5 or 1:1) across the grid.",
+      "Product imagery leads: a calm palette and generous space let the products carry the color; one aspect ratio (4:5 or 1:1) across the grid. Without photos, each product still needs a drawn likeness (a careful silhouette or line drawing), not an empty box.",
       "Product card: image, name, price (tabular-nums), at most one quick action; the whole card is one link; a hover can show a second image on desktop but never hides essential information.",
       "Quick view is a <dialog>: larger image, variants as named radio groups, add to cart with visible and announced feedback, Escape and a close button; it works on touch.",
       "A high-end register is restraint: fewer elements and more space, a refined display face, small caps or tracking used sparingly, a muted natural palette, prices stated quietly.",

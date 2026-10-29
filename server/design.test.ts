@@ -305,6 +305,19 @@ describe("the design audit", () => {
     expect(finding.message).toContain("keep the requested marquee, but stop it under reduced motion");
   });
 
+  it("notes the warm-cream-and-serif default, except on reading pages or when asked for", () => {
+    const cream = page({ text: [sample({ bg: [[244, 241, 234]] }), sample({ el: "h1", tag: "h1", size: 64, heading: true, family: "Fraunces", chars: 30, cpl: null, bg: [[244, 241, 234]] })] });
+    expect(ids([cream, null], { surface: "landing" })).toContain("note:tasteful-default");
+    expect(auditPage(cream, null, { surface: "landing" })!.findings.find(item => item.id === "tasteful-default")!.message).toContain("#f4f1ea");
+    expect(ids([cream, null], { surface: "editorial" })).not.toContain("note:tasteful-default");
+    expect(ids([cream, null], { surface: "landing", allowed: ["tasteful"] })).not.toContain("note:tasteful-default");
+    const white = page({ text: [sample({ bg: [[255, 255, 255]] }), sample({ el: "h1", size: 64, heading: true, family: "Fraunces", chars: 30, cpl: null })] });
+    expect(ids([white, null], { surface: "landing" })).not.toContain("note:tasteful-default");
+    const sans = page({ text: [sample({ bg: [[244, 241, 234]] }), sample({ el: "h1", size: 64, heading: true, family: "Instrument Sans", chars: 30, cpl: null })] });
+    expect(ids([sans, null], { surface: "landing" })).not.toContain("note:tasteful-default");
+    expect(allowedLooks(intentOf("A bakery site with a warm paper look and a serif headline"))).toContain("tasteful");
+  });
+
   it("notes template tells, unless the user asked for that look", () => {
     const desktop = page({ styles: { ...page().styles, violetGradients: 2, gradientText: 1, backdrop: 4, sameShadow: 9, eyebrows: 5, emoji: 6, accentWords: 3 }, fonts: { families: [{ name: "Inter", chars: 900 }], loaded: ["Inter"] }, copy: { lorem: true, buzzwords: ["seamless", "supercharge"], placeholders: ["John Doe"] } });
     const found = ids([desktop, null], { surface: "landing" });

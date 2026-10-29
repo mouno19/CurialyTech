@@ -197,9 +197,42 @@ function motionFindings(desktop: PageFacts, phone: PageFacts | null, allowed: Se
   return findings;
 }
 
-function tellFindings(desktop: PageFacts, allowed: Set<string>): Finding[] {
+/** Serif families by name ("sans-serif" and the sans families excluded). */
+const SERIF = /\bserif\b|fraunces|cormorant|playfair|garamond|\blora\b|merriweather|newsreader|baskerville|bodoni|didot|georgia|\btimes\b|caslon|crimson|spectral|literata|gloock|young serif|instrument serif|dm serif|source serif|noto serif|pt serif/i;
+const lightness = ([r, g, b]: Channel) => {
+  const [R, G, B] = [r / 255, g / 255, b / 255];
+  const max = Math.max(R, G, B);
+  const min = Math.min(R, G, B);
+  const l = (max + min) / 2;
+  const d = max - min;
+  if (d < 0.0001) return { h: 0, s: 0, l };
+  const s = d / (1 - Math.abs(2 * l - 1));
+  let h = max === R ? ((G - B) / d) % 6 : max === G ? (B - R) / d + 2 : (R - G) / d + 4;
+  h *= 60;
+  return { h: h < 0 ? h + 360 : h, s, l };
+};
+
+/** The page's own background (behind most of its running text) is warm off-white, and the display face is a serif. */
+function tastefulDefault(desktop: PageFacts) {
+  const weights = new Map<string, { color: Channel; chars: number }>();
+  for (const sample of desktop.text) {
+    if (sample.heading || !sample.bg?.length) continue;
+    const key = sample.bg[0].join(",");
+    weights.set(key, { color: sample.bg[0], chars: (weights.get(key)?.chars ?? 0) + sample.chars });
+  }
+  const page = [...weights.values()].sort((a, b) => b.chars - a.chars)[0]?.color;
+  const display = desktop.text.filter(sample => sample.heading).sort((a, b) => b.size - a.size)[0];
+  if (!page || !display || /sans/i.test(display.family) || !SERIF.test(display.family)) return null;
+  const { h, s, l } = lightness(page);
+  return l >= 0.88 && l <= 0.985 && s >= 0.12 && h >= 25 && h <= 85 ? { page, family: display.family } : null;
+}
+
+function tellFindings(desktop: PageFacts, allowed: Set<string>, surface?: Surface): Finding[] {
   const findings: Finding[] = [];
   const styles = desktop.styles;
+  // Reading pages wear it idiomatically; elsewhere it has become the default look of generated sites.
+  const tasteful = surface !== "editorial" && !allowed.has("tasteful") ? tastefulDefault(desktop) : null;
+  if (tasteful) findings.push({ id: "tasteful-default", level: "note", viewport: "desktop", message: `Warm cream paper (${hex(tasteful.page)}) behind a serif display (${tasteful.family}) is the current default look of generated sites; keep it only if this subject calls for it, otherwise take palette and type from the subject.` });
   if (styles.violetGradients && !allowed.has("violet")) findings.push({ id: "violet-gradient", level: "note", viewport: "desktop", message: `Purple/indigo gradients on ${plural(styles.violetGradients, "element")}: the stock generated look unless the brand calls for it.` });
   if (styles.gradientText && !allowed.has("gradient-text") && !allowed.has("violet")) findings.push({ id: "gradient-text", level: "note", viewport: "desktop", message: `Gradient-filled text on ${plural(styles.gradientText, "element")}; solid ink reads better and can't be contrast-checked.` });
   if (styles.backdrop >= 3 && !allowed.has("glass")) findings.push({ id: "glass", level: "note", viewport: "desktop", message: `Glass (backdrop-filter) on ${styles.backdrop} large elements; keep it for one floating layer at most.` });
@@ -286,7 +319,7 @@ export function auditPage(desktopFacts: PageFacts | null, phoneFacts: PageFacts 
     ...controlFindings(desktop, phone),
     ...typeFindings(desktop, phone, opts.surface, allowed, stats),
     ...motionFindings(desktop, phone, allowed),
-    ...tellFindings(desktop, allowed),
+    ...tellFindings(desktop, allowed, opts.surface),
   ];
   if (!desktopFacts) {
     const seen = new Set<string>();

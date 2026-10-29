@@ -69,7 +69,7 @@ function workflow(role: BriefRole, intent: DesignIntent, facts: WorkspaceFacts, 
 
 const LOOK_LABEL: Record<string, string> = {
   violet: "purple or violet tones", "gradient-text": "gradient text", glass: "glass effects", emoji: "emoji", eyebrow: "all-caps labels",
-  "default-font": "a standard system font", bounce: "bouncy motion", marquee: "a marquee or ticker",
+  "default-font": "a standard system font", bounce: "bouncy motion", marquee: "a marquee or ticker", tasteful: "a warm paper and serif look",
 };
 
 /** The brief as a system block for one role. Byte-stable: same brief and role, same text. */

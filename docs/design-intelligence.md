@@ -84,7 +84,7 @@ dependencies and no database changes.
 | Motion | improve | animation without a reduced-motion rule (not reported when linked stylesheets can't be read from the preview's opaque origin), loops under reduced motion, `transition: all` on 5 or more elements, keyframes animating layout properties | WCAG 2.3.3, 2.2.2, web.dev |
 | Input text under 16 px on phones | improve | iOS zooms on focus | Vercel guidelines |
 | Layout shift | improve | CLS over 0.1 | Core Web Vitals |
-| Template tells | note | purple gradients, gradient text, glass on 3 or more large elements, the same shadow on 6 or more elements, eyebrows above 3 or more headings, accented words, emoji as icons, a default font only, filler words | anthropic-frontend-design-skill, impeccable |
+| Template tells | note | purple gradients, gradient text, glass on 3 or more large elements, the same shadow on 6 or more elements, eyebrows above 3 or more headings, accented words, emoji as icons, a default font only, filler words, and warm cream paper behind a serif display outside reading pages (the newer "tasteful" default) | anthropic-frontend-design-skill, impeccable, benchmark judging |
 
 Contrast is measured where the text is painted (hit testing at its first line), against the worst
 stop of a gradient. Text over an image, video, canvas, filter, blend mode or painted
@@ -123,6 +123,17 @@ Entries live in `server/agent/design/knowledge/*.ts`. Each entry is one object:
 - A new audit check takes three things: a measurement in `PageFacts` (types.ts) and the
   collector, a rule in `audit.ts`, and a fixture test. The collector runs in the page as source
   text, so it must stay self-contained and must not touch storage.
+
+## What the benchmark changed
+
+Six benchmark tasks were run on production before and after the release. In the after set, a blind
+judging found that five of six designs had converged on the newer generated default: cream paper,
+a serif display and an earthy accent. Judges also flagged visible "sample" disclaimers on marketing
+pages and mixed light and black weights inside one headline. The knowledge base now names that
+default as a tell (unless asked for), keeps placeholder notes in the summary rather than on
+marketing pages, asks for a drawn likeness of products without photos, and keeps one weight per
+headline. The audit notes the cream-and-serif combination outside reading pages. These changes came
+after the benchmark and are not yet measured.
 
 ## The preview
 

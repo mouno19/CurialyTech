@@ -233,5 +233,6 @@ export function allowedLooks(intent: DesignIntent) {
   if (has(["inter font", "roboto", "arial", "helvetica", "system font", "system-ui", "set in inter", "use inter"])) allowed.add("default-font");
   if (has(["bounce", "bouncy", "elastic", "playful", "cartoon"])) allowed.add("bounce");
   if (has(["marquee", "ticker"])) allowed.add("marquee");
+  if (has(["cream", "paper", "serif", "editorial", "newspaper", "earthy", "vintage", "print", "letterpress"])) allowed.add("tasteful");
   return [...allowed].sort();
 }

@@ -12,6 +12,7 @@ const ASKED_VIOLET = ["purple", "violet", "indigo", "neon", "glow", "aurora", "s
 const ASKED_GLASS = ["glassmorphism", "frosted glass", "liquid glass", "glass effect", "glass card", "glass cards", "glass panel", "glass panels", "translucent"];
 const ASKED_CARDS = ["bento", "card grid", "card-based"];
 const ASKED_PLAYFUL_MOTION = ["marquee", "ticker", "bounce", "bouncy", "elastic", "typewriter", "typing effect"];
+const ASKED_TASTEFUL = ["cream", "paper", "warm", "serif", "editorial", "newspaper", "earthy", "vintage", "print", "letterpress"];
 
 export const FOUNDATIONS: DesignEntry[] = [
   {
@@ -50,7 +51,8 @@ export const FOUNDATIONS: DesignEntry[] = [
       { text: "Purple, indigo or violet gradients, gradient-filled headline text, neon on near-black, colored glows and blurred blobs behind the hero.", unless: ASKED_VIOLET },
       { text: "Glass panels for content (backdrop-filter on cards and sections); keep translucency for a floating bar or menu at most.", unless: ASKED_GLASS },
       { text: "Everything in identical rounded cards with one radius and the same soft shadow, cards inside cards, colored left stripes on cards.", unless: ASKED_CARDS },
-      "The template skeleton regardless of subject: centered hero with two buttons, logo strip, stat strip, 3-up icon features, FAQ; a tracked ALL-CAPS eyebrow over every heading; one accented word in each headline; 01/02/03 on things that are not steps; an arrow on every link.",
+      { text: "The current \"tasteful\" default on every subject: warm cream paper, a high-contrast serif display and an amber, rust or terracotta accent. Use it only where the subject suggests it (print, craft, long reading); otherwise take palette and type from the subject (a logistics tool can be cool and technical, a kids' app bright).", unless: ASKED_TASTEFUL },
+      "The template skeleton regardless of subject: centered hero with two buttons, logo strip, stat strip, 3-up icon features, FAQ; a tracked ALL-CAPS eyebrow over every heading; one word in each headline set apart in color, italic or a heavier weight; 01/02/03 on things that are not steps; an arrow on every link.",
       "Motion tropes: fade-and-slide-up on every section, hover lift on every card, transition: all.",
       { text: "Gimmick motion: bounce or elastic easing, marquee logo rows, pulsing dots, fake typing.", unless: ASKED_PLAYFUL_MOTION },
       "Emoji as icons, \"illustrations\" assembled from primitive shapes, sparkle icons on AI features, decorative grid or stripe backgrounds.",
@@ -69,7 +71,7 @@ export const FOUNDATIONS: DesignEntry[] = [
       "No sideways scrolling at 320-390 px; a meta viewport without maximum-scale or user-scalable=no; <html lang>; one h1 with no skipped heading levels; header, main and footer landmarks.",
       "Every image has alt (alt=\"\" when decorative); every control and field has a visible label or an accessible name. A placeholder is not a label.",
       "Content is visible at rest: never hide text until a script reveals it. Under prefers-reduced-motion: reduce, remove movement (translate, scale, parallax, auto-scroll) and keep short opacity fades.",
-      "Specific, plausible content: no lorem ipsum, \"John Doe\" or \"Acme\", and no invented facts presented as real (customer counts, logos); label sample data as sample where it could be mistaken for fact.",
+      "Specific, plausible content: no lorem ipsum, \"John Doe\" or \"Acme\", and no invented facts presented as real (customer counts, logos). Apps and dashboards may carry a small \"Sample data\" tag; marketing pages stay clean (no draft notes or disclaimers on the page): say in your summary which content is placeholder.",
     ],
     sources: ["WCAG 2.2 (1.4.3, 1.4.11, 2.4.7, 2.5.8, 1.4.10, 1.1.1, 2.3.3)", "WAI-ARIA APG", "WebAIM Million 2026"],
   },
@@ -92,7 +94,7 @@ export const FOUNDATIONS: DesignEntry[] = [
       "Use a token scale of 6-9 steps. Body 16-18 px; ratio about 1.2 on phones rising to 1.25-1.333 on wide screens; at least one jump of 1.5× or more so hierarchy is unmistakable.",
       "Fluid sizes with clamp(min rem, rem + vw, max rem), max at most 2.5× min; never vw alone (it ignores zoom).",
       "Size headlines to the job: a hero h1 of 32-44 px on phones; 48-80 px on desktop brand pages, 28-40 px in product UI. A headline that pushes the first content below the fold of a 1280×800 screen is too big.",
-      "Real weight contrast for expressive pages (for example 300 against 700), not 400 against 500.",
+      "Real weight contrast between levels on expressive pages (a light display against bold labels, for example 300 against 700, not 400 against 500); one weight within a headline.",
     ],
     sources: ["Material 3 type scale", "Utopia fluid type", "WCAG 2.2 1.4.4", "anthropic-frontend-design-skill"],
   },
@@ -186,7 +188,7 @@ export const FOUNDATIONS: DesignEntry[] = [
     title: "Images and illustration",
     discipline: "imagery",
     rules: [
-      "Real images beat decoration. Without real photos, use honest placeholders: tonal blocks at the final aspect ratio with a caption, or one purposeful SVG illustration drawn with care. Never broken links, and never random stock photos that don't match the subject.",
+      "Real images beat decoration. Without real photos, make placeholders look designed rather than missing: a careful line or silhouette drawing of the actual object (true proportions, one stroke weight), or a tonal panel with the item's name set large in the display face. No \"sample image\" labels on the page (say so in your summary), no broken links, no stock photos that don't match the subject.",
       "Every img and video gets width/height or aspect-ratio and object-fit; alt text describes what it shows (alt=\"\" when decorative).",
       "Images from external URLs need a background color behind them so a failed load leaves no hole.",
     ],
