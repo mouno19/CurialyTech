@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { getModel, type ModelSpec } from "@shared/agent";
+import { getModel, REPLACED, type ModelSpec } from "@shared/agent";
 
 // Self-healing for failures *around* a model turn (tool errors already flow back to the model as
 // tool results, and failed verification has its own heal loop). Each failure is classified and
@@ -17,6 +17,8 @@ export type FailureKind =
   | "unsupported_param"
   | "model_unavailable"
   | "auth"
+  /** The route answers every request with "not authorized" (an account that lost access): switch routes, don't retry it. */
+  | "route_down"
   | "fatal";
 
 export type Diagnosis = { kind: FailureKind; status?: number; detail: string; retryAfterMs?: number; param?: "eager_input_streaming" | "thinking" | "effort" };
@@ -39,6 +41,9 @@ function retryAfter(error: unknown) {
 /** Classify a failure from any provider loop into something we know how to repair. */
 export function diagnose(error: unknown, aborted: boolean): Diagnosis {
   if (aborted || error instanceof Anthropic.APIUserAbortError) return { kind: "cancelled", detail: "Cancelled" };
+  // Cortex answers "Not authorized for this endpoint" while the account it runs on has lost access
+  // (for hours at a time): no retry on that route helps, another route might.
+  if (/not authorized for this endpoint/i.test(error instanceof Error ? error.message : String(error))) return { kind: "route_down", status: (error as { status?: number })?.status, detail: "The engine route is refusing requests" };
   const message = String((error as Error)?.message ?? error);
   const status = statusOf(error);
   const lower = message.toLowerCase();
@@ -332,11 +337,12 @@ export function compactHistory(conversation: Message[], level: 1 | 2 | 3) {
 
 // Failover tiers per conversation format, closest equivalents first. A history can only move to a
 // model that speaks the same format; within it, the current tier is tried before the next one.
-// The relay Claude routes are the second path to Claude when the primary route is down.
+// The relay's Claude Opus 4.6 is the second path to Claude when the primary route is down (the
+// relay no longer serves r/claude-sonnet-4-6: it answers 404 "Unknown model").
 const FAILOVER_TIERS: Record<"anthropic" | "openai", string[][]> = {
   anthropic: [
     ["claude-opus-5-5", "claude-opus-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "r/claude-opus-4-6-thinking", "claude-opus-4-5"],
-    ["claude-sonnet-5-5", "claude-sonnet-5", "claude-sonnet-4-6", "r/claude-sonnet-4-6", "claude-sonnet-4-5", "claude-haiku-5-5"],
+    ["claude-sonnet-5-5", "claude-sonnet-5", "claude-sonnet-4-6", "claude-sonnet-4-5", "claude-haiku-5-5"],
     ["r/gemini-3.8-flash", "r/gemini-2.5-flash"],
   ],
   openai: [
@@ -350,7 +356,8 @@ const FAILOVER_TIERS: Record<"anthropic" | "openai", string[][]> = {
 export function failoverModels(current: ModelSpec): ModelSpec[] {
   if (current.provider === "research" || current.provider === "core-inference" || current.provider === "core-sql") return [];
   const tiers = FAILOVER_TIERS[current.provider === "fast" || current.provider === "core-chat" ? "openai" : "anthropic"];
-  const own = tiers.findIndex(tier => tier.includes(current.id));
+  // A retired id (still on saved tasks) is in no tier: its replacement's tier is the closest.
+  const own = tiers.findIndex(tier => tier.includes(current.id) || tier.includes(REPLACED[current.id] ?? ""));
   const ordered = own < 0 ? tiers.flat() : [...tiers[own], ...tiers.filter((_, index) => index !== own).flat()];
   return ordered.filter(id => id !== current.id).map(id => getModel(id)).filter((spec): spec is ModelSpec => Boolean(spec?.tools));
 }
@@ -462,7 +469,8 @@ export type RecoveryHost = {
   spec: ModelSpec;
   flags: RecoveryFlags;
   /** Switch the run to another model (same conversation format). */
-  switchModel: (spec: ModelSpec, reason: string) => void;
+  /** `forRun`: a stand-in for this run only (the route refuses requests), not the task's model from now on. */
+  switchModel: (spec: ModelSpec, reason: string, forRun?: boolean) => void;
   /** Persist the conversation after a repair. */
   persist: () => void;
   /** Clear cached image bytes after images were stripped. */
@@ -485,6 +493,8 @@ export class RecoveryEngine {
   private genericRepairTried = false;
   private readonly failedModels = new Set<string>(); // unavailable: never retried this run
   private readonly flakyModels = new Set<string>(); // transient failures: skipped for this turn only
+  /** Routes that refused every request with "not authorized" in this run. */
+  private readonly downRoutes = new Set<string>();
   private readonly troubled = new Set<string>(); // any route failure this run (escalation avoids them)
   private failedOver = false;
   readonly log: { kind: FailureKind; action: string }[] = [];
@@ -509,7 +519,7 @@ export class RecoveryEngine {
     const host = this.host;
     const diagnosis = diagnose(error, host.signal.aborted);
     if (diagnosis.kind === "cancelled" || diagnosis.kind === "auth") return false;
-    if (diagnosis.kind === "transient" || diagnosis.kind === "rate_limit" || diagnosis.kind === "model_unavailable") this.troubled.add(host.spec.id);
+    if (diagnosis.kind === "transient" || diagnosis.kind === "rate_limit" || diagnosis.kind === "model_unavailable" || diagnosis.kind === "route_down") this.troubled.add(host.spec.id);
     if (this.total >= MAX_RUN_RECOVERIES || this.turnAttempts >= MAX_TURN_ATTEMPTS) return false;
     this.turnAttempts++;
     const attempt = this.turnAttempts;
@@ -591,6 +601,9 @@ export class RecoveryEngine {
       }
       case "model_unavailable":
         return this.failover(diagnosis, done) ?? false;
+      case "route_down":
+        // Straight to a model on another route: every model on this one gets the same refusal.
+        return this.failover(diagnosis, done) ?? false;
       case "fatal": {
         // Unknown rejection: one generic history clean-up, which covers most malformed-history 400s.
         if (this.genericRepairTried || diagnosis.status === undefined || diagnosis.status >= 500) return false;
@@ -614,9 +627,9 @@ export class RecoveryEngine {
    * Move the run to another same-format model (failover, escalation). Reasoning blocks are signed
    * per model, so they are dropped; parameters disabled for the old model are re-enabled.
    */
-  switchTo(spec: ModelSpec, reason: string) {
+  switchTo(spec: ModelSpec, reason: string, forRun = false) {
     const host = this.host;
-    host.switchModel(spec, reason);
+    host.switchModel(spec, reason, forRun);
     host.flags.noEager = false;
     host.flags.noThinking = false;
     host.flags.noEffort = false;
@@ -628,7 +641,9 @@ export class RecoveryEngine {
     const host = this.host;
     const transient = diagnosis.kind === "transient" || diagnosis.kind === "rate_limit";
     (transient ? this.flakyModels : this.failedModels).add(host.spec.id);
-    let candidates = failoverModels(host.spec).filter(spec => !this.failedModels.has(spec.id) && !this.flakyModels.has(spec.id) && (host.available?.(spec) ?? true));
+    if (diagnosis.kind === "route_down") this.downRoutes.add(host.spec.provider);
+    // A route that refused every request stays out of this run's failovers, whatever failed now.
+    let candidates = failoverModels(host.spec).filter(spec => !this.failedModels.has(spec.id) && !this.flakyModels.has(spec.id) && !this.downRoutes.has(spec.provider) && (host.available?.(spec) ?? true));
     // For outages, prefer a model reached through a different route first, as long as the switch
     // keeps what the run relies on (images); otherwise stay in tier order.
     if (transient) {
@@ -638,7 +653,10 @@ export class RecoveryEngine {
     const next = candidates[0];
     if (!next) return null;
     const from = host.spec.label;
-    this.switchTo(next, `Self-healing: ${from} ${diagnosis.kind === "model_unavailable" ? "is unavailable" : "kept failing"} → ${next.label}`);
+    // Around a refusing route (hours at a time, then it is back), or onto another route during an
+    // overload, the switch is for this run only: the task keeps its own model for the next one.
+    const forRun = this.downRoutes.size > 0 || (transient && next.provider !== host.spec.provider);
+    this.switchTo(next, `Self-healing: ${from} ${diagnosis.kind === "model_unavailable" ? "is unavailable" : diagnosis.kind === "route_down" ? "is refusing requests on its route" : "kept failing"} → ${next.label}`, forRun);
     this.failedOver = true;
     this.transientStreak = 0;
     this.turnAttempts = 0; // the new model gets its own attempts for this turn

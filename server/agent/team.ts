@@ -349,15 +349,20 @@ export async function runTeam(ctx: RunContext, conversation: Anthropic.MessagePa
     if (!approved) track("reviewer", "done", "Open items remain");
 
     // ---- 4. Publish (only after approval, and only when the request asks for it) ----
-    const wantsPublish = PUBLISH_INTENT.test(`${requestText(request)}\n${plan.summary}\n${plan.steps.map(step => step.title).join("\n")}`);
+    // A deploy go-ahead (ctx.grants, from the runner) is a publishing request even in words PUBLISH_INTENT lacks ("put it on Render").
+    const wantsPublish = Boolean(ctx.grants.deploy) || PUBLISH_INTENT.test(`${requestText(request)}\n${plan.summary}\n${plan.steps.map(step => step.title).join("\n")}`);
     let published = "";
     if (wantsPublish && approved) {
       track("engineer", "working", "Publishing the approved changes");
-      pushUser(state.engineer, "The Reviewer approved your changes. If the user's request asked for publishing to GitHub (committing/pushing, or opening a pull request), do exactly that now and report the links. Do not change any files. You cannot deploy previews: if the user asked for one, tell them to use the Deploy action. If nothing needs publishing, say so and stop.");
+      // The operator's own request for a live preview is its go-ahead (ctx.grants, set by the runner);
+      // the request decides, the word match only opens the tool.
+      const mayDeploy = Boolean(ctx.grants.deploy);
+      pushUser(state.engineer, `The Reviewer approved your changes. If the user's request asked for publishing to GitHub (committing/pushing, or opening a pull request), do exactly that now and report the links. Do not change any files.${mayDeploy ? " If the user's own request asks you to deploy it now (a live preview or a deploy), deploy it with deploy_preview, open it with browse to confirm it renders, and report it; otherwise do not deploy." : " You cannot deploy previews: if the user asked for one, tell them to use the Deploy action."} If nothing needs publishing, say so and stop.`);
       save();
       try {
         delete ctx.outcome.publish;
-        published = (await engineerRun("p", { tools: [...ROLE_TOOLS.engineer, ...PUBLISH_TOOLS], verify: false, maxTurns: PUBLISH_TURNS })).text;
+        ctx.failedPublishing.clear();
+        published = (await engineerRun("p", { tools: [...ROLE_TOOLS.engineer, ...PUBLISH_TOOLS, ...(mayDeploy ? ["deploy_preview"] : [])], verify: false, maxTurns: PUBLISH_TURNS })).text;
         // trackedTool recorded done/failed for each push or PR; none called means nothing was published.
         ctx.outcome.publish ??= "not_requested";
       } catch (error) {

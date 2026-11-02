@@ -399,6 +399,22 @@ describe("untrusted measurements and fingerprints", () => {
     expect(uiFingerprint(root, cache).get("app.css")).toBe(first);
     expect(uiFingerprint(root).get("app.css")).not.toBe(first);
   });
+
+  it("keeps a size-and-mtime stand-in while the file keeps its size and mtime, even one written just now", async () => {
+    const { uiFingerprint } = await import("./agent/design/workspace");
+    const root = fs.mkdtempSync(path.join(tmp, "stand-in-"));
+    const file = path.join(root, "app.css");
+    fs.writeFileSync(file, "a{color:red}");
+    const info = fs.statSync(file);
+    // What a fingerprint that ran out of budget leaves for this file. Reading it now, with budget to
+    // spare, would give a real hash and report the unchanged file as changed.
+    const standIn = `size:${info.size}:${info.mtimeMs}`;
+    const cache = new Map([["app.css", { size: info.size, mtimeMs: info.mtimeMs, hash: standIn, hashedAt: Date.now() }]]);
+    expect(uiFingerprint(root, cache).get("app.css")).toBe(standIn);
+    // A real hash taken the moment the file was written is not trusted yet: it is read again.
+    cache.set("app.css", { size: info.size, mtimeMs: info.mtimeMs, hash: "stale", hashedAt: Date.now() });
+    expect(uiFingerprint(root, cache).get("app.css")).not.toBe("stale");
+  });
 });
 
 describe("the in-page collector", () => {

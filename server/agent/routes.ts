@@ -931,7 +931,7 @@ export function agentRouter() {
     // A re-export replaces the branch's files with the workspace's: only over the workspace's own
     // last push, unless the user confirmed replacing commits made elsewhere.
     const onlyOver = created || input.confirmOverwrite ? undefined : await exportedHeads(task.id);
-    const pushed = await pushProjectToRepo(connection.token, fullName, files, created ? "Initial export from Curialy AI" : "Update from Curialy AI", undefined, undefined, onlyOver);
+    const pushed = await pushProjectToRepo(connection.token, fullName, files, created ? "Initial export from Curialy AI" : "Update from Curialy AI", { onlyOver });
     await query(
       "UPDATE curialy.chat_sessions SET github_repo = $2, github_repo_url = $3, github_pushed_at = now(), github_pushed = github_pushed || jsonb_build_object($4::text, $5::text), github_mode = 'export', updated_at = now() WHERE id = $1",
       [task.id, fullName, pushed.repoUrl, pushed.branch, pushed.commitSha],

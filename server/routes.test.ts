@@ -514,7 +514,9 @@ describe("POST /tasks/:id/export", () => {
     const response = await post(`/tasks/${TASK}/export`, {});
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ repo: "octo/site", created: false, branch: "main" });
-    expect(publish.pushProjectToRepo.mock.calls[0][6]).toEqual(heads);
+    expect(publish.pushProjectToRepo.mock.calls[0][4]).toEqual({ onlyOver: heads });
+    // Someone is waiting on this request: GitHub's rate limits fail it at once instead of being waited out.
+    expect(publish.pushProjectToRepo.mock.calls[0][4].waitOutLimits).toBeUndefined();
     const recorded = db.calls.find(call => call.text.includes("github_pushed = github_pushed || jsonb_build_object"));
     expect(recorded?.values.slice(3)).toEqual(["main", "abc"]);
 
@@ -527,7 +529,7 @@ describe("POST /tasks/:id/export", () => {
 
     publish.pushProjectToRepo.mockClear();
     expect((await post(`/tasks/${TASK}/export`, { confirmOverwrite: true })).status).toBe(200);
-    expect(publish.pushProjectToRepo.mock.calls[0][6]).toBeUndefined();
+    expect(publish.pushProjectToRepo.mock.calls[0][4].onlyOver).toBeUndefined();
     expect(publish.createRepo).not.toHaveBeenCalled();
   });
 
@@ -537,7 +539,7 @@ describe("POST /tasks/:id/export", () => {
     publish.githubApi.mockRejectedValueOnce(new Error("GitHub GET /repos/octo/site failed (503): unavailable"));
     expect(await (await post(`/tasks/${TASK}/export/plan`, {})).json()).toMatchObject({ target: { kind: "existing", branch: null, remote: "unknown" } });
     expect((await post(`/tasks/${TASK}/export`, {})).status).toBe(200);
-    expect(publish.pushProjectToRepo.mock.calls[0][6]).toEqual({});
+    expect(publish.pushProjectToRepo.mock.calls[0][4].onlyOver).toEqual({});
   });
 
   it("never creates a repository without a name and an explicit visibility, and never a public one unconfirmed", async () => {
@@ -568,7 +570,7 @@ describe("POST /tasks/:id/export", () => {
     // The new repository's first commit is recorded as the workspace's own, before anything is pushed.
     expect(recorded?.values[3]).toBe(JSON.stringify({ main: "1".repeat(40) }));
     expect(publish.createRepo.mock.invocationCallOrder[0]).toBeLessThan(publish.pushProjectToRepo.mock.invocationCallOrder[0]);
-    expect(publish.pushProjectToRepo.mock.calls[0][6]).toBeUndefined();
+    expect(publish.pushProjectToRepo.mock.calls[0][4].onlyOver).toBeUndefined();
 
     publish.createRepo.mockClear();
     expect((await post(`/tasks/${TASK}/export`, { repoName: "open-site", visibility: "public", confirmPublic: true })).status).toBe(200);

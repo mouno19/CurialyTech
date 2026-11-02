@@ -24,7 +24,7 @@ The VPS keeps no user data: workspaces are scratch, snapshotted to Tiger and swe
 2. `server/agent/runner.ts` picks the model (`dispatchModel`), materializes the workspace, and runs the loop for that model's format, streaming every event (thinking, text, tool calls, terminal output, diffs, phases) through `server/agent/bus.ts` to SSE and Tiger.
 3. Tools (`server/agent/tools.ts`) run in the sandbox: files, shell, search, web fetch, live browser, visual preview tests, GitHub, deploy previews, research delegation.
 4. Coding runs end with harness verification; failures loop back with the error output (self-healing, up to 4 iterations, escalating to the strongest model of the format).
-5. Every model call is wrapped by `server/agent/recovery.ts`: retries with backoff, context compaction, history repairs, and failover to the closest same-format model.
+5. Every model call is wrapped by `server/agent/recovery.ts`: retries with backoff, context compaction, history repairs, and failover to the closest same-format model (on another route when the current one refuses every request; a switch around an outage lasts for that run only, and a free account's run never moves to a model that costs more credits).
 6. Dev Team mode (`server/agent/team.ts`): Architect plans (read-only), Engineer builds, Reviewer reviews the diff and tests (read-only, its source edits are reverted); publishing happens only after approval.
 7. Changed files are attached to the chat as artifacts (generated build output is summarised, not attached); the workspace is snapshotted, with the built site kept separately so an archived preview stays known.
 
@@ -34,7 +34,7 @@ The VPS keeps no user data: workspaces are scratch, snapshotted to Tiger and swe
 - The worker that claims a run records `worker_id` and renews a 45 s lease every 15 s. On boot and every 30 s, runs whose worker is gone (dead pid on this host, expired lease elsewhere, or rows from pre-lease code) become **interrupted**, with their open browser sessions closed in the log. Nothing is retried automatically; the task page offers Retry.
 - SIGTERM (systemctl restart) refuses new runs, stops running ones as interrupted within about 15 s and exits. Install the unit from `deploy/systemd/` (`KillMode=mixed`, `TimeoutStopSec=30`) so the app gets the signal first.
 - Cancel is idempotent and only stops the run. Publishing (pushes, pull requests, deploys) is never started by a cancel; a deploy or push in flight is stopped before its next external write, and a cancel deadline waits for a publishing step to finish so it is recorded.
-- Deploy previews are started only by the confirmed Deploy action and always build from a new temporary **private** repository; they never write to a repository you linked or exported. Cancelled, failed and expired previews are taken down and the reason is logged on the task.
+- Deploy previews start from the confirmed Deploy action or, on the operator's tasks, from the operator's own message asking for one (that run only, with one more attempt after a failed one; a retry of the run deploys only if no preview went live). They always build from a new temporary **private** repository; they never write to a repository you linked or exported. Cancelled, failed and expired previews are taken down and the reason is logged on the task.
 - A second instance sharing the database (e.g. a side test instance) must set `AGENT_INSTANCE_ROLE=replica` and run the same code version as production: replicas never reclaim rows written by older code and do not run the sweepers. Better still, give it its own database (a Tiger fork).
 
 ## Media storage
@@ -55,7 +55,7 @@ The VPS keeps no user data: workspaces are scratch, snapshotted to Tiger and swe
 | Ultramarine 1.0 Flash | Paper Instruments chat completions | Tools, streamed reasoning |
 
 Auto routes complex or high-effort work to Opus 5.5, routine coding to Sonnet 5.5 and quick
-asks to Haiku 5.5. Hidden entries (backup Claude routes on RelayStation, the Research Agent)
+asks to Haiku 5.5. Hidden entries (the backup Claude Opus 4.6 route on RelayStation, the Research Agent)
 are used for failover and delegation only.
 
 ## Rebuilding the host from scratch

@@ -8,8 +8,11 @@ import { adminUserId, query } from "../db/pg";
 export const GITHUB_SCOPES = ["read:user", "user:email", "repo"];
 
 export class GitHubError extends Error {
-  constructor(message: string, readonly status: number) {
+  /** Set when GitHub asked to slow down (primary or secondary rate limit): how long to wait. */
+  readonly retryAfterMs?: number;
+  constructor(message: string, readonly status: number, retryAfterMs?: number) {
     super(message);
+    this.retryAfterMs = retryAfterMs;
   }
 }
 
@@ -46,8 +49,54 @@ export async function githubApi<T = any>(token: string, path: string, init: Requ
     headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "content-type": "application/json", "user-agent": "curialy-ai", ...(init.headers ?? {}) },
   });
   const data: any = response.status === 204 ? null : await response.json().catch(() => null);
-  if (!response.ok) throw new GitHubError(`GitHub ${init.method ?? "GET"} ${path} failed (${response.status}): ${data?.message ?? "error"}${data?.errors ? ` ${JSON.stringify(data.errors).slice(0, 200)}` : ""}`, response.status);
+  if (!response.ok) throw new GitHubError(`GitHub ${init.method ?? "GET"} ${path} failed (${response.status}): ${data?.message ?? "error"}${data?.errors ? ` ${JSON.stringify(data.errors).slice(0, 200)}` : ""}`, response.status, rateLimitWait(response, data?.message));
   return data as T;
+}
+
+/**
+ * How long GitHub asked us to wait, for a rate-limited answer (429, or 403 for a primary or
+ * secondary limit); undefined for any other failure. Secondary limits come with retry-after or,
+ * failing that, a minute (GitHub's guidance); primary limits with x-ratelimit-reset.
+ */
+function rateLimitWait(response: Response, message: unknown) {
+  const limited = response.status === 429 || (response.status === 403 && (/rate limit|abuse/i.test(String(message ?? "")) || response.headers.get("x-ratelimit-remaining") === "0"));
+  if (!limited) return undefined;
+  const retryAfter = Number(response.headers.get("retry-after"));
+  if (response.headers.has("retry-after") && Number.isFinite(retryAfter)) return Math.max(0, retryAfter) * 1000;
+  const reset = Number(response.headers.get("x-ratelimit-reset"));
+  if (response.headers.get("x-ratelimit-remaining") === "0" && Number.isFinite(reset) && reset > 0) return Math.max(0, reset * 1000 - Date.now()) + 1000;
+  return 60_000;
+}
+
+const pause = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve, reject) => {
+  if (signal?.aborted) return reject(signal.reason instanceof Error ? signal.reason : new Error("Cancelled"));
+  const onAbort = () => { clearTimeout(timer); reject(signal?.reason instanceof Error ? signal.reason : new Error("Cancelled")); };
+  const timer = setTimeout(() => { signal?.removeEventListener("abort", onAbort); resolve(); }, ms);
+  signal?.addEventListener("abort", onAbort, { once: true });
+});
+
+/**
+ * How a call treats GitHub's rate limits. A run's calls (cancellable through `signal`, nobody
+ * waiting on an HTTP answer) wait them out; a request someone is waiting on (Export) fails at once
+ * with GitHub's message, since a minute's wait would outlast the proxy's timeout anyway.
+ */
+export type CallOptions = { signal?: AbortSignal; waitOutLimits?: boolean };
+
+/** Waits longer than this are not worth holding a run for: the error is passed on instead. */
+const MAX_RATE_LIMIT_WAIT_MS = 3 * 60_000;
+const MAX_RATE_LIMIT_RETRIES = 4;
+
+/** githubApi that, with waitOutLimits, waits out GitHub's rate limits (up to 4 times); abortable. */
+async function githubCall<T = any>(token: string, path: string, init: RequestInit, opts: CallOptions): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    throwIfAborted(opts.signal);
+    try {
+      return await githubApi<T>(token, path, init);
+    } catch (error) {
+      if (!opts.waitOutLimits || !(error instanceof GitHubError) || error.retryAfterMs === undefined || attempt > MAX_RATE_LIMIT_RETRIES || error.retryAfterMs > MAX_RATE_LIMIT_WAIT_MS) throw error;
+      await pause(error.retryAfterMs, opts.signal);
+    }
+  }
 }
 
 // ---- OAuth ----
@@ -149,11 +198,11 @@ export async function repoToken(userId: string) {
 
 export const isValidRepoName = (name: string) => /^[A-Za-z0-9._-]{1,100}$/.test(name) && !/^\.+$/.test(name);
 
-export async function createRepo(token: string, repoName: string, isPrivate: boolean, description = "Created by Curialy AI") {
+export async function createRepo(token: string, repoName: string, isPrivate: boolean, description = "Created by Curialy AI", opts: CallOptions = {}) {
   if (!isValidRepoName(repoName)) throw new GitHubError("Repository names may only contain letters, digits, '.', '-' and '_'.", 422);
   // auto_init gives the repo a first commit; the Git Data API cannot write to an empty repository.
-  return githubApi<{ full_name: string; html_url: string; default_branch: string; owner: { login: string }; name: string; private: boolean }>(
-    token, "/user/repos", { method: "POST", body: JSON.stringify({ name: repoName, private: isPrivate, auto_init: true, description }) },
+  return githubCall<{ full_name: string; html_url: string; default_branch: string; owner: { login: string }; name: string; private: boolean }>(
+    token, "/user/repos", { method: "POST", body: JSON.stringify({ name: repoName, private: isPrivate, auto_init: true, description }) }, opts,
   );
 }
 
@@ -164,31 +213,76 @@ export function throwIfAborted(signal?: AbortSignal) {
 
 /**
  * Commit `files` as the complete tree of `branch` (files not listed are removed) and push it.
- * Uses the Git Data API: blobs → tree → commit → ref update. With a signal, a cancel stops it before
+ * Uses the Git Data API: tree (writeTree) → commit → ref update. With a signal, a cancel stops it before
  * the next write (the ref update is the point of no return). With `onlyOver` (branch → the commit
- * this workspace last pushed there), a branch whose head is anything else is left untouched.
+ * this workspace last pushed there), a branch whose head is anything else is left untouched. With
+ * waitOutLimits (a run's push), GitHub's rate limits are waited out and binary uploads spaced.
  */
-export async function pushProjectToRepo(token: string, fullName: string, files: { path: string; content: Buffer }[], message: string, branch?: string, signal?: AbortSignal, onlyOver?: Record<string, string>) {
+export async function pushProjectToRepo(token: string, fullName: string, files: { path: string; content: Buffer }[], message: string, opts: CallOptions & { branch?: string; onlyOver?: Record<string, string> } = {}) {
+  const { branch, signal, onlyOver } = opts;
   throwIfAborted(signal);
-  const repo = await githubApi<{ default_branch: string; html_url: string }>(token, `/repos/${fullName}`);
+  const repo = await githubCall<{ default_branch: string; html_url: string }>(token, `/repos/${fullName}`, {}, opts);
   const target = branch ?? repo.default_branch;
-  const ref = await githubApi<{ object: { sha: string } }>(token, `/repos/${fullName}/git/ref/heads/${encodeURIComponent(target)}`);
+  const ref = await githubCall<{ object: { sha: string } }>(token, `/repos/${fullName}/git/ref/heads/${encodeURIComponent(target)}`, {}, opts);
   // Checked before any write; the non-forced ref update below also fails if the head moves meanwhile.
   if (onlyOver && onlyOver[target] !== ref.object.sha) throw new RemoteChangedError(target);
-  const tree: { path: string; mode: string; type: string; sha: string }[] = [];
-  // Small concurrency keeps large projects reasonably fast without tripping secondary rate limits.
-  for (let index = 0; index < files.length; index += 6) {
-    throwIfAborted(signal);
-    const batch = files.slice(index, index + 6);
-    const blobs = await Promise.all(batch.map(file => githubApi<{ sha: string }>(token, `/repos/${fullName}/git/blobs`, { method: "POST", body: JSON.stringify({ content: file.content.toString("base64"), encoding: "base64" }) })));
-    batch.forEach((file, i) => tree.push({ path: file.path, mode: "100644", type: "blob", sha: blobs[i].sha }));
-  }
+  const treeSha = await writeTree(token, fullName, files, opts);
+  const commit = await githubCall<{ sha: string; html_url: string }>(token, `/repos/${fullName}/git/commits`, { method: "POST", body: JSON.stringify({ message, tree: treeSha, parents: [ref.object.sha] }) }, opts);
   throwIfAborted(signal);
-  const createdTree = await githubApi<{ sha: string }>(token, `/repos/${fullName}/git/trees`, { method: "POST", body: JSON.stringify({ tree }) });
-  const commit = await githubApi<{ sha: string; html_url: string }>(token, `/repos/${fullName}/git/commits`, { method: "POST", body: JSON.stringify({ message, tree: createdTree.sha, parents: [ref.object.sha] }) });
-  throwIfAborted(signal);
-  await githubApi(token, `/repos/${fullName}/git/refs/heads/${encodeURIComponent(target)}`, { method: "PATCH", body: JSON.stringify({ sha: commit.sha, force: false }) });
+  await githubCall(token, `/repos/${fullName}/git/refs/heads/${encodeURIComponent(target)}`, { method: "PATCH", body: JSON.stringify({ sha: commit.sha, force: false }) }, opts);
   return { branch: target, commitSha: commit.sha, commitUrl: `${repo.html_url}/commit/${commit.sha}`, repoUrl: repo.html_url };
+}
+
+type TreeEntry = { path: string; mode: string; type: "blob"; sha?: string; content?: string };
+
+/** Largest text file sent inline in a tree request, and the most content per tree request. */
+const INLINE_FILE_BYTES = 1024 * 1024;
+const TREE_CHUNK_BYTES = 2 * 1024 * 1024;
+const TREE_CHUNK_ENTRIES = 1000;
+/** GitHub allows about 80 content-creating requests a minute: past the first few, a run's blobs are spaced. */
+const BLOB_BURST = 20;
+const BLOB_SPACING_MS = 1000;
+
+const inlineText = (content: Buffer) => {
+  if (content.length > INLINE_FILE_BYTES || content.includes(0)) return null;
+  const text = content.toString("utf8");
+  return Buffer.from(text, "utf8").equals(content) ? text : null;
+};
+
+/**
+ * The complete tree for `files` (nothing else), in as few writes as possible: text files travel
+ * inside the tree requests (GitHub writes their blobs), chunked and chained with base_tree; only
+ * binary or very large files need a blob request each, one at a time. A project of a few hundred
+ * source files is a handful of requests instead of one per file.
+ */
+async function writeTree(token: string, fullName: string, files: { path: string; content: Buffer }[], opts: CallOptions) {
+  let base: string | undefined;
+  let entries: TreeEntry[] = [];
+  let bytes = 0;
+  const flush = async () => {
+    const tree = await githubCall<{ sha: string }>(token, `/repos/${fullName}/git/trees`, { method: "POST", body: JSON.stringify(base ? { base_tree: base, tree: entries } : { tree: entries }) }, opts);
+    base = tree.sha;
+    entries = [];
+    bytes = 0;
+  };
+  const add = async (entry: TreeEntry, size: number) => {
+    if (entries.length && (bytes + size > TREE_CHUNK_BYTES || entries.length >= TREE_CHUNK_ENTRIES)) await flush();
+    entries.push(entry);
+    bytes += size;
+  };
+  const binaries: { path: string; content: Buffer }[] = [];
+  for (const file of files) {
+    const text = inlineText(file.content);
+    if (text === null) binaries.push(file);
+    else await add({ path: file.path, mode: "100644", type: "blob", content: text }, file.content.length);
+  }
+  for (const [index, file] of binaries.entries()) {
+    if (opts.waitOutLimits && index >= BLOB_BURST) await pause(BLOB_SPACING_MS, opts.signal);
+    const blob = await githubCall<{ sha: string }>(token, `/repos/${fullName}/git/blobs`, { method: "POST", body: JSON.stringify({ content: file.content.toString("base64"), encoding: "base64" }) }, opts);
+    await add({ path: file.path, mode: "100644", type: "blob", sha: blob.sha }, 64);
+  }
+  if (entries.length || !base) await flush();
+  return base!;
 }
 
 /** Delete a repo if the token allows it; otherwise archive it (the `repo` scope cannot delete). */

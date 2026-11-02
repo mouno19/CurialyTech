@@ -82,6 +82,7 @@ export const MODELS: ModelSpec[] = [
   { id: "ultramarine-1-flash", label: "Ultramarine 1.0 Flash", provider: "fast", group: "Fast", tools: true, thinking: "reasoning-content", effort: false, eagerInput: false, vision: false },
   // Second route to Claude, used when the primary route is down (self-healing failover).
   { id: "r/claude-opus-4-6-thinking", label: "Claude Opus 4.6 · backup route", provider: "relay", group: "Relay", tools: true, thinking: "adaptive", effort: true, eagerInput: true, vision: true, hidden: true },
+  // No longer served by the relay (404 "Unknown model"): kept so saved tasks resolve, not a failover target.
   { id: "r/claude-sonnet-4-6", label: "Claude Sonnet 4.6 · backup route", provider: "relay", group: "Relay", tools: true, thinking: "adaptive", effort: true, eagerInput: true, vision: true, hidden: true },
   { id: "research-agent", label: "Curialy Research Agent", provider: "research", group: "Research", ...textOnly, hidden: true },
 ];

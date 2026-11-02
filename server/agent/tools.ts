@@ -15,7 +15,7 @@ import { StorageError } from "../media/storage-errors";
 
 /** Largest screenshot kept inline in the event log while file storage is unavailable (base64 chars). */
 const INLINE_SCREENSHOT_LIMIT = 400 * 1024;
-import { createPullRequest, getConnection, listRepos, repoDetails, resolveRepo, throwIfAborted } from "../services/github";
+import { createPullRequest, getConnection, GitHubError, listRepos, repoDetails, resolveRepo, throwIfAborted } from "../services/github";
 import { taskOwner } from "./store";
 import { cloneIntoWorkspace, commitAndPush, linkedRepo } from "./repos";
 import { brandText } from "@shared/brand";
@@ -41,7 +41,7 @@ export type ToolContext = {
   /** Called with paths the agent attached explicitly, so the end-of-run collection skips them. */
   onAttach?: (paths: string[]) => void;
   /** Publishing allowed in this run: a deploy only when the user asked for it or used the Deploy action. */
-  grants?: { deploy?: boolean; deployUsed?: boolean; deployLive?: boolean };
+  grants?: { deploy?: boolean; deployUsed?: boolean; deployLive?: boolean; deployAttempts?: number };
   /** The task belongs to the operator: operator-only tools (OPERATOR_TOOLS) are allowed. */
   operator?: boolean;
   /** Charge credits for usage other than model tokens (voice): the task's account, unless it is the operator's. */
@@ -246,6 +246,9 @@ const VOICE_TOOLS: ToolDef[] = [
   },
 ];
 
+/** Deploy attempts per run: the first, and one retry after a failure. */
+const MAX_DEPLOY_ATTEMPTS = 2;
+
 const MAX_TRANSCRIBE_BYTES = 25 * 1024 * 1024;
 /** Free accounts: smaller files, so the worst case they must cover up front stays reasonable. */
 const MAX_TRANSCRIBE_BYTES_FREE = 10 * 1024 * 1024;
@@ -269,7 +272,7 @@ const VISUAL_TOOL: ToolDef = {
 
 const DEPLOY_TOOL: ToolDef = {
   name: "deploy_preview",
-  description: "Deploy the current workspace as a temporary live preview with Curialy Cloud Deploy (auto-deleted after about 2 hours) and return its public URL. Use kind 'static' for plain HTML/CSS/JS or a static build (set build_command and publish_path, e.g. 'npm install && npm run build' and 'dist'); use kind 'node' for a server that listens on process.env.PORT (set start_command). Only call it when the user asks for a deploy or live preview. Building takes a few minutes.",
+  description: "Deploy the current workspace as a temporary live preview with Curialy Cloud Deploy (auto-deleted after about 2 hours) and return its public URL. Use kind 'static' for plain HTML/CSS/JS or a static build (set build_command and publish_path, e.g. 'npm install && npm run build' and 'dist'); use kind 'node' for a server that listens on process.env.PORT (set start_command). Only call it when the user asks for a deploy or live preview. The preview runs only this project: no database or other services, so an app that needs one must start in a self-contained mode (for example SQLite or an in-memory store) from its start command. Building takes a few minutes.",
   input_schema: { type: "object", properties: { kind: { type: "string", enum: ["static", "node"] }, build_command: { type: "string" }, publish_path: { type: "string" }, start_command: { type: "string" } }, required: ["kind"] },
 };
 
@@ -465,28 +468,44 @@ async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOu
     case "github_create_pr":
       return runGitHubTool(name, input, ctx);
     case "deploy_preview": {
-      // A public preview is an external side effect: only in a run started by the Deploy action, once.
+      // A public preview is an external side effect: only when the user asked for one (their Deploy
+      // action, or the operator's own message), once per run plus one retry after a failure.
       if (!ctx.grants?.deploy) {
         return ctx.grants?.deployUsed
-          ? { ok: false, content: "deploy_preview was already used in this run (one preview per run). Report the outcome of that attempt; the user can start another deploy with the Deploy action.", summary: "Already deployed in this run" }
-          : { ok: false, content: "deploy_preview is not allowed in this run: deploys start only from the user's Deploy action. Do not deploy; if a live preview would help, say so in your summary.", summary: "Deploy not requested" };
+          ? { ok: false, content: "deploy_preview was already used in this run. Report the outcome of that attempt; the user can start another deploy with the Deploy action.", summary: "Already deployed in this run" }
+          : { ok: false, content: "deploy_preview is not allowed in this run: a deploy starts from the user's Deploy action or a request for one in their own message. Do not deploy; if a live preview would help, say so in your summary.", summary: "Deploy not requested" };
       }
       const { kind, build_command, publish_path, start_command } = input as z.infer<typeof schemas.deploy_preview>;
-      // One preview per run: a retried tool call must not create another repository and service.
+      // A retried tool call must not create a second live service: the grant is taken before the call.
       ctx.grants.deploy = false;
       ctx.grants.deployUsed = true;
+      ctx.grants.deployAttempts = (ctx.grants.deployAttempts ?? 0) + 1;
       let deploymentId = "";
       let expiresAt: string | undefined;
-      const result = await deployPreview({
-        sessionId: ctx.sessionId, callId: ctx.callId, root: ctx.root, kind, buildCommand: build_command, publishPath: publish_path, startCommand: start_command, signal: ctx.signal,
-        onCreated: (id, expires) => { deploymentId = id; expiresAt = expires; },
-        onProgress: (status, detail, url) => {
-          // The preview's public address is a hosting-provider host: the deployment card links to it
-          // through a first-party route; the log line does not print it.
-          ctx.emit({ type: "tool_output", callId: ctx.callId, stream: status === "failed" ? "stderr" : "stdout", chunk: `[deploy:${status}] ${brandText(detail)}\n` });
-          ctx.emit({ type: "deployment", deploymentId: deploymentId || ctx.callId, callId: ctx.callId, status, url, detail: brandText(detail), ...(expiresAt ? { expiresAt } : {}) });
-        },
-      });
+      let result: Awaited<ReturnType<typeof deployPreview>>;
+      try {
+        result = await deployPreview({
+          sessionId: ctx.sessionId, callId: ctx.callId, root: ctx.root, kind, buildCommand: build_command, publishPath: publish_path, startCommand: start_command, signal: ctx.signal,
+          onCreated: (id, expires) => { deploymentId = id; expiresAt = expires; },
+          onProgress: (status, detail, url) => {
+            // The preview's public address is a hosting-provider host: the deployment card links to it
+            // through a first-party route; the log line does not print it.
+            ctx.emit({ type: "tool_output", callId: ctx.callId, stream: status === "failed" ? "stderr" : "stdout", chunk: `[deploy:${status}] ${brandText(detail)}\n` });
+            ctx.emit({ type: "deployment", deploymentId: deploymentId || ctx.callId, callId: ctx.callId, status, url, detail: brandText(detail), ...(expiresAt ? { expiresAt } : {}) });
+          },
+        });
+      } catch (error) {
+        // A failed deploy is cleaned up (no repository or service is left), so one more attempt after
+        // fixing the cause is safe. Not when GitHub's rate limit outlasted the push's own waits: a
+        // second attempt in this run would only fail the same way.
+        if (ctx.signal.aborted || ctx.grants.deployAttempts >= MAX_DEPLOY_ATTEMPTS) throw error;
+        const message = error instanceof Error ? error.message : String(error);
+        if (error instanceof GitHubError && error.retryAfterMs !== undefined) {
+          throw new Error(`${message}\nGitHub is limiting uploads from this account for about ${Math.max(1, Math.ceil(error.retryAfterMs / 60_000))} more minute(s), so do not deploy again in this run: report this, and that a deploy started after that wait (the Deploy action) should work.`);
+        }
+        ctx.grants.deploy = true;
+        throw new Error(`${message}\nThe failed preview was cleaned up. You may call deploy_preview once more in this run after fixing the cause.`);
+      }
       ctx.grants.deployLive = true;
       return { ok: true, content: `Deployed: ${result.url}\nExpires: ${result.expiresAt}. Verify it with the browse tool before reporting success. In your answer call it "the live preview" (the user opens it from the Preview tab); do not paste this address.`, summary: "Live preview deployed" };
     }

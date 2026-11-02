@@ -12,7 +12,7 @@ import { clip, ensureWorkspace, readWorkspaceFile, runCommand, SANDBOX_MODE, wri
 import { addMessage, createAgentTask, getAgentTask, getConversation, settleTaskWrites, taskOwner, updateAgentTask, type ConversationFormat } from "./store";
 import { charge, getBalance, outOfCreditsMessage } from "../credits";
 import { voiceConfigured } from "../voice/engines";
-import { creditsFor } from "@shared/credits";
+import { creditsFor, modelWeight } from "@shared/credits";
 import { adminUserId, query } from "../db/pg";
 import { executeTool, isVerificationCommand, shellQuote, toolsFor, type ToolOutcome } from "./tools";
 import { materializeWorkspace, snapshotWorkspace, withWorkspaceLock } from "./workspaces";
@@ -22,7 +22,7 @@ import { linkedRepo } from "./repos";
 import { brandText, ENGINE_ALIAS } from "@shared/brand";
 import { browserConfigured, closeLiveBrowser } from "./browser";
 import { allowedLooks, blockingFindings, designBriefFor, renderBrief, uiChanges, uiFingerprint, type DesignAudit, type DesignBrief, type PrintCache } from "./design";
-import { DESIGN_CHECK, diagnose, latestRequestIndex, pruneSupersededShots, RecoveryEngine, repairOpenAIContent, repairOpenAIToolPairing, repairToolPairing, TOOL_SCREENSHOTS, ToolFailureWatch, type RecoveryFlags } from "./recovery";
+import { DESIGN_CHECK, diagnose, latestRequestIndex, pruneSupersededShots, RecoveryEngine, repairOpenAIContent, repairOpenAIToolPairing, repairToolPairing, stripThinking, TOOL_SCREENSHOTS, ToolFailureWatch, type RecoveryFlags } from "./recovery";
 import { runTeam } from "./team";
 import { z } from "zod";
 import { hydrateImages, hydrateOpenAIImages, stageAttachments, userContent, type AttachmentDisplay, type AttachmentRef } from "./attachments";
@@ -50,6 +50,12 @@ const BROWSING = /\b(browse|browser|web ?research|research (the )?(web|market|co
 const QUICK = (prompt: string) => prompt.length <= 280 && !prompt.includes("```") && prompt.split("\n").length <= 3;
 
 /** Whether a model's route has its credentials (the Cortex routes need none here: the bridge holds them). */
+/**
+ * Failover targets for a run that started on `start`: a configured route, and for a free account no
+ * model that costs more credits (Auto never sends free accounts up to Opus either).
+ */
+export const failoverTargets = (operator: boolean, start: ModelSpec) => (spec: ModelSpec) => routeConfigured(spec) && (operator || modelWeight(spec.id) <= modelWeight(start.id));
+
 export function routeConfigured(spec: ModelSpec) {
   if (spec.provider === "relay") return Boolean(PROVIDER_ENV.relayKey);
   if (spec.provider === "fast") return Boolean(PROVIDER_ENV.paperKey);
@@ -236,6 +242,10 @@ export type RunContext = {
   outcome: RunOutcome;
   /** Publishing this run may do without asking again (deploy only when requested or via the Deploy action). */
   grants: PublishGrants;
+  /** Publishing tools that failed or were refused in this run (shared with team members); any left makes publish "failed". */
+  failedPublishing: Set<string>;
+  /** The model kept on the task row: a failover away from a route that refuses requests is for this run only. */
+  taskModel: string;
   /** The "an image could not be loaded" notice goes out once per run, not once per turn. */
   imageNoticeSent?: boolean;
   /** Shared with the run handle: publishing steps in flight. */
@@ -329,7 +339,7 @@ export function forkContext(parent: RunContext, opts: { role: TeamRole; spec: Mo
     },
     persist: () => opts.persist(opts.conversation),
     dropImageCache: () => parent.images.clear(),
-    available: routeConfigured,
+    available: failoverTargets(parent.operator, opts.spec),
     emit: event => emit({ type: "recovery", ...event }),
   });
   return child;
@@ -631,7 +641,7 @@ export async function followUp(taskId: string, prompt: string, attachments: Atta
   }
 }
 
-const DEPLOY_INSTRUCTION = "Deploy this project as a temporary live preview with deploy_preview (choose static or node and the right build and start commands from the files), then open the URL with browse to confirm it renders, and report the link. Do not change any files unless the build needs a fix.";
+const DEPLOY_INSTRUCTION = "Deploy this project as a temporary live preview with deploy_preview (choose static or node and the right build and start commands from the files), then open the URL with browse to confirm it renders, and report the link. The preview runs only this project, with no database or other services: if the app needs one, start it in a self-contained mode (for example SQLite or an in-memory store) from a start script. Do not change any files unless the build or that start mode needs it.";
 
 /** The Deploy action: a run whose only job is a preview deploy, with the deploy grant. */
 export async function startDeployRun(taskId: string, opts: { expectedRunId?: string | null } = {}) {
@@ -680,10 +690,11 @@ export async function retryTask(taskId: string, opts: { expectedRunId?: string |
     if (format === "anthropic") repairToolPairing(conversation as never);
     else repairOpenAIToolPairing(conversation as never);
     const why = previousStatus === "interrupted" ? "was interrupted before it finished (the server restarted or lost the worker)" : previousStatus === "cancelled" ? "was cancelled" : "failed";
-    appendUserNote(conversation, format, `[Retry] The previous run ${why}.${sideEffects ? ` It had already done this, so do not repeat it: ${sideEffects}.` : ""} Continue the user's request from where it stopped: check the current state of the workspace first, then finish the work and verify it.`);
+    appendUserNote(conversation, format, `[Retry] The previous run ${why}.${sideEffects.text ? ` It had already done this, so do not repeat it: ${sideEffects.text}.` : ""} Continue the user's request from where it stopped: check the current state of the workspace first, then finish the work and verify it.`);
     await updateAgentTask(taskId, { conversation, workspaceState: "live" }, handle.runId);
     await announce(handle);
-    void executeRun(handle, conversation, { mode: task.mode, effort: aliasEffort(task.model) ?? task.effort, webSearch: task.webSearch, spec, reason: `Retry (attempt ${handle.attempt}).`, team: Boolean(task.team) });
+    // The retry re-reads the request (asksToDeploy), unless a run of this request already put a preview live.
+    void executeRun(handle, conversation, { mode: task.mode, effort: aliasEffort(task.model) ?? task.effort, webSearch: task.webSearch, spec, reason: `Retry (attempt ${handle.attempt}).`, team: Boolean(task.team), ...(sideEffects.deployedLive ? { grants: {} } : {}) });
     return { runId: handle.runId, attempt: handle.attempt };
   } catch (error) {
     await abortStart(handle, error);
@@ -691,12 +702,15 @@ export async function retryTask(taskId: string, opts: { expectedRunId?: string |
   }
 }
 
-/** Pushes, pull requests and deploys the latest run already made (so a retry does not repeat them). */
+/**
+ * Pushes, pull requests and deploys already made for the latest request: by the run that took it
+ * and by any retries of that run since (so a retry, or a retry of a retry, does not repeat them).
+ */
 async function previousRunSideEffects(taskId: string) {
   const { rows } = await query<{ data: AgentEventBody }>(
     `SELECT data FROM curialy.agent_execution_logs
      WHERE session_id = $1 AND type IN ('repo_push', 'repo_pr', 'deployment')
-       AND seq > COALESCE((SELECT MAX(seq) FROM curialy.agent_execution_logs WHERE session_id = $1 AND type = 'run_start'), 0)
+       AND seq > COALESCE((SELECT MAX(seq) FROM curialy.agent_execution_logs WHERE session_id = $1 AND type = 'run_start' AND COALESCE(data->>'trigger', '') <> 'retry'), 0)
      ORDER BY seq`, [taskId],
   ).catch(() => ({ rows: [] as { data: AgentEventBody }[] }));
   const done: string[] = [];
@@ -705,7 +719,7 @@ async function previousRunSideEffects(taskId: string) {
     if (event.type === "repo_pr") done.push(`opened pull request #${event.number} on ${event.fullName}`);
     if (event.type === "deployment" && event.status === "live" && event.url) done.push(`deployed a live preview at ${event.url}`);
   }
-  return Array.from(new Set(done)).join("; ");
+  return { text: Array.from(new Set(done)).join("; "), deployedLive: rows.some(({ data: event }) => event.type === "deployment" && event.status === "live") };
 }
 
 /** Add a harness note as a user turn, merged into a trailing user turn so roles keep alternating. */
@@ -722,10 +736,56 @@ function appendUserNote(conversation: Record<string, unknown>[], format: Convers
 
 /**
  * Publishing the agent may do in a run without asking (see tools.ts). A deploy creates a repository
- * and a public preview, so it is only granted by the confirmed Deploy action, never inferred from
- * prompt wording, and a retry does not inherit it.
+ * and a public preview, so it is granted only by the confirmed Deploy action or by the operator's
+ * own message asking for one (asksToDeploy), for that run alone: a later message does not inherit
+ * it, and a retry of the request gets it only if no run of that request already put a preview live.
  */
-export type PublishGrants = { deploy?: boolean; deployUsed?: boolean; deployLive?: boolean };
+export type PublishGrants = { deploy?: boolean; deployUsed?: boolean; deployLive?: boolean; deployAttempts?: number };
+
+/** Asking for a live deploy, each form governed by a request (bare noun phrases name features, not asks). */
+const DEPLOY_ASK = new RegExp([
+  String.raw`(?<![a-z0-9_-])(?:re-?)?deploy(?:_preview)?(?![a-z0-9])`,
+  String.raw`(?<![a-z])(?:get|have|got) (?:it|this|that|them|the \w+|my \w+) (?:re)?deployed(?![a-z])`,
+  String.raw`(?<![a-z])(?:finish|start|continue|keep|try|go ahead with|proceed with) (?:the )?(?:deploying|deployment)(?![a-z])`,
+  String.raw`(?<![a-z])(?:do|make|create|start|trigger|run) a (?:new )?deployment(?![a-z])`,
+  String.raw`(?<![a-z])(?:give|send|share|show|get|want|need|like|create|make|generate|provide|set up|spin up|put up) (?:me |us )?(?:a |an |the )?(?:live|public) (?:preview|link|url)(?![a-z])`,
+  String.raw`(?<![a-z])(?:put|push|ship|get|move|publish|send|upload) (?:it|this|that|them|the \w+) (?:up )?(?:on|to) render(?:\.com)?(?![a-z])`,
+  String.raw`(?<![a-z])(?:host it|put it online|make it live|take it live|push it live|go live)(?![a-z])`,
+].join("|"), "g");
+/** After "deploy": it names a thing or is the subject of a report ("deploy.sh", "the deploy script", "the deploy isn't working"). */
+const DEPLOY_NOUN = /^(?:[._/-][a-z0-9]|(?:'s)?\s*(?:(?:script|step|pipeline|key|button|action|log|workflow|job|command|target|file|hook|guide|doc|process|setting|error|status|failure|issue|tool|time)(?:e?s)?|config\w*|is|was|are|were|has|had|fail\w*|keeps|kept|broke\w*|break\w*|hangs?|hung|errored|crash\w*|works?|worked|takes|took|[a-z]+n't)(?![a-z]))/;
+/** After any form: a feature of the app ("a live preview pane", "a Go Live button"), or not now ("deploy it later"). */
+const NOT_NOW_OR_FEATURE = /^['"\u2019]?\s*(?:(?:pane|panel|button|toggle|switch|mode|editor|feature|component|window|tab|section|area|view|widget|option|page)s?|(?:\w+\s+){0,2}(?:later|tomorrow|next week|eventually))(?![a-z])/;
+/** Just before (four words, same clause): a refusal, a take-down, or doing it oneself ("don't deploy", "cancel the deploy", "I'll deploy it myself"). */
+const DEPLOY_REFUSAL = /(?<![a-z'])(?:no|not|never|without|cannot|skip|avoid|stop|hold|except|[a-z]+n't|dont|wont|cant|shouldnt|take down|tear down|shut down|remove|delete|cancel|kill|revert|roll back|undo|i'll|i will|we'll|we will|let me|i'm going to|we're going to|i'd rather)(?![a-z'])(?!\s+forget)/;
+/** Talking about deploying rather than asking: "how to deploy", "why did the deploy fail". */
+const DEPLOY_ABOUT = /(?<![a-z])(?:how|where|whether|why)(?![a-z])/;
+const CLAUSE_END = /[.;:!?,\n]|(?<![a-z])(?:and|then|but|so|also|or)(?![a-z])/;
+const SENTENCE_END = /[.!?\n]/;
+
+/**
+ * The operator's own message asks for a live deploy now: one form above, not naming a thing or a
+ * feature, not refused or put off just before it, and not a question (other than "can you ...?").
+ * One such ask is enough ("I can't deploy it myself, please deploy it for me").
+ */
+export function asksToDeploy(message: string) {
+  // Curly apostrophes (phones, pasted text) read as straight ones.
+  const text = message.replace(/[\u2018\u2019\u02bc]/g, "'").toLowerCase();
+  for (const match of text.matchAll(DEPLOY_ASK)) {
+    const at = match.index ?? 0;
+    const after = text.slice(at + match[0].length);
+    if (/deploy(?:_preview)?$/.test(match[0]) && DEPLOY_NOUN.test(after)) continue;
+    if (NOT_NOW_OR_FEATURE.test(after)) continue;
+    const before = text.slice(0, at).split(CLAUSE_END).at(-1)!.trim().split(/\s+/).slice(-4).join(" ");
+    if (DEPLOY_REFUSAL.test(before) || DEPLOY_ABOUT.test(before)) continue;
+    // A question asks for a deploy only as a polite request ("can you deploy it?"), not "is it ready to deploy?".
+    const sentenceStart = Math.max(...[".", "!", "?", "\n"].map(mark => text.lastIndexOf(mark, at - 1))) + 1;
+    const end = after.search(SENTENCE_END);
+    if (end >= 0 && after[end] === "?" && !/^\s*(?:please\s+)?(?:can|could|would|will) you(?![a-z])/.test(text.slice(sentenceStart))) continue;
+    return true;
+  }
+  return false;
+}
 
 export type CancelResult = { status: TaskStatus; statusReason?: StatusReason; runId: string | null; changed: boolean };
 
@@ -812,6 +872,8 @@ async function ownerIsOperator(taskId: string) {
 /** Harness notes added as user turns: a retry's note, and the note that a picked repository was cloned. */
 const RETRY_NOTE = /^\s*\[Retry\]/;
 const CLONE_NOTE = /\s*\[The repository [^\]\n]+ has already been cloned into the workspace:[^\]]*\]/g;
+/** The note listing staged attachments (attachments.ts), appended after the prompt: file names, not the user's words. */
+const ATTACHMENTS_NOTE = /\n\nAttached files \(saved in the workspace\):\n[^]*$|\nCould not attach: [^\n]*$/;
 
 /** Text of the newest message the user wrote (not harness notes or tool results), and whether it carries an image. */
 export function latestRequest(conversation: Record<string, unknown>[]) {
@@ -823,7 +885,7 @@ export function latestRequest(conversation: Record<string, unknown>[]) {
     const text = blocks.filter(block => block.type === "text").map(block => block.text ?? "").join("\n");
     // A retry's note continues the request before it; look further back.
     if (RETRY_NOTE.test(text) && index > 0) { end = index; continue; }
-    return { text: text.replace(CLONE_NOTE, "").trim(), image: blocks.some(block => block.type === "image" || block.type === "image_url") };
+    return { text: text.replace(CLONE_NOTE, "").replace(ATTACHMENTS_NOTE, "").trim(), image: blocks.some(block => block.type === "image" || block.type === "image_url") };
   }
   return { text: "", image: false };
 }
@@ -922,6 +984,8 @@ async function executeRun(handle: RunHandle, conversation: Record<string, unknow
       persist: messages => { updateAgentTask(taskId, { conversation: messages as Record<string, unknown>[] }, handle.runId); },
       outcome: { verification: "none" },
       grants: opts.grants ?? {},
+      failedPublishing: new Set(),
+      taskModel: opts.spec.id,
       publishing: handle.publishing,
       chargeCredits: (amount: number, detail: string) => chargeCredits(handle, amount, detail),
       canSpend: async (credits: number) => {
@@ -940,14 +1004,16 @@ async function executeRun(handle: RunHandle, conversation: Record<string, unknow
       conversation: conversation as never,
       get spec() { return runCtx.spec; },
       flags: runCtx.flags,
-      switchModel: (spec, reason) => {
+      switchModel: (spec, reason, forRun) => {
         runCtx.spec = spec;
         emit({ type: "dispatch", model: spec.id, provider: ENGINE_ALIAS[spec.provider] ?? "core", reason });
+        if (forRun) return;
+        runCtx.taskModel = spec.id;
         updateAgentTask(taskId, { model: spec.id }, handle.runId);
       },
       persist: () => { updateAgentTask(taskId, { conversation }, handle.runId); },
       dropImageCache: () => runCtx.images.clear(),
-      available: routeConfigured,
+      available: failoverTargets(handle.operator, opts.spec),
       emit: event => emit({ type: "recovery", ...event }),
     });
     emit({ type: "status", status: "running" });
@@ -977,10 +1043,13 @@ async function executeRun(handle: RunHandle, conversation: Record<string, unknow
     } else if (opts.cloneRepo) {
       throw new Error("Connect GitHub to work on a repository.");
     }
+    const request = latestRequest(conversation);
+    // On the operator's own tasks, asking for a deploy in the message is the go-ahead the Deploy
+    // action gives (other accounts never get the tool). Previews still run once, plus one retry.
+    if (opts.mode === "agent" && !opts.grants && handle.operator && asksToDeploy(request.text)) runCtx.grants = { deploy: true };
     // Interface work gets a design brief, from the request and the workspace as it is now (not runs
     // limited to a few tools, such as the Deploy action, which build nothing).
     if (opts.mode === "agent" && !opts.allowedTools) {
-      const request = latestRequest(conversation);
       runCtx.design = designBriefFor(root, existing?.prompt || request.text, request.text, request.image, browserConfigured());
       if (runCtx.design) {
         // The design check needs the visual test (the cloud browser); without it there is nothing to track.
@@ -1029,7 +1098,9 @@ async function finishRun(handle: RunHandle, ctx: RunContext | null, end: RunEnd,
     // The cloud browser never outlives the run (it bills per minute and holds a session slot).
     await closeLiveBrowser(taskId, stoppedFor ? "cancelled" : "done").catch(() => undefined);
     if (ctx && end.kind === "record") ctx.phases.finish(end.status === "completed", ctx.outcome);
-    if (ctx) updateAgentTask(taskId, { conversation, usage: ctx.usage, filesChanged: filesBefore + ctx.changedFiles.size, model: ctx.spec.id }, handle.runId);
+    // The next run starts on the task's own model; reasoning signed by a stand-in is not valid there.
+    if (ctx && ctx.spec.id !== ctx.taskModel && formatFor(ctx.spec) === "anthropic") stripThinking(conversation as never);
+    if (ctx) updateAgentTask(taskId, { conversation, usage: ctx.usage, filesChanged: filesBefore + ctx.changedFiles.size, model: ctx.taskModel }, handle.runId);
     await settleTaskWrites(taskId);
     channel.seal();
     await channel.drain();
@@ -1736,8 +1807,13 @@ async function trackedTool(ctx: RunContext, callId: string, name: string, input:
     },
   }).finally(() => { if (publishing) ctx.publishing.count--; });
   // A push, pull request or deploy that failed (or was refused) makes the run "completed with
-  // issues"; one failure is never cleared by a later success.
-  if (publishing) ctx.outcome.publish = !outcome.ok ? "failed" : ctx.outcome.publish === "failed" ? "failed" : "done";
+  // issues"; a later success does not clear it, except a deploy's: its allowed second attempt
+  // going live replaces the failed first one.
+  if (publishing) {
+    if (!outcome.ok) ctx.failedPublishing.add(name);
+    else if (name === "deploy_preview") ctx.failedPublishing.delete(name);
+    ctx.outcome.publish = ctx.failedPublishing.size ? "failed" : "done";
+  }
   if (snapshot) enforceReadOnly(ctx, snapshot, outcome);
   // A repository cloned mid-run is the starting point for "files from this run", not output.
   if (name === "github_clone_to_workspace" && outcome.ok) {

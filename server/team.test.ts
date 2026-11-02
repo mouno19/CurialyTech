@@ -66,6 +66,12 @@ vi.mock("./agent/providers", async importOriginal => ({
   anthropicClient: () => ({ messages: { stream: (params: never) => new FakeStream(params) } }),
 }));
 
+// Deploys count as configured, as in production, so tool lists show the deploy go-ahead itself.
+vi.mock("./agent/deploy", async importOriginal => ({
+  ...(await importOriginal<typeof import("./agent/deploy")>()),
+  deployConfigured: () => ({ ok: true, missing: [] }),
+}));
+
 const saved: unknown[] = [];
 vi.mock("./agent/store", async importOriginal => ({
   ...(await importOriginal<typeof import("./agent/store")>()),
@@ -89,7 +95,7 @@ async function setup(taskId: string, files: Record<string, string> = {}) {
     emit: (event: unknown) => events.push(event), signal: controller.signal, phases,
     usage: { inputTokens: 0, outputTokens: 0, thinkingTokens: 0 }, changedFiles: new Set(), agentVerifyCommands: [],
     manifest: new Map(), attached: new Map(), images: new Map(), context: "", github: true,
-    flags: { noEager: false, noThinking: false, noEffort: false }, toolWatch: new ToolFailureWatch(), persist: () => undefined, outcome: { verification: "none" },
+    flags: { noEager: false, noThinking: false, noEffort: false }, toolWatch: new ToolFailureWatch(), persist: () => undefined, outcome: { verification: "none" }, grants: {}, failedPublishing: new Set(), taskModel: "claude-sonnet-4-5",
   };
   ctx.recovery = new RecoveryEngine({ signal: ctx.signal, format: "anthropic", conversation: [], spec: ctx.spec, flags: ctx.flags, switchModel: () => undefined, persist: () => undefined, emit: () => undefined });
   return { ctx, root, events, controller };
@@ -123,7 +129,10 @@ describe("Dev Team orchestration", () => {
     // Publishing tools only in the post-approval run.
     const engineerCalls = byRole("engineer");
     expect(engineerCalls.slice(0, -1).every(call => !call.tools.includes("github_commit_and_push") && !call.tools.includes("deploy_preview"))).toBe(true);
-    expect(engineerCalls.at(-1)!.tools).toEqual(expect.arrayContaining(["github_commit_and_push", "github_create_pr"])); // deploy_preview is offered only when deploys are configured
+    expect(engineerCalls.at(-1)!.tools).toEqual(expect.arrayContaining(["github_commit_and_push", "github_create_pr"]));
+    // No deploy go-ahead in this run: no deploy tool, and the Engineer is told where deploys start.
+    expect(engineerCalls.at(-1)!.tools).not.toContain("deploy_preview");
+    expect(JSON.stringify(engineerCalls.at(-1)!.messages.at(-1))).toContain("You cannot deploy previews");
     expect(answer).toContain("**Publishing:**");
     expect(answer).toContain("Pushed to GitHub");
 
@@ -231,6 +240,25 @@ describe("Dev Team orchestration", () => {
     expect(new Set(byRole("engineer").map(call => call.system.at(-1))).size).toBe(1);
     // The hand-off sequence is unchanged.
     expect(events.filter(event => event.type === "handoff").map(event => `${event.from}->${event.to}:${event.kind}`)).toEqual(["architect->engineer:plan", "reviewer->user:review", "reviewer->user:report"]);
+  });
+
+  it("offers deploy_preview in the publish step only when the run has the deploy go-ahead", { timeout: 60_000 }, async () => {
+    const { runTeam } = await import("./agent/team");
+    const { ctx } = await setup("00000000-0000-4000-8000-0000000000ee");
+    ctx.grants = { deploy: true }; // what the runner sets when the operator asks for a live preview
+    calls.length = 0;
+    reviewerRounds = 1; // the Reviewer approves on its first verdict
+    script = happyPath;
+
+    // No publishing words PUBLISH_INTENT knows: the go-ahead alone opens the publish step.
+    await runTeam(ctx, [{ role: "user", content: "Write greet.js and give me a live link." }]);
+
+    const engineerCalls = byRole("engineer");
+    expect(engineerCalls.slice(0, -1).every(call => !call.tools.includes("deploy_preview"))).toBe(true);
+    expect(engineerCalls.at(-1)!.tools).toEqual(expect.arrayContaining(["deploy_preview", "github_commit_and_push"]));
+    const instruction = JSON.stringify(engineerCalls.at(-1)!.messages.at(-1));
+    expect(instruction).toContain("If the user's own request asks you to deploy it now (a live preview or a deploy), deploy it with deploy_preview");
+    expect(instruction).not.toContain("You cannot deploy previews");
   });
 
   it("marks the active member and the waiting ones as stopped when the run is cancelled", { timeout: 60_000 }, async () => {

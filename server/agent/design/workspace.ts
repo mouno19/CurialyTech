@@ -84,7 +84,13 @@ const MAX_PRINT_BYTES = 2 * 1024 * 1024;
 const PRINT_BUDGET_BYTES = 32 * 1024 * 1024;
 
 /** Hashes computed earlier in a run, by path: reused while size and mtime are unchanged. */
-export type PrintCache = Map<string, { size: number; mtimeMs: number; hash: string }>;
+export type PrintCache = Map<string, { size: number; mtimeMs: number; hash: string; hashedAt: number }>;
+
+/**
+ * A file changed this close to the moment it was hashed may change again within the same mtime
+ * tick, keeping its size and mtime (git's "racily clean" case): such entries are always re-read.
+ */
+const RACY_MS = 2000;
 
 /**
  * Content hashes of the workspace's interface sources. Compared by content, so a rebuild that
@@ -98,12 +104,14 @@ export function uiFingerprint(root: string, cache?: PrintCache) {
     if (print.size >= MAX_PRINT_FILES) break;
     if (!isUiSource(file)) continue;
     const cached = cache?.get(file);
-    if (cached && cached.size === info.size && cached.mtimeMs === info.mtimeMs) { print.set(file, cached.hash); continue; }
+    // A size-and-mtime stand-in (past the budget) is no safer for a re-read: reuse it as it is.
+    const trusted = cached?.hash.startsWith("size:") || (cached !== undefined && info.mtimeMs < cached.hashedAt - RACY_MS);
+    if (cached && cached.size === info.size && cached.mtimeMs === info.mtimeMs && trusted) { print.set(file, cached.hash); continue; }
     let hash = `size:${info.size}:${info.mtimeMs}`;
     if (info.size <= MAX_PRINT_BYTES && info.size <= budget) {
       try { hash = createHash("sha1").update(fs.readFileSync(path.join(root, file))).digest("hex"); budget -= info.size; } catch { continue; /* gone meanwhile */ }
     }
-    cache?.set(file, { size: info.size, mtimeMs: info.mtimeMs, hash });
+    cache?.set(file, { size: info.size, mtimeMs: info.mtimeMs, hash, hashedAt: Date.now() });
     print.set(file, hash);
   }
   return print;

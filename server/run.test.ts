@@ -92,8 +92,10 @@ function answer(text: string, values: any[]): { rows: any[]; rowCount?: number }
     return { rows: start ? [{ trigger: start.data.trigger ?? null }] : [] };
   }
   if (text.includes("type IN ('repo_push', 'repo_pr', 'deployment')")) {
+    // Since the latest run that took a request (retries continue it).
+    if (!text.includes("<> 'retry'")) fake.unexpected.push("side effects since the latest run, not the latest request");
     const entries = log(values[0]);
-    const start = Math.max(0, ...entries.filter(entry => entry.type === "run_start").map(entry => entry.seq));
+    const start = Math.max(0, ...entries.filter(entry => entry.type === "run_start" && entry.data.trigger !== "retry").map(entry => entry.seq));
     return { rows: entries.filter(entry => entry.seq > start && ["repo_push", "repo_pr", "deployment"].includes(entry.type)).map(entry => ({ data: entry.data })) };
   }
   if (text.includes("type = 'browser_session' GROUP BY 1")) return { rows: [] };
@@ -128,7 +130,8 @@ vi.mock("./agent/deploy", async importOriginal => ({ ...(await importOriginal<ty
 vi.mock("./media/snowflake", async importOriginal => ({ ...(await importOriginal<typeof import("./media/snowflake")>()), storeMedia: publish.storeMedia }));
 
 // The model: each turn's blocks come from `script`; a "hang" turn streams until the run is stopped.
-const model = vi.hoisted(() => ({ script: (_turn: number): Record<string, any>[] | "hang" => [], turns: 0, hanging: false, systems: [] as { text: string }[][] }));
+// "refuse" answers the turn the way a route that lost access does (403 "Not authorized for this endpoint").
+const model = vi.hoisted(() => ({ script: (_turn: number): Record<string, any>[] | "hang" | "refuse" => [], turns: 0, hanging: false, systems: [] as { text: string }[][], models: [] as string[] }));
 vi.mock("./agent/providers", async importOriginal => ({
   ...(await importOriginal<typeof import("./agent/providers")>()),
   anthropicClient: () => ({
@@ -136,11 +139,13 @@ vi.mock("./agent/providers", async importOriginal => ({
       stream: (params: { model: string; system?: { text: string }[] }, options: { signal?: AbortSignal } = {}) => {
         const turn = ++model.turns;
         model.systems.push(JSON.parse(JSON.stringify(params.system ?? [])));
+        model.models.push(params.model);
         const planned = model.script(turn);
-        const content = planned === "hang" ? [] : planned;
+        const content = planned === "hang" || planned === "refuse" ? [] : planned;
         const message = { id: `msg${turn}`, type: "message", role: "assistant", model: params.model, content, stop_reason: content.some(block => block.type === "tool_use") ? "tool_use" : "end_turn", stop_sequence: null, usage: { input_tokens: 10, output_tokens: 5 } };
         return {
           async *[Symbol.asyncIterator]() {
+            if (planned === "refuse") throw Object.assign(new Error("403 Not authorized for this endpoint."), { status: 403 });
             if (planned === "hang") {
               model.hanging = true;
               await new Promise((_, reject) => options.signal?.addEventListener("abort", () => reject(Object.assign(new Error("Request was aborted."), { name: "AbortError" })), { once: true }));
@@ -213,6 +218,7 @@ beforeEach(() => {
   model.turns = 0;
   model.hanging = false;
   model.systems.length = 0;
+  model.models.length = 0;
   fake.unexpected.length = 0;
   fake.messages.length = 0;
   for (const spy of Object.values(publish)) spy.mockClear();
@@ -309,13 +315,85 @@ describe("the Deploy action", () => {
     expect(fake.logs.get(id)).toHaveLength(before);
     expect(runner.isBusy(id)).toBe(false);
 
-    // A later run of the same task inherits nothing: deploy_preview is refused.
+    // A later run inherits nothing from the Deploy action: without a request for a deploy in the
+    // message, deploy_preview is refused, and a refusal ("don't deploy") is not a request.
+    const toolResults = () => latestRun(id).map(entry => entry.data).filter(event => event.type === "tool_result");
+    for (const [n, message] of [[3, "Make the header blue"], [4, "Don't deploy yet, just fix the footer"]] as const) {
+      model.turns = 0;
+      model.script = turn => (turn === 1 ? [deployCall(n)] : [{ type: "text", text: "Not deployed." }]);
+      await runner.followUp(id, message, []);
+      await finished(id);
+      expect(toolResults()).toEqual([expect.objectContaining({ callId: `tu_deploy${n}`, ok: false, summary: "Deploy not requested" })]);
+    }
+    expect(publish.deployPreview).toHaveBeenCalledTimes(1);
+    // On the operator's own task, asking for one in the message is the go-ahead.
     model.turns = 0;
-    model.script = turn => (turn === 1 ? [deployCall(3)] : [{ type: "text", text: "Not deployed." }]);
+    model.script = turn => (turn === 1 ? [deployCall(5)] : [{ type: "text", text: "Deployed again." }]);
     await runner.followUp(id, "Deploy it again", []);
     await finished(id);
+    expect(toolResults()).toEqual([expect.objectContaining({ callId: "tu_deploy5", ok: true, summary: "Live preview deployed" })]);
+    expect(publish.deployPreview).toHaveBeenCalledTimes(2);
+    expect(fake.unexpected).toEqual([]);
+  });
+
+  it("reads a deploy request in the operator's message, refusals included", () => {
+    const asks = [
+      "Build a landing page and deploy it", "Give me a live preview of the app", "Please put it on Render when it's done", "Can you host it so I can share a public link?",
+      // A negation elsewhere in the sentence is not a refusal of the deploy.
+      "Remove the console logs and deploy it", "Don't change the design, just deploy it", "Don't forget to deploy it", "Without changing anything else, deploy a live preview",
+      "Build a portfolio without a database and deploy it", "Make sure there are no console errors and deploy it", "Drop the carousel and give me a live preview",
+      "Redeploy it", "Re-deploy the site", "Change the hero color to blue and redeploy",
+      "Fix the footer and get it deployed", "Finish deploying it", "Proceed with deployment", "Use deploy_preview to put it up", "Could you deploy it?",
+      // One plain ask is enough, whatever else is refused.
+      "I can't deploy it myself, please deploy it for me", "Deploy it, but don't deploy the admin panel",
+    ];
+    const refuses = [
+      "Write a deployment guide", "Build a landing page", "Make the header blue",
+      "Don't deploy yet, just fix the footer", "Don\u2019t deploy yet, just push it to GitHub", "We shouldn't deploy this until QA signs off", "Please wait, I won't need a live preview",
+      "Hold the deploy for now, just fix the footer", "We can't deploy until QA signs off; push the branch", "No need for a live preview",
+      // "deploy" naming a thing, a report about one, or "render" the verb.
+      "Fix the deploy script's exit code", "Add a deploy.sh script that builds the project and commit it", "The deploy is failing because of a missing env var; fix the build config and push",
+      "Update the README with how to deploy and push", "Add pre-deploy checks to CI", "Fix the chart that fails to render on Safari and open a PR", "Fix the useEffect that runs on render and open a PR",
+      "Fix the bug on the live site and push the fix",
+      // A feature of the app, not now, a take-down, or a question.
+      "Build a markdown editor with a live preview pane", "Add a live preview to the resume builder", "Add a Go Live button to the stream page", "Add a 'copy public link' button to each document",
+      "I'll deploy it myself later", "Do everything except deploy", "Build it now and deploy it later", "Take down the live preview", "Cancel the deploy",
+      "Is it ready to deploy?", "What's the live URL?", "Deploy it? No, don't deploy yet", "The deploy isn't working, check the logs", "The app crashes on Render, here are the logs",
+    ];
+    for (const text of asks) expect(runner.asksToDeploy(text), text).toBe(true);
+    for (const text of refuses) expect(runner.asksToDeploy(text), text).toBe(false);
+    // Attached file names are the harness's note, not the user's words.
+    const request = runner.latestRequest([{ role: "user", content: [{ type: "text", text: "Why does this script fail? Fix it.\n\nAttached files (saved in the workspace):\n- attachments/deploy-ab12cd.sh (text/x-sh, 120 bytes)" }] }]);
+    expect(request.text).toBe("Why does this script fail? Fix it.");
+    expect(runner.asksToDeploy(request.text)).toBe(false);
+  });
+
+  it("lets a retry of a requested deploy deploy, unless the stopped run already put a preview live", async () => {
+    const conversation = [{ role: "user", content: "Build a landing page and deploy it" }, { role: "assistant", content: [{ type: "text", text: "Working on it." }] }];
+    const deployCall = (n: number) => ({ type: "tool_use", id: `tu_retry${n}`, name: "deploy_preview", input: { kind: "static" } });
+    const toolResults = (id: string) => latestRun(id).map(entry => entry.data).filter(event => event.type === "tool_result");
+    // Stopped before it deployed: the retry re-reads the request.
+    const fresh = seedTask({ prompt: "Build a landing page and deploy it", conversation });
+    model.script = turn => (turn === 1 ? [deployCall(1)] : [{ type: "text", text: "Deployed." }]);
+    await runner.retryTask(fresh);
+    await finished(fresh);
+    expect(toolResults(fresh)).toEqual([expect.objectContaining({ callId: "tu_retry1", ok: true, summary: "Live preview deployed" })]);
+    // Its preview went live, then it stopped, and so did a first retry: a second retry does not put up another one.
+    const deployed = seedTask({ prompt: "Build a landing page and deploy it", conversation });
+    const logs = fake.logs.get(deployed)!;
+    logs.splice(2, 0, { seq: 0, type: "deployment", data: { type: "deployment", deploymentId: "dep-0", callId: "tu_old", status: "live", url: "https://preview.example" }, created_at: new Date() });
+    logs.push(
+      { seq: 0, type: "run_start", data: { type: "run_start", runId: "10000000-0000-4000-8000-0000000000ab", attempt: 2, trigger: "retry" }, created_at: new Date() },
+      { seq: 0, type: "status", data: { type: "status", status: "interrupted", reason: "server_restart" }, created_at: new Date() },
+      { seq: 0, type: "done", data: { type: "done", status: "interrupted", answer: "", reason: "server_restart" }, created_at: new Date() },
+    );
+    logs.forEach((entry, index) => { entry.seq = index + 1; });
+    model.turns = 0;
+    model.script = turn => (turn === 1 ? [deployCall(2)] : [{ type: "text", text: "Already live." }]);
+    await runner.retryTask(deployed);
+    await finished(deployed);
+    expect(toolResults(deployed)).toEqual([expect.objectContaining({ callId: "tu_retry2", ok: false, summary: "Deploy not requested" })]);
     expect(publish.deployPreview).toHaveBeenCalledTimes(1);
-    expect(latestRun(id).map(entry => entry.data).filter(event => event.type === "tool_result")).toEqual([expect.objectContaining({ callId: "tu_deploy3", ok: false, summary: "Deploy not requested" })]);
     expect(fake.unexpected).toEqual([]);
   });
 
@@ -323,6 +401,24 @@ describe("the Deploy action", () => {
     const id = seedTask({ status: "completed", mode: "chat" });
     await expect(runner.startDeployRun(id)).rejects.toThrow(/Only agent tasks/);
     expect(fake.rows.get(id)!.run_id).toBe(OLD_RUN);
+  });
+});
+
+describe("a route that refuses every request", () => {
+  beforeEach(() => vi.stubEnv("RELAY_API_KEY", "test-relay-key"));
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("moves the run to another route for this run only: the task keeps its own model", async () => {
+    const id = seedTask({ status: "completed", status_reason: null, model: "claude-opus-5-5" });
+    model.script = turn => (turn === 1 ? "refuse" : [{ type: "text", text: "Done on the backup route." }]);
+    await runner.followUp(id, "Make the header blue", []);
+    await finished(id);
+    expect(model.models).toHaveLength(2);
+    expect(model.models[1]).toMatch(/^r\/claude-opus-4-6/);
+    expect(latestRun(id).map(entry => entry.data)).toContainEqual(expect.objectContaining({ type: "dispatch", model: "r/claude-opus-4-6-thinking" }));
+    // The next follow-up starts on the task's own model again, once the route is back.
+    expect(fake.rows.get(id)).toMatchObject({ status: "completed", answer: "Done on the backup route.", model: "claude-opus-5-5" });
+    expect(fake.unexpected).toEqual([]);
   });
 });
 

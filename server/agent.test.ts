@@ -398,11 +398,11 @@ describe("github helpers", () => {
     vi.stubGlobal("fetch", fetchMock);
     try {
       const files = [{ path: "index.html", content: Buffer.from("<h1>Hi</h1>") }];
-      await expect(github.pushProjectToRepo("t", "octo/site", files, "Update", undefined, undefined, { main: "a".repeat(40) })).rejects.toBeInstanceOf(github.RemoteChangedError);
-      await expect(github.pushProjectToRepo("t", "octo/site", files, "Update", undefined, undefined, {})).rejects.toMatchObject({ branch: "main", status: 409 });
+      await expect(github.pushProjectToRepo("t", "octo/site", files, "Update", { onlyOver: { main: "a".repeat(40) } })).rejects.toBeInstanceOf(github.RemoteChangedError);
+      await expect(github.pushProjectToRepo("t", "octo/site", files, "Update", { onlyOver: {} })).rejects.toMatchObject({ branch: "main", status: 409 });
       expect(calls.filter(call => call.method !== "GET")).toEqual([]);
       // Over its own last push it goes ahead (blobs, tree, commit, a non-forced ref update).
-      const pushed = await github.pushProjectToRepo("t", "octo/site", files, "Update", undefined, undefined, { main: "b".repeat(40) });
+      const pushed = await github.pushProjectToRepo("t", "octo/site", files, "Update", { onlyOver: { main: "b".repeat(40) } });
       expect(pushed.branch).toBe("main");
       const update = calls.find(call => call.method === "PATCH");
       expect(update?.url).toContain("/git/refs/heads/main");
@@ -631,6 +631,9 @@ describe("self-healing recovery", () => {
     expect(diagnose(await apiError(400, "messages.40.content.0.tool_result: all content must be type `text` if `is_error` is true"), false).kind).toBe("error_result_content");
     expect(diagnose(await apiError(404, "model: claude-x not found"), false).kind).toBe("model_unavailable");
     expect(diagnose(await apiError(401, "invalid x-api-key"), false).kind).toBe("auth");
+    // An account that lost access answers every request this way: a route problem, not a bad key.
+    expect(diagnose(await apiError(403, "Not authorized for this endpoint."), false).kind).toBe("route_down");
+    expect(diagnose(new Error("Engine Notice (403): Not authorized for this endpoint."), false).kind).toBe("route_down");
     expect(diagnose(new Error("fetch failed"), false).kind).toBe("transient");
     expect(diagnose(new Error("Fast engine request failed (503): busy"), false).kind).toBe("transient");
     expect(diagnose(new Error("anything"), true).kind).toBe("cancelled");
@@ -686,6 +689,77 @@ describe("self-healing recovery", () => {
     const before = spec.id;
     expect(await engine.handle(await apiError(529, "Overloaded"))).toBe(true);
     expect(spec.id).not.toBe(before);
+  });
+
+  it("switches straight to another route when the engine route refuses every request, for this run only", async () => {
+    const { RecoveryEngine, failoverModels } = await import("./agent/recovery");
+    const { getModel } = await import("../shared/agent");
+    // The relay's Claude Opus 4.6 is the backup path to Claude; the relay no longer serves Sonnet 4.6.
+    expect(failoverModels(getModel("claude-sonnet-5-5")!).map(spec => spec.id)).not.toContain("r/claude-sonnet-4-6");
+    const events: any[] = [];
+    const switches: { id: string; forRun?: boolean }[] = [];
+    let spec = getModel("claude-opus-5-5")!;
+    const engine = new RecoveryEngine({
+      signal: new AbortController().signal, format: "anthropic", conversation: [{ role: "user", content: "hi" }], get spec() { return spec; }, flags: { noEager: false, noThinking: false, noEffort: false },
+      switchModel: (next, _reason, forRun) => { spec = next; switches.push({ id: next.id, forRun }); }, persist: () => undefined, emit: event => events.push(event), sleep: async () => undefined, available: () => true,
+    });
+    expect(spec.provider).toBe("core");
+    expect(await engine.handle(await apiError(403, "Not authorized for this endpoint."))).toBe(true);
+    // No retry on the refusing route and no other model on it: the closest model on another route,
+    // as a stand-in for this run (the task keeps its own model for the next one).
+    expect(switches).toEqual([{ id: "r/claude-opus-4-6-thinking", forRun: true }]);
+    expect(events.map(event => event.kind)).toEqual(["route_down"]);
+    // An outage on the stand-in's route later never moves the run back onto the refusing one.
+    engine.succeeded();
+    for (let i = 0; i < 5; i++) expect(await engine.handle(await apiError(529, "Overloaded"))).toBe(true);
+    expect(switches).toEqual([{ id: "r/claude-opus-4-6-thinking", forRun: true }, { id: "r/gemini-3.8-flash", forRun: true }]);
+    // With no other route configured, the run fails as before.
+    let solo = getModel("claude-sonnet-5-5")!;
+    const stuck = new RecoveryEngine({
+      signal: new AbortController().signal, format: "anthropic", conversation: [{ role: "user", content: "hi" }], get spec() { return solo; }, flags: { noEager: false, noThinking: false, noEffort: false },
+      switchModel: next => { solo = next; }, persist: () => undefined, emit: () => undefined, sleep: async () => undefined, available: candidate => candidate.provider === "core",
+    });
+    expect(await stuck.handle(await apiError(403, "Not authorized for this endpoint."))).toBe(false);
+  });
+
+  it("keeps an overload's switch to another route for this run, and moves a retired model's task to its replacement's tier", async () => {
+    const { RecoveryEngine, failoverModels } = await import("./agent/recovery");
+    const { getModel } = await import("../shared/agent");
+    const engine = (start: string, available?: (spec: any) => boolean) => {
+      const switches: { id: string; forRun?: boolean }[] = [];
+      let spec = getModel(start)!;
+      const recovery = new RecoveryEngine({
+        signal: new AbortController().signal, format: "anthropic", conversation: [{ role: "user", content: "hi" }], get spec() { return spec; }, flags: { noEager: false, noThinking: false, noEffort: false },
+        switchModel: (next, _reason, forRun) => { spec = next; switches.push({ id: next.id, forRun }); }, persist: () => undefined, emit: () => undefined, sleep: async () => undefined, available,
+      });
+      return { recovery, switches };
+    };
+    // Five overloads on the primary route: another route for this run only, the task keeps Sonnet.
+    const overloaded = engine("claude-sonnet-5-5", () => true);
+    for (let i = 0; i < 5; i++) expect(await overloaded.recovery.handle(await apiError(529, "Overloaded"))).toBe(true);
+    expect(overloaded.switches).toEqual([{ id: "r/claude-opus-4-6-thinking", forRun: true }]);
+    // A saved pick the relay no longer serves: its replacement's tier, and that switch sticks.
+    expect(failoverModels(getModel("r/claude-sonnet-4-6")!)[0].id).toBe("claude-sonnet-5-5");
+    const retired = engine("r/claude-sonnet-4-6", () => true);
+    expect(await retired.recovery.handle(await apiError(404, "Unknown model: r/claude-sonnet-4-6"))).toBe(true);
+    expect(retired.switches).toEqual([{ id: "claude-sonnet-5-5", forRun: false }]);
+  });
+
+  it("never fails a free account's run over onto a model that costs more credits", async () => {
+    const { getModel } = await import("../shared/agent");
+    const runner = await import("./agent/team").then(() => import("./agent/runner"));
+    const sonnet = getModel("claude-sonnet-5-5")!;
+    const backupOpus = getModel("r/claude-opus-4-6-thinking")!;
+    const flash = getModel("r/gemini-3.8-flash")!;
+    vi.stubEnv("RELAY_API_KEY", "test-relay-key");
+    try {
+      expect(runner.failoverTargets(false, sonnet)(backupOpus)).toBe(false);
+      expect(runner.failoverTargets(false, sonnet)(flash)).toBe(true);
+      expect(runner.failoverTargets(false, getModel("claude-opus-5-5")!)(backupOpus)).toBe(true);
+      expect(runner.failoverTargets(true, sonnet)(backupOpus)).toBe(true); // the operator pays no credits
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("nudges the agent after repeated identical tool failures", async () => {

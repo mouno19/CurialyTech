@@ -81,9 +81,9 @@ export async function deployPreview(req: DeployRequest) {
   try {
     throwIfAborted(req.signal);
     req.onProgress("creating", `Creating temporary private repo ${github.login}/${name} with ${files.length} files…`);
-    const repo = await createRepo(github.token, name, true, "Temporary Curialy preview (removed automatically)");
+    const repo = await createRepo(github.token, name, true, "Temporary Curialy preview (removed automatically)", { signal: req.signal, waitOutLimits: true });
     createdRepo = true;
-    const pushed = await pushProjectToRepo(github.token, repo.full_name, files, "Curialy preview", undefined, req.signal);
+    const pushed = await pushProjectToRepo(github.token, repo.full_name, files, "Curialy preview", { signal: req.signal, waitOutLimits: true });
     await query("UPDATE curialy.deployments SET repo = $2 WHERE id = $1", [id, repo.full_name]);
 
     throwIfAborted(req.signal);

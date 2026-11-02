@@ -234,6 +234,70 @@ describe("deploy_preview grant", () => {
     expect(second).toMatchObject({ ok: false, summary: "Already deployed in this run" });
     expect(publish.deployPreview).toHaveBeenCalledTimes(1);
   });
+
+  it("allows one more attempt after a failed deploy (it was cleaned up), and no third", async () => {
+    publish.deployPreview.mockClear();
+    publish.deployPreview.mockRejectedValueOnce(new Error("GitHub POST /repos/octo/curialy-preview-1/git/blobs failed (403): You have exceeded a secondary rate limit."));
+    publish.deployPreview.mockRejectedValueOnce(new Error("Build failed: npm ERR! missing script: build"));
+    const grants = { deploy: true };
+    const { ctx } = toolContext(grants);
+    const first = await executeTool("deploy_preview", { kind: "static" }, ctx);
+    expect(first.ok).toBe(false);
+    expect(first.content).toContain("You may call deploy_preview once more in this run");
+    expect(grants.deploy).toBe(true);
+    const second = await executeTool("deploy_preview", { kind: "static" }, ctx);
+    expect(second.ok).toBe(false);
+    expect(second.content).not.toContain("once more");
+    expect(grants.deploy).toBe(false);
+    const third = await executeTool("deploy_preview", { kind: "static" }, ctx);
+    expect(third).toMatchObject({ ok: false, summary: "Already deployed in this run" });
+    expect(publish.deployPreview).toHaveBeenCalledTimes(2);
+  });
+
+  it("offers no second attempt when GitHub's rate limit outlasts the push's own waits", async () => {
+    const { GitHubError } = await import("./services/github");
+    publish.deployPreview.mockClear();
+    publish.deployPreview.mockRejectedValueOnce(new GitHubError("GitHub POST /repos/octo/curialy-preview-2/git/trees failed (403): API rate limit exceeded", 403, 25 * 60_000));
+    const grants = { deploy: true };
+    const { ctx } = toolContext(grants);
+    const first = await executeTool("deploy_preview", { kind: "static" }, ctx);
+    expect(first.ok).toBe(false);
+    expect(first.content).toMatch(/about 25 more minute/);
+    expect(first.content).not.toContain("once more");
+    expect(grants.deploy).toBe(false);
+  });
+});
+
+describe("the run's publishing outcome", () => {
+  const live = (id: string) => async (req: any) => {
+    req.onCreated(id, "2026-11-02T16:00:00.000Z");
+    req.onProgress("live", "Live", "https://preview.example");
+    return { id, url: "https://preview.example", serviceId: `srv-${id}`, repo: `octo/curialy-preview-${id}`, expiresAt: "2026-11-02T16:00:00.000Z" };
+  };
+
+  it("counts a deploy whose allowed second attempt went live as published, but never clears a failed push", async () => {
+    db.handler = () => ({ rows: [], rowCount: 0 });
+    model.duringStream = () => undefined;
+    publish.deployPreview.mockClear();
+    publish.deployPreview.mockRejectedValueOnce(new Error("Deploy build failed. Check the build and start commands."));
+    publish.deployPreview.mockImplementationOnce(live("dep-row-3"));
+    const first = await loopContext("00000000-0000-4000-8000-0000000000c4");
+    model.turns = 0;
+    model.script = turn => turn <= 2 ? [{ type: "tool_use", id: `tu_dep${turn}`, name: "deploy_preview", input: { kind: "static" } }] : [{ type: "text", text: "Deployed." }];
+    await runAgentLoop(first.ctx, [{ role: "user", content: "Deploy it." }]);
+    expect(publish.deployPreview).toHaveBeenCalledTimes(2);
+    expect(first.ctx.outcome.publish).toBe("done");
+
+    publish.deployPreview.mockImplementationOnce(live("dep-row-4"));
+    const second = await loopContext("00000000-0000-4000-8000-0000000000c5");
+    model.turns = 0;
+    model.script = turn => turn === 1 ? [{ type: "tool_use", id: "tu_push", name: "github_commit_and_push", input: { message: "Ship it" } }]
+      : turn === 2 ? [{ type: "tool_use", id: "tu_dep", name: "deploy_preview", input: { kind: "static" } }]
+      : [{ type: "text", text: "Done." }];
+    await runAgentLoop(second.ctx, [{ role: "user", content: "Push it and deploy it." }]);
+    expect(second.events.find(event => event.type === "tool_result" && event.callId === "tu_push")).toMatchObject({ ok: false });
+    expect(second.ctx.outcome.publish).toBe("failed");
+  });
 });
 
 async function loopContext(taskId: string) {
@@ -248,7 +312,7 @@ async function loopContext(taskId: string) {
     emit: (event: unknown) => events.push(event), signal: controller.signal, phases: { advance: vi.fn(), set: vi.fn(), get: () => "pending", finish: vi.fn() },
     usage: { inputTokens: 0, outputTokens: 0, thinkingTokens: 0 }, changedFiles: new Set(), agentVerifyCommands: [], manifest: new Map(), attached: new Map(), images: new Map(),
     context: "", github: true, flags: { noEager: false, noThinking: false, noEffort: false }, toolWatch: new ToolFailureWatch(), persist: () => undefined,
-    outcome: { verification: "none" }, grants: { deploy: true }, publishing: { count: 0 },
+    outcome: { verification: "none" }, grants: { deploy: true }, failedPublishing: new Set(), taskModel: "claude-sonnet-4-5", publishing: { count: 0 },
   };
   ctx.recovery = new RecoveryEngine({ signal: ctx.signal, format: "anthropic", conversation: [], spec: ctx.spec, flags: ctx.flags, switchModel: () => undefined, persist: () => undefined, emit: () => undefined });
   return { ctx, events, controller };
