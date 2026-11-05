@@ -414,8 +414,8 @@ describe("a route that refuses every request", () => {
     await runner.followUp(id, "Make the header blue", []);
     await finished(id);
     expect(model.models).toHaveLength(2);
-    expect(model.models[1]).toMatch(/^r\/claude-opus-4-6/);
-    expect(latestRun(id).map(entry => entry.data)).toContainEqual(expect.objectContaining({ type: "dispatch", model: "r/claude-opus-4-6-thinking" }));
+    expect(model.models[1]).toBe("r/claude-opus-5-5"); // the same model on the backup route
+    expect(latestRun(id).map(entry => entry.data)).toContainEqual(expect.objectContaining({ type: "dispatch", model: "r/claude-opus-5-5" }));
     // The next follow-up starts on the task's own model again, once the route is back.
     expect(fake.rows.get(id)).toMatchObject({ status: "completed", answer: "Done on the backup route.", model: "claude-opus-5-5" });
     expect(fake.unexpected).toEqual([]);

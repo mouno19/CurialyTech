@@ -371,6 +371,13 @@ async function liveBox(taskId: string, root: string, needMs: number, sync: boole
 
 type Started = Awaited<ReturnType<RemoteBox["start"]>>;
 
+/** The command's exit code, or "overdue" when neither its end nor the sandbox's own time limit arrives within `ms`. */
+export function waitWithin(running: Pick<Started, "wait">, ms: number): Promise<number | "overdue"> {
+  let timer: NodeJS.Timeout | undefined;
+  const overdue = new Promise<"overdue">(resolve => { timer = setTimeout(() => resolve("overdue"), ms); });
+  return Promise.race([running.wait(), overdue]).finally(() => clearTimeout(timer));
+}
+
 async function runRemote(opts: CommandOptions): Promise<CommandResult> {
   const started = Date.now();
   const taskId = path.basename(opts.root);
@@ -437,9 +444,16 @@ async function runRemote(opts: CommandOptions): Promise<CommandResult> {
     let timedOut = false;
     let finished = false;
     try {
-      exitCode = await running.wait();
-      if (opts.signal?.aborted) exitCode = null;
-      finished = true;
+      // The sandbox's own limit ends the command; this deadline holds even if that answer never comes.
+      const ended = await waitWithin(running, (timeout + 30) * 1000);
+      if (ended === "overdue") {
+        void running.kill();
+        timedOut = true;
+        exitCode = 124;
+      } else {
+        exitCode = opts.signal?.aborted ? null : ended;
+        finished = true;
+      }
     } catch (error) {
       if (error instanceof TimeoutError) {
         timedOut = true;

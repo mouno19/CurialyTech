@@ -35,6 +35,14 @@ vi.mock("./db/pg", () => ({
   }),
 }));
 
+// Linked repositories: none unless a test sets one; its change listing fails like a damaged .git.
+const repos = vi.hoisted(() => ({ linked: null as null | Record<string, unknown> }));
+vi.mock("./agent/repos", async importOriginal => ({
+  ...(await importOriginal<typeof import("./agent/repos")>()),
+  linkedRepo: async () => repos.linked,
+  linkedSnapshotFiles: async () => { throw new Error("Could not list repository changes (git exit 1)."); },
+}));
+
 const { archiveWorkspace, collectWorkspaceFiles, findBuildDirs, isPublishExcluded, isUnbuiltTemplate, snapshotWorkspace, materializeWorkspace } = await import("./agent/workspaces");
 // Permission checks mean nothing to root.
 const asRoot = process.getuid?.() === 0;
@@ -159,6 +167,29 @@ describe("archive and restore", () => {
     expect(archive.saved.map(file => `${file.role}:${file.path}`).sort()).toEqual([
       "build:dist/assets/index-BSEziAk6.js", "build:dist/index.html", "source:package-lock.json", "source:package.json", "source:src/App.tsx",
     ]);
+  });
+
+  it("archives a linked workspace whole when git can no longer read its repository, instead of failing on every sweep", async () => {
+    const id = "00000000-0000-4000-8000-0000000000e1";
+    const root = path.join(process.env.AGENT_WORKSPACE_ROOT!, id);
+    for (const [file, content] of Object.entries({ "muzu/app/Main.kt": "fun main() {}", "muzu/.git/objects/ab/cdef": "blob", "notes.md": "n" })) {
+      fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+      fs.writeFileSync(path.join(root, file), content);
+    }
+    repos.linked = { fullName: "octo/muzu", url: "https://github.com/octo/muzu", branch: "main", baseSha: "a".repeat(40), repoPath: "muzu", pushed: {}, deleted: [] };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const earlier = [...archive.saved]; // the next test restores the archive saved before this one
+    try {
+      archive.saved.length = 0;
+      expect(await snapshotWorkspace(id)).toMatchObject({ files: 2 });
+      expect(archive.saved.map(file => `${file.role}:${file.path}`).sort()).toEqual(["source:muzu/app/Main.kt", "source:notes.md"]);
+      await snapshotWorkspace(id);
+      expect(warn).toHaveBeenCalledTimes(1); // said once, not on every sweep
+    } finally {
+      warn.mockRestore();
+      repos.linked = null;
+      archive.saved.splice(0, archive.saved.length, ...earlier);
+    }
   });
 
   it("restores sources and the archived build, and leaves nothing half-restored when it fails", async () => {

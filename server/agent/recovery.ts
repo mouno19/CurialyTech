@@ -61,6 +61,9 @@ export function diagnose(error: unknown, aborted: boolean): Diagnosis {
     case "not_found_error": return { kind: "model_unavailable", status, detail: "The selected model is unavailable" };
   }
   if (error instanceof Anthropic.APIConnectionError || (!status && NETWORK.test(message))) return { kind: "transient", detail: "Connection to the engine dropped" };
+  // The relay passes its upstream's quota answers on as "HTTP 403 (reset after 1m 5s)": a wait, not bad credentials.
+  const reset = lower.match(/reset after (?:(\d+)m)?\s*(?:(\d+)s)?\)/);
+  if (reset && (reset[1] || reset[2])) return { kind: "rate_limit", status, detail: "The engine is rate limiting requests", retryAfterMs: Math.min(60_000, (Number(reset[1] ?? 0) * 60 + Number(reset[2] ?? 0)) * 1000) };
   if (status === 401 || status === 403) return { kind: "auth", status, detail: "The engine rejected its credentials" };
   if (status === 429) return { kind: "rate_limit", status, detail: "The engine is rate limiting requests", retryAfterMs: retryAfter(error) };
   if (status === 413 || /prompt is too long|context (limit|window|length)|too many (input )?tokens|maximum context|exceeds? .*context|input length|max tokens of \d+ exceeded|context window exceeded/.test(lower)) return { kind: "context_overflow", status, detail: "The conversation no longer fits in the context window" };
@@ -337,13 +340,14 @@ export function compactHistory(conversation: Message[], level: 1 | 2 | 3) {
 
 // Failover tiers per conversation format, closest equivalents first. A history can only move to a
 // model that speaks the same format; within it, the current tier is tried before the next one.
-// The relay's Claude Opus 4.6 is the second path to Claude when the primary route is down (the
-// relay no longer serves r/claude-sonnet-4-6: it answers 404 "Unknown model").
+// The relay is the second path to Claude when the primary route is down: each model's relay copy
+// comes right after it, so a failover around an outage keeps the same model.
 const FAILOVER_TIERS: Record<"anthropic" | "openai", string[][]> = {
   anthropic: [
-    ["claude-opus-5-5", "claude-opus-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "r/claude-opus-4-6-thinking", "claude-opus-4-5"],
-    ["claude-sonnet-5-5", "claude-sonnet-5", "claude-sonnet-4-6", "claude-sonnet-4-5", "claude-haiku-5-5"],
-    ["r/gemini-3.8-flash", "r/gemini-2.5-flash"],
+    ["claude-opus-5-5", "r/claude-opus-5-5", "claude-opus-5", "r/claude-opus-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "r/claude-opus-4-6-thinking", "claude-opus-4-5"],
+    ["claude-sonnet-5-5", "r/claude-sonnet-5-5", "claude-sonnet-5", "r/claude-sonnet-5", "claude-sonnet-4-6", "r/claude-sonnet-4-6", "claude-sonnet-4-5", "claude-haiku-5-5", "r/claude-haiku-4-5"],
+    // Gemini Flash's closest stand-ins are the fast, light Claude models, not Opus.
+    ["r/gemini-3.8-flash", "claude-haiku-5-5", "r/claude-haiku-4-5"],
   ],
   openai: [
     ["openai-gpt-5.5", "openai-gpt-5.4", "openai-gpt-5.2", "openai-gpt-5"],

@@ -23,7 +23,7 @@ The VPS keeps no user data: workspaces are scratch, snapshotted to Tiger and swe
 1. The composer posts `/api/agent/tasks` (model or Auto, mode, thinking level, Web, Dev Team, attachments, repo).
 2. `server/agent/runner.ts` picks the model (`dispatchModel`), materializes the workspace, and runs the loop for that model's format, streaming every event (thinking, text, tool calls, terminal output, diffs, phases) through `server/agent/bus.ts` to SSE and Tiger.
 3. Tools (`server/agent/tools.ts`) run in the sandbox: files, shell, search, web fetch, live browser, visual preview tests, GitHub, deploy previews, research delegation.
-4. Coding runs end with harness verification; failures loop back with the error output (self-healing, up to 4 iterations, escalating to the strongest model of the format).
+4. Coding runs end with harness verification; failures loop back with the error output (self-healing, up to 4 iterations, escalating to the strongest model of the format). The same check failing the same way twice ends self-healing, and the run is delivered with the failure reported. In the last fifth of its turns (60 for a solo run or an Engineer pass, 30 for the Architect and each review round) an agent is told to wrap up; one that reaches the limit ends with a summary of the work as it stands ("Stopped at the turn limit"), not a failed run. A review round without a verdict ends the review.
 5. Every model call is wrapped by `server/agent/recovery.ts`: retries with backoff, context compaction, history repairs, and failover to the closest same-format model (on another route when the current one refuses every request; a switch around an outage lasts for that run only, and a free account's run never moves to a model that costs more credits).
 6. Dev Team mode (`server/agent/team.ts`): Architect plans (read-only), Engineer builds, Reviewer reviews the diff and tests (read-only, its source edits are reverted); publishing happens only after approval.
 7. Changed files are attached to the chat as artifacts (generated build output is summarised, not attached); the workspace is snapshotted, with the built site kept separately so an archived preview stays known.
@@ -49,13 +49,13 @@ The VPS keeps no user data: workspaces are scratch, snapshotted to Tiger and swe
 |---|---|---|
 | Claude Opus 5.5, 5, 4.8, 4.7, 4.6, 4.5; Sonnet 5.5, 5, 4.6, 4.5; Haiku 5.5 | Bridge → Cortex `/api/v2/cortex/v1/messages` | Tools, images, thinking (adaptive; budgeted on the 4.5 models), effort |
 | OpenAI GPT 5.5, 5.4, 5.2, 5; Grok 4.7, 4.6; Kimi K3; GLM 5.3 | Bridge `/v1/chat/completions` → Cortex chat completions (`max_tokens` → `max_completion_tokens`) | Tools, images (not GLM), `reasoning_effort`, streamed `reasoning_content` (Kimi, GLM) |
-| Gemini 3.8 Flash, Gemini 2.5 Flash | RelayStation (Anthropic Messages format) | Tools, images, streamed; 3.8 Flash variant follows the thinking level |
+| Gemini 3.8 Flash | RelayStation (Anthropic Messages format) | Tools, images, streamed; sent as its high variant (the only one the relay serves; Gemini 2.5 Flash is gone and saved picks move to 3.8) |
 | Gemini 4 Argon, Gemini 3.7 Flash, Llama 3.3 70B | Snowflake SQL `AI_COMPLETE` on `COMPUTE_WH` (`server/media/snowflake.ts`) | Chat only, reply arrives whole (Cortex REST does not serve these) |
 | Llama 3.1 70B, Llama 3.1 8B, Mistral 7B | Bridge `/cortex/inference` → Cortex `inference:complete` | Chat only, streamed |
 | Ultramarine 1.0 Flash | Paper Instruments chat completions | Tools, streamed reasoning |
 
 Auto routes complex or high-effort work to Opus 5.5, routine coding to Sonnet 5.5 and quick
-asks to Haiku 5.5. Hidden entries (the backup Claude Opus 4.6 route on RelayStation, the Research Agent)
+asks to Haiku 5.5. Hidden entries (the backup route: RelayStation's copies of Claude Opus 5.5/5, Sonnet 5.5/5/4.6, Haiku 4.5 and Opus 4.6; the Research Agent)
 are used for failover and delegation only.
 
 ## Rebuilding the host from scratch

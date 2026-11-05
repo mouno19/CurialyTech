@@ -1377,8 +1377,11 @@ export async function runAgentLoop(ctx: RunContext, conversation: Anthropic.Mess
   // An answer the harness accepted before a design check asked for another look: delivered if the
   // follow-up runs out of turns, so a design check can never turn a finished run into a failed one.
   let accepted: string | null = null;
+  // The previous self-healing failure, for the breaker: the same failure twice ends self-healing.
+  let lastFailure: string | undefined;
 
   for (let turn = 1; turn <= maxTurns; turn++) {
+    if (turn === wrapUpTurn(maxTurns)) appendUserNote(conversation as never, "anthropic", turnBudgetNote(maxTurns - turn + 1, maxTurns, opts.terminal));
     const message = await healing(ctx, () => streamTurn(ctx, conversation, turn, ctx.spec.tools ? contextTools(ctx) : []));
     conversation.push({ role: "assistant", content: message.content });
     ctx.persist(conversation);
@@ -1424,7 +1427,7 @@ export async function runAgentLoop(ctx: RunContext, conversation: Anthropic.Mess
       return { text: lastText };
     }
     // end_turn: the harness verifies coding work before accepting the answer.
-    const step = await verifyOrHeal(ctx, coding && verifyAtEnd, healIteration, lastText);
+    const step = await verifyOrHeal(ctx, coding && verifyAtEnd, healIteration, lastText, lastFailure);
     if (step.done) {
       const design = coding && verifyAtEnd && ctx.designState && ctx.outcome.verification !== "failed" && designCheckFits(turn, maxTurns, healIteration) && (await designCheckAffordable(ctx)) ? designCheck(ctx) : null;
       if (!design) return { text: step.answer };
@@ -1435,6 +1438,7 @@ export async function runAgentLoop(ctx: RunContext, conversation: Anthropic.Mess
       continue;
     }
     healIteration = step.healIteration;
+    lastFailure = step.signature;
     conversation.push({ role: "user", content: step.message });
   }
   if (accepted !== null) return { text: await deliverAccepted(ctx, accepted, healIteration, coding && verifyAtEnd) };
@@ -1443,7 +1447,40 @@ export async function runAgentLoop(ctx: RunContext, conversation: Anthropic.Mess
     ctx.emit({ type: "notice", level: "warn", message: `${ctx.role ? `${ctx.role[0].toUpperCase()}${ctx.role.slice(1)}` : "Agent"} used its ${maxTurns}-turn budget without calling ${opts.terminal}.` });
     return { text: lastText };
   }
-  throw new Error(`Stopped after ${maxTurns} model turns without finishing.`);
+  return { text: await wrapUpAtLimit(ctx, conversation, maxTurns, lastText, healIteration, coding && verifyAtEnd) };
+}
+
+/** The last fifth of a loop's turns is for wrapping up: the agent is told once, as it begins. */
+const wrapUpTurn = (maxTurns: number) => Math.max(2, Math.ceil(maxTurns * 0.8));
+
+function turnBudgetNote(left: number, maxTurns: number, terminal?: string) {
+  return terminal
+    ? `[Turn budget] ${left} of your ${maxTurns} turns are left. Call ${terminal} within the next few turns with what you have found so far; whatever you could not check goes into it, not into more turns.`
+    : `[Turn budget] ${left} of ${maxTurns} model turns are left. Stop starting new work: finish what is in progress, run the main check once, attach any deliverables, and reply with your final summary, naming anything unfinished.`;
+}
+
+/**
+ * Out of turns: one more reply (its tool calls are not run) sums up where the work stands, and the
+ * run ends with that and the checks reported as they are, instead of failing. The workspace and
+ * its changed files are kept and attached as for any finished run.
+ */
+async function wrapUpAtLimit(ctx: RunContext, conversation: Anthropic.MessageParam[], maxTurns: number, lastText: string, healIteration: number, coding: boolean) {
+  ctx.outcome.turnLimit = true;
+  ctx.emit({ type: "notice", level: "warn", message: `Reached the ${maxTurns}-turn limit; finishing with a summary of where the work stands.` });
+  appendUserNote(conversation as never, "anthropic", "[Turn limit] You are out of model turns. Do not call any tools. Reply now with your final summary: what you built or changed, how far it got, which checks pass, and what is unfinished.");
+  let summary = "";
+  try {
+    const message = await healing(ctx, () => streamTurn(ctx, conversation, maxTurns + 1, ctx.spec.tools ? contextTools(ctx) : []));
+    conversation.push({ role: "assistant", content: message.content });
+    // Tool calls in it are not run; their results keep the history valid for a follow-up.
+    const uses = message.content.filter((block): block is Anthropic.ToolUseBlock => block.type === "tool_use");
+    if (uses.length) conversation.push({ role: "user", content: uses.map(use => ({ type: "tool_result" as const, tool_use_id: use.id, is_error: true, content: "Not run: the turn limit was reached." })) });
+    ctx.persist(conversation);
+    summary = textOf(message);
+  } catch (error) {
+    if (ctx.signal.aborted) throw error;
+  }
+  return deliverAsIs(ctx, summary || lastText || `Stopped at the ${maxTurns}-turn limit before finishing; the changes so far are in the workspace.`, healIteration, coding, "at the turn limit");
 }
 
 const fileList = (files: string[]) => files.slice(0, 4).join(", ") + (files.length > 4 ? ` and ${files.length - 4} more` : "");
@@ -1460,12 +1497,17 @@ export const designCheckAffordable = (ctx: Pick<RunContext, "canSpend" | "turnCr
  */
 async function deliverAccepted(ctx: RunContext, accepted: string, healIteration: number, coding: boolean) {
   ctx.emit({ type: "notice", level: "warn", message: "The design check's follow-up didn't finish within the turn limit; delivering the answer from before it." });
-  if (!coding || ctx.changedFiles.size === 0) return accepted;
+  return deliverAsIs(ctx, accepted, healIteration, coding, "after the design follow-up");
+}
+
+/** `answer` as the result, with verification run once more (no healing) to report the workspace as it is. */
+async function deliverAsIs(ctx: RunContext, answer: string, healIteration: number, coding: boolean, when: string) {
+  if (!coding || ctx.changedFiles.size === 0) return answer;
   const failure = await verify(ctx, healIteration + 1);
-  if (!failure) return accepted;
+  if (!failure) return answer;
   ctx.outcome.verification = "failed";
   ctx.outcome.failedCheck = { command: failure.command, exitCode: failure.exitCode };
-  return `${accepted}\n\n> **Verification failed** after the design follow-up: \`${failure.command}\` (exit ${failure.exitCode}).`;
+  return `${answer}\n\n> **Verification failed** ${when}: \`${failure.command}\` (exit ${failure.exitCode}).`;
 }
 
 /**
@@ -1503,21 +1545,28 @@ export function designCheck(ctx: RunContext): { message: string; reason: string 
   };
 }
 
-type HealStep = { done: true; answer: string } | { done: false; healIteration: number; message: string };
+type HealStep = { done: true; answer: string } | { done: false; healIteration: number; message: string; signature: string };
+
+/** A failure as the breaker compares it: the command, its exit code and its output minus timings and clock times. */
+const failureSignature = (failure: { command: string; exitCode: number | null; output: string }) =>
+  `${failure.command}\n${failure.exitCode}\n${failure.output.replace(/\d{4}-\d\d-\d\dT[\d:.]+Z?|\b\d{1,2}:\d\d:\d\d\b/g, "#").replace(/\b\d+(?:\.\d+)?\s?(?:ms|s|m)\b/g, "#")}`;
 
 /** The strongest model per conversation format, for self-healing escalation. */
 const ESCALATE_TO: Record<ConversationFormat, string> = { anthropic: "claude-opus-5-5", openai: "openai-gpt-5.5" };
 
-async function verifyOrHeal(ctx: RunContext, coding: boolean, healIteration: number, lastText: string): Promise<HealStep> {
+async function verifyOrHeal(ctx: RunContext, coding: boolean, healIteration: number, lastText: string, lastFailure?: string): Promise<HealStep> {
   if (!coding || ctx.changedFiles.size === 0) return { done: true, answer: lastText };
   const failure = await verify(ctx, healIteration + 1);
   if (!failure) return { done: true, answer: lastText };
   const iteration = healIteration + 1;
-  if (iteration > MAX_HEAL_ITERATIONS) {
+  const signature = failureSignature(failure);
+  // The same failure twice in a row: the last fix changed nothing about it, and more rounds rarely do.
+  const repeated = signature === lastFailure;
+  if (iteration > MAX_HEAL_ITERATIONS || repeated) {
     ctx.outcome.verification = "failed";
     ctx.outcome.failedCheck = { command: failure.command, exitCode: failure.exitCode };
-    ctx.emit({ type: "notice", level: "warn", message: `Verification still failing after ${MAX_HEAL_ITERATIONS} self-healing iterations; delivering with failures reported.` });
-    return { done: true, answer: `${lastText}\n\n> **Verification failed** after ${MAX_HEAL_ITERATIONS} self-healing attempts: \`${failure.command}\` (exit ${failure.exitCode}).` };
+    ctx.emit({ type: "notice", level: "warn", message: repeated ? `\`${failure.command}\` failed the same way twice; stopping self-healing and delivering with the failure reported.` : `Verification still failing after ${MAX_HEAL_ITERATIONS} self-healing iterations; delivering with failures reported.` });
+    return { done: true, answer: `${lastText}\n\n> **Verification failed** ${repeated ? "the same way twice" : `after ${MAX_HEAL_ITERATIONS} self-healing attempts`}: \`${failure.command}\` (exit ${failure.exitCode}).` };
   }
   // Escalate within the same conversation format (an Anthropic history cannot be replayed to an OpenAI-format model).
   const strongest = getModel(ESCALATE_TO[formatFor(ctx.spec)])!;
@@ -1529,6 +1578,7 @@ async function verifyOrHeal(ctx: RunContext, coding: boolean, healIteration: num
   return {
     done: false,
     healIteration: iteration,
+    signature,
     message: `Automated verification failed (self-healing iteration ${iteration}/${MAX_HEAL_ITERATIONS}).\n\n$ ${failure.command}\n[exit code ${failure.exitCode}]\n${clip(failure.output, 14_000)}\n\nInspect the error, locate the exact file and line, apply a targeted fix, and re-run the failing command. When everything passes, reply with the final summary.`,
   };
 }
@@ -1553,7 +1603,9 @@ async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unkno
   // Histories saved before null content was repaired would be rejected on every turn.
   if (repairOpenAIContent(conversation)) updateAgentTask(ctx.taskId, { conversation }, ctx.runToken);
 
+  let lastFailure: string | undefined;
   for (let turn = 1; turn <= MAX_TURNS; turn++) {
+    if (turn === wrapUpTurn(MAX_TURNS)) appendUserNote(conversation, "openai", turnBudgetNote(MAX_TURNS - turn + 1, MAX_TURNS));
     const streamed = await healing(ctx, async () => {
     ctx.emit({ type: "turn_start", turn, model: ctx.spec.id });
     const thinkingId = `${ctx.runId}-${turn}.${ctx.recovery.count}-think`;
@@ -1692,7 +1744,7 @@ async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unkno
       continue;
     }
     effortCap = null;
-    const step = await verifyOrHeal(ctx, coding, healIteration, lastText);
+    const step = await verifyOrHeal(ctx, coding, healIteration, lastText, lastFailure);
     if (step.done) {
       const design = coding && ctx.designState && ctx.outcome.verification !== "failed" && designCheckFits(turn, MAX_TURNS, healIteration) && (await designCheckAffordable(ctx)) ? designCheck(ctx) : null;
       if (!design) return step.answer;
@@ -1703,10 +1755,14 @@ async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unkno
       continue;
     }
     healIteration = step.healIteration;
+    lastFailure = step.signature;
     conversation.push({ role: "user", content: step.message });
   }
   if (accepted !== null) return deliverAccepted(ctx, accepted, healIteration, coding);
-  throw new Error(`Stopped after ${MAX_TURNS} model turns without finishing.`);
+  // Out of turns: the run ends with what it has (see wrapUpAtLimit), not as a failure.
+  ctx.outcome.turnLimit = true;
+  ctx.emit({ type: "notice", level: "warn", message: `Reached the ${MAX_TURNS}-turn limit; finishing with the work as it stands.` });
+  return deliverAsIs(ctx, lastText || `Stopped at the ${MAX_TURNS}-turn limit before finishing; the changes so far are in the workspace.`, healIteration, coding, "at the turn limit");
 }
 
 async function runToolCall(ctx: RunContext, use: Anthropic.ToolUseBlock): Promise<Anthropic.ToolResultBlockParam> {

@@ -12,8 +12,8 @@ import { getTeamState, saveTeamState, settleTeamWrites } from "./store";
 //   Architect (read-only) explores and submits a plan.
 //   Engineer (full coding tools) implements it, with the usual verification/self-healing.
 //   Reviewer/QA (read-only + tests) reviews the actual diff and submits a verdict.
-// Requested changes go back to the Engineer for up to MAX_REVIEW_ROUNDS. Publishing (push, PR,
-// deploy) is only possible after approval. Every event a member produces is tagged with its role
+// Requested changes go back to the Engineer for up to MAX_REVIEW_ROUNDS; a round without a verdict
+// ends the review. Publishing (push, PR, deploy) is only possible after approval. Every event a member produces is tagged with its role
 // so the UI can show who is doing what in real time.
 
 const MAX_REVIEW_ROUNDS = 3;
@@ -335,6 +335,9 @@ export async function runTeam(ctx: RunContext, conversation: Anthropic.MessagePa
         content: reviewMarkdown(review),
       });
       if (review.verdict === "approve" || round === MAX_REVIEW_ROUNDS) break;
+      // No verdict (the Reviewer ran out of turns): a fix round would have nothing checked to act on,
+      // and a second review rarely gets further. The work is delivered as not approved.
+      if (!reviewed.terminal) break;
 
       track("engineer", "working", `Fixing review round ${round}`);
       ctx.phases.set("verification", "active", `Engineer fixing round ${round} feedback`);

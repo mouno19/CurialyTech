@@ -195,17 +195,18 @@ describe("Dev Team orchestration", () => {
     // Engineer's shell-created file is listed for the Reviewer.
     expect(JSON.stringify(byRole("reviewer")[0].messages.at(-1))).toMatch(/Also created or changed by the Engineer's commands[^]*gen\.txt/);
 
-    // No verdict = not approved: three fix rounds, open items, nothing published.
+    // No verdict = not approved, and the review ends there: no fix round on nothing, nothing published.
     const reviews = events.filter(event => event.type === "handoff" && event.kind === "review");
-    expect(reviews.map(event => event.title)).toEqual(Array(3).fill("No verdict submitted · not approved"));
-    expect(answer).toMatch(/not approved after 3 review rounds/);
+    expect(reviews.map(event => event.title)).toEqual(["No verdict submitted · not approved"]);
+    expect(answer).toMatch(/not approved after 1 review round\b/);
+    expect(byRole("engineer").every(call => !JSON.stringify(call.messages).includes("The Reviewer requested changes"))).toBe(true);
     expect(answer).toContain("Not published");
     expect(calls.some(call => call.tools.includes("deploy_preview"))).toBe(false);
 
-    // Block ids are unique across review rounds.
+    // Block ids are unique across the Reviewer's turns.
     const reviewerText = events.filter(event => event.type === "text_delta" && event.agent === "reviewer").map(event => event.blockId);
-    expect(reviewerText).toHaveLength(9);
-    expect(new Set(reviewerText).size).toBe(9);
+    expect(reviewerText).toHaveLength(3);
+    expect(new Set(reviewerText).size).toBe(3);
   });
 
   it("carries the Architect's design direction to the Engineer and Reviewer, each with the brief for its role", { timeout: 60_000 }, async () => {

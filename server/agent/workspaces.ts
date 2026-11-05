@@ -129,6 +129,9 @@ function collectBuildFiles(root: string, dir: string) {
   return files;
 }
 
+/** Tasks whose repository's changes could not be listed (logged once each). */
+const unreadableRepos = new Set<string>();
+
 export async function snapshotWorkspace(taskId: string) {
   const root = workspacePath(taskId);
   if (!fs.existsSync(root)) return null;
@@ -136,10 +139,16 @@ export async function snapshotWorkspace(taskId: string) {
   await refreshWorkspace(root);
   await shareWorkspaceFiles(root, SKIP_DIRS);
   const repo = await linkedRepo(taskId);
-  if (repo) {
+  // A repository git can no longer read (e.g. a damaged .git) is archived whole below, like an
+  // unlinked workspace, instead of failing on every sweep while the files stay on this server.
+  const edits = repo ? await linkedSnapshotFiles(taskId, root, repo).catch(error => {
+    if (!unreadableRepos.has(taskId)) console.warn(`[workspaces] ${taskId}: archiving the whole workspace, its repository's changes could not be listed: ${error instanceof Error ? error.message : error}`);
+    unreadableRepos.add(taskId);
+    return null;
+  }) : null;
+  if (repo && edits) {
     // Linked GitHub repo: archive only the agent's edits (plus anything outside the repo folder);
     // the unchanged repository is re-fetched from GitHub on restore.
-    const edits = await linkedSnapshotFiles(taskId, root, repo);
     const outside = repo.repoPath === "." ? [] : collectWorkspaceFiles(root).files.filter(file => !file.path.startsWith(`${repo.repoPath}/`));
     const sources = [...edits, ...outside].map(file => ({ path: file.path, content: file.content, sha256: createHash("sha256").update(file.content).digest("hex") }));
     const files = [...sources, ...buildFor(root, sources)];

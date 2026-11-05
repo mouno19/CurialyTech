@@ -2,7 +2,7 @@ import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { SandboxNotFoundError, TimeoutError } from "e2b";
 import type { RemoteBox } from "./agent/e2b";
 
@@ -16,7 +16,7 @@ process.env.AGENT_SANDBOX = "e2b";
 fs.mkdirSync(process.env.AGENT_WORKSPACE_ROOT, { recursive: true });
 
 const { runCommand, workspacePath, ensureWorkspace, removeWorkspace, refreshWorkspace, sandboxPortHost } = await import("./agent/sandbox");
-const { parseScan, startCloudSandboxForTests, useSandboxFactory } = await import("./agent/e2b");
+const { parseScan, startCloudSandboxForTests, useSandboxFactory, waitWithin } = await import("./agent/e2b");
 
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
@@ -203,6 +203,24 @@ describe("cloud sandbox sync", () => {
 });
 
 describe("parseScan", () => {
+  it("gives up on a command whose end never arrives, past its limit and a grace period", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const pending = waitWithin({ wait: () => new Promise<number>(() => undefined) }, 35_000);
+      await vi.advanceTimersByTimeAsync(34_999);
+      let settled = false;
+      void pending.then(() => { settled = true; });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await pending).toBe("overdue");
+      expect(await waitWithin({ wait: async () => 3 }, 35_000)).toBe(3);
+      await expect(waitWithin({ wait: async () => { throw new TimeoutError("command timed out"); } }, 35_000)).rejects.toBeInstanceOf(TimeoutError);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("reads NUL-separated records, keeps tabs in names, and flags a failed listing as partial", () => {
     const ok = parseScan("5\t1793187217.5\ta.txt\u00003\t1793187218.25\tdir/b\tc.txt\u0000\n__find_exit=0");
     expect([...ok.files.keys()]).toEqual(["a.txt", "dir/b\tc.txt"]);

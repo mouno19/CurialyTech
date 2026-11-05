@@ -33,9 +33,11 @@ export type ModelSpec = {
   effort: boolean;
   /** Accepts eager_input_streaming on tools (the 4.5 generation rejects the field outright). */
   eagerInput: boolean;
+  /** The id sent to the route when it differs from `id` for every thinking level. */
+  wire?: string;
   /** Accepts images (attachments, screenshots). */
   vision: boolean;
-  /** One picker entry backed by an API model per thinking level (Gemini 3.8 Flash high/medium/low). */
+  /** One picker entry backed by an API model per thinking level. */
   variants?: Record<ThinkingLevel, string>;
   /** Not in the picker: internal routes (failover, Research Agent) and legacy ids old tasks still use. */
   hidden?: boolean;
@@ -43,6 +45,8 @@ export type ModelSpec = {
 
 type Flags = Partial<Omit<ModelSpec, "id" | "label">>;
 const claude = (id: string, label: string, flags: Flags = {}): ModelSpec => ({ id, label, provider: "core", group: "Core", tools: true, thinking: "adaptive-summarized", effort: true, eagerInput: true, vision: true, ...flags });
+// The relay's copy of a Claude model: hidden, reached only by self-healing failover.
+const backup = (id: string, label: string): ModelSpec => ({ ...claude(id, `${label} · backup route`), provider: "relay", group: "Relay", hidden: true });
 // Cortex's OpenAI-compatible chat/completions endpoint.
 const chat = (id: string, label: string, flags: Flags = {}): ModelSpec => ({ id, label, provider: "core-chat", group: "Core", tools: true, thinking: "none", effort: true, eagerInput: false, vision: true, ...flags });
 // Chat-only models (no tool calling): open weights on Cortex inference, and models Cortex serves
@@ -66,11 +70,13 @@ export const MODELS: ModelSpec[] = [
   chat("openai-gpt-5.4", "OpenAI GPT 5.4"),
   chat("openai-gpt-5.2", "OpenAI GPT 5.2"),
   chat("openai-gpt-5", "OpenAI GPT 5"),
-  { id: "r/gemini-3.8-flash", label: "Gemini 3.8 Flash", provider: "relay", group: "Gemini", tools: true, thinking: "none", effort: false, eagerInput: false, vision: true, variants: { low: "r/gemini-3.8-flash-low", medium: "r/gemini-3.8-flash-medium", high: "r/gemini-3.8-flash-high" } },
+  // The relay serves Gemini 3.8 Flash only as its high variant (low and medium answer 404 "Unknown model").
+  { id: "r/gemini-3.8-flash", label: "Gemini 3.8 Flash", provider: "relay", group: "Gemini", tools: true, thinking: "none", effort: false, eagerInput: false, vision: true, wire: "r/gemini-3.8-flash-high" },
   // Gemini 4 Argon, 3.7 Flash and Llama 3.3 run on Cortex only through SQL AI_COMPLETE: chat-only, replies arrive whole.
   { id: "gemini-4-argon", label: "Gemini 4 Argon", provider: "core-sql", group: "Core", ...textOnly },
   { id: "gemini-3.7-flash", label: "Gemini 3.7 Flash", provider: "core-sql", group: "Core", ...textOnly },
-  { id: "r/gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "relay", group: "Gemini", tools: true, thinking: "none", effort: false, eagerInput: false, vision: true },
+  // No longer served by the relay (404 "Unknown model"): kept so saved tasks resolve (REPLACED).
+  { id: "r/gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "relay", group: "Gemini", tools: true, thinking: "none", effort: false, eagerInput: false, vision: true, hidden: true },
   chat("grok-4.7", "Grok 4.7"),
   chat("grok-4.6", "Grok 4.6"),
   chat("kimi-k3", "Kimi K3", { thinking: "reasoning-content" }),
@@ -80,9 +86,14 @@ export const MODELS: ModelSpec[] = [
   { id: "llama3.1-8b", label: "Llama 3.1 8B", provider: "core-inference", group: "Core", ...textOnly },
   { id: "mistral-7b", label: "Mistral 7B", provider: "core-inference", group: "Core", ...textOnly },
   { id: "ultramarine-1-flash", label: "Ultramarine 1.0 Flash", provider: "fast", group: "Fast", tools: true, thinking: "reasoning-content", effort: false, eagerInput: false, vision: false },
-  // Second route to Claude, used when the primary route is down (self-healing failover).
+  // Second route to the same Claude models, used when the primary route is down (self-healing
+  // failover): same capabilities and credit weight as the primary entry of the same name.
+  backup("r/claude-opus-5-5", "Claude Opus 5.5"),
+  backup("r/claude-opus-5", "Claude Opus 5"),
+  backup("r/claude-sonnet-5-5", "Claude Sonnet 5.5"),
+  backup("r/claude-sonnet-5", "Claude Sonnet 5"),
+  backup("r/claude-haiku-4-5", "Claude Haiku 4.5"),
   { id: "r/claude-opus-4-6-thinking", label: "Claude Opus 4.6 · backup route", provider: "relay", group: "Relay", tools: true, thinking: "adaptive", effort: true, eagerInput: true, vision: true, hidden: true },
-  // No longer served by the relay (404 "Unknown model"): kept so saved tasks resolve, not a failover target.
   { id: "r/claude-sonnet-4-6", label: "Claude Sonnet 4.6 · backup route", provider: "relay", group: "Relay", tools: true, thinking: "adaptive", effort: true, eagerInput: true, vision: true, hidden: true },
   { id: "research-agent", label: "Curialy Research Agent", provider: "research", group: "Research", ...textOnly, hidden: true },
 ];
@@ -96,13 +107,14 @@ const ALIASES: Record<string, { id: string; effort?: ThinkingLevel }> = {
   "r/gemini-3.8-flash-low": { id: "r/gemini-3.8-flash", effort: "low" },
   // Briefly routed through SQL; back on the relay.
   "gemini-3.8-flash": { id: "r/gemini-3.8-flash" },
-  "gemini-2.5-flash": { id: "r/gemini-2.5-flash" },
+  "gemini-2.5-flash": { id: "r/gemini-3.8-flash" },
 };
 
 /** Retired picker entries and the listed model that replaces them (for new tasks and saved picks). */
 export const REPLACED: Record<string, string> = {
   "r/claude-sonnet-4-6": "claude-sonnet-4-6",
   "r/claude-opus-4-6-thinking": "claude-opus-4-6",
+  "r/gemini-2.5-flash": "r/gemini-3.8-flash",
 };
 
 export function getModel(id: string) {
@@ -121,7 +133,7 @@ export function teamCapable(spec: ModelSpec | undefined) {
 
 /** The model id sent to the API for this thinking level. */
 export function wireModel(spec: ModelSpec, effort: ThinkingLevel) {
-  return spec.variants?.[effort] ?? spec.id;
+  return spec.variants?.[effort] ?? spec.wire ?? spec.id;
 }
 
 /** Whether the thinking-level control changes anything for this model. */
@@ -162,6 +174,8 @@ export type RunOutcome = {
   review?: { verdict: "approve" | "request_changes" | "none"; rounds: number };
   publish?: "done" | "failed" | "not_requested" | "blocked_unapproved";
   research?: "completed" | "partial" | "failed";
+  /** The run reached its turn limit and ended with a summary of the work as it stood. */
+  turnLimit?: boolean;
 };
 
 export type PlanStep = { title: string; status: "pending" | "in_progress" | "done" };

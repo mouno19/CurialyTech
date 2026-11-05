@@ -95,6 +95,7 @@ export function outcomeIssues(outcome: RunOutcome | null | undefined): string[] 
   if (outcome.publish === "blocked_unapproved") issues.push("Not published: review not approved");
   if (outcome.research === "partial") issues.push("Research incomplete");
   if (outcome.research === "failed") issues.push("Research failed");
+  if (outcome.turnLimit) issues.push("Stopped at the turn limit");
   return issues;
 }
 

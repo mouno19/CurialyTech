@@ -132,7 +132,9 @@ describe("model dispatch", () => {
     for (const model of PICKER_MODELS) expect(dispatchModel({ ...base, mode: model.tools ? "agent" : "chat", model: model.id, prompt: "Build a CLI" }).spec.id).toBe(model.id);
     for (const id of ["gemini-4-argon", "llama3.3-70b", "mistral-7b"]) expect(() => dispatchModel({ ...base, model: id, prompt: "Build a CLI" })).toThrow(/cannot call tools/);
     expect(dispatchModel({ ...base, model: "r/gemini-3.8-flash-high", prompt: "Hi" }).spec.id).toBe("r/gemini-3.8-flash");
-    expect(dispatchModel({ ...base, model: "gemini-2.5-flash", prompt: "Hi" }).spec.id).toBe("r/gemini-2.5-flash"); // briefly-used SQL id
+    // Gemini 2.5 Flash left the relay: saved picks and its briefly-used SQL id move to 3.8 Flash.
+    expect(dispatchModel({ ...base, model: "gemini-2.5-flash", prompt: "Hi" }).spec.id).toBe("r/gemini-3.8-flash");
+    expect(dispatchModel({ ...base, model: "r/gemini-2.5-flash", prompt: "Hi" }).spec.id).toBe("r/gemini-3.8-flash");
     expect(() => dispatchModel({ ...base, model: "research-agent", prompt: "Build a CLI" })).toThrow(/Unknown model/);
     expect(dispatchModel({ ...base, model: "r/claude-sonnet-4-6", prompt: "Hi" }).spec.id).toBe("claude-sonnet-4-6"); // retired entry → its replacement
     expect(() => dispatchModel({ ...base, model: "r/claude-opus-4-6", prompt: "Hi" })).toThrow(/Unknown model/);
@@ -153,7 +155,7 @@ describe("model catalog and routing", () => {
       "Claude Opus 5.5", "Claude Opus 5", "Claude Opus 4.8", "Claude Opus 4.7", "Claude Opus 4.6", "Claude Opus 4.5",
       "Claude Sonnet 5.5", "Claude Sonnet 5", "Claude Sonnet 4.6", "Claude Sonnet 4.5", "Claude Haiku 5.5",
       "OpenAI GPT 5.5", "OpenAI GPT 5.4", "OpenAI GPT 5.2", "OpenAI GPT 5",
-      "Gemini 3.8 Flash", "Gemini 4 Argon", "Gemini 3.7 Flash", "Gemini 2.5 Flash",
+      "Gemini 3.8 Flash", "Gemini 4 Argon", "Gemini 3.7 Flash",
       "Grok 4.7", "Grok 4.6", "Kimi K3", "GLM 5.3",
       "Llama 3.3 70B", "Llama 3.1 70B", "Llama 3.1 8B", "Mistral 7B", "Ultramarine 1.0 Flash",
     ]);
@@ -168,13 +170,18 @@ describe("model catalog and routing", () => {
     // Chat-only engines keep plain-message (Anthropic-shaped) histories.
     for (const id of ["gemini-4-argon", "gemini-3.7-flash", "llama3.3-70b", "llama3.1-70b", "mistral-7b"]) expect(format(id)).toBe("anthropic");
     for (const id of ["gemini-4-argon", "gemini-3.7-flash", "llama3.3-70b"]) expect(getModel(id)).toMatchObject({ provider: "core-sql", tools: false, vision: false });
-    for (const id of ["r/gemini-3.8-flash", "r/gemini-2.5-flash"]) {
-      expect(getModel(id)).toMatchObject({ provider: "relay", tools: true, vision: true });
-      expect(getModel(id)!.hidden).toBeFalsy(); // back in the picker
+    for (const id of ["r/gemini-3.8-flash", "r/gemini-2.5-flash"]) expect(getModel(id)).toMatchObject({ provider: "relay", tools: true, vision: true });
+    expect(getModel("r/gemini-3.8-flash")!.hidden).toBeFalsy();
+    expect(getModel("r/gemini-2.5-flash")!.hidden).toBe(true); // no longer served: only saved tasks resolve it
+    // The relay's copies of the Claude models: hidden, same capabilities as the primary entries.
+    for (const id of ["claude-opus-5-5", "claude-sonnet-5-5", "claude-opus-5", "claude-sonnet-5"]) {
+      const { id: _primary, label: _label, provider: _provider, group: _group, ...capabilities } = getModel(id)!;
+      expect(getModel(`r/${id}`)).toMatchObject({ ...capabilities, provider: "relay", hidden: true });
     }
     expect(getModel("llama3.1-8b")!.provider).toBe("core-inference");
     const gemini = getModel("r/gemini-3.8-flash")!;
-    expect(["low", "medium", "high"].map(level => wireModel(gemini, level as "low"))).toEqual(["r/gemini-3.8-flash-low", "r/gemini-3.8-flash-medium", "r/gemini-3.8-flash-high"]);
+    // The relay serves Gemini 3.8 Flash only as its high variant.
+    expect(["low", "medium", "high"].map(level => wireModel(gemini, level as "low"))).toEqual(Array(3).fill("r/gemini-3.8-flash-high"));
     expect(wireModel(getModel("openai-gpt-5.5")!, "high")).toBe("openai-gpt-5.5");
   });
 
@@ -189,9 +196,11 @@ describe("model catalog and routing", () => {
   it("fails over within the conversation format, closest tier first", async () => {
     const { failoverModels } = await import("./agent/recovery");
     const ids = (id: string) => failoverModels(getModel(id)!).map(spec => spec.id);
-    expect(ids("claude-opus-5-5").slice(0, 2)).toEqual(["claude-opus-5", "claude-opus-4-8"]);
-    expect(ids("claude-sonnet-5-5")[0]).toBe("claude-sonnet-5");
-    expect(ids("r/gemini-3.8-flash")[0]).toBe("r/gemini-2.5-flash");
+    // The same model on the relay first, then the next one down.
+    expect(ids("claude-opus-5-5").slice(0, 3)).toEqual(["r/claude-opus-5-5", "claude-opus-5", "r/claude-opus-5"]);
+    expect(ids("claude-sonnet-5-5").slice(0, 2)).toEqual(["r/claude-sonnet-5-5", "claude-sonnet-5"]);
+    expect(ids("r/gemini-3.8-flash").slice(0, 2)).toEqual(["claude-haiku-5-5", "r/claude-haiku-4-5"]);
+    expect(ids("claude-sonnet-5-5")).not.toContain("r/gemini-2.5-flash");
     expect(ids("openai-gpt-5.5").slice(0, 2)).toEqual(["openai-gpt-5.4", "openai-gpt-5.2"]);
     for (const id of ids("grok-4.7")) expect(formatFor(getModel(id)!)).toBe("openai"); // never crosses formats
     for (const id of ids("claude-haiku-5-5")) expect(formatFor(getModel(id)!)).toBe("anthropic");
@@ -694,8 +703,8 @@ describe("self-healing recovery", () => {
   it("switches straight to another route when the engine route refuses every request, for this run only", async () => {
     const { RecoveryEngine, failoverModels } = await import("./agent/recovery");
     const { getModel } = await import("../shared/agent");
-    // The relay's Claude Opus 4.6 is the backup path to Claude; the relay no longer serves Sonnet 4.6.
-    expect(failoverModels(getModel("claude-sonnet-5-5")!).map(spec => spec.id)).not.toContain("r/claude-sonnet-4-6");
+    // The relay's copy of the same model is the backup path to Claude.
+    expect(failoverModels(getModel("claude-sonnet-5-5")!)[0].id).toBe("r/claude-sonnet-5-5");
     const events: any[] = [];
     const switches: { id: string; forRun?: boolean }[] = [];
     let spec = getModel("claude-opus-5-5")!;
@@ -707,12 +716,12 @@ describe("self-healing recovery", () => {
     expect(await engine.handle(await apiError(403, "Not authorized for this endpoint."))).toBe(true);
     // No retry on the refusing route and no other model on it: the closest model on another route,
     // as a stand-in for this run (the task keeps its own model for the next one).
-    expect(switches).toEqual([{ id: "r/claude-opus-4-6-thinking", forRun: true }]);
+    expect(switches).toEqual([{ id: "r/claude-opus-5-5", forRun: true }]);
     expect(events.map(event => event.kind)).toEqual(["route_down"]);
     // An outage on the stand-in's route later never moves the run back onto the refusing one.
     engine.succeeded();
     for (let i = 0; i < 5; i++) expect(await engine.handle(await apiError(529, "Overloaded"))).toBe(true);
-    expect(switches).toEqual([{ id: "r/claude-opus-4-6-thinking", forRun: true }, { id: "r/gemini-3.8-flash", forRun: true }]);
+    expect(switches).toEqual([{ id: "r/claude-opus-5-5", forRun: true }, { id: "r/claude-opus-5", forRun: true }]);
     // With no other route configured, the run fails as before.
     let solo = getModel("claude-sonnet-5-5")!;
     const stuck = new RecoveryEngine({
@@ -737,7 +746,7 @@ describe("self-healing recovery", () => {
     // Five overloads on the primary route: another route for this run only, the task keeps Sonnet.
     const overloaded = engine("claude-sonnet-5-5", () => true);
     for (let i = 0; i < 5; i++) expect(await overloaded.recovery.handle(await apiError(529, "Overloaded"))).toBe(true);
-    expect(overloaded.switches).toEqual([{ id: "r/claude-opus-4-6-thinking", forRun: true }]);
+    expect(overloaded.switches).toEqual([{ id: "r/claude-sonnet-5-5", forRun: true }]);
     // A saved pick the relay no longer serves: its replacement's tier, and that switch sticks.
     expect(failoverModels(getModel("r/claude-sonnet-4-6")!)[0].id).toBe("claude-sonnet-5-5");
     const retired = engine("r/claude-sonnet-4-6", () => true);
@@ -760,6 +769,15 @@ describe("self-healing recovery", () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+
+  it("reads the relay's quota answer as a wait, not as rejected credentials", async () => {
+    const { diagnose } = await import("./agent/recovery");
+    const quota = (status: number, text: string) => Object.assign(new Error(`${status} {"error":{"message":"[upstream/claude-opus-4-6-thinking] [${status}]: HTTP ${status} (${text})"}}`), { status });
+    expect(diagnose(quota(403, "reset after 23s"), false)).toMatchObject({ kind: "rate_limit", retryAfterMs: 23_000 });
+    expect(diagnose(quota(429, "reset after 1m 5s"), false)).toMatchObject({ kind: "rate_limit", retryAfterMs: 60_000 });
+    expect(diagnose(quota(403, "reset after 1m"), false)).toMatchObject({ kind: "rate_limit", retryAfterMs: 60_000 });
+    expect(diagnose(Object.assign(new Error("403 Forbidden"), { status: 403 }), false).kind).toBe("auth");
   });
 
   it("nudges the agent after repeated identical tool failures", async () => {

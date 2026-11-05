@@ -40,13 +40,14 @@ vi.mock("./media/snowflake", async importOriginal => ({ ...(await importOriginal
 
 // A scripted model for the agent loop: each turn's content comes from `script`; `duringStream`
 // runs while the turn is streaming (e.g. the user presses Cancel).
-const model = vi.hoisted(() => ({ script: (_turn: number): Record<string, unknown>[] => [], duringStream: (_turn: number) => undefined as void, turns: 0 }));
+const model = vi.hoisted(() => ({ script: (_turn: number): Record<string, unknown>[] => [], duringStream: (_turn: number) => undefined as void, turns: 0, requests: [] as unknown[] }));
 vi.mock("./agent/providers", async importOriginal => ({
   ...(await importOriginal<typeof import("./agent/providers")>()),
   anthropicClient: () => ({
     messages: {
-      stream: (params: { model: string }) => {
+      stream: (params: { model: string; messages?: unknown[] }) => {
         const turn = ++model.turns;
+        model.requests.push(JSON.parse(JSON.stringify(params.messages ?? [])));
         const content = model.script(turn);
         const message = { id: `msg${turn}`, type: "message", role: "assistant", model: params.model, content, stop_reason: content.some(block => block.type === "tool_use") ? "tool_use" : "end_turn", stop_sequence: null, usage: { input_tokens: 10, output_tokens: 5 } };
         return {
@@ -297,6 +298,51 @@ describe("the run's publishing outcome", () => {
     await runAgentLoop(second.ctx, [{ role: "user", content: "Push it and deploy it." }]);
     expect(second.events.find(event => event.type === "tool_result" && event.callId === "tu_push")).toMatchObject({ ok: false });
     expect(second.ctx.outcome.publish).toBe("failed");
+  });
+});
+
+describe("the turn limit and the self-healing breaker", () => {
+  it("asks for a wrap-up in the last fifth of the turns, then ends with a summary instead of failing", async () => {
+    db.handler = () => ({ rows: [], rowCount: 0 });
+    model.duringStream = () => undefined;
+    const busy = (turn: number) => [{ type: "tool_use", id: `tu_ls${turn}`, name: "list_files", input: {} }];
+    const { ctx, events } = await loopContext("00000000-0000-4000-8000-0000000000d1");
+    model.turns = 0;
+    model.requests.length = 0;
+    model.script = turn => (turn <= 5 ? busy(turn) : [{ type: "text", text: "Summary: listed the files; the build is not started yet." }]);
+    const result = await runAgentLoop(ctx, [{ role: "user", content: "Build it." }], { maxTurns: 5 });
+    expect(result.text).toContain("Summary: listed the files");
+    expect(ctx.outcome.turnLimit).toBe(true);
+    expect(model.turns).toBe(6); // five turns, then one summary reply
+    // The wrap-up note arrives once, with turn 4 (80% of 5); the summary turn is told not to use tools.
+    expect(model.requests.map(messages => JSON.stringify(messages).includes("[Turn budget] 2 of 5 model turns are left"))).toEqual([false, false, false, true, true, true]);
+    expect(JSON.stringify(model.requests.at(-1))).toContain("[Turn limit]");
+    expect(events.some(event => event.type === "notice" && /5-turn limit/.test(event.message))).toBe(true);
+
+    // A summary turn that still calls a tool: the call is not run, the history stays valid, the run still ends.
+    const again = await loopContext("00000000-0000-4000-8000-0000000000d3");
+    model.turns = 0;
+    model.script = turn => busy(turn);
+    const conversation: any[] = [{ role: "user", content: "Build it." }];
+    const stopped = await runAgentLoop(again.ctx, conversation, { maxTurns: 3 });
+    expect(stopped.text).toMatch(/Stopped at the 3-turn limit before finishing/);
+    expect(conversation.at(-1)).toEqual({ role: "user", content: [{ type: "tool_result", tool_use_id: "tu_ls4", is_error: true, content: "Not run: the turn limit was reached." }] });
+    expect(again.events.filter(event => event.type === "tool_call").map(event => event.callId)).toEqual(["tu_ls1", "tu_ls2", "tu_ls3"]);
+  });
+
+  it("stops self-healing when the same check fails the same way twice", async () => {
+    db.handler = () => ({ rows: [], rowCount: 0 });
+    model.duringStream = () => undefined;
+    const { ctx, events } = await loopContext("00000000-0000-4000-8000-0000000000d2");
+    fs.writeFileSync(path.join(ctx.root, "package.json"), JSON.stringify({ name: "t", scripts: { test: "node -e \"console.log('2 tests failed in 0.41s'); process.exit(1)\"" } }));
+    model.turns = 0;
+    model.script = turn => (turn === 1 ? [{ type: "tool_use", id: "tu_w", name: "write_file", input: { path: "a.js", content: "x\n" } }] : [{ type: "text", text: turn === 2 ? "Done." : "Fixed it." }]);
+    const result = await runAgentLoop(ctx, [{ role: "user", content: "Build it." }]);
+    expect(events.filter(event => event.type === "heal")).toHaveLength(1);
+    expect(model.turns).toBe(3);
+    expect(ctx.outcome).toMatchObject({ verification: "failed", failedCheck: { command: "npm run --silent test", exitCode: 1 } });
+    expect(result.text).toMatch(/Verification failed\*\* the same way twice: `npm run --silent test`/);
+    expect(events.some(event => event.type === "notice" && /failed the same way twice/.test(event.message))).toBe(true);
   });
 });
 
