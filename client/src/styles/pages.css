@@ -604,3 +604,32 @@ a.vault-thumb:focus-visible { outline-offset: -3px; }
 .omni-mic[data-recording] { border-color: var(--vermilion-deep); background: var(--vermilion-wash); color: var(--vermilion-ink); font-variant-numeric: tabular-nums; }
 .omni-mic[data-recording] > .lucide { color: var(--vermilion-deep); fill: currentColor; animation: spark-ring 1.6s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .omni-mic[data-recording] > .lucide { animation: none; } }
+
+/* ---------- Developer API ---------- */
+.dev-page { display: flex; flex-direction: column; gap: var(--s-5); }
+.dev-endpoint { display: grid; gap: 16px; padding: 16px 18px 18px; }
+.dev-copy { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.dev-copy > code { flex: 1 1 auto; min-width: 0; overflow-x: auto; padding: 8px 10px; border-radius: var(--r-sm); background: var(--paper-deep); color: var(--text); font: 500 13px/1.4 var(--font-mono); white-space: nowrap; }
+.dev-models { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.dev-keys { margin: 0; padding: 0; list-style: none; }
+.dev-key { display: grid; grid-template-columns: minmax(0, 1.3fr) auto minmax(0, 1fr) auto; align-items: center; gap: 8px 16px; padding: 13px 18px; }
+.dev-key + .dev-key { border-top: 1px solid var(--border); }
+.dev-key-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.dev-key-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; color: var(--text); }
+.dev-key[data-revoked] .dev-key-name { color: var(--text-3); text-decoration: line-through; text-decoration-thickness: 1px; }
+.dev-key-meta { font-size: 12px; color: var(--text-3); }
+.dev-key-prefix { padding: 3px 8px; border-radius: 6px; background: var(--paper-deep); color: var(--text); font: 500 12.5px/1.4 var(--font-mono); white-space: nowrap; }
+.dev-fieldset { margin: 0; padding: 0; border: 0; }
+.dev-check { display: flex; align-items: center; gap: 8px; min-height: 32px; font-size: 13.5px; color: var(--text); }
+.dev-check > code { margin-left: auto; color: var(--text-3); font: 12px/1.4 var(--font-mono); }
+.dev-secret { display: block; padding: 12px 14px; border-radius: var(--r-md); background: var(--paper-deep); color: var(--text); font: 500 13.5px/1.55 var(--font-mono); overflow-wrap: anywhere; user-select: all; }
+.dev-samples > .tabs { padding: 0 12px; }
+.dev-sample { position: relative; padding: 14px 18px 4px; }
+.dev-sample .code-block { padding-right: 84px; }
+.dev-sample-copy { position: absolute; top: 22px; right: 26px; }
+.dev-samples-note { padding: 8px 18px 16px; }
+@media (max-width: 640px) {
+  .dev-key { grid-template-columns: minmax(0, 1fr) auto; }
+  .dev-key-models { grid-column: 1 / -1; }
+  .dev-sample .code-block { padding-right: 14px; padding-top: 44px; }
+}

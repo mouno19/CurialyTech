@@ -21,6 +21,7 @@ const Media = lazy(() => import("./pages/Media"));
 const Integrations = lazy(() => import("./pages/Integrations"));
 const Skills = lazy(() => import("./pages/Skills"));
 const ApiKeys = lazy(() => import("./pages/ApiKeys"));
+const DeveloperPortal = lazy(() => import("./pages/DeveloperPortal"));
 const Admin = lazy(() => import("./pages/Admin"));
 // The public homepage has its own chunk and stylesheet.
 const Landing = lazy(() => import("./pages/Landing"));
@@ -129,6 +130,7 @@ function Gate() {
           <Route path="/media" component={Media} />
           <Route path="/integrations" component={Integrations} />
           <Route path="/skills" component={Skills} />
+          <Route path="/developer" component={DeveloperPortal} />
           {/* The operator's pages: other accounts land on the dashboard. */}
           <Route path="/keys">{admin ? <ApiKeys /> : <Redirect to="/" />}</Route>
           <Route path="/admin">{admin ? <Admin /> : <Redirect to="/" />}</Route>

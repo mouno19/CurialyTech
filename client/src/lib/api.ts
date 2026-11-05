@@ -1,4 +1,5 @@
 import type { AgentTaskSummary, CreateTaskRequest, ModelSpec, StatusReason, TaskStatus } from "@shared/agent";
+import type { ApiKeyInfo } from "@shared/gateway";
 import type { CreditBalance, CreditSettings } from "@shared/credits";
 import type { DeploymentState } from "@shared/taskStatus";
 import { markStorageUnavailable } from "./mediaHealth";
@@ -263,6 +264,13 @@ export const voiceApi = {
   },
   /** An answer read aloud (MP3). */
   speech: (taskId: string, text: string, signal?: AbortSignal) => apiBlob(`/api/agent/tasks/${encodeURIComponent(taskId)}/speech`, { method: "POST", json: { text }, signal }),
+};
+
+/** Developer API keys: the secret comes back from create() once and is never shown again. */
+export const developerApi = {
+  keys: () => api<{ keys: ApiKeyInfo[] }>("/api/keys"),
+  create: (name: string, models: string[]) => api<{ key: ApiKeyInfo; secret: string }>("/api/keys", { method: "POST", json: { name, models } }),
+  revoke: (id: string) => api<{ key: ApiKeyInfo }>(`/api/keys/${encodeURIComponent(id)}`, { method: "DELETE" }),
 };
 
 export const accountApi = {

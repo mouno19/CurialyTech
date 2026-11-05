@@ -58,6 +58,15 @@ Auto routes complex or high-effort work to Opus 5.5, routine coding to Sonnet 5.
 asks to Haiku 5.5. Hidden entries (the backup route: RelayStation's copies of Claude Opus 5.5/5, Sonnet 5.5/5/4.6, Haiku 4.5 and Opus 4.6; the Research Agent)
 are used for failover and delegation only.
 
+## Developer API (`server/gateway`, page `/developer`)
+
+- Every account can create up to 10 active keys (`cur_live_` + 32 hex). The secret is returned once by `POST /api/keys`; the database keeps only its SHA-256 and the first 13 characters (`curialy.api_keys`, migration 9). `DELETE /api/keys/:id` revokes at once (lookups are cached 30 s, and revoking clears the entry).
+- `https://curialy.tech/v1` (also `/api/v1`): `POST /messages` (Anthropic), `POST /chat/completions` (OpenAI, translated to Messages in `server/gateway/openai.ts`), `GET /models`. Keys go in `x-api-key` or `Authorization: Bearer`. Models: `shared/gateway.ts` (`claude-opus-5-5`, `claude-sonnet-4-5`), limited per key.
+- Requests go to the bridge (`CORTEX_BRIDGE_URL`) and, when it refuses, to the relay's copy of the same model; after a refusal the bridge is skipped for 2 minutes.
+- Nothing upstream reaches the caller. No upstream header is copied (only content type, `x-curialy-request-id` and CORS are set). Upstream 401/403/5xx become a 503 `curialy_api_error`, and only the caller's own request errors (400/413/422) pass on, scrubbed with `brandText`. Stream error events are masked too, and log lines read `[Curialy Gateway] Upstream error: core|relay …`, scrubbed the same way.
+- Usage is charged to the key's account in credits at the agent's rates (cache reads a tenth, cache writes a quarter more), and the operator's account is not charged. Free accounts: at most 3 requests in flight and `max_tokens` up to 16384, refused with 402 when out of credits.
+- nginx: the `location ~ ^/(api/)?v1/` block turns off response buffering and allows 10-minute reads.
+
 ## Rebuilding the host from scratch
 
 1. Ubuntu with Node 22, nginx, certbot, git. Clone this repo to `/srv/curialyai-next` (`chmod 750`), then `pnpm install` (or `npm install`).

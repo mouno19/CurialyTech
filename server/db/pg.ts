@@ -311,6 +311,26 @@ const MIGRATIONS: { id: number; sql: string }[] = [
       );
     `,
   },
+  {
+    id: 9,
+    sql: `
+      -- Developer API keys. The secret is shown once and never stored: only its SHA-256 (for lookup)
+      -- and a short prefix to recognise it by. Revoked keys stay listed with their history.
+      CREATE TABLE IF NOT EXISTS curialy.api_keys (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id uuid NOT NULL REFERENCES curialy.users(id) ON DELETE CASCADE,
+        name text NOT NULL,
+        key_hash text NOT NULL UNIQUE,
+        key_prefix text NOT NULL,
+        allowed_models jsonb NOT NULL DEFAULT '["claude-opus-5-5", "claude-sonnet-4-5"]'::jsonb,
+        status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'revoked')),
+        created_at timestamptz NOT NULL DEFAULT now(),
+        last_used_at timestamptz,
+        revoked_at timestamptz
+      );
+      CREATE INDEX IF NOT EXISTS api_keys_user_idx ON curialy.api_keys (user_id, created_at DESC);
+    `,
+  },
 ];
 
 export async function migrate() {

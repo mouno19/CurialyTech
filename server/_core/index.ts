@@ -16,6 +16,7 @@ import { registerGitHubAuth } from "../auth-github";
 import { previewHandler } from "../agent/preview";
 import { SANDBOX_MODE } from "../agent/sandbox";
 import { startCloudSandbox, stopCloudSandboxes } from "../agent/e2b";
+import { gatewayRouter, keysRouter } from "../gateway";
 
 async function startServer() {
   const app = express();
@@ -40,6 +41,11 @@ async function startServer() {
     res.setHeader("Referrer-Policy", "no-referrer");
     previewHandler(req, res);
   });
+  // The Developer API: key-authenticated, cross-origin by design, with its own body limit, so it is
+  // mounted before the app's body parsers, security headers and same-origin check.
+  const gateway = gatewayRouter();
+  app.use("/v1", gateway);
+  app.use("/api/v1", gateway);
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "2mb" }));
   app.use(express.urlencoded({ limit: "2mb", extended: true }));
@@ -65,6 +71,7 @@ async function startServer() {
   // Every account reaches the agent; each route checks that the task, file or repository is its own.
   app.use("/api/agent", requireUser, agentRouter());
   app.use("/api/account", accountRouter());
+  app.use("/api/keys", keysRouter());
   app.use("/api/admin", adminRouter());
   app.get("/api/github/repos", requireUser, (req, res) => void githubReposHandler(req, res).catch(error => res.status(502).json({ error: error instanceof Error ? error.message : "GitHub request failed" })));
   // tRPC API
