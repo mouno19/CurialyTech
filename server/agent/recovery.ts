@@ -252,18 +252,23 @@ export const TOOL_SCREENSHOTS = "[Tool screenshots]";
 export const DESIGN_CHECK = "[Design check]";
 
 /** Harness-injected user turns (continue prompts, verification feedback, design checks, tool screenshots) are not user requests. */
-const INJECTED = /^(Your previous reply (was cut off|ran out of output)|Automated verification failed|\[Tool screenshots\]|\[Design check\])/;
+const INJECTED = /^(Your previous reply (was cut off|ran out of output)|Automated verification failed|\[Tool screenshots\]|\[Design check\]|\[Turn budget\]|\[Turn limit\]|\[Retry\]|\[(earlier )?image removed )/;
+/** Text the harness adds to a user turn (notes, checks), as opposed to what the user wrote. */
+export const isHarnessText = (text: string) => INJECTED.test(text.trimStart());
 
 /** Index of the most recent message the user actually wrote (not tool results or harness text). */
 export function latestRequestIndex(conversation: { role: string; content: unknown }[]) {
   for (let index = conversation.length - 1; index >= 0; index--) {
     const message = conversation[index];
     if (message.role !== "user") continue;
-    if (typeof message.content === "string") { if (!INJECTED.test(message.content)) return index; continue; }
+    if (typeof message.content === "string") { if (!isHarnessText(message.content)) return index; continue; }
     if (Array.isArray(message.content)) {
+      // Harness notes can be merged into a turn (after tool results, or after the user's own text):
+      // the user's own text counts, and media only without a harness note (screenshots come with one).
       const parts = message.content as Block[];
-      const text = parts.filter(part => part.type === "text").map(part => part.text).join(" ");
-      if (parts.some(part => part.type !== "tool_result") && !INJECTED.test(text)) return index;
+      const texts = parts.filter(part => part.type === "text").map(part => String(part.text ?? ""));
+      const media = parts.some(part => part.type !== "text" && part.type !== "tool_result");
+      if (texts.some(text => !isHarnessText(text)) || (media && !texts.some(isHarnessText))) return index;
     }
   }
   return 0;
@@ -357,13 +362,21 @@ const FAILOVER_TIERS: Record<"anthropic" | "openai", string[][]> = {
 };
 
 /** Same-format models to fail over to: the current tier first, then the others in order. */
+/** Relay copies whose id is not simply r/ + the primary id (the relay serves Haiku as 4.5). */
+const COPIES: Record<string, string> = { "claude-haiku-5-5": "r/claude-haiku-4-5", "r/claude-haiku-4-5": "claude-haiku-5-5" };
+/** The same model on the other route (it may not exist: unknown ids are dropped). */
+const copyOf = (id: string) => COPIES[id] ?? (id.startsWith("r/") ? id.slice(2) : `r/${id}`);
+
 export function failoverModels(current: ModelSpec): ModelSpec[] {
   if (current.provider === "research" || current.provider === "core-inference" || current.provider === "core-sql") return [];
   const tiers = FAILOVER_TIERS[current.provider === "fast" || current.provider === "core-chat" ? "openai" : "anthropic"];
   // A retired id (still on saved tasks) is in no tier: its replacement's tier is the closest.
   const own = tiers.findIndex(tier => tier.includes(current.id) || tier.includes(REPLACED[current.id] ?? ""));
   const ordered = own < 0 ? tiers.flat() : [...tiers[own], ...tiers.filter((_, index) => index !== own).flat()];
-  return ordered.filter(id => id !== current.id).map(id => getModel(id)).filter((spec): spec is ModelSpec => Boolean(spec?.tools));
+  // The same model on the other route comes first, so a failover around an outage keeps the model.
+  // Ids are compared once resolved (an alias can name the current model), each model listed once.
+  const specs = [copyOf(current.id), ...ordered].map(id => getModel(id)).filter((spec): spec is ModelSpec => Boolean(spec?.tools) && spec!.id !== current.id);
+  return specs.filter((spec, index) => specs.findIndex(other => other.id === spec.id) === index);
 }
 
 /** Tool-failure watchdog: the same tool failing the same way repeatedly gets a nudge to change course. */
@@ -657,9 +670,10 @@ export class RecoveryEngine {
     const next = candidates[0];
     if (!next) return null;
     const from = host.spec.label;
-    // Around a refusing route (hours at a time, then it is back), or onto another route during an
-    // overload, the switch is for this run only: the task keeps its own model for the next one.
-    const forRun = this.downRoutes.size > 0 || (transient && next.provider !== host.spec.provider);
+    // Around a refusing route (hours at a time, then it is back), onto another route during an
+    // overload, or onto a hidden backup entry, the switch is for this run only: the task keeps its
+    // own model for the next one.
+    const forRun = this.downRoutes.size > 0 || Boolean(next.hidden) || (transient && next.provider !== host.spec.provider);
     this.switchTo(next, `Self-healing: ${from} ${diagnosis.kind === "model_unavailable" ? "is unavailable" : diagnosis.kind === "route_down" ? "is refusing requests on its route" : "kept failing"} → ${next.label}`, forRun);
     this.failedOver = true;
     this.transientStreak = 0;

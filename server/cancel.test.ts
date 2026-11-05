@@ -310,9 +310,13 @@ describe("the turn limit and the self-healing breaker", () => {
     model.turns = 0;
     model.requests.length = 0;
     model.script = turn => (turn <= 5 ? busy(turn) : [{ type: "text", text: "Summary: listed the files; the build is not started yet." }]);
-    const result = await runAgentLoop(ctx, [{ role: "user", content: "Build it." }], { maxTurns: 5 });
+    const history: any[] = [{ role: "user", content: "Build it." }];
+    const result = await runAgentLoop(ctx, history, { maxTurns: 5 });
+    expect(result.turnLimit).toBe(true);
+    // The notes were instructions for this loop only: a later run's history no longer has them.
+    expect(JSON.stringify(history)).not.toMatch(/\[Turn (budget|limit)\]/);
     expect(result.text).toContain("Summary: listed the files");
-    expect(ctx.outcome.turnLimit).toBe(true);
+    expect(ctx.outcome.turnLimit).toBeUndefined(); // recorded by the caller: the run, or the team for its delivered pass
     expect(model.turns).toBe(6); // five turns, then one summary reply
     // The wrap-up note arrives once, with turn 4 (80% of 5); the summary turn is told not to use tools.
     expect(model.requests.map(messages => JSON.stringify(messages).includes("[Turn budget] 2 of 5 model turns are left"))).toEqual([false, false, false, true, true, true]);
@@ -326,20 +330,27 @@ describe("the turn limit and the self-healing breaker", () => {
     const conversation: any[] = [{ role: "user", content: "Build it." }];
     const stopped = await runAgentLoop(again.ctx, conversation, { maxTurns: 3 });
     expect(stopped.text).toMatch(/Stopped at the 3-turn limit before finishing/);
+    expect(stopped.turnLimit).toBe(true);
     expect(conversation.at(-1)).toEqual({ role: "user", content: [{ type: "tool_result", tool_use_id: "tu_ls4", is_error: true, content: "Not run: the turn limit was reached." }] });
     expect(again.events.filter(event => event.type === "tool_call").map(event => event.callId)).toEqual(["tu_ls1", "tu_ls2", "tu_ls3"]);
   });
 
-  it("stops self-healing when the same check fails the same way twice", async () => {
+  it("stops self-healing when the same check fails the same way twice, after the strongest model's attempt", { timeout: 30_000 }, async () => {
     db.handler = () => ({ rows: [], rowCount: 0 });
     model.duringStream = () => undefined;
     const { ctx, events } = await loopContext("00000000-0000-4000-8000-0000000000d2");
-    fs.writeFileSync(path.join(ctx.root, "package.json"), JSON.stringify({ name: "t", scripts: { test: "node -e \"console.log('2 tests failed in 0.41s'); process.exit(1)\"" } }));
+    const { RecoveryEngine } = await import("./agent/recovery");
+    ctx.recovery = new RecoveryEngine({ signal: ctx.signal, format: "anthropic", conversation: [], get spec() { return ctx.spec; }, flags: ctx.flags, switchModel: (next: any) => { ctx.spec = next; }, persist: () => undefined, emit: () => undefined });
+    // The same failure each time, apart from npm's per-run log name and the timing.
+    const check = "console.log('2 tests failed in ' + (Math.random() * 2).toFixed(2) + 's'); console.log('npm error A complete log of this run can be found in: /root/.npm/_logs/' + new Date().toISOString().replace(/[:.]/g, '_') + '-debug-0.log'); process.exit(1)";
+    fs.writeFileSync(path.join(ctx.root, "check.js"), check);
+    fs.writeFileSync(path.join(ctx.root, "package.json"), JSON.stringify({ name: "t", scripts: { test: "node check.js" } }));
     model.turns = 0;
     model.script = turn => (turn === 1 ? [{ type: "tool_use", id: "tu_w", name: "write_file", input: { path: "a.js", content: "x\n" } }] : [{ type: "text", text: turn === 2 ? "Done." : "Fixed it." }]);
     const result = await runAgentLoop(ctx, [{ role: "user", content: "Build it." }]);
-    expect(events.filter(event => event.type === "heal")).toHaveLength(1);
-    expect(model.turns).toBe(3);
+    // Sonnet's fix changes nothing: escalated to Opus 5.5 for one attempt; the same failure again ends it.
+    expect(events.filter(event => event.type === "heal").map(event => event.model)).toEqual(["claude-sonnet-4-5", "claude-opus-5-5"]);
+    expect(model.turns).toBe(4);
     expect(ctx.outcome).toMatchObject({ verification: "failed", failedCheck: { command: "npm run --silent test", exitCode: 1 } });
     expect(result.text).toMatch(/Verification failed\*\* the same way twice: `npm run --silent test`/);
     expect(events.some(event => event.type === "notice" && /failed the same way twice/.test(event.message))).toBe(true);

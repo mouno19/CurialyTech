@@ -243,6 +243,41 @@ describe("Dev Team orchestration", () => {
     expect(events.filter(event => event.type === "handoff").map(event => `${event.from}->${event.to}:${event.kind}`)).toEqual(["architect->engineer:plan", "reviewer->user:review", "reviewer->user:report"]);
   });
 
+  it("counts the turn limit of the delivered Engineer pass only, and a publish pass out of turns as not published", { timeout: 60_000 }, async () => {
+    const { runTeam } = await import("./agent/team");
+    const busyEngineer = (finishes: (messages: any[]) => boolean): Script => (role, messages) => {
+      const all = JSON.stringify(messages);
+      if (role === "engineer") {
+        if (JSON.stringify(messages.at(-1)).includes("[Turn limit]")) return [{ type: "text", text: "Summary: out of turns." }];
+        if (finishes(messages)) return lastFinish(messages);
+        return [{ type: "tool_use", id: `tu_busy${messages.length}`, name: "list_files", input: {} }];
+      }
+      return happyPath(role, messages);
+      function lastFinish(history: any[]) {
+        return JSON.stringify(history.at(-1)).includes("tu_fix") ? [{ type: "text", text: "Fixed." }] : [{ type: "tool_use", id: "tu_fix", name: "write_file", input: { path: "greet.js", content: "exports.greet = n => `Hello, ${n || 'friend'}!`;\n" } }];
+      }
+      void all;
+    };
+
+    // First pass out of turns, approved at once, then a publish pass that also runs out: the run says so.
+    let { ctx } = await setup("00000000-0000-4000-8000-0000000000f1");
+    calls.length = 0;
+    reviewerRounds = 1;
+    script = busyEngineer(() => false);
+    let answer = await runTeam(ctx, [{ role: "user", content: "Write greet.js and push it to GitHub." }]);
+    expect(ctx.outcome).toMatchObject({ turnLimit: true, publish: "failed", review: { verdict: "approve" } });
+    expect(answer).toContain("**Publishing:**");
+
+    // First pass out of turns, a fix pass that finishes, then approval: the delivered work was finished.
+    ({ ctx } = await setup("00000000-0000-4000-8000-0000000000f2"));
+    calls.length = 0;
+    reviewerRounds = 0;
+    script = busyEngineer(messages => JSON.stringify(messages).includes("requested changes"));
+    answer = await runTeam(ctx, [{ role: "user", content: "Write greet.js." }]);
+    expect(ctx.outcome.review).toMatchObject({ verdict: "approve", rounds: 2 });
+    expect(ctx.outcome.turnLimit).toBeUndefined();
+  });
+
   it("offers deploy_preview in the publish step only when the run has the deploy go-ahead", { timeout: 60_000 }, async () => {
     const { runTeam } = await import("./agent/team");
     const { ctx } = await setup("00000000-0000-4000-8000-0000000000ee");

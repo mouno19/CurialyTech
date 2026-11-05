@@ -36,11 +36,11 @@ vi.mock("./db/pg", () => ({
 }));
 
 // Linked repositories: none unless a test sets one; its change listing fails like a damaged .git.
-const repos = vi.hoisted(() => ({ linked: null as null | Record<string, unknown> }));
+const repos = vi.hoisted(() => ({ linked: null as null | Record<string, unknown>, failure: "Could not list repository changes (git exit 1)." }));
 vi.mock("./agent/repos", async importOriginal => ({
   ...(await importOriginal<typeof import("./agent/repos")>()),
   linkedRepo: async () => repos.linked,
-  linkedSnapshotFiles: async () => { throw new Error("Could not list repository changes (git exit 1)."); },
+  linkedSnapshotFiles: async () => { throw new Error(repos.failure); },
 }));
 
 const { archiveWorkspace, collectWorkspaceFiles, findBuildDirs, isPublishExcluded, isUnbuiltTemplate, snapshotWorkspace, materializeWorkspace } = await import("./agent/workspaces");
@@ -185,9 +185,15 @@ describe("archive and restore", () => {
       expect(archive.saved.map(file => `${file.role}:${file.path}`).sort()).toEqual(["source:muzu/app/Main.kt", "source:notes.md"]);
       await snapshotWorkspace(id);
       expect(warn).toHaveBeenCalledTimes(1); // said once, not on every sweep
+      // A sandbox that could not run git at all is not a damaged repository: the next sweep retries.
+      repos.failure = "Could not list repository changes (git exit null).";
+      archive.saved.length = 0;
+      await expect(snapshotWorkspace(id)).rejects.toThrow(/git exit null/);
+      expect(archive.saved).toEqual([]);
     } finally {
       warn.mockRestore();
       repos.linked = null;
+      repos.failure = "Could not list repository changes (git exit 1).";
       archive.saved.splice(0, archive.saved.length, ...earlier);
     }
   });

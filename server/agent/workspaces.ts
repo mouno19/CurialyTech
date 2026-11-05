@@ -139,9 +139,11 @@ export async function snapshotWorkspace(taskId: string) {
   await refreshWorkspace(root);
   await shareWorkspaceFiles(root, SKIP_DIRS);
   const repo = await linkedRepo(taskId);
-  // A repository git can no longer read (e.g. a damaged .git) is archived whole below, like an
-  // unlinked workspace, instead of failing on every sweep while the files stay on this server.
+  // A repository git ran on but could not read (a damaged .git, "git exit 1") is archived whole
+  // below, like an unlinked workspace, instead of failing on every sweep while the files stay on
+  // this server. A sandbox that could not run git at all ("git exit null") is retried next sweep.
   const edits = repo ? await linkedSnapshotFiles(taskId, root, repo).catch(error => {
+    if (!/\(git exit \d+\)/.test(error instanceof Error ? error.message : "")) throw error;
     if (!unreadableRepos.has(taskId)) console.warn(`[workspaces] ${taskId}: archiving the whole workspace, its repository's changes could not be listed: ${error instanceof Error ? error.message : error}`);
     unreadableRepos.add(taskId);
     return null;
@@ -156,6 +158,9 @@ export async function snapshotWorkspace(taskId: string) {
     return { files: files.length, bytes: files.reduce((sum, file) => sum + file.content.length, 0), skipped: 0 };
   }
   const result = collectWorkspaceFiles(root);
+  // Archived whole, a linked workspace replaces its edits-only archive and is then removed: only
+  // when every file made it (on restore, files left out would come back at the base commit).
+  if (repo && result.skipped) throw new Error(`Could not archive the whole workspace (${result.skipped} files over the limits); it stays on this server.`);
   const build = buildFor(root, result.files);
   await saveWorkspaceSnapshot(taskId, [...result.files, ...build]);
   return { files: result.files.length + build.length, bytes: result.total + build.reduce((sum, file) => sum + file.content.length, 0), skipped: result.skipped };

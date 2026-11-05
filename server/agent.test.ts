@@ -747,11 +747,36 @@ describe("self-healing recovery", () => {
     const overloaded = engine("claude-sonnet-5-5", () => true);
     for (let i = 0; i < 5; i++) expect(await overloaded.recovery.handle(await apiError(529, "Overloaded"))).toBe(true);
     expect(overloaded.switches).toEqual([{ id: "r/claude-sonnet-5-5", forRun: true }]);
-    // A saved pick the relay no longer serves: its replacement's tier, and that switch sticks.
-    expect(failoverModels(getModel("r/claude-sonnet-4-6")!)[0].id).toBe("claude-sonnet-5-5");
+    // A relay copy the relay stops serving: the same model on the primary route, and that switch sticks.
+    expect(failoverModels(getModel("r/claude-sonnet-4-6")!)[0].id).toBe("claude-sonnet-4-6");
     const retired = engine("r/claude-sonnet-4-6", () => true);
     expect(await retired.recovery.handle(await apiError(404, "Unknown model: r/claude-sonnet-4-6"))).toBe(true);
-    expect(retired.switches).toEqual([{ id: "claude-sonnet-5-5", forRun: false }]);
+    expect(retired.switches).toEqual([{ id: "claude-sonnet-4-6", forRun: false }]);
+    // Every model's own copy comes first (the relay serves Haiku as 4.5), and no model is its own stand-in.
+    for (const [id, copy] of [["claude-opus-5", "r/claude-opus-5"], ["claude-sonnet-5", "r/claude-sonnet-5"], ["claude-haiku-5-5", "r/claude-haiku-4-5"], ["r/claude-opus-5-5", "claude-opus-5-5"]]) expect(failoverModels(getModel(id)!)[0].id, id).toBe(copy);
+    for (const id of ["r/gemini-3.8-flash", "claude-opus-5-5", "claude-haiku-5-5"]) {
+      const ids = failoverModels(getModel(id)!).map(spec => spec.id);
+      expect(ids).not.toContain(id);
+      expect(new Set(ids).size).toBe(ids.length);
+    }
+    // A model the primary route stopped serving: its hidden copy stands in for this run only.
+    const unavailable = engine("claude-opus-5-5", () => true);
+    expect(await unavailable.recovery.handle(await apiError(404, "model not found"))).toBe(true);
+    expect(unavailable.switches).toEqual([{ id: "r/claude-opus-5-5", forRun: true }]);
+  });
+
+  it("does not take harness notes merged into a turn for the user's request", async () => {
+    const { latestRequestIndex } = await import("./agent/recovery");
+    const conversation: any[] = [
+      { role: "user", content: "Build the pricing page" },
+      { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "list_files", input: {} }] },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }, { type: "text", text: "[Turn budget] 12 of 60 model turns are left." }] },
+      { role: "assistant", content: [{ type: "text", text: "Done." }] },
+      { role: "user", content: [{ type: "text", text: "[Retry] The previous run was interrupted." }] },
+    ];
+    expect(latestRequestIndex(conversation)).toBe(0);
+    conversation.push({ role: "user", content: [{ type: "text", text: "Now add a FAQ" }, { type: "text", text: "[Retry] The previous run failed." }] });
+    expect(latestRequestIndex(conversation)).toBe(5);
   });
 
   it("never fails a free account's run over onto a model that costs more credits", async () => {

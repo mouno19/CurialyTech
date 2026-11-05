@@ -311,7 +311,7 @@ export async function probeProviders(deep = false): Promise<ProbeResult[]> {
     timed("Gemini engine", "gemini", Boolean(PROVIDER_ENV.relayKey), async () => {
       if (!deep) return "Routed (run the live check to verify)";
       // RelayStation always answers with SSE, so even a probe has to stream.
-      const message = await anthropicClient("relay").messages.stream({ model: "r/gemini-3.8-flash-low", max_tokens: 8, messages: [{ role: "user", content: "Reply OK" }] }, { signal }).finalMessage();
+      const message = await anthropicClient("relay").messages.stream({ model: "r/gemini-3.8-flash-high", max_tokens: 8, messages: [{ role: "user", content: "Reply OK" }] }, { signal }).finalMessage();
       return `Live completion OK (${message.usage.output_tokens} tokens)`;
     }),
   ]);

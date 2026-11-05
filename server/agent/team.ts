@@ -142,7 +142,8 @@ function roleModels(taskSpec: ModelSpec): Record<TeamRole, ModelSpec> {
 }
 
 /** The Reviewer is a different model from the Engineer, for an independent second opinion. */
-const reviewerFor = (engineer: ModelSpec) => (engineer.id === "claude-opus-5" ? getModel("claude-opus-5-5")! : getModel("claude-opus-5")!);
+// Judged by the model, not the route: an Engineer on the relay's copy of Opus 5 still gets Opus 5.5.
+const reviewerFor = (engineer: ModelSpec) => (engineer.id.replace(/^r\//, "") === "claude-opus-5" ? getModel("claude-opus-5-5")! : getModel("claude-opus-5")!);
 
 const bullet = (items: string[]) => items.map(item => `- ${item}`).join("\n");
 
@@ -348,6 +349,8 @@ export async function runTeam(ctx: RunContext, conversation: Anthropic.MessagePa
     }
 
     const approved = review?.verdict === "approve";
+    // The work delivered is the last Engineer pass: only its turn limit counts for the run.
+    if (built.turnLimit) ctx.outcome.turnLimit = true;
     ctx.outcome.review = { verdict: review?.verdict ?? "none", rounds };
     if (!approved) track("reviewer", "done", "Open items remain");
 
@@ -365,7 +368,10 @@ export async function runTeam(ctx: RunContext, conversation: Anthropic.MessagePa
       try {
         delete ctx.outcome.publish;
         ctx.failedPublishing.clear();
-        published = (await engineerRun("p", { tools: [...ROLE_TOOLS.engineer, ...PUBLISH_TOOLS, ...(mayDeploy ? ["deploy_preview"] : [])], verify: false, maxTurns: PUBLISH_TURNS })).text;
+        const pass = await engineerRun("p", { tools: [...ROLE_TOOLS.engineer, ...PUBLISH_TOOLS, ...(mayDeploy ? ["deploy_preview"] : [])], verify: false, maxTurns: PUBLISH_TURNS });
+        published = pass.text;
+        // Out of turns before any push, pull request or deploy: what was asked for was not published.
+        if (pass.turnLimit && ctx.outcome.publish === undefined) ctx.outcome.publish = "failed";
         // trackedTool recorded done/failed for each push or PR; none called means nothing was published.
         ctx.outcome.publish ??= "not_requested";
       } catch (error) {
