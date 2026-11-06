@@ -11,8 +11,17 @@ export const UNAVAILABLE = "The requested model service is currently unavailable
 
 type Route = { name: "core" | "relay"; url: string; model: string; headers: Record<string, string> };
 
-/** The relay's copies of the gateway models (each checked live: the relay answers them as the same model). */
-const RELAY_COPIES: Record<string, string> = { "claude-opus-5-5": "r/claude-opus-5-5", "claude-sonnet-4-5": "r/claude-sonnet-4-5" };
+/**
+ * The relay's copies of the gateway models, each checked live (the relay answers them as the same
+ * model). Models without one, and every OpenAI-format model, are served by the bridge alone.
+ */
+const RELAY_COPIES: Record<string, string> = {
+  "claude-opus-5-5": "r/claude-opus-5-5", "claude-opus-5": "r/claude-opus-5", "claude-sonnet-5-5": "r/claude-sonnet-5-5",
+  "claude-sonnet-5": "r/claude-sonnet-5", "claude-sonnet-4-6": "r/claude-sonnet-4-6", "claude-sonnet-4-5": "r/claude-sonnet-4-5",
+};
+
+/** The two APIs the bridge speaks: Anthropic Messages (Claude) and OpenAI Chat Completions (the others). */
+export type UpstreamApi = "messages" | "chat";
 
 /** After the bridge refuses a request, the next ones go straight to the relay for a while. */
 const CORE_PAUSE_MS = 2 * 60_000;
@@ -23,7 +32,8 @@ export const resetRouteHealth = () => { coreDownUntil = 0; };
 /** The longest a request may run upstream (nginx gives /v1 ten minutes). */
 const UPSTREAM_DEADLINE_MS = 10 * 60_000;
 
-function routesFor(model: string): Route[] {
+function routesFor(api: UpstreamApi, model: string): Route[] {
+  if (api === "chat") return [{ name: "core", url: `${PROVIDER_ENV.cortexBridgeUrl}/v1/chat/completions`, model, headers: {} }];
   const core: Route = { name: "core", url: `${PROVIDER_ENV.cortexBridgeUrl}/v1/messages`, model, headers: {} };
   const relay: Route | null = PROVIDER_ENV.relayKey && RELAY_COPIES[model]
     ? { name: "relay", url: `${PROVIDER_ENV.relayUrl}/v1/messages`, model: RELAY_COPIES[model], headers: { authorization: `Bearer ${PROVIDER_ENV.relayKey}` } }
@@ -77,23 +87,23 @@ function failure(route: Route, status: number, body: string, retryAfter: string 
 export const errorBody = (failure: Pick<Failure, "status" | "type" | "message">) => ({ error: { message: failure.message, type: failure.type, code: failure.status } });
 
 /**
- * Send an Anthropic Messages request for `model`, always streamed. Resolves with the first
- * successful response, or with the failure to report once every route has refused (a malformed
- * request is reported at once: no other route would accept it either). Only a refusal or a
- * connection that never got an answer moves on to the next route.
+ * Send a request for `model` in the bridge's `api`, always streamed (a chat stream also asks for its
+ * usage). Resolves with the first successful response, or with the failure to report once every
+ * route has refused (a malformed request is reported at once: no other route would accept it
+ * either). Only a refusal or a connection that never got an answer moves on to the next route.
  */
-export async function sendMessages(model: string, body: Record<string, unknown>, opts: { version: string; beta?: string; signal: AbortSignal }): Promise<{ response: Response } | { failure: Failure }> {
+export async function sendUpstream(api: UpstreamApi, model: string, body: Record<string, unknown>, opts: { version: string; beta?: string; signal: AbortSignal }): Promise<{ response: Response } | { failure: Failure }> {
   // Serialized once: each route only swaps the model id in front.
-  const rest = JSON.stringify({ ...body, model: undefined, stream: true });
+  const rest = JSON.stringify({ ...body, model: undefined, stream: true, ...(api === "chat" ? { stream_options: { include_usage: true } } : {}) });
   const payload = (id: string) => `{"model":${JSON.stringify(id)},${rest.slice(1)}`;
   const signal = AbortSignal.any([opts.signal, AbortSignal.timeout(UPSTREAM_DEADLINE_MS)]);
   let last: Failure = { status: 503, type: "curialy_api_error", message: UNAVAILABLE };
-  for (const route of routesFor(model)) {
+  for (const route of routesFor(api, model)) {
     let response: Response;
     try {
       response = await fetch(route.url, {
         method: "POST",
-        headers: { "content-type": "application/json", accept: "text/event-stream", "anthropic-version": opts.version, ...(opts.beta ? { "anthropic-beta": opts.beta } : {}), ...route.headers },
+        headers: { "content-type": "application/json", accept: "text/event-stream", ...(api === "messages" ? { "anthropic-version": opts.version, ...(opts.beta ? { "anthropic-beta": opts.beta } : {}) } : {}), ...route.headers },
         body: payload(route.model),
         signal,
       });
@@ -203,5 +213,66 @@ export function messageBuilder() {
       }
     },
     message: () => ({ ...message, content: message.content.filter(Boolean) }),
+  };
+}
+
+/** A chat stream chunk as callers get it: standard fields only (no fingerprints or padding), the model as they named it. */
+export function cleanChunk(chunk: Record<string, any>, model: string) {
+  const choices = Array.isArray(chunk.choices)
+    ? chunk.choices.map((choice: Record<string, any>) => ({
+        index: choice.index ?? 0,
+        delta: Object.fromEntries(Object.entries(choice.delta ?? {}).filter(([key]) => ["role", "content", "reasoning_content", "tool_calls", "refusal"].includes(key))),
+        finish_reason: choice.finish_reason ?? null,
+        ...(choice.logprobs !== undefined ? { logprobs: choice.logprobs } : {}),
+      }))
+    : [];
+  return { id: chunk.id, object: "chat.completion.chunk", created: chunk.created, model, choices, ...(chunk.usage ? { usage: chunk.usage } : {}) };
+}
+
+/** A chat stream assembled into the chat.completion an unstreamed call returns. */
+export function chatBuilder(model: string) {
+  let id = "";
+  let created = Math.floor(Date.now() / 1000);
+  let content = "";
+  let reasoning = "";
+  let refusal = "";
+  let finish: string | null = null;
+  let usage: unknown;
+  const calls = new Map<number, { id?: string; type: string; function: { name: string; arguments: string } }>();
+  return {
+    add(chunk: Record<string, any>) {
+      id ||= chunk.id ?? "";
+      if (typeof chunk.created === "number") created = chunk.created;
+      if (chunk.usage) usage = chunk.usage;
+      const choice = chunk.choices?.[0];
+      if (!choice) return;
+      const delta = choice.delta ?? {};
+      if (typeof delta.content === "string") content += delta.content;
+      if (typeof delta.reasoning_content === "string") reasoning += delta.reasoning_content;
+      if (typeof delta.refusal === "string") refusal += delta.refusal;
+      for (const call of delta.tool_calls ?? []) {
+        const entry = calls.get(call.index ?? 0) ?? { type: "function", function: { name: "", arguments: "" } };
+        if (call.id) entry.id = call.id;
+        if (call.function?.name) entry.function.name += call.function.name;
+        if (call.function?.arguments) entry.function.arguments += call.function.arguments;
+        calls.set(call.index ?? 0, entry);
+      }
+      if (choice.finish_reason) finish = choice.finish_reason;
+    },
+    completion: () => ({
+      id, object: "chat.completion", created, model,
+      choices: [{
+        index: 0,
+        message: {
+          role: "assistant",
+          content: content || (calls.size ? null : ""),
+          ...(reasoning ? { reasoning_content: reasoning } : {}),
+          ...(refusal ? { refusal } : {}),
+          ...(calls.size ? { tool_calls: [...calls.entries()].sort(([a], [b]) => a - b).map(([, call]) => call) } : {}),
+        },
+        finish_reason: finish ?? "stop",
+      }],
+      ...(usage ? { usage } : {}),
+    }),
   };
 }

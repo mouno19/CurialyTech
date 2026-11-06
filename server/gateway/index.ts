@@ -2,12 +2,12 @@ import { randomBytes } from "node:crypto";
 import express, { Router, type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
 import { creditsFor } from "@shared/credits";
-import { GATEWAY_MODEL_IDS, GATEWAY_MODELS } from "@shared/gateway";
+import { GATEWAY_MODEL_IDS, GATEWAY_MODELS, gatewayModel } from "@shared/gateway";
 import { accountOf, requireUser } from "../auth";
 import { charge, getBalance, outOfCreditsMessage } from "../credits";
 import { createKey, findActiveKey, KeyError, listKeys, revokeKey, touchKey, type GatewayKey } from "./keys";
 import { chatChunks, toAnthropic, toChatCompletion, TranslationError } from "./openai";
-import { addUsage, emptyUsage, errorBody, messageBuilder, scrub, sendMessages, sseEvents, UNAVAILABLE, type Failure, type Usage } from "./upstream";
+import { addUsage, chatBuilder, cleanChunk, emptyUsage, errorBody, messageBuilder, scrub, sendUpstream, sseEvents, UNAVAILABLE, type Failure, type Usage } from "./upstream";
 
 // The Developer API. /api/keys: an account's keys (signed in). /v1 (and /api/v1): Anthropic Messages
 // and OpenAI Chat Completions for the gateway models, authenticated by key, charged to the key's
@@ -167,7 +167,7 @@ function inputEstimate(value: unknown, depth = 0): number {
   if (Array.isArray(value)) return value.reduce((sum: number, item) => sum + inputEstimate(item, depth + 1), 0);
   if (!value || typeof value !== "object") return 0;
   const record = value as Record<string, unknown>;
-  if (record.type === "image" || record.type === "document") return 1600;
+  if (record.type === "image" || record.type === "document" || record.type === "image_url" || record.type === "input_audio") return 1600;
   return Object.values(record).reduce((sum: number, item) => sum + inputEstimate(item, depth + 1), 0);
 }
 
@@ -208,6 +208,12 @@ async function proxy(req: Request, res: Response, format: "anthropic" | "openai"
   const { key } = admission;
   const body = req.body as Record<string, unknown> | undefined;
   if (!body || typeof body !== "object" || Array.isArray(body)) return send(res, 400, "invalid_request_error", "The request body must be a JSON object.");
+  // GPT, Grok, Kimi and GLM speak the OpenAI format: served as they are, on /v1/chat/completions.
+  const named = typeof body.model === "string" ? gatewayModel(body.model) : undefined;
+  if (named?.format === "openai") {
+    if (format === "anthropic") return send(res, 400, "invalid_request_error", `${named.id} is available on /v1/chat/completions (the OpenAI format), not on /v1/messages.`);
+    return proxyChat(res, admission, body, named.id);
+  }
   let request: Record<string, unknown>;
   try {
     request = format === "openai" ? toAnthropic(body) : { ...body };
@@ -229,7 +235,7 @@ async function proxy(req: Request, res: Response, format: "anthropic" | "openai"
   try {
     const version = typeof req.headers["anthropic-version"] === "string" ? req.headers["anthropic-version"] : "2023-06-01";
     const beta = typeof req.headers["anthropic-beta"] === "string" ? req.headers["anthropic-beta"] : undefined;
-    const result = await sendMessages(model, request, { version, beta, signal: controller.signal });
+    const result = await sendUpstream("messages", model, request, { version, beta, signal: controller.signal });
     if ("failure" in result) return sendFailure(res, result.failure);
     accepted = true;
     const chunks = streamed && format === "openai" ? chatChunks(model) : null;
@@ -289,6 +295,89 @@ async function proxy(req: Request, res: Response, format: "anthropic" | "openai"
       // written so far (about 4 characters a token); one with no count at all for its input.
       if (!finalUsage) usage.outputTokens = Math.max(usage.outputTokens, Math.ceil(streamedChars / 4));
       if (!usage.inputTokens) usage.inputTokens = Math.ceil(inputEstimate(request.messages) + inputEstimate(request.system));
+      chargeFor(key, model, usage);
+    }
+    admission.release();
+  }
+}
+
+/** A reply limit for a chat request that names none (Anthropic-format requests must name one). */
+const DEFAULT_CHAT_MAX_TOKENS = 4096;
+
+/** An OpenAI-format model: the request goes to the bridge as it is; the answer comes back whole or streamed, fields cleaned. */
+async function proxyChat(res: Response, admission: Admission, body: Record<string, unknown>, model: string) {
+  const { key } = admission;
+  if (typeof body.n === "number" && body.n > 1) return send(res, 400, "invalid_request_error", "n greater than 1 is not supported.");
+  const limit = body.max_completion_tokens ?? body.max_tokens ?? DEFAULT_CHAT_MAX_TOKENS;
+  const refused = refusal(admission, model, limit, { messages: body.messages, tools: body.tools });
+  if (refused) return send(res, refused.status, refused.type, refused.message);
+  const { max_completion_tokens: _limit, stream_options: _options, ...rest } = body;
+  const request = { ...rest, max_tokens: limit };
+  const streamed = body.stream === true;
+  const includeUsage = (body.stream_options as { include_usage?: unknown } | undefined)?.include_usage === true;
+  const controller = new AbortController();
+  res.on("close", () => { if (!res.writableFinished) controller.abort(); });
+  const usage = emptyUsage();
+  let accepted = false;
+  let finalUsage = false;
+  let streamedChars = 0;
+  const masked = sse(undefined, JSON.stringify(errorBody({ status: 503, type: "curialy_api_error", message: UNAVAILABLE })));
+  try {
+    const result = await sendUpstream("chat", model, request, { version: "", signal: controller.signal });
+    if ("failure" in result) return sendFailure(res, result.failure);
+    accepted = true;
+    const whole = streamed ? null : chatBuilder(model);
+    if (streamed) {
+      res.status(200);
+      res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("X-Accel-Buffering", "no");
+      res.flushHeaders();
+    }
+    for await (const event of sseEvents(result.response.body!)) {
+      if (event.data.trim() === "[DONE]") break;
+      let chunk: Record<string, any>;
+      try {
+        chunk = JSON.parse(event.data);
+      } catch {
+        continue;
+      }
+      if (chunk.error) {
+        console.warn(`[Curialy Gateway] Upstream error: stream ${scrub(String(chunk.error?.message ?? ""))}`);
+        if (!streamed) return send(res, 503, "curialy_api_error", UNAVAILABLE);
+        res.write(masked);
+        break;
+      }
+      if (chunk.usage) {
+        // Cached prompt tokens are part of prompt_tokens: billed at a tenth, like cache reads elsewhere.
+        const cached = Number(chunk.usage.prompt_tokens_details?.cached_tokens ?? 0) || 0;
+        usage.inputTokens = Math.max(0, (Number(chunk.usage.prompt_tokens) || 0) - cached);
+        usage.cacheReadTokens = cached;
+        usage.outputTokens = Number(chunk.usage.completion_tokens) || 0;
+        finalUsage = true;
+      }
+      for (const choice of chunk.choices ?? []) {
+        const delta = choice.delta ?? {};
+        streamedChars += String(delta.content ?? "").length + String(delta.reasoning_content ?? "").length;
+        for (const call of delta.tool_calls ?? []) streamedChars += String(call.function?.arguments ?? "").length;
+      }
+      if (whole) whole.add(chunk);
+      // The usage-only chunk is the caller's only if they asked for it (it was asked for upstream to bill).
+      else if (chunk.choices?.length || includeUsage) res.write(sse(undefined, JSON.stringify(cleanChunk(chunk, model))));
+    }
+    if (whole) return res.status(200).json(whole.completion());
+    res.write(sse(undefined, "[DONE]"));
+    res.end();
+  } catch (error) {
+    if (controller.signal.aborted) return;
+    console.warn(`[Curialy Gateway] Upstream error: ${error instanceof Error ? scrub(error.message) : "request failed"}`);
+    if (!res.headersSent) return send(res, 503, "curialy_api_error", UNAVAILABLE);
+    res.write(masked);
+    res.end();
+  } finally {
+    if (accepted) {
+      if (!finalUsage) usage.outputTokens = Math.max(usage.outputTokens, Math.ceil(streamedChars / 4));
+      if (!usage.inputTokens && !usage.cacheReadTokens) usage.inputTokens = Math.ceil(inputEstimate(body.messages));
       chargeFor(key, model, usage);
     }
     admission.release();

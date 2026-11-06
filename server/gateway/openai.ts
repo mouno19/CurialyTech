@@ -113,23 +113,29 @@ export function toAnthropic(body: Record<string, unknown>) {
   return fitModel(request);
 }
 
+/** Claude models that take neither temperature nor top_p (they always think, or the settings are retired for them). */
+const NO_SAMPLING = new Set(["claude-opus-5-5", "claude-opus-5", "claude-opus-4-8", "claude-opus-4-7", "claude-sonnet-5-5", "claude-sonnet-5", "claude-haiku-5-5"]);
+/** Claude models that refuse a forced tool choice ("any" or a named tool). */
+const NO_FORCED_TOOL = new Set(["claude-opus-5-5", "claude-sonnet-5-5"]);
+
 /**
- * What each model accepts, for settings OpenAI clients send by habit. Claude Opus 5.5 always thinks:
- * it takes no sampling settings and no forced tool choice (the requirement becomes an instruction).
- * Claude Sonnet 4.5 takes temperature or top_p, not both.
+ * What each Claude model accepts (checked against every model), for settings OpenAI clients send by
+ * habit: sampling settings are dropped where they are refused, and the 4.5/4.6 generation gets
+ * temperature or top_p, not both. Where a forced tool choice is refused, it becomes an instruction.
  */
 function fitModel(request: Record<string, unknown>) {
-  if (request.model === "claude-opus-5-5") {
+  const model = String(request.model);
+  if (NO_SAMPLING.has(model)) {
     delete request.temperature;
     delete request.top_p;
-    const choice = request.tool_choice as { type?: string; name?: string } | undefined;
-    if (choice?.type === "any" || choice?.type === "tool") {
-      const rule = choice.type === "tool" ? `Use the ${choice.name} tool in your reply.` : "Use one of the provided tools in your reply.";
-      request.system = request.system ? `${request.system}\n\n${rule}` : rule;
-      request.tool_choice = { type: "auto" };
-    }
   } else if (request.temperature !== undefined && request.top_p !== undefined) {
     delete request.top_p;
+  }
+  const choice = request.tool_choice as { type?: string; name?: string } | undefined;
+  if (NO_FORCED_TOOL.has(model) && (choice?.type === "any" || choice?.type === "tool")) {
+    const rule = choice.type === "tool" ? `Use the ${choice.name} tool in your reply.` : "Use one of the provided tools in your reply.";
+    request.system = request.system ? `${request.system}\n\n${rule}` : rule;
+    request.tool_choice = { type: "auto" };
   }
   return request;
 }

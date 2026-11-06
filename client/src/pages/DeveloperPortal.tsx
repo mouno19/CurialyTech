@@ -15,6 +15,17 @@ import { GATEWAY_BASE_URL, GATEWAY_MODEL_IDS, GATEWAY_MODELS, type ApiKeyInfo } 
 
 const ORIGIN = GATEWAY_BASE_URL.replace(/\/v1$/, "");
 
+/** Claude answers on both endpoints; GPT, Grok, Kimi and GLM speak the OpenAI format only. */
+const MODEL_GROUPS = [
+  { id: "claude", title: "Claude", note: "/v1/messages and /v1/chat/completions", models: GATEWAY_MODELS.filter(model => model.format === "anthropic") },
+  { id: "openai", title: "GPT, Grok, Kimi and GLM", note: "/v1/chat/completions", models: GATEWAY_MODELS.filter(model => model.format === "openai") },
+];
+
+function modelSummary(ids: string[]) {
+  if (ids.length >= GATEWAY_MODELS.length) return [`All ${GATEWAY_MODELS.length} models`];
+  return ids.length > 3 ? [...ids.slice(0, 3), `+${ids.length - 3} more`] : ids;
+}
+
 const SAMPLES = [
   {
     id: "curl",
@@ -56,7 +67,7 @@ from openai import OpenAI
 
 client = OpenAI(base_url="${GATEWAY_BASE_URL}", api_key=os.environ["CURIALY_API_KEY"])
 response = client.chat.completions.create(
-    model="claude-opus-5-5",
+    model="claude-opus-5-5",  # or "openai-gpt-5.5", "grok-4.7", "kimi-k3", "glm-5.3", ...
     messages=[{"role": "user", "content": "Hello!"}],
 )
 print(response.choices[0].message.content)`,
@@ -147,16 +158,25 @@ function CreateKeyDialog({ open, onOpenChange, onCreated }: { open: boolean; onO
           <label className="field-label" htmlFor={nameId}>Name</label>
           <input id={nameId} className="input" value={name} maxLength={60} placeholder="Production app" autoComplete="off" onChange={event => setName(event.target.value)} />
         </div>
-        <fieldset className="field dev-fieldset">
-          <legend className="field-label">Models this key may call</legend>
-          {GATEWAY_MODELS.map(model => (
-            <label key={model.id} className="dev-check">
-              <input type="checkbox" checked={models.includes(model.id)} onChange={event => setModels(current => (event.target.checked ? [...current, model.id] : current.filter(id => id !== model.id)))} />
-              <span>{model.label}</span>
-              <code>{model.id}</code>
-            </label>
-          ))}
-        </fieldset>
+        {MODEL_GROUPS.map(group => {
+          const ids = group.models.map(model => model.id);
+          const all = ids.every(id => models.includes(id));
+          return (
+            <fieldset key={group.id} className="field dev-fieldset">
+              <legend className="field-label dev-legend">
+                {group.title}
+                <button type="button" className="btn link sm" onClick={() => setModels(current => (all ? current.filter(id => !ids.includes(id)) : [...new Set([...current, ...ids])]))}>{all ? "None" : "All"}</button>
+              </legend>
+              {group.models.map(model => (
+                <label key={model.id} className="dev-check">
+                  <input type="checkbox" checked={models.includes(model.id)} onChange={event => setModels(current => (event.target.checked ? [...current, model.id] : current.filter(id => id !== model.id)))} />
+                  <span>{model.label}</span>
+                  <code>{model.id}</code>
+                </label>
+              ))}
+            </fieldset>
+          );
+        })}
         {error && <p className="field-error" role="alert"><TriangleAlert size={14} aria-hidden="true" />{error}</p>}
       </form>
     </Dialog>
@@ -195,8 +215,8 @@ function KeyRow({ apiKey, onRevoke }: { apiKey: ApiKeyInfo; onRevoke: (key: ApiK
         </span>
       </div>
       <code className="dev-key-prefix" aria-label={`Key starting ${apiKey.prefix}`}>{apiKey.prefix}…</code>
-      <ul className="dev-models dev-key-models" aria-label="Models">
-        {apiKey.allowedModels.map(id => <li key={id} className="chip mono">{id}</li>)}
+      <ul className="dev-models dev-key-models" aria-label="Models" title={apiKey.allowedModels.join(", ")}>
+        {modelSummary(apiKey.allowedModels).map(item => <li key={item} className="chip mono">{item}</li>)}
       </ul>
       {active ? (
         <Button size="sm" variant="danger" onClick={() => onRevoke(apiKey)} aria-label={`Revoke ${apiKey.name}`}>Revoke</Button>
@@ -240,13 +260,15 @@ export default function DeveloperPortal() {
                 <CopyField value={GATEWAY_BASE_URL} what="Base URL" />
                 <span className="field-hint">For OpenAI SDKs and plain HTTP. Anthropic SDKs add <code>/v1</code> themselves, so they take <code>{ORIGIN}</code>.</span>
               </div>
-              <div className="field">
-                <span className="field-label">Models</span>
-                <ul className="dev-models" aria-label="Supported models">
-                  {GATEWAY_MODELS.map(model => <li key={model.id} className="chip mono" title={model.label}>{model.id}</li>)}
-                </ul>
-              </div>
-              <p className="field-hint">Send the key as <code>x-api-key</code> or <code>Authorization: Bearer</code>. Both <code>/v1/messages</code> (Anthropic) and <code>/v1/chat/completions</code> (OpenAI) are available, streamed or whole, and <code>/v1/models</code> lists what a key may use.</p>
+              {MODEL_GROUPS.map(group => (
+                <div key={group.id} className="field">
+                  <span className="field-label">{group.title} <span className="dev-group-note">{group.note}</span></span>
+                  <ul className="dev-models" aria-label={`${group.title} models`}>
+                    {group.models.map(model => <li key={model.id} className="chip mono" title={model.label}>{model.id}</li>)}
+                  </ul>
+                </div>
+              ))}
+              <p className="field-hint">Send the key as <code>x-api-key</code> or <code>Authorization: Bearer</code>. Both <code>/v1/messages</code> (Anthropic) and <code>/v1/chat/completions</code> (OpenAI) are available, streamed or whole, and <code>/v1/models</code> lists what a key may use. GPT 5, Grok and Kimi reason before they answer: give them room in <code>max_tokens</code> (a very small limit can return an empty reply).</p>
             </div>
           </section>
 

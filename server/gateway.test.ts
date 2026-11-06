@@ -105,6 +105,7 @@ afterAll(() => { server.close(); vi.unstubAllGlobals(); });
 let warn: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
   resetRouteHealth();
+  resetLookupLimits();
   upstream.calls.length = 0;
   upstream.bridge = call => streamOf(message(call.body.model));
   upstream.relay = call => streamOf(message(call.body.model.replace(/^r\//, "")));
@@ -133,7 +134,8 @@ describe("API keys", () => {
     const { key, secret } = await newKey("keys-user");
     expect(secret).toMatch(/^cur_live_[0-9a-f]{32}$/);
     expect(key.prefix).toBe(secret.slice(0, 13));
-    expect(key.allowedModels).toEqual(["claude-opus-5-5", "claude-sonnet-4-5"]);
+    const { GATEWAY_MODEL_IDS } = await import("../shared/gateway");
+    expect(key.allowedModels).toEqual(GATEWAY_MODEL_IDS); // every model unless the key is limited
     expect(store.keys.find(row => row.id === key.id).key_hash).toMatch(/^[0-9a-f]{64}$/);
     expect(JSON.stringify(store.keys)).not.toContain(secret);
     const listed = await (await api("/api/keys", { user: "keys-user" })).json();
@@ -370,6 +372,79 @@ describe("the gateway", () => {
     expect(scrubbed).not.toMatch(/antigravity|snowflake|7f2e|req_99|3fa85f64|https?:|\.com|r\/claude/i);
     expect(scrubbed).toContain("HTTP 403 (reset after 23s)");
     expect(scrubbed).toContain("claude-opus-5-5");
+  });
+
+  it("serves GPT, Grok, Kimi and GLM as they are on /v1/chat/completions, with standard fields only", async () => {
+    const { secret } = await newKey("chat-user");
+    const chunk = (fields: object) => ({ id: "chatcmpl-abc", object: "chat.completion.chunk", created: 1_793_900_000, model: "grok-4.7", system_fingerprint: "fp_upstream", service_tier: "default", obfuscation: "xyz", ...fields });
+    const chatReply = () => new Response([
+      chunk({ choices: [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: null }] }),
+      chunk({ choices: [{ index: 0, delta: { reasoning_content: "Thinking. " }, finish_reason: null }] }),
+      chunk({ choices: [{ index: 0, delta: { content: "Hel" }, finish_reason: null }] }),
+      chunk({ choices: [{ index: 0, delta: { content: "lo" }, finish_reason: null }] }),
+      chunk({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "lookup", arguments: '{"q":' } }] }, finish_reason: null }] }),
+      chunk({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: '"Lyon"}' } }] }, finish_reason: "tool_calls" }] }),
+      chunk({ choices: [], usage: { prompt_tokens: 20_000, completion_tokens: 1_250, total_tokens: 21_250 } }),
+    ].map(entry => `data: ${JSON.stringify(entry)}\n\n`).join("") + "data: [DONE]\n\n", { status: 200, headers: { "content-type": "text/event-stream", "x-snowflake-request-id": "sf-1" } });
+    upstream.bridge = call => (call.url.endsWith("/v1/chat/completions") ? chatReply() : streamOf(message(call.body.model)));
+
+    // Whole: assembled from the stream (asked for upstream, with its usage), the model as named.
+    const whole = await call("/v1/chat/completions", secret, { model: "grok-4.7", messages: [{ role: "user", content: "Hi" }] });
+    expect(whole.status).toBe(200);
+    const completion = await whole.json();
+    expect(completion).toEqual({
+      id: "chatcmpl-abc", object: "chat.completion", created: 1_793_900_000, model: "grok-4.7",
+      choices: [{ index: 0, message: { role: "assistant", content: "Hello", reasoning_content: "Thinking. ", tool_calls: [{ id: "call_1", type: "function", function: { name: "lookup", arguments: '{"q":"Lyon"}' } }] }, finish_reason: "tool_calls" }],
+      usage: { prompt_tokens: 20_000, completion_tokens: 1_250, total_tokens: 21_250 },
+    });
+    expect(upstream.calls[0]).toMatchObject({ url: "http://bridge.test/v1/chat/completions", body: { model: "grok-4.7", stream: true, stream_options: { include_usage: true }, max_tokens: 4096 } });
+    // 20k in + 1250 out at weight 1: 1 credit.
+    await vi.waitFor(() => expect(credits.charges).toEqual([{ userId: "chat-user", amount: 1, detail: "API grok-4.7: 20000 in, 1250 out" }]));
+
+    // Streamed without include_usage: cleaned chunks, no usage chunk, [DONE]; the caller's limit is passed on.
+    upstream.calls.length = 0;
+    const streamed = await (await call("/v1/chat/completions", secret, { model: "grok-4.7", stream: true, max_completion_tokens: 900, messages: [{ role: "user", content: "Hi" }] })).text();
+    expect(upstream.calls[0].body.max_tokens).toBe(900);
+    expect(upstream.calls[0].body.max_completion_tokens).toBeUndefined();
+    const chunks = streamed.trim().split("\n\n").map(line => line.replace(/^data: /, ""));
+    expect(chunks.at(-1)).toBe("[DONE]");
+    const parsed = chunks.slice(0, -1).map(entry => JSON.parse(entry));
+    expect(parsed.every(entry => Object.keys(entry).sort().join() === "choices,created,id,model,object" && entry.model === "grok-4.7")).toBe(true);
+    expect(streamed).not.toMatch(/fp_upstream|obfuscation|service_tier|snowflake/i);
+    // With include_usage, the usage chunk is the caller's too.
+    const counted = await (await call("/v1/chat/completions", secret, { model: "grok-4.7", stream: true, stream_options: { include_usage: true }, messages: [{ role: "user", content: "Hi" }] })).text();
+    expect(counted).toContain('"usage":{"prompt_tokens":20000,"completion_tokens":1250,"total_tokens":21250}');
+
+    // On /v1/messages these models are pointed to the right endpoint.
+    const wrong = await call("/v1/messages", secret, { ...ask, model: "kimi-k3" });
+    expect(wrong.status).toBe(400);
+    expect((await wrong.json()).error.message).toBe("kimi-k3 is available on /v1/chat/completions (the OpenAI format), not on /v1/messages.");
+  });
+
+  it("fits OpenAI-format requests to what each Claude model accepts, and fails over to every verified relay copy", async () => {
+    const { secret } = await newKey("fit-user");
+    const sent = async (model: string, extra: object) => {
+      upstream.calls.length = 0;
+      expect((await call("/v1/chat/completions", secret, { model, messages: [{ role: "user", content: "Hi" }], ...extra })).status).toBe(200);
+      return upstream.calls[0].body;
+    };
+    expect(await sent("claude-opus-4-6", { temperature: 0.5, top_p: 0.9 })).toMatchObject({ temperature: 0.5 });
+    expect((await sent("claude-opus-4-6", { temperature: 0.5, top_p: 0.9 })).top_p).toBeUndefined();
+    const haiku = await sent("claude-haiku-5-5", { temperature: 0.5, top_p: 0.9 });
+    expect([haiku.temperature, haiku.top_p]).toEqual([undefined, undefined]);
+    const tool = { type: "function", function: { name: "lookup", parameters: { type: "object", properties: {} } } };
+    expect((await sent("claude-opus-5", { tools: [tool], tool_choice: "required" })).tool_choice).toEqual({ type: "any" });
+    expect(await sent("claude-sonnet-5-5", { tools: [tool], tool_choice: "required" })).toMatchObject({ tool_choice: { type: "auto" }, system: "Use one of the provided tools in your reply." });
+
+    // The bridge refuses: models with a relay copy keep answering, the others report the outage.
+    upstream.bridge = () => reply(403, { message: "Not authorized for this endpoint." });
+    upstream.calls.length = 0;
+    expect((await call("/v1/messages", secret, { ...ask, model: "claude-sonnet-5-5" })).status).toBe(200);
+    expect(upstream.calls.map(entry => entry.body.model)).toEqual(["claude-sonnet-5-5", "r/claude-sonnet-5-5"]);
+    resetRouteHealth();
+    upstream.calls.length = 0;
+    expect((await call("/v1/messages", secret, { ...ask, model: "claude-opus-4-8" })).status).toBe(503);
+    expect(upstream.calls.map(entry => entry.url)).toEqual(["http://bridge.test/v1/messages"]);
   });
 
   it("answers preflights for browser clients and unknown paths in the same error format", async () => {
