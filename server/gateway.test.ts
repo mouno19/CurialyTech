@@ -447,6 +447,38 @@ describe("the gateway", () => {
     expect(upstream.calls.map(entry => entry.url)).toEqual(["http://bridge.test/v1/messages"]);
   });
 
+  it("keeps chat-model failures out of Claude's routing, standard usage only, and holds and bills every input and output", async () => {
+    const { secret } = await newKey("review3-user");
+    // A chat model's rate limit says nothing about the Claude endpoint: Claude still goes to the bridge first.
+    upstream.bridge = call => (call.url.endsWith("/v1/chat/completions") ? reply(429, { error: { message: "rate limited" } }) : streamOf(message(call.body.model)));
+    expect((await call("/v1/chat/completions", secret, { model: "kimi-k3", messages: [{ role: "user", content: "Hi" }] })).status).toBe(429);
+    upstream.calls.length = 0;
+    expect((await call("/v1/messages", secret, ask)).status).toBe(200);
+    expect(upstream.calls.map(entry => entry.url)).toEqual(["http://bridge.test/v1/messages"]);
+
+    // Usage leaves with the standard fields only; reasoning reported only in the total is billed too.
+    const usage = { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 4200, prompt_tokens_details: { cached_tokens: 0, cache_write_tokens: 50 }, completion_tokens_details: { reasoning_tokens: 3000, accepted_prediction_tokens: 0 } };
+    upstream.bridge = () => new Response([
+      { id: "c1", object: "chat.completion.chunk", created: 1, model: "glm-5.3", choices: [{ index: 0, delta: { function_call: { name: "lookup", arguments: '{"q":' } }, finish_reason: null }] },
+      { id: "c1", object: "chat.completion.chunk", created: 1, model: "glm-5.3", choices: [{ index: 0, delta: { function_call: { arguments: '"Lyon"}' } }, finish_reason: "function_call" }] },
+      { id: "c1", object: "chat.completion.chunk", created: 1, model: "glm-5.3", choices: [], usage },
+    ].map(entry => `data: ${JSON.stringify(entry)}\n\n`).join("") + "data: [DONE]\n\n", { status: 200, headers: { "content-type": "text/event-stream" } });
+    credits.charges.length = 0;
+    const whole = await (await call("/v1/chat/completions", secret, { model: "glm-5.3", messages: [{ role: "user", content: "Hi" }] })).json();
+    expect(whole.usage).toEqual({ prompt_tokens: 1000, completion_tokens: 200, total_tokens: 4200, prompt_tokens_details: { cached_tokens: 0 }, completion_tokens_details: { reasoning_tokens: 3000 } });
+    expect(whole.choices[0].message).toEqual({ role: "assistant", content: null, function_call: { name: "lookup", arguments: '{"q":"Lyon"}' } });
+    // 1000 in, 3200 out (4200 - 1000) at weight 1: (1000 + 4 × 3200) / 25000 = 0.55 credits.
+    await vi.waitFor(() => expect(credits.charges).toEqual([{ userId: "review3-user", amount: 0.55, detail: "API glm-5.3: 1000 in, 3200 out" }]));
+
+    // A huge response format counts toward what the request could cost.
+    credits.available = 1;
+    upstream.calls.length = 0;
+    const schema = { type: "json_schema", json_schema: { name: "big", schema: { type: "object", description: "x".repeat(400_000) } } };
+    const held = await call("/v1/chat/completions", secret, { model: "kimi-k3", max_tokens: 100, response_format: schema, messages: [{ role: "user", content: "Hi" }] });
+    expect(held.status).toBe(402);
+    expect(upstream.calls).toEqual([]);
+  });
+
   it("answers preflights for browser clients and unknown paths in the same error format", async () => {
     const preflight = await realFetch(`${base}/v1/messages`, { method: "OPTIONS", headers: { origin: "https://example.com", "access-control-request-method": "POST", "access-control-request-headers": "x-api-key, content-type, anthropic-version" } });
     expect(preflight.status).toBe(204);

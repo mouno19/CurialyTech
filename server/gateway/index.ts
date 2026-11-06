@@ -309,7 +309,8 @@ async function proxyChat(res: Response, admission: Admission, body: Record<strin
   const { key } = admission;
   if (typeof body.n === "number" && body.n > 1) return send(res, 400, "invalid_request_error", "n greater than 1 is not supported.");
   const limit = body.max_completion_tokens ?? body.max_tokens ?? DEFAULT_CHAT_MAX_TOKENS;
-  const refused = refusal(admission, model, limit, { messages: body.messages, tools: body.tools });
+  // Input the model reads: messages, tools and legacy functions, and a response format's schema.
+  const refused = refusal(admission, model, limit, { messages: body.messages, tools: [body.tools, body.functions, body.response_format] });
   if (refused) return send(res, refused.status, refused.type, refused.message);
   const { max_completion_tokens: _limit, stream_options: _options, ...rest } = body;
   const request = { ...rest, max_tokens: limit };
@@ -353,7 +354,8 @@ async function proxyChat(res: Response, admission: Admission, body: Record<strin
         const cached = Number(chunk.usage.prompt_tokens_details?.cached_tokens ?? 0) || 0;
         usage.inputTokens = Math.max(0, (Number(chunk.usage.prompt_tokens) || 0) - cached);
         usage.cacheReadTokens = cached;
-        usage.outputTokens = Number(chunk.usage.completion_tokens) || 0;
+        // Reasoning is inside completion_tokens (OpenAI) or only in the total (some providers): bill the larger.
+        usage.outputTokens = Math.max(Number(chunk.usage.completion_tokens) || 0, (Number(chunk.usage.total_tokens) || 0) - (Number(chunk.usage.prompt_tokens) || 0));
         finalUsage = true;
       }
       for (const choice of chunk.choices ?? []) {

@@ -114,12 +114,13 @@ export async function sendUpstream(api: UpstreamApi, model: string, body: Record
       continue;
     }
     if (response.ok) {
-      if (route.name === "core") coreDownUntil = 0;
+      if (api === "messages" && route.name === "core") coreDownUntil = 0;
       return { response };
     }
     const text = await response.text().catch(() => "");
     console.warn(`[Curialy Gateway] Upstream error: ${route.name} ${response.status} ${scrub(upstreamMessage(text))}`);
-    if (route.name === "core" && response.status !== 400 && response.status !== 413 && response.status !== 422) coreDownUntil = Date.now() + CORE_PAUSE_MS;
+    // Only the bridge's Messages endpoint pauses (the chat endpoint is separate and has no failover).
+    if (api === "messages" && route.name === "core" && response.status !== 400 && response.status !== 413 && response.status !== 422) coreDownUntil = Date.now() + CORE_PAUSE_MS;
     last = failure(route, response.status, text, response.headers.get("retry-after"));
     if (last.type === "invalid_request_error") break;
   }
@@ -216,17 +217,31 @@ export function messageBuilder() {
   };
 }
 
+/** A chat usage object with the standard fields only (providers add their own, such as cache_write_tokens). */
+export function standardUsage(raw: Record<string, any>) {
+  const number = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
+  const prompt = number(raw.prompt_tokens);
+  const completion = number(raw.completion_tokens);
+  return {
+    prompt_tokens: prompt,
+    completion_tokens: completion,
+    total_tokens: number(raw.total_tokens) || prompt + completion,
+    ...(raw.prompt_tokens_details?.cached_tokens !== undefined ? { prompt_tokens_details: { cached_tokens: number(raw.prompt_tokens_details.cached_tokens) } } : {}),
+    ...(raw.completion_tokens_details?.reasoning_tokens !== undefined ? { completion_tokens_details: { reasoning_tokens: number(raw.completion_tokens_details.reasoning_tokens) } } : {}),
+  };
+}
+
 /** A chat stream chunk as callers get it: standard fields only (no fingerprints or padding), the model as they named it. */
 export function cleanChunk(chunk: Record<string, any>, model: string) {
   const choices = Array.isArray(chunk.choices)
     ? chunk.choices.map((choice: Record<string, any>) => ({
         index: choice.index ?? 0,
-        delta: Object.fromEntries(Object.entries(choice.delta ?? {}).filter(([key]) => ["role", "content", "reasoning_content", "tool_calls", "refusal"].includes(key))),
+        delta: Object.fromEntries(Object.entries(choice.delta ?? {}).filter(([key]) => ["role", "content", "reasoning_content", "tool_calls", "function_call", "refusal"].includes(key))),
         finish_reason: choice.finish_reason ?? null,
         ...(choice.logprobs !== undefined ? { logprobs: choice.logprobs } : {}),
       }))
     : [];
-  return { id: chunk.id, object: "chat.completion.chunk", created: chunk.created, model, choices, ...(chunk.usage ? { usage: chunk.usage } : {}) };
+  return { id: chunk.id, object: "chat.completion.chunk", created: chunk.created, model, choices, ...(chunk.usage ? { usage: standardUsage(chunk.usage) } : {}) };
 }
 
 /** A chat stream assembled into the chat.completion an unstreamed call returns. */
@@ -237,19 +252,25 @@ export function chatBuilder(model: string) {
   let reasoning = "";
   let refusal = "";
   let finish: string | null = null;
-  let usage: unknown;
+  let usage: ReturnType<typeof standardUsage> | undefined;
+  let functionCall: { name: string; arguments: string } | null = null;
   const calls = new Map<number, { id?: string; type: string; function: { name: string; arguments: string } }>();
   return {
     add(chunk: Record<string, any>) {
       id ||= chunk.id ?? "";
       if (typeof chunk.created === "number") created = chunk.created;
-      if (chunk.usage) usage = chunk.usage;
+      if (chunk.usage) usage = standardUsage(chunk.usage);
       const choice = chunk.choices?.[0];
       if (!choice) return;
       const delta = choice.delta ?? {};
       if (typeof delta.content === "string") content += delta.content;
       if (typeof delta.reasoning_content === "string") reasoning += delta.reasoning_content;
       if (typeof delta.refusal === "string") refusal += delta.refusal;
+      if (delta.function_call) {
+        functionCall ??= { name: "", arguments: "" };
+        functionCall.name += delta.function_call.name ?? "";
+        functionCall.arguments += delta.function_call.arguments ?? "";
+      }
       for (const call of delta.tool_calls ?? []) {
         const entry = calls.get(call.index ?? 0) ?? { type: "function", function: { name: "", arguments: "" } };
         if (call.id) entry.id = call.id;
@@ -265,7 +286,8 @@ export function chatBuilder(model: string) {
         index: 0,
         message: {
           role: "assistant",
-          content: content || (calls.size ? null : ""),
+          content: content || (calls.size || functionCall ? null : ""),
+          ...(functionCall ? { function_call: functionCall } : {}),
           ...(reasoning ? { reasoning_content: reasoning } : {}),
           ...(refusal ? { refusal } : {}),
           ...(calls.size ? { tool_calls: [...calls.entries()].sort(([a], [b]) => a - b).map(([, call]) => call) } : {}),
