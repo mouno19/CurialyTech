@@ -60,8 +60,17 @@ const realFetch = globalThis.fetch;
 const reply = (status: number, body: unknown, headers: Record<string, string> = {}) => new Response(typeof body === "string" ? body : JSON.stringify(body), { status, headers: { "content-type": "application/json", "x-snowflake-request-id": "sf-123", server: "envoy", ...headers } });
 const message = (model: string, text = "Hello!") => ({ id: "msg_1", type: "message", role: "assistant", model, content: [{ type: "text", text }], stop_reason: "end_turn", usage: { input_tokens: 20_000, output_tokens: 1_250 } });
 const stream = (events: object[]) => new Response(events.map(event => `event: ${(event as { type: string }).type}\ndata: ${JSON.stringify(event)}\n\n`).join(""), { status: 200, headers: { "content-type": "text/event-stream", "x-snowflake-fe-instance": "fe-9" } });
+/** A whole message as the stream of events the model service sends for it. */
+const streamOf = (whole: { id: string; model: string; content: any[]; stop_reason: string; usage: { input_tokens: number; output_tokens: number } }) => stream([
+  { type: "message_start", message: { id: whole.id, type: "message", role: "assistant", model: whole.model, content: [], stop_reason: null, usage: { input_tokens: whole.usage.input_tokens, output_tokens: 1 } } },
+  ...whole.content.flatMap((block, index) => block.type === "text"
+    ? [{ type: "content_block_start", index, content_block: { type: "text", text: "" } }, { type: "content_block_delta", index, delta: { type: "text_delta", text: block.text } }, { type: "content_block_stop", index }]
+    : [{ type: "content_block_start", index, content_block: { type: "tool_use", id: block.id, name: block.name, input: {} } }, { type: "content_block_delta", index, delta: { type: "input_json_delta", partial_json: JSON.stringify(block.input) } }, { type: "content_block_stop", index }]),
+  { type: "message_delta", delta: { stop_reason: whole.stop_reason, stop_sequence: null }, usage: { output_tokens: whole.usage.output_tokens } },
+  { type: "message_stop" },
+]);
 
-const { gatewayRouter, keysRouter } = await import("./gateway");
+const { gatewayRouter, keysRouter, resetLookupLimits } = await import("./gateway");
 const { resetRouteHealth } = await import("./gateway/upstream");
 let server: Server;
 let base = "";
@@ -73,7 +82,16 @@ beforeAll(async () => {
     upstream.calls.push(call);
     const handler = url.startsWith("http://bridge.test") ? upstream.bridge : url.startsWith("https://relay.test") ? upstream.relay : null;
     if (!handler) throw new Error(`unexpected fetch ${url}`);
-    return handler(call);
+    const response = handler(call);
+    const signal = init.signal;
+    if (!signal || !response.body) return response;
+    // Like undici: aborting the request errors its response body.
+    const source = response.body.getReader();
+    const body = new ReadableStream({
+      start(controller) { signal.addEventListener("abort", () => { controller.error(signal.reason ?? new Error("aborted")); void source.cancel().catch(() => undefined); }, { once: true }); },
+      async pull(controller) { const { done, value } = await source.read(); if (done) controller.close(); else controller.enqueue(value); },
+    });
+    return new Response(body, { status: response.status, headers: response.headers });
   });
   const app = express();
   app.use("/v1", gatewayRouter());
@@ -88,8 +106,8 @@ let warn: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
   resetRouteHealth();
   upstream.calls.length = 0;
-  upstream.bridge = call => reply(200, message(call.body.model));
-  upstream.relay = call => reply(200, message(call.body.model.replace(/^r\//, "")));
+  upstream.bridge = call => streamOf(message(call.body.model));
+  upstream.relay = call => streamOf(message(call.body.model.replace(/^r\//, "")));
   credits.available = 50;
   credits.charges.length = 0;
   warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
@@ -162,7 +180,7 @@ describe("the gateway", () => {
     expect(response.headers.get("x-curialy-request-id")).toMatch(/^req_[0-9a-f]{24}$/);
     expect(response.headers.get("access-control-allow-origin")).toBe("*");
     for (const name of response.headers.keys()) expect(name).not.toMatch(/snowflake|envoy|^server$/);
-    expect(upstream.calls).toEqual([expect.objectContaining({ url: "http://bridge.test/v1/messages", body: expect.objectContaining({ model: "claude-opus-5-5" }) })]);
+    expect(upstream.calls).toEqual([expect.objectContaining({ url: "http://bridge.test/v1/messages", body: expect.objectContaining({ model: "claude-opus-5-5", stream: true }) })]);
     // 20k in + 1250 out on Opus (weight 5): 5 credits, as for the agent.
     await vi.waitFor(() => expect(credits.charges).toEqual([{ userId: "bridge-user", amount: 5, detail: "API claude-opus-5-5: 20000 in, 1250 out" }]));
     // The operator's account is not charged.
@@ -185,7 +203,6 @@ describe("the gateway", () => {
     upstream.calls.length = 0;
     expect((await call("/v1/messages", secret, ask)).status).toBe(200);
     expect(upstream.calls.map(entry => entry.url)).toEqual(["https://relay.test/v1/messages"]);
-    upstream.bridge = call => reply(200, message(call.body.model));
   });
 
   it("masks every upstream failure, and passes a malformed request's message on scrubbed", async () => {
@@ -199,14 +216,21 @@ describe("the gateway", () => {
     for (const name of masked.headers.keys()) expect(name).not.toMatch(/snowflake|envoy/);
     resetRouteHealth();
     upstream.calls.length = 0;
-    upstream.bridge = () => reply(400, { type: "error", error: { type: "invalid_request_error", message: "max_tokens: Field required (Snowflake Cortex)" } });
-    const invalid = await call("/v1/messages", secret, { ...ask, max_tokens: undefined });
+    upstream.bridge = () => reply(400, { type: "error", error: { type: "invalid_request_error", message: "messages.0.role: Input should be 'user' or 'assistant' (Snowflake Cortex, x-snowflake-request-id: 7f2e-11ab, see https://docs.snowflake.com/x at ab12.snowflakecomputing.com)" } });
+    const invalid = await call("/v1/messages", secret, { ...ask, messages: [{ role: "robot", content: "Hi" }] });
     expect(invalid.status).toBe(400);
     const error = (await invalid.json()).error;
     expect(error).toMatchObject({ type: "invalid_request_error", code: 400 });
-    expect(error.message).toContain("max_tokens: Field required");
-    expect(error.message).not.toMatch(/snowflake|cortex/i);
+    expect(error.message).toContain("messages.0.role: Input should be 'user' or 'assistant'");
+    expect(error.message).not.toMatch(/snowflake|cortex|7f2e|https?:|\.com/i);
     expect(upstream.calls.map(entry => entry.url)).toEqual(["http://bridge.test/v1/messages"]); // a malformed request is not retried elsewhere
+    // The relay's reasons never pass on (they name its own backends).
+    resetRouteHealth();
+    upstream.calls.length = 0;
+    upstream.bridge = () => reply(403, { message: "Not authorized for this endpoint." });
+    upstream.relay = () => reply(400, { error: { message: "[antigravity/claude-opus-4-6-thinking] [400]: invalid base64 at messages.0" } });
+    const relayed = await (await call("/v1/messages", secret, ask)).json();
+    expect(relayed.error).toEqual({ message: "The request was not accepted. Check its parameters and try again.", type: "invalid_request_error", code: 400 });
   });
 
   it("refuses free accounts that are out of credits or ask for more than they may", async () => {
@@ -245,7 +269,7 @@ describe("the gateway", () => {
 
   it("serves OpenAI Chat Completions from the same models, whole and streamed", async () => {
     const { secret } = await newKey("openai-user");
-    upstream.bridge = call => reply(200, { ...message(call.body.model, "Paris."), content: [{ type: "text", text: "Paris." }, { type: "tool_use", id: "toolu_1", name: "lookup", input: { q: "France" } }], stop_reason: "tool_use" });
+    upstream.bridge = call => streamOf({ ...message(call.body.model, "Paris."), content: [{ type: "text", text: "Paris." }, { type: "tool_use", id: "toolu_1", name: "lookup", input: { q: "France" } }], stop_reason: "tool_use" });
     const response = await call("/v1/chat/completions", secret, {
       model: "claude-opus-5-5", max_completion_tokens: 200, temperature: 1.5, stop: "END",
       messages: [{ role: "system", content: "Be brief." }, { role: "user", content: [{ type: "text", text: "Capital?" }, { type: "image_url", image_url: { url: "data:image/png;base64,iVBORw0KGgo=" } }] }],
@@ -253,7 +277,9 @@ describe("the gateway", () => {
     });
     expect(response.status).toBe(200);
     const sent = upstream.calls[0].body;
-    expect(sent).toMatchObject({ model: "claude-opus-5-5", system: "Be brief.", max_tokens: 200, temperature: 1, stop_sequences: ["END"], tool_choice: { type: "any" } });
+    // Opus 5.5 always thinks: no sampling settings, and a required tool becomes an instruction.
+    expect(sent).toMatchObject({ model: "claude-opus-5-5", system: "Be brief.\n\nUse one of the provided tools in your reply.", max_tokens: 200, stop_sequences: ["END"], tool_choice: { type: "auto" }, stream: true });
+    expect(sent.temperature).toBeUndefined();
     expect(sent.messages).toEqual([{ role: "user", content: [{ type: "text", text: "Capital?" }, { type: "image", source: { type: "base64", media_type: "image/png", data: "iVBORw0KGgo=" } }] }]);
     expect(sent.tools).toEqual([{ name: "lookup", input_schema: { type: "object", properties: { q: { type: "string" } } } }]);
     const completion = await response.json();
@@ -275,6 +301,75 @@ describe("the gateway", () => {
     expect(parsed.find(chunk => chunk.choices[0]?.finish_reason)?.choices[0].finish_reason).toBe("stop");
     expect(parsed.at(-1).usage).toEqual({ prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 });
     expect(new Set(parsed.map(chunk => chunk.id))).toEqual(new Set(["chatcmpl-msg_c"]));
+  });
+
+  it("lets at most three requests of a free account run at once, even when they arrive together", async () => {
+    const { secret } = await newKey("burst-user");
+    const gates: (() => void)[] = [];
+    upstream.bridge = () => new Response(new ReadableStream({ start: controller => { gates.push(() => { controller.enqueue(new TextEncoder().encode(`event: message_stop\ndata: {"type":"message_stop"}\n\n`)); controller.close(); }); } }), { status: 200, headers: { "content-type": "text/event-stream" } });
+    const pending = Array.from({ length: 10 }, () => call("/v1/messages", secret, { ...ask, max_tokens: 64, stream: true }));
+    await vi.waitFor(() => expect(upstream.calls.length).toBe(3));
+    const statuses: number[] = [];
+    for (const response of pending) {
+      const settled = await Promise.race([response.then(answer => answer.status), new Promise<number>(resolve => setTimeout(() => resolve(0), 300))]);
+      statuses.push(settled);
+    }
+    gates.forEach(open => open());
+    const final = (await Promise.all(pending)).map(answer => answer.status);
+    expect(final.filter(status => status === 200)).toHaveLength(3);
+    expect(final.filter(status => status === 429)).toHaveLength(7);
+    expect(upstream.calls).toHaveLength(3);
+  });
+
+  it("holds what a request could cost: a free account cannot ask for more than its credits cover", async () => {
+    const { secret } = await newKey("hold-user");
+    credits.available = 1;
+    // Opus, 16384 tokens out: up to about 13 credits.
+    const big = await call("/v1/messages", secret, { ...ask, max_tokens: 16_384 });
+    expect(big.status).toBe(402);
+    expect((await big.json()).error.message).toMatch(/could use up to 13\.\d+ credits and 1 are available/);
+    expect(upstream.calls).toEqual([]);
+    expect((await call("/v1/messages", secret, { ...ask, max_tokens: 1024 })).status).toBe(200);
+  });
+
+  it("bills a stream the caller cut short for what it was sent, and assembles unstreamed replies", async () => {
+    const { secret } = await newKey("cut-user");
+    const long = "x".repeat(40_000);
+    upstream.bridge = () => new Response(new ReadableStream({
+      start: controller => {
+        const send = (event: object) => controller.enqueue(new TextEncoder().encode(`event: ${(event as { type: string }).type}\ndata: ${JSON.stringify(event)}\n\n`));
+        send({ type: "message_start", message: { id: "m", type: "message", role: "assistant", model: "claude-opus-5-5", content: [], usage: { input_tokens: 1000, output_tokens: 1 } } });
+        send({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } });
+        send({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: long } });
+        // ...and the final count never comes: the caller leaves first.
+      },
+    }), { status: 200, headers: { "content-type": "text/event-stream" } });
+    const response = await call("/v1/messages", secret, { ...ask, stream: true });
+    const reader = response.body!.getReader();
+    let received = "";
+    while (!received.includes(long)) received += new TextDecoder().decode((await reader.read()).value);
+    await reader.cancel();
+    // 1000 in, 10000 out (40000 characters at about 4 a token) on Opus: (1000 + 4 × 10000) × 5 / 25000 = 8.2 credits.
+    await vi.waitFor(() => expect(credits.charges).toEqual([{ userId: "cut-user", amount: 8.2, detail: "API claude-opus-5-5: 1000 in, 10000 out" }]));
+
+    // Unstreamed: the stream is assembled into one message, tool input included.
+    upstream.bridge = call => streamOf({ ...message(call.body.model, "Checking."), content: [{ type: "text", text: "Checking." }, { type: "tool_use", id: "toolu_9", name: "lookup", input: { q: "Lyon", n: 2 } }], stop_reason: "tool_use" });
+    const whole = await (await call("/v1/messages", secret, ask)).json();
+    expect(whole).toMatchObject({ id: "msg_1", model: "claude-opus-5-5", stop_reason: "tool_use", content: [{ type: "text", text: "Checking." }, { type: "tool_use", id: "toolu_9", name: "lookup", input: { q: "Lyon", n: 2 } }], usage: { input_tokens: 20_000, output_tokens: 1_250 } });
+  });
+
+  it("refuses bodies over 8 MB and keys that keep guessing, and scrubs upstream text", async () => {
+    const { secret } = await newKey("limits-user");
+    resetLookupLimits();
+    const huge = await call("/v1/messages", secret, { ...ask, messages: [{ role: "user", content: "x".repeat(9 * 1024 * 1024) }] });
+    expect(huge.status).toBe(413);
+    for (let attempt = 0; attempt < 60; attempt++) expect((await call("/v1/messages", `cur_live_${attempt.toString(16).padStart(32, "0")}`, ask)).status).toBe(401);
+    expect((await call("/v1/messages", "cur_live_ffffffffffffffffffffffffffffffff", ask)).status).toBe(429);
+    const { scrub } = await import("./gateway/upstream");
+    const scrubbed = scrub("[antigravity/claude-opus-4-6-thinking] [403]: HTTP 403 (reset after 23s), x-snowflake-request-id: 7f2e-11ab, request-id: req_99, id 3fa85f64-5717-4562-b3fc-2c963f66afa6, https://ab12.snowflakecomputing.com/api/v2 Snowflake r/claude-opus-5-5");
+    expect(scrubbed).not.toMatch(/antigravity|snowflake|7f2e|req_99|3fa85f64|https?:|\.com|r\/claude/i);
+    expect(scrubbed).toContain("HTTP 403 (reset after 23s)");
+    expect(scrubbed).toContain("claude-opus-5-5");
   });
 
   it("answers preflights for browser clients and unknown paths in the same error format", async () => {

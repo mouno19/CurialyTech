@@ -7,7 +7,7 @@ import { accountOf, requireUser } from "../auth";
 import { charge, getBalance, outOfCreditsMessage } from "../credits";
 import { createKey, findActiveKey, KeyError, listKeys, revokeKey, touchKey, type GatewayKey } from "./keys";
 import { chatChunks, toAnthropic, toChatCompletion, TranslationError } from "./openai";
-import { addUsage, emptyUsage, errorBody, scrub, sendMessages, sseEvents, UNAVAILABLE, type Failure, type Usage } from "./upstream";
+import { addUsage, emptyUsage, errorBody, messageBuilder, scrub, sendMessages, sseEvents, UNAVAILABLE, type Failure, type Usage } from "./upstream";
 
 // The Developer API. /api/keys: an account's keys (signed in). /v1 (and /api/v1): Anthropic Messages
 // and OpenAI Chat Completions for the gateway models, authenticated by key, charged to the key's
@@ -39,17 +39,30 @@ export function keysRouter() {
 
 // ---- Gateway ----
 
+/** Per request: its key, its admission (slot, bytes, balance) and its credit hold. */
+type Admission = { key: GatewayKey; available: number; bytes: number; hold: number; release: () => void };
+const ADMITTED = new WeakMap<Request, Admission>();
 const KEYS = new WeakMap<Request, GatewayKey>();
+
 const send = (res: Response, status: number, type: string, message: string) => res.status(status).json(errorBody({ status, type, message }));
 const sendFailure = (res: Response, failure: Failure) => {
   if (failure.retryAfter) res.setHeader("Retry-After", failure.retryAfter);
   return send(res, failure.status, failure.type, failure.message);
 };
 
+/** The host is small: bodies up to 8 MB, at most 24 MB of them and 12 requests in flight at once. */
+const MAX_BODY_BYTES = 8 * 1024 * 1024;
+const MAX_BYTES_IN_FLIGHT = 24 * 1024 * 1024;
+const MAX_REQUESTS_IN_FLIGHT = 12;
 /** Free accounts: requests in flight per account, and the largest reply one request may ask for. */
-const MAX_IN_FLIGHT = 3;
+const MAX_IN_FLIGHT_FREE = 3;
 const MAX_TOKENS_FREE = 16_384;
+
+let bytesInFlight = 0;
+let requestsInFlight = 0;
 const inFlight = new Map<string, number>();
+/** Credits held for requests still running, per account: what they could cost at most. */
+const held = new Map<string, number>();
 
 function secretOf(req: Request) {
   const auth = req.headers.authorization;
@@ -58,47 +71,123 @@ function secretOf(req: Request) {
   return typeof header === "string" ? header.trim() : "";
 }
 
-/** Failed key attempts per address in ten minutes; past the limit, requests are refused before any lookup. */
-const failedAttempts = new Map<string, { count: number; resetAt: number }>();
-const MAX_FAILED_ATTEMPTS = 60;
+/**
+ * Key lookups that missed the cache, per address in ten minutes (counted before the lookup, given
+ * back when the key is valid), and at most a few such lookups at once: random keys cannot queue up
+ * on the shared database pool.
+ */
+const lookups = new Map<string, { count: number; resetAt: number }>();
+const MAX_LOOKUP_FAILURES = 60;
+const MAX_LOOKUPS_AT_ONCE = 8;
+let lookupsAtOnce = 0;
+/** Tests: forget earlier failed lookups. */
+export const resetLookupLimits = () => lookups.clear();
 
 async function authenticate(req: Request, res: Response, next: NextFunction) {
   const secret = secretOf(req);
   if (!secret) return send(res, 401, "authentication_error", "Missing API key: send it in the x-api-key header or as Authorization: Bearer.");
   const address = req.ip ?? "unknown";
-  const failed = failedAttempts.get(address);
-  if (failed && failed.resetAt > Date.now() && failed.count >= MAX_FAILED_ATTEMPTS) return send(res, 429, "rate_limit_error", "Too many requests with invalid keys. Wait a few minutes.");
+  const now = Date.now();
+  let entry = lookups.get(address);
+  if (!entry || entry.resetAt <= now) {
+    if (lookups.size > 20_000) lookups.clear();
+    entry = { count: 0, resetAt: now + 10 * 60_000 };
+    lookups.set(address, entry);
+  }
+  if (entry.count >= MAX_LOOKUP_FAILURES) return send(res, 429, "rate_limit_error", "Too many requests with invalid keys. Wait a few minutes.");
+  if (lookupsAtOnce >= MAX_LOOKUPS_AT_ONCE) return send(res, 429, "rate_limit_error", "Too many requests right now. Please retry shortly.");
+  entry.count++;
+  lookupsAtOnce++;
   let key: GatewayKey | null;
   try {
     key = await findActiveKey(secret);
   } catch (error) {
     console.error("[Curialy Gateway] key lookup failed:", error instanceof Error ? scrub(error.message) : error);
     return send(res, 503, "curialy_api_error", UNAVAILABLE);
+  } finally {
+    lookupsAtOnce--;
   }
-  if (!key) {
-    if (!failed || failed.resetAt <= Date.now()) {
-      if (failedAttempts.size > 20_000) failedAttempts.clear();
-      failedAttempts.set(address, { count: 1, resetAt: Date.now() + 10 * 60_000 });
-    } else failed.count++;
-    return send(res, 401, "authentication_error", "Invalid or revoked API key.");
-  }
+  if (!key) return send(res, 401, "authentication_error", "Invalid or revoked API key.");
+  entry.count = Math.max(0, entry.count - 1);
   KEYS.set(req, key);
   touchKey(key.id);
   next();
 }
 
-/** Why the key may not run this request now (its model, its size, credits, requests in flight), or null. */
-async function refusal(key: GatewayKey, model: unknown, maxTokens: unknown): Promise<{ status: number; type: string; message: string } | null> {
+/**
+ * Admission before the body is read: room on the host (bytes and requests in flight), a slot on a
+ * free account (taken at once, so a burst cannot pass the cap together), and credits left. All of
+ * it is given back when the response ends, however it ends.
+ */
+async function admit(req: Request, res: Response, next: NextFunction) {
+  const key = KEYS.get(req)!;
+  const declared = Number(req.headers["content-length"]);
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return send(res, 413, "invalid_request_error", "The request body is too large (8 MB at most).");
+  const bytes = Number.isFinite(declared) && declared > 0 ? declared : MAX_BODY_BYTES;
+  if (requestsInFlight >= MAX_REQUESTS_IN_FLIGHT || bytesInFlight + bytes > MAX_BYTES_IN_FLIGHT) return send(res, 429, "rate_limit_error", "The API is busy right now. Please retry shortly.");
+  if (!key.operator && (inFlight.get(key.userId) ?? 0) >= MAX_IN_FLIGHT_FREE) return send(res, 429, "rate_limit_error", `At most ${MAX_IN_FLIGHT_FREE} requests at a time on this account.`);
+  requestsInFlight++;
+  bytesInFlight += bytes;
+  inFlight.set(key.userId, (inFlight.get(key.userId) ?? 0) + 1);
+  let released = false;
+  const admission: Admission = {
+    key, available: Infinity, bytes, hold: 0,
+    release: () => {
+      if (released) return;
+      released = true;
+      requestsInFlight--;
+      bytesInFlight -= bytes;
+      inFlight.set(key.userId, Math.max(0, (inFlight.get(key.userId) ?? 1) - 1));
+      if (admission.hold) held.set(key.userId, Math.max(0, (held.get(key.userId) ?? 0) - admission.hold));
+    },
+  };
+  res.once("close", admission.release);
+  ADMITTED.set(req, admission);
+  if (!key.operator) {
+    try {
+      const balance = await getBalance(key.userId);
+      admission.available = balance.unlimited ? Infinity : balance.available;
+      if (!(admission.available > 0)) {
+        admission.release();
+        return send(res, 402, "insufficient_credits", outOfCreditsMessage(balance));
+      }
+    } catch (error) {
+      admission.release();
+      console.error("[Curialy Gateway] balance lookup failed:", error instanceof Error ? scrub(error.message) : error);
+      return send(res, 503, "curialy_api_error", UNAVAILABLE);
+    }
+  }
+  next();
+}
+
+/** Input tokens a request will use, roughly: its text at about 4 characters a token, images and documents at about 1,600 each. */
+function inputEstimate(value: unknown, depth = 0): number {
+  if (depth > 32) return 0;
+  if (typeof value === "string") return value.length / 4;
+  if (Array.isArray(value)) return value.reduce((sum: number, item) => sum + inputEstimate(item, depth + 1), 0);
+  if (!value || typeof value !== "object") return 0;
+  const record = value as Record<string, unknown>;
+  if (record.type === "image" || record.type === "document") return 1600;
+  return Object.values(record).reduce((sum: number, item) => sum + inputEstimate(item, depth + 1), 0);
+}
+
+/** Why this request may not run (model, size), or null. Then, for a free account, hold what it could cost at most. */
+function refusal(admission: Admission, model: unknown, maxTokens: unknown, request: Record<string, unknown>): { status: number; type: string; message: string } | null {
+  const { key } = admission;
   if (typeof model !== "string" || !model) return { status: 400, type: "invalid_request_error", message: "model is required." };
   if (!GATEWAY_MODEL_IDS.includes(model) || !key.allowedModels.includes(model)) {
     const allowed = key.allowedModels.filter(id => GATEWAY_MODEL_IDS.includes(id));
     return { status: 403, type: "permission_error", message: `This key cannot use ${model}. It can use: ${allowed.join(", ") || "no models"}.` };
   }
+  if (typeof maxTokens !== "number" || !Number.isInteger(maxTokens) || maxTokens < 1) return { status: 400, type: "invalid_request_error", message: "max_tokens must be a positive integer." };
   if (key.operator) return null;
-  if (typeof maxTokens === "number" && maxTokens > MAX_TOKENS_FREE) return { status: 400, type: "invalid_request_error", message: `max_tokens can be at most ${MAX_TOKENS_FREE} on this account.` };
-  if ((inFlight.get(key.userId) ?? 0) >= MAX_IN_FLIGHT) return { status: 429, type: "rate_limit_error", message: `At most ${MAX_IN_FLIGHT} requests at a time on this account.` };
-  const balance = await getBalance(key.userId);
-  if (!balance.unlimited && !(balance.available > 0)) return { status: 402, type: "insufficient_credits", message: outOfCreditsMessage(balance) };
+  if (maxTokens > MAX_TOKENS_FREE) return { status: 400, type: "invalid_request_error", message: `max_tokens can be at most ${MAX_TOKENS_FREE} on this account.` };
+  // The most this request could cost: its input and every token it may write.
+  const hold = creditsFor(model, { inputTokens: Math.ceil(inputEstimate(request.messages) + inputEstimate(request.system) + inputEstimate(request.tools)), outputTokens: maxTokens });
+  const room = admission.available - (held.get(key.userId) ?? 0);
+  if (hold > room) return { status: 402, type: "insufficient_credits", message: `This request could use up to ${hold} credits and ${Math.max(0, Math.floor(room * 100) / 100)} are available. Lower max_tokens or wait for your credits to refill.` };
+  admission.hold = hold;
+  held.set(key.userId, (held.get(key.userId) ?? 0) + hold);
   return null;
 }
 
@@ -115,7 +204,8 @@ const sse = (event: string | undefined, data: string) => `${event ? `event: ${ev
 
 /** Run one request on the model service and answer in the caller's format, whole or streamed. */
 async function proxy(req: Request, res: Response, format: "anthropic" | "openai") {
-  const key = KEYS.get(req)!;
+  const admission = ADMITTED.get(req)!;
+  const { key } = admission;
   const body = req.body as Record<string, unknown> | undefined;
   if (!body || typeof body !== "object" || Array.isArray(body)) return send(res, 400, "invalid_request_error", "The request body must be a JSON object.");
   let request: Record<string, unknown>;
@@ -126,34 +216,32 @@ async function proxy(req: Request, res: Response, format: "anthropic" | "openai"
     throw error;
   }
   const model = request.model as string;
-  const refused = await refusal(key, model, request.max_tokens);
+  const refused = refusal(admission, model, request.max_tokens, request);
   if (refused) return send(res, refused.status, refused.type, refused.message);
   const streamed = request.stream === true;
   const includeUsage = format === "openai" && (body.stream_options as { include_usage?: unknown } | undefined)?.include_usage === true;
   const controller = new AbortController();
   res.on("close", () => { if (!res.writableFinished) controller.abort(); });
-  inFlight.set(key.userId, (inFlight.get(key.userId) ?? 0) + 1);
   const usage = emptyUsage();
+  let accepted = false;
+  let finalUsage = false;
   let streamedChars = 0;
   try {
     const version = typeof req.headers["anthropic-version"] === "string" ? req.headers["anthropic-version"] : "2023-06-01";
     const beta = typeof req.headers["anthropic-beta"] === "string" ? req.headers["anthropic-beta"] : undefined;
     const result = await sendMessages(model, request, { version, beta, signal: controller.signal });
     if ("failure" in result) return sendFailure(res, result.failure);
-    const upstream = result.response;
-    if (!streamed) {
-      const message = (await upstream.json()) as Record<string, unknown>;
-      addUsage(usage, message.usage);
-      message.model = model;
-      return res.status(200).json(format === "openai" ? toChatCompletion(message, model, usage) : message);
+    accepted = true;
+    const chunks = streamed && format === "openai" ? chatChunks(model) : null;
+    const whole = streamed ? null : messageBuilder();
+    if (streamed) {
+      res.status(200);
+      res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("X-Accel-Buffering", "no");
+      res.flushHeaders();
     }
-    res.status(200);
-    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("X-Accel-Buffering", "no");
-    res.flushHeaders();
-    const chunks = format === "openai" ? chatChunks(model) : null;
-    for await (const event of sseEvents(upstream.body!)) {
+    for await (const event of sseEvents(result.response.body!)) {
       let data: Record<string, any> | null = null;
       try {
         data = JSON.parse(event.data);
@@ -162,17 +250,27 @@ async function proxy(req: Request, res: Response, format: "anthropic" | "openai"
       }
       if (data?.type === "error") {
         console.warn(`[Curialy Gateway] Upstream error: stream ${scrub(String(data.error?.message ?? ""))}`);
-        res.write(chunks ? sse(undefined, JSON.stringify(errorBody({ status: 503, type: "curialy_api_error", message: UNAVAILABLE }))) : sse("error", JSON.stringify(MASKED_EVENT)));
+        if (!streamed) return send(res, 503, "curialy_api_error", UNAVAILABLE);
+        res.write(format === "openai" ? sse(undefined, JSON.stringify(errorBody({ status: 503, type: "curialy_api_error", message: UNAVAILABLE }))) : sse("error", JSON.stringify(MASKED_EVENT)));
         break;
       }
       if (data?.type === "message_start" && data.message) {
         data.message.model = model;
         addUsage(usage, data.message.usage);
       }
-      if (data?.type === "message_delta") addUsage(usage, data.usage);
+      if (data?.type === "message_delta" && data.usage) {
+        addUsage(usage, data.usage);
+        finalUsage = true;
+      }
       if (data?.type === "content_block_delta") streamedChars += String(data.delta?.text ?? data.delta?.partial_json ?? data.delta?.thinking ?? "").length;
-      if (!chunks) res.write(sse(event.event, data ? JSON.stringify(data) : event.data));
+      if (whole) {
+        if (data) whole.add(data);
+      } else if (!chunks) res.write(sse(event.event, data ? JSON.stringify(data) : event.data));
       else if (data) for (const chunk of chunks.translate(data)) res.write(sse(undefined, JSON.stringify(chunk)));
+    }
+    if (whole) {
+      const message = { ...whole.message(), model };
+      return res.status(200).json(format === "openai" ? toChatCompletion(message, model, usage) : message);
     }
     if (chunks) {
       if (includeUsage) res.write(sse(undefined, JSON.stringify(chunks.usage(usage))));
@@ -186,10 +284,14 @@ async function proxy(req: Request, res: Response, format: "anthropic" | "openai"
     res.write(format === "openai" ? sse(undefined, JSON.stringify(errorBody({ status: 503, type: "curialy_api_error", message: UNAVAILABLE }))) : sse("error", JSON.stringify(MASKED_EVENT)));
     res.end();
   } finally {
-    inFlight.set(key.userId, Math.max(0, (inFlight.get(key.userId) ?? 1) - 1));
-    // A stream cut short has no final count: estimate the reply from what was sent (about 4 characters a token).
-    if (usage.outputTokens === 0 && streamedChars > 0) usage.outputTokens = Math.ceil(streamedChars / 4);
-    chargeFor(key, model, usage);
+    if (accepted) {
+      // A reply cut short (the caller left, an error, a lost final count) is billed for what was
+      // written so far (about 4 characters a token); one with no count at all for its input.
+      if (!finalUsage) usage.outputTokens = Math.max(usage.outputTokens, Math.ceil(streamedChars / 4));
+      if (!usage.inputTokens) usage.inputTokens = Math.ceil(inputEstimate(request.messages) + inputEstimate(request.system));
+      chargeFor(key, model, usage);
+    }
+    admission.release();
   }
 }
 
@@ -214,7 +316,7 @@ export function gatewayRouter() {
     res.setHeader("Access-Control-Max-Age", "600");
     res.status(204).end();
   });
-  const json = express.json({ limit: "16mb" });
+  const json = express.json({ limit: MAX_BODY_BYTES });
   router.get("/models", authenticate, (req, res) => {
     const key = KEYS.get(req)!;
     const data = GATEWAY_MODELS.filter(model => key.allowedModels.includes(model.id)).map(modelInfo);
@@ -229,12 +331,12 @@ export function gatewayRouter() {
     if (!res.headersSent) send(res, 503, "curialy_api_error", UNAVAILABLE);
     else res.end();
   });
-  router.post("/messages", authenticate, json, run("anthropic"));
-  router.post("/chat/completions", authenticate, json, run("openai"));
+  router.post("/messages", authenticate, admit, json, run("anthropic"));
+  router.post("/chat/completions", authenticate, admit, json, run("openai"));
   router.use((_req, res) => send(res, 404, "not_found_error", "Unknown endpoint. Use /v1/messages, /v1/chat/completions or /v1/models."));
   // Body parser failures (malformed JSON, oversized bodies) in the same error format.
   router.use((error: { type?: string; status?: number }, _req: Request, res: Response, _next: NextFunction) => {
-    if (error?.type === "entity.too.large") return send(res, 413, "invalid_request_error", "The request body is too large (16 MB at most).");
+    if (error?.type === "entity.too.large") return send(res, 413, "invalid_request_error", "The request body is too large (8 MB at most).");
     return send(res, error?.status && error.status < 500 ? error.status : 400, "invalid_request_error", "The request body must be valid JSON.");
   });
   return router;

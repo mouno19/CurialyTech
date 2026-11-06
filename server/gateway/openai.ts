@@ -110,6 +110,27 @@ export function toAnthropic(body: Record<string, unknown>) {
   else if (choice === "none") request.tool_choice = { type: "none" };
   else if (typeof choice === "object" && choice && typeof (choice as { function?: { name?: unknown } }).function?.name === "string") request.tool_choice = { type: "tool", name: (choice as { function: { name: string } }).function.name };
   if (body.stream === true) request.stream = true;
+  return fitModel(request);
+}
+
+/**
+ * What each model accepts, for settings OpenAI clients send by habit. Claude Opus 5.5 always thinks:
+ * it takes no sampling settings and no forced tool choice (the requirement becomes an instruction).
+ * Claude Sonnet 4.5 takes temperature or top_p, not both.
+ */
+function fitModel(request: Record<string, unknown>) {
+  if (request.model === "claude-opus-5-5") {
+    delete request.temperature;
+    delete request.top_p;
+    const choice = request.tool_choice as { type?: string; name?: string } | undefined;
+    if (choice?.type === "any" || choice?.type === "tool") {
+      const rule = choice.type === "tool" ? `Use the ${choice.name} tool in your reply.` : "Use one of the provided tools in your reply.";
+      request.system = request.system ? `${request.system}\n\n${rule}` : rule;
+      request.tool_choice = { type: "auto" };
+    }
+  } else if (request.temperature !== undefined && request.top_p !== undefined) {
+    delete request.top_p;
+  }
   return request;
 }
 

@@ -45,7 +45,8 @@ message = client.messages.create(
     max_tokens=1024,
     messages=[{"role": "user", "content": "Hello!"}],
 )
-print(message.content[0].text)`,
+# A reply can start with a thinking block: print its text blocks.
+print("".join(block.text for block in message.content if block.type == "text"))`,
   },
   {
     id: "python-openai",
@@ -75,7 +76,8 @@ const message = await client.messages.create({
   max_tokens: 1024,
   messages: [{ role: "user", content: "Hello!" }],
 });
-console.log(message.content[0].text);`,
+// A reply can start with a thinking block: print its text blocks.
+console.log(message.content.flatMap(block => (block.type === "text" ? [block.text] : [])).join(""));`,
   },
 ];
 
