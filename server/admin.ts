@@ -4,8 +4,9 @@ import { ACTIVE_STATUSES } from "@shared/taskStatus";
 import { accountOf, forgetUser, rateLimited, requireAdmin, requireUser } from "./auth";
 import {
   balanceOf, createPromoCode, creditHistory, CreditError, disablePromoCode, getBalance, getSettings, grant, listPromoCodes, redeemPromoCode,
-  saveSettings, setAllowance, type UserCredits,
+  saveSettings, setAllowance, setFreeAllowance, type UserCredits,
 } from "./credits";
+import { FREE_ACCOUNTS_PER_NETWORK } from "./signup-network";
 import { query } from "./db/pg";
 import { requestCancel } from "./agent/runner";
 import { getConnection, oauthConfigured } from "./services/github";
@@ -36,7 +37,7 @@ export function accountRouter() {
 
   router.get("/credits", handle(async (req, res) => {
     const user = accountOf(req);
-    res.json({ credits: await getBalance(user.id), history: await creditHistory(user.id, 30) });
+    res.json({ credits: await getBalance(user.id), history: await creditHistory(user.id, 30, { forAccount: true }) });
   }));
 
   router.post("/redeem", handle(async (req, res) => {
@@ -52,8 +53,20 @@ export function accountRouter() {
 
 type AccountRow = UserCredits & {
   login: string | null; display_name: string; avatar_url: string | null; email: string | null; created_at: Date; last_seen_at: Date | null;
-  banned_at: Date | null; tasks: string; active: string; used_total: string | null;
+  banned_at: Date | null; tasks: string; active: string; used_total: string | null; same_network: string | null; removed_by_operator: boolean;
 };
+
+/**
+ * For the operator only (never in a client bundle or an account's own API): why an account has no
+ * free allowance, and how many other accounts signed up from the same network (the hash stays here).
+ */
+function freeAllowanceInfo(row: AccountRow) {
+  const related = Number(row.same_network ?? 0);
+  const note = row.free_allowance_withheld
+    ? row.removed_by_operator ? "The free allowance was removed on this page." : `Started without the free allowance: it signed up from a network that already had ${FREE_ACCOUNTS_PER_NETWORK} accounts.`
+    : related > 0 ? `Signed up from a network shared with ${related} other account${related === 1 ? "" : "s"}.` : null;
+  return { withheld: Boolean(row.free_allowance_withheld), related, note };
+}
 
 const uuid = z.string().uuid("Unknown account.");
 
@@ -84,8 +97,10 @@ export function adminRouter() {
     const like = `%${q.replace(/[\\%_]/g, char => `\\${char}`)}%`;
     const [{ rows }, settings] = await Promise.all([
       query<AccountRow>(
-        `SELECT u.id, u.role, u.credit_allowance, u.bonus_credits, u.window_started_at, u.window_used, u.login, u.display_name, u.avatar_url, u.email,
+        `SELECT u.id, u.role, u.credit_allowance, u.bonus_credits, u.window_started_at, u.window_used, u.free_allowance_withheld, u.login, u.display_name, u.avatar_url, u.email,
                 u.created_at, u.last_seen_at, u.banned_at,
+                (SELECT count(*) FROM curialy.users o WHERE u.signup_network IS NOT NULL AND o.signup_network = u.signup_network AND o.id <> u.id) AS same_network,
+                ((SELECT e.detail FROM curialy.credit_events e WHERE e.user_id = u.id AND e.kind = 'adjust' AND e.detail IN ('free allowance removed', 'free allowance given') ORDER BY e.created_at DESC LIMIT 1) = 'free allowance removed') IS TRUE AS removed_by_operator,
                 (SELECT count(*) FROM curialy.chat_sessions s WHERE s.user_id = u.id) AS tasks,
                 (SELECT count(*) FROM curialy.chat_sessions s WHERE s.user_id = u.id AND s.status = ANY($4::text[])) AS active,
                 (SELECT -sum(amount) FROM curialy.credit_events e WHERE e.user_id = u.id AND e.kind = 'usage') AS used_total
@@ -101,7 +116,7 @@ export function adminRouter() {
         id: row.id, role: row.role, login: row.login, name: row.display_name, avatarUrl: row.avatar_url, email: row.email,
         createdAt: row.created_at.toISOString(), lastSeenAt: row.last_seen_at?.toISOString() ?? null, banned: Boolean(row.banned_at),
         tasks: Number(row.tasks), activeRuns: Number(row.active), creditsUsedTotal: Math.round(Number(row.used_total ?? 0) * 100) / 100,
-        customAllowance: row.credit_allowance, credits: balanceOf(row, settings),
+        customAllowance: row.credit_allowance, credits: balanceOf(row, settings), freeAllowance: freeAllowanceInfo(row),
       })),
       more: rows.length > limit,
     });
@@ -116,6 +131,12 @@ export function adminRouter() {
     const id = uuid.parse(req.params.id);
     const input = z.object({ amount: z.number(), note: z.string().trim().max(200).default("") }).parse(req.body ?? {});
     res.json({ credits: await grant(id, input.amount, accountOf(req).id, input.note) });
+  }));
+
+  router.put("/users/:id/free-allowance", handle(async (req, res) => {
+    const id = uuid.parse(req.params.id);
+    const { withheld } = z.object({ withheld: z.boolean() }).parse(req.body ?? {});
+    res.json({ credits: await setFreeAllowance(id, withheld, accountOf(req).id) });
   }));
 
   router.put("/users/:id/allowance", handle(async (req, res) => {

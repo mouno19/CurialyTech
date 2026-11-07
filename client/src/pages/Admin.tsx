@@ -123,7 +123,7 @@ function AccountsPanel({ onChanged, onCodeFor }: { onChanged: () => void; onCode
                     <div className="admin-account">
                       {user.avatarUrl ? <img src={user.avatarUrl} alt="" width={28} height={28} /> : <span className="admin-avatar" aria-hidden="true">{(user.login ?? user.name).slice(0, 1).toUpperCase()}</span>}
                       <span className="admin-account-text">
-                        <span className="admin-account-name">{user.login ?? user.name}{user.role === "admin" && <span className="badge admin-role">operator</span>}{user.banned && <span className="badge admin-banned">banned</span>}</span>
+                        <span className="admin-account-name">{user.login ?? user.name}{user.role === "admin" && <span className="badge admin-role">operator</span>}{user.banned && <span className="badge admin-banned">banned</span>}{user.freeAllowance?.withheld && <span className="badge admin-banned" title={user.freeAllowance.note ?? undefined}>no free allowance</span>}</span>
                         <span className="admin-account-meta">{user.name !== user.login ? `${user.name} · ` : ""}joined {relativeTime(user.createdAt)}</span>
                       </span>
                     </div>
@@ -177,7 +177,8 @@ function CreditsDialog({ user, onClose, onChanged }: { user: AdminUser; onClose:
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [allowance, setAllowance] = useState(user.customAllowance === null ? "" : String(user.customAllowance));
-  const [busy, setBusy] = useState<"grant" | "allowance" | null>(null);
+  const [busy, setBusy] = useState<"grant" | "allowance" | "free" | null>(null);
+  const [withheld, setWithheld] = useState(Boolean(user.freeAllowance?.withheld));
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<CreditEvent[] | null>(null);
   const [credits, setCredits] = useState(user.credits);
@@ -201,6 +202,22 @@ function CreditsDialog({ user, onClose, onChanged }: { user: AdminUser; onClose:
       void adminApi.history(user.id).then(result => setHistory(result.history), () => undefined);
     } catch (grantError) {
       setError(errorMessage(grantError));
+    } finally {
+      setBusy(null);
+    }
+  };
+  const saveFreeAllowance = async (next: boolean) => {
+    setBusy("free");
+    setError(null);
+    try {
+      const result = await adminApi.freeAllowance(user.id, next);
+      setCredits(result.credits);
+      setWithheld(next);
+      toast.success(next ? `${name} no longer gets the free allowance.` : `${name} gets the free allowance again.`);
+      onChanged();
+      void adminApi.history(user.id).then(result => setHistory(result.history), () => undefined);
+    } catch (freeError) {
+      setError(errorMessage(freeError));
     } finally {
       setBusy(null);
     }
@@ -251,6 +268,15 @@ function CreditsDialog({ user, onClose, onChanged }: { user: AdminUser; onClose:
           {user.customAllowance !== null && <Button variant="ghost" disabled={busy !== null} onClick={() => { setAllowance(""); void saveAllowance(null); }}>Use the default</Button>}
         </div>
       </div>
+      {!credits.unlimited && (
+        <div className="admin-form">
+          <h4 className="admin-form-title">Free allowance</h4>
+          <p className="field-hint">{withheld ? "This account doesn't get the free allowance. " : "This account gets the free allowance. "}{user.freeAllowance?.note ?? ""}{user.customAllowance !== null ? " Its own allowance applies either way." : ""}</p>
+          <div className="admin-actions">
+            <Button busy={busy === "free"} disabled={busy !== null && busy !== "free"} onClick={() => void saveFreeAllowance(!withheld)}>{withheld ? "Give the free allowance" : "Remove the free allowance"}</Button>
+          </div>
+        </div>
+      )}
       {error && <p className="field-error" role="alert">{error}</p>}
       <h4 className="admin-form-title">Recent activity</h4>
       {history === null ? <p className="field-hint">Loading…</p> : history.length === 0 ? <p className="field-hint">No credit activity yet.</p> : (

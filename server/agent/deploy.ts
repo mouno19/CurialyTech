@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { deriveDeploymentState, type DeploymentState } from "@shared/taskStatus";
 import { adminUserId, db, query } from "../db/pg";
-import { createRepo, pushProjectToRepo, repoToken, retireRepo, throwIfAborted } from "../services/github";
+import { createRepo, pushProjectToRepo, repoToken, retireRepo, throwIfAborted, WORKFLOW_PATH } from "../services/github";
 import { appendTaskEvent } from "./events";
 import { PROVIDER_ENV } from "./providers";
 import { isPublishExcluded, readWorkspaceFiles } from "./workspaces";
@@ -63,7 +63,8 @@ export async function deployPreview(req: DeployRequest) {
   const github = owner ? await repoToken(owner) : null;
   if (!github) throw new Error("Connect GitHub first (sidebar → Connect GitHub): live previews are built from a Git repository.");
   // Uploads and local secrets never go into a repository, even a private temporary one.
-  const files = (await readWorkspaceFiles(req.root)).files.filter(file => !isPublishExcluded(file.path));
+  // Workflow files stay out: a preview repository must not run the project's GitHub Actions.
+  const files = (await readWorkspaceFiles(req.root)).files.filter(file => !isPublishExcluded(file.path) && !WORKFLOW_PATH.test(file.path));
   if (!files.length) throw new Error("The workspace is empty; nothing to deploy.");
   throwIfAborted(req.signal);
 

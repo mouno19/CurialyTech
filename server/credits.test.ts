@@ -5,6 +5,7 @@ import { creditsFor, modelWeight } from "@shared/credits";
 // checks that refuse bad promo codes and settings before anything is written.
 
 const store = vi.hoisted(() => ({
+  promo: null as null | Record<string, unknown>,
   user: null as null | Record<string, unknown>,
   updates: [] as unknown[][],
   events: [] as unknown[][],
@@ -15,6 +16,9 @@ vi.mock("./db/pg", () => {
   const run = async (text: string, values: unknown[] = []) => {
     if (text.includes("FROM curialy.app_settings")) return { rows: store.settings ? [{ value: store.settings }] : [] };
     if (text.startsWith("SELECT id, role, credit_allowance")) return { rows: store.user ? [store.user] : [] };
+    if (text.startsWith("SELECT *, NULL::text AS for_login FROM curialy.promo_codes")) return { rows: store.promo ? [store.promo] : [] };
+    if (text.startsWith("SELECT free_allowance_withheld, credit_allowance FROM curialy.users")) return { rows: store.user ? [store.user] : [] };
+    if (text.startsWith("INSERT INTO curialy.promo_redemptions")) return { rows: [], rowCount: 1 };
     if (text.startsWith("UPDATE curialy.users SET window_started_at")) {
       store.updates.push(values);
       const [, windowStart, windowUsed, fromBonus] = values as [string, Date, number, number];
@@ -37,6 +41,7 @@ const user = (patch: Record<string, unknown> = {}) => ({ id: "u1", role: "user",
 const settings = { creditsPerWindow: 60, windowHours: 5, signupsOpen: true };
 
 beforeEach(() => {
+  store.promo = null;
   store.user = null;
   store.updates.length = 0;
   store.events.length = 0;
@@ -52,6 +57,15 @@ describe("balance", () => {
     expect(Date.parse(open.resetsAt!)).toBe(now + 4 * HOUR);
     // A window that ended counts as none: the allowance is back in full.
     expect(credits.balanceOf(user({ window_started_at: new Date(now - 6 * HOUR), window_used: "60" }), settings, now)).toMatchObject({ used: 0, remaining: 60, resetsAt: null });
+  });
+
+  it("gives an account without the free allowance no window and no refill time; an own allowance still applies", () => {
+    const now = Date.now();
+    const withheld = user({ free_allowance_withheld: true, bonus_credits: "12", window_started_at: new Date(now - HOUR), window_used: "3" });
+    expect(credits.balanceOf(withheld, settings, now)).toMatchObject({ allowance: 0, used: 0, remaining: 0, bonus: 12, available: 12, resetsAt: null });
+    expect(credits.balanceOf({ ...withheld, credit_allowance: 40 }, settings, now)).toMatchObject({ allowance: 40, remaining: 37 });
+    // Its out-of-credits text never promises a refill.
+    expect(credits.outOfCreditsMessage(credits.balanceOf(user({ free_allowance_withheld: true }), settings, now))).toBe("Your account has no credits right now. Redeem a promo code to continue.");
   });
 
   it("uses an account's own allowance, never shows a negative remainder, and marks admins unlimited", () => {
@@ -74,6 +88,16 @@ describe("charge", () => {
     expect(store.events.map(values => values[1])).toEqual([-50, -15]);
   });
 
+  it("spends only bonus credits for an account without the free allowance, and never opens a window for it", async () => {
+    store.user = user({ free_allowance_withheld: true, bonus_credits: "10" });
+    let balance = await credits.charge("u1", 4, "t1", "turn 1");
+    expect(balance).toMatchObject({ allowance: 0, bonus: 6, available: 6, resetsAt: null });
+    expect(store.user!.window_started_at).toBeNull();
+    balance = await credits.charge("u1", 15, "t1", "turn 2");
+    expect(balance).toMatchObject({ bonus: 0, available: 0, resetsAt: null });
+    expect(store.user!.window_used).toBe("0");
+  });
+
   it("records what neither covers against the window (it ends at the reset) and never charges an admin", async () => {
     store.user = user({ window_started_at: new Date(), window_used: "58" });
     expect(await credits.charge("u1", 5, null, "turn")).toMatchObject({ used: 63, remaining: 0, available: 0 });
@@ -88,6 +112,26 @@ describe("charge", () => {
     await expect(credits.assertCanStart("u1")).resolves.toMatchObject({ available: 1 });
     store.user = user({ window_started_at: new Date(), window_used: "60" });
     await expect(credits.assertCanStart("u1")).rejects.toMatchObject({ code: "no_credits", status: 402 });
+  });
+});
+
+describe("promo codes and the free allowance", () => {
+  const open = { id: "p1", code: "WELCOME-2026", credits: 50, for_user_id: null, max_redemptions: null, redemptions: 0, expires_at: null, disabled_at: null, note: null, created_at: new Date() };
+
+  it("refuses a code meant for anyone to an account without the free allowance, said like an unknown code", async () => {
+    store.promo = open;
+    store.user = user({ free_allowance_withheld: true });
+    await expect(credits.redeemPromoCode("u1", "WELCOME-2026")).rejects.toThrow("That code isn't valid.");
+    // An own allowance of 0 gives it nothing either.
+    store.user = user({ free_allowance_withheld: true, credit_allowance: 0 });
+    await expect(credits.redeemPromoCode("u1", "WELCOME-2026")).rejects.toThrow("That code isn't valid.");
+    // A code made for this account, or an account the operator gave an allowance, still works.
+    store.promo = { ...open, for_user_id: "u1" };
+    store.user = user({ free_allowance_withheld: true });
+    expect(await credits.redeemPromoCode("u1", "WELCOME-2026")).toMatchObject({ credits: 50 });
+    store.promo = open;
+    store.user = user({ free_allowance_withheld: true, credit_allowance: 20 });
+    expect(await credits.redeemPromoCode("u1", "WELCOME-2026")).toMatchObject({ credits: 50 });
   });
 });
 

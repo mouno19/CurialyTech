@@ -5,7 +5,43 @@ import { adminUserId, query } from "../db/pg";
 // AES-256-GCM (key in GITHUB_TOKEN_KEY); it is only ever decrypted inside this process and is
 // never handed to the agent sandbox.
 
-export const GITHUB_SCOPES = ["read:user", "user:email", "repo"];
+// workflow: GitHub accepts changes to .github/workflows (Actions) only from tokens that have it.
+export const GITHUB_SCOPES = ["read:user", "user:email", "repo", "workflow"];
+
+/** GitHub Actions workflow files: changing them needs the workflow scope. */
+export const WORKFLOW_PATH = /^\.github\/workflows\//;
+const scopeSet = (scopes: string | null | undefined) => new Set(String(scopes ?? "").split(/[,\s]+/).filter(Boolean));
+/** The workflow files among `paths` that this connection can't push (none when its scopes are unknown). */
+export function workflowFilesBlocked(paths: string[], scopes: string | null | undefined) {
+  if (scopes === null || scopes === undefined || scopeSet(scopes).has("workflow")) return [];
+  return paths.filter(file => WORKFLOW_PATH.test(file));
+}
+// Worded for both readers: the agent passes it on, the Export dialog shows it as it is.
+export const workflowScopeMessage = (files: string[]) =>
+  `These changes include GitHub Actions workflow files (${files.slice(0, 3).join(", ")}${files.length > 3 ? ` and ${files.length - 3} more` : ""}). GitHub only accepts those from a connection with the workflow permission, which this one doesn't have yet: reconnect GitHub (the GitHub menu in the sidebar, then Reconnect), then try again. Another branch fails the same way until then; leaving the workflow files out works now.`;
+
+/**
+ * What a GitHub failure means, in words that say what to do (for the agent and the user alike): a
+ * revoked connection, an organization's single sign-on or OAuth restrictions, rate limits, or a
+ * write GitHub refused (read-only access, or workflow files without the permission: `paths` and
+ * `scopes` tell those apart). Anything else keeps GitHub's own message.
+ */
+export function describeGitHubError(error: GitHubError, context: { repo?: string; paths?: string[]; scopes?: string | null } = {}) {
+  const raw = error.message;
+  // Only a failed write can mean "not allowed to write" (a 404 on a read is a missing repository or commit).
+  const write = /^GitHub (POST|PATCH|PUT|DELETE) /.test(raw);
+  if (error.status === 401) return "GitHub refused the connection: it was revoked or has expired. Reconnect GitHub (the GitHub menu in the sidebar, then Reconnect), then try again.";
+  if (error.status === 403 && /saml|single sign-on/i.test(raw)) return `${context.repo ? `${context.repo.split("/")[0]} uses` : "This organization uses"} single sign-on: the user must authorize Curialy for it on GitHub (Settings, then Applications, then Authorized OAuth Apps), then try again.`;
+  if (error.status === 403 && /OAuth App access restrictions/i.test(raw)) return `${context.repo ? `The ${context.repo.split("/")[0]} organization` : "This organization"} restricts third-party apps: an owner must approve Curialy in its settings (Third-party access) before it can be used.`;
+  if (error.retryAfterMs !== undefined) return `GitHub is limiting requests right now (rate limit): wait ${Math.max(1, Math.round(error.retryAfterMs / 60_000))} minute(s), then try again; retrying sooner fails the same way.`;
+  if (error.status === 404 && write) {
+    const workflows = (context.paths ?? []).filter(file => WORKFLOW_PATH.test(file));
+    const blocked = context.scopes === undefined || context.scopes === null ? workflows : workflowFilesBlocked(workflows, context.scopes);
+    if (blocked.length) return workflowScopeMessage(blocked);
+    return `GitHub refused the write to ${context.repo ?? "the repository"} (404): the connected GitHub account can probably only read it, and needs write access to it.`;
+  }
+  return raw;
+}
 
 export class GitHubError extends Error {
   /** Set when GitHub asked to slow down (primary or secondary rate limit): how long to wait. */
@@ -87,7 +123,7 @@ const MAX_RATE_LIMIT_WAIT_MS = 3 * 60_000;
 const MAX_RATE_LIMIT_RETRIES = 4;
 
 /** githubApi that, with waitOutLimits, waits out GitHub's rate limits (up to 4 times); abortable. */
-async function githubCall<T = any>(token: string, path: string, init: RequestInit, opts: CallOptions): Promise<T> {
+export async function githubCall<T = any>(token: string, path: string, init: RequestInit, opts: CallOptions): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     throwIfAborted(opts.signal);
     try {
@@ -233,7 +269,9 @@ export async function pushProjectToRepo(token: string, fullName: string, files: 
   return { branch: target, commitSha: commit.sha, commitUrl: `${repo.html_url}/commit/${commit.sha}`, repoUrl: repo.html_url };
 }
 
-type TreeEntry = { path: string; mode: string; type: "blob"; sha?: string; content?: string };
+type TreeEntry = { path: string; mode: string; type: "blob"; sha?: string | null; content?: string };
+/** A file for writeTree: its content (mode 100644 unless given), or a deletion (on top of a base tree). */
+export type TreeFile = { path: string; content: Buffer; mode?: "100644" | "100755" } | { path: string; delete: true };
 
 /** Largest text file sent inline in a tree request, and the most content per tree request. */
 const INLINE_FILE_BYTES = 1024 * 1024;
@@ -250,13 +288,14 @@ const inlineText = (content: Buffer) => {
 };
 
 /**
- * The complete tree for `files` (nothing else), in as few writes as possible: text files travel
- * inside the tree requests (GitHub writes their blobs), chunked and chained with base_tree; only
- * binary or very large files need a blob request each, one at a time. A project of a few hundred
- * source files is a handful of requests instead of one per file.
+ * The complete tree for `files` (nothing else), or with `baseTree` that tree with `files` changed
+ * and deleted, in as few writes as possible: text files travel inside the tree requests (GitHub
+ * writes their blobs), chunked and chained with base_tree; only binary or very large files need a
+ * blob request each, one at a time. A project of a few hundred source files is a handful of
+ * requests instead of one per file.
  */
-async function writeTree(token: string, fullName: string, files: { path: string; content: Buffer }[], opts: CallOptions) {
-  let base: string | undefined;
+export async function writeTree(token: string, fullName: string, files: TreeFile[], opts: CallOptions & { baseTree?: string } = {}) {
+  let base: string | undefined = opts.baseTree;
   let entries: TreeEntry[] = [];
   let bytes = 0;
   const flush = async () => {
@@ -270,16 +309,21 @@ async function writeTree(token: string, fullName: string, files: { path: string;
     entries.push(entry);
     bytes += size;
   };
-  const binaries: { path: string; content: Buffer }[] = [];
+  const binaries: { path: string; content: Buffer; mode?: string }[] = [];
   for (const file of files) {
+    if ("delete" in file) {
+      await add({ path: file.path, mode: "100644", type: "blob", sha: null }, 64);
+      continue;
+    }
     const text = inlineText(file.content);
     if (text === null) binaries.push(file);
-    else await add({ path: file.path, mode: "100644", type: "blob", content: text }, file.content.length);
+    else await add({ path: file.path, mode: file.mode ?? "100644", type: "blob", content: text }, file.content.length);
   }
   for (const [index, file] of binaries.entries()) {
     if (opts.waitOutLimits && index >= BLOB_BURST) await pause(BLOB_SPACING_MS, opts.signal);
+    throwIfAborted(opts.signal);
     const blob = await githubCall<{ sha: string }>(token, `/repos/${fullName}/git/blobs`, { method: "POST", body: JSON.stringify({ content: file.content.toString("base64"), encoding: "base64" }) }, opts);
-    await add({ path: file.path, mode: "100644", type: "blob", sha: blob.sha }, 64);
+    await add({ path: file.path, mode: file.mode ?? "100644", type: "blob", sha: blob.sha }, 64);
   }
   if (entries.length || !base) await flush();
   return base!;
@@ -309,9 +353,15 @@ const toSummary = (repo: any): RepoSummary => ({
   updated_at: repo.updated_at, language: repo.language, size_kb: repo.size, html_url: repo.html_url,
 });
 
-export async function listRepos(token: string, perPage = 50) {
-  const repos = await githubApi<any[]>(token, `/user/repos?sort=updated&per_page=${Math.min(100, perPage)}&affiliation=owner,collaborator`);
-  return repos.map(toSummary);
+/** The account's repositories (its own, as a collaborator, and its organizations'), most recently updated first. */
+export async function listRepos(token: string, limit = 50) {
+  const repos: any[] = [];
+  for (let page = 1; repos.length < limit && page <= 3; page++) {
+    const batch = await githubApi<any[]>(token, `/user/repos?sort=updated&per_page=100&page=${page}&affiliation=owner,collaborator,organization_member`);
+    repos.push(...batch);
+    if (batch.length < 100) break;
+  }
+  return repos.slice(0, limit).map(toSummary);
 }
 
 /**
@@ -324,7 +374,7 @@ export async function resolveRepo(token: string, query: string) {
     const repo = await githubApi<any>(token, `/repos/${wanted}`);
     return { repo: toSummary(repo), candidates: [] as RepoSummary[] };
   }
-  const repos = await githubApi<any[]>(token, "/user/repos?sort=updated&per_page=100&affiliation=owner,collaborator,organization_member").then(list => list.map(toSummary));
+  const repos = await listRepos(token, 300);
   const lower = wanted.toLowerCase();
   const exact = repos.filter(repo => repo.name.toLowerCase() === lower);
   if (exact.length === 1) return { repo: exact[0], candidates: [] };
@@ -342,16 +392,36 @@ export async function repoDetails(token: string, fullName: string) {
   return { ...toSummary(repo), open_issues: repo.open_issues_count, topics: repo.topics ?? [], branches: branches.map(branch => ({ name: branch.name, sha: branch.commit.sha, protected: branch.protected })), languages };
 }
 
+/** Thrown for a repository with no commits yet: GitHub's Git Data API can't read or write one. */
+export class EmptyRepositoryError extends GitHubError {
+  constructor(readonly fullName: string) {
+    super(`${fullName} is empty: it has no commits yet, and GitHub's API can only work with a repository that has one. Ask the user to add a first commit on GitHub (for example "Add a README" on the repository's page), then try again.`, 409);
+  }
+}
+
 export async function branchHead(token: string, fullName: string, branch: string) {
   try {
     const ref = await githubApi<{ object: { sha: string } }>(token, `/repos/${fullName}/git/ref/heads/${encodeURIComponent(branch)}`);
     return ref.object.sha;
   } catch (error) {
     if (error instanceof GitHubError && error.status === 404) return null;
+    if (error instanceof GitHubError && error.status === 409 && /repository is empty/i.test(error.message)) throw new EmptyRepositoryError(fullName);
     throw error;
   }
 }
 
+/**
+ * Open a pull request, or, when one from `head` into `base` is already open, return that one
+ * (existing: true): pushing again to its branch already updated it.
+ */
 export async function createPullRequest(token: string, fullName: string, input: { title: string; body: string; head: string; base: string; draft?: boolean }) {
-  return githubApi<{ number: number; html_url: string; state: string }>(token, `/repos/${fullName}/pulls`, { method: "POST", body: JSON.stringify(input) });
+  try {
+    return { ...(await githubApi<{ number: number; html_url: string; state: string }>(token, `/repos/${fullName}/pulls`, { method: "POST", body: JSON.stringify(input) })), existing: false };
+  } catch (error) {
+    if (!(error instanceof GitHubError) || error.status !== 422 || !/already exists/i.test(error.message)) throw error;
+    const owner = fullName.split("/")[0];
+    const open = await githubApi<{ number: number; html_url: string; state: string }[]>(token, `/repos/${fullName}/pulls?state=open&head=${encodeURIComponent(`${owner}:${input.head}`)}&base=${encodeURIComponent(input.base)}`);
+    if (!open[0]) throw error;
+    return { ...open[0], existing: true };
+  }
 }

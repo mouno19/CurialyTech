@@ -23,7 +23,7 @@ export function DictationButton({ onText, onNote, label = "Dictate", tip = "Dict
   const start = () => {
     const credits = accountInfo?.credits;
     if (credits && !credits.unlimited && credits.available < 0.05) {
-      onNote("You're out of credits for dictation right now. They refill with your next window, or redeem a promo code.", "error");
+      onNote(credits.allowance > 0 ? "You're out of credits for dictation right now. They refill with your next window, or redeem a promo code." : "You're out of credits for dictation right now. Redeem a promo code to add credits.", "error");
       return;
     }
     // A fresh recording empties the composer's status, so its outcome is announced even when it repeats.

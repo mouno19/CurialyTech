@@ -441,7 +441,7 @@ export default function TaskWorkspace({ id }: { id: string }) {
     const label = task.githubRepo ? "Push" : "Export";
     if (!github) actions.push({ id: "export", label, icon: Upload, priority: "secondary", disabled: true, title: "Checking the GitHub connection…" });
     else if (!github.configured) actions.push({ id: "export", label, icon: Upload, priority: "secondary", disabled: true, title: "GitHub isn't set up on this server." });
-    else if (!github.connected) actions.push({ id: "export", label: "Connect GitHub", icon: Upload, priority: "secondary", href: "/api/auth/github/start", title: "Connect GitHub to export or push this workspace" });
+    else if (!github.connected) actions.push({ id: "export", label: "Connect GitHub", icon: Upload, priority: "secondary", href: `/api/auth/github/start?next=${encodeURIComponent(`/tasks/${id}`)}`, title: "Connect GitHub to export or push this workspace" });
     else {
       const blocked = active ? "Wait for the run to finish." : !task.githubRepo && task.filesChanged === 0 ? "No files to export yet." : null;
       const title = task.githubMode === "linked" ? `Push the workspace changes to a branch of ${task.githubRepo}` : task.githubRepo ? `Push the latest files to ${task.githubRepo}` : "Create a GitHub repository with these files";

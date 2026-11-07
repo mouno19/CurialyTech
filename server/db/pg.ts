@@ -357,6 +357,17 @@ const MIGRATIONS: { id: number; sql: string }[] = [
       CREATE INDEX IF NOT EXISTS queued_followups_run_idx ON curialy.queued_followups (run_id) WHERE run_id IS NOT NULL;
     `,
   },
+  {
+    id: 11,
+    sql: `
+      -- Sign-ups (server/signup-network.ts): a keyed hash of the network an account was created
+      -- from (never the address), and whether it started without the free allowance. Older
+      -- accounts have neither and are not counted.
+      ALTER TABLE curialy.users ADD COLUMN IF NOT EXISTS signup_network bytea;
+      ALTER TABLE curialy.users ADD COLUMN IF NOT EXISTS free_allowance_withheld boolean NOT NULL DEFAULT false;
+      CREATE INDEX IF NOT EXISTS users_signup_network_idx ON curialy.users (signup_network) WHERE signup_network IS NOT NULL;
+    `,
+  },
 ];
 
 export async function migrate() {

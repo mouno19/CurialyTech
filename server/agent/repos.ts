@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { query } from "../db/pg";
-import { branchHead, githubApi, GitHubError, repoDetails, throwIfAborted } from "../services/github";
+import { branchHead, describeGitHubError, EmptyRepositoryError, githubCall, GitHubError, repoDetails, throwIfAborted, workflowFilesBlocked, workflowScopeMessage, writeTree, type TreeFile } from "../services/github";
 import { randomUUID } from "node:crypto";
 import { SYNC_SKIP } from "./e2b";
 import { resolveInWorkspace, runCommand, SandboxError, WORKSPACE_ROOT } from "./sandbox";
@@ -172,7 +172,10 @@ export async function cloneIntoWorkspace(opts: { sessionId: string; root: string
   const details = await repoDetails(opts.token, opts.fullName);
   if (details.size_kb > MAX_REPO_KB) throw new SandboxError(`${details.full_name} is ${Math.round(details.size_kb / 1024)} MB; repositories over ${MAX_REPO_KB / 1024} MB are not supported on this server.`);
   const branch = opts.branch || details.default_branch;
-  const sha = await branchHead(opts.token, details.full_name, branch);
+  const sha = await branchHead(opts.token, details.full_name, branch).catch(error => {
+    if (error instanceof EmptyRepositoryError) throw new SandboxError(error.message);
+    throw error;
+  });
   if (!sha) throw new SandboxError(`Branch ${branch} does not exist in ${details.full_name}.`);
 
   // Clone into the workspace root when it is empty, otherwise into a sub-folder named after the repo
@@ -212,28 +215,62 @@ export async function cloneIntoWorkspace(opts: { sessionId: string; root: string
   return { fullName: details.full_name, url: details.html_url, branch, baseSha: sha, repoPath, pushed: {}, deleted: [], alreadyLinked: false, restored: false, historyRestored: false, files, details, replaced: switching ? existing! : null, taken, earlierPushes: [] as string[] };
 }
 
-export type RepoChanges = { changed: string[]; deleted: string[] };
+/**
+ * changed / deleted: regular files that differ from the base commit. modes: the mode each changed
+ * file has in the sandbox (the executable bit travels). kept: submodules and symlinks, which never
+ * reach the sandbox (only files sync), so they are left exactly as GitHub has them.
+ */
+export type RepoChanges = { changed: string[]; deleted: string[]; modes: Record<string, "100644" | "100755">; kept: string[] };
 
 /** What differs from the base commit, computed by git inside the sandbox (which has no credentials). */
 export async function computeChanges(root: string, repo: LinkedRepo, signal?: AbortSignal): Promise<RepoChanges> {
   if (!SHA.test(repo.baseSha)) throw new Error("Invalid base sha.");
   const repoDir = repo.repoPath === "." ? "." : repo.repoPath;
-  // NUL-separated (-z) so any file name (spaces, tabs, quotes, newlines) survives intact.
-  const command = `cd -- ${JSON.stringify(repoDir)} && { git -c core.quotepath=off diff --name-status -z --no-renames ${repo.baseSha} -- . 2>/dev/null; printf '\\0::untracked::\\0'; git ls-files -z --others --exclude-standard 2>/dev/null; }`;
+  // NUL-separated (-z) so any file name (spaces, tabs, quotes, newlines) survives intact. The raw
+  // diff carries both modes; untracked executables are listed separately; both git commands'
+  // exit codes come last, so a listing that failed is never read as "nothing changed".
+  const command = `cd -- ${JSON.stringify(repoDir)} && { git -c core.quotepath=off diff --raw -z --no-renames --abbrev=40 ${repo.baseSha} -- . 2>/dev/null; d=$?; printf '\\0::untracked::\\0'; git ls-files -z --others --exclude-standard 2>/dev/null; u=$?; printf '\\0::exec::\\0'; git ls-files -z --others --exclude-standard 2>/dev/null | xargs -0 -r sh -c 'for f; do if [ -L "$f" ]; then printf "L%s\\0" "$f"; elif [ -f "$f" ] && [ -x "$f" ]; then printf "X%s\\0" "$f"; fi; done' sh; printf '\\0::exit::%s:%s' "$d" "$u"; }`;
   const result = await runCommand({ root, command, timeoutSec: 120, signal, onOutput: () => undefined, raw: true, sync: "push" });
-  if (result.exitCode !== 0) throw new Error(`Could not list repository changes (git exit ${result.exitCode}).`);
-  const [diffPart, untrackedPart = ""] = result.output.split("\0::untracked::\0");
-  const tokens = diffPart.split("\0").filter(Boolean);
+  const exits = /\0::exit::(\d+):(\d+)$/.exec(result.output);
+  if (result.exitCode !== 0 || !exits || exits[1] !== "0" || exits[2] !== "0") throw new Error(`Could not list repository changes (git exit ${exits && exits[1] !== "0" ? exits[1] : exits?.[2] ?? result.exitCode}).`);
+  const body = result.output.slice(0, exits.index);
+  const [diffPart, rest = ""] = body.split("\0::untracked::\0");
+  const [untrackedPart, execPart = ""] = rest.split("\0::exec::\0");
   const changed = new Set<string>();
   const deleted = new Set<string>();
+  const kept = new Set<string>();
+  const modes: Record<string, "100644" | "100755"> = {};
+  const tokens = diffPart.split("\0");
   for (let index = 0; index + 1 < tokens.length; index += 2) {
-    const [status, file] = [tokens[index], tokens[index + 1]];
-    if (status.startsWith("D")) deleted.add(file);
-    else changed.add(file);
+    const meta = tokens[index];
+    const file = tokens[index + 1];
+    if (!meta.startsWith(":") || !file) continue;
+    const [srcMode, dstMode, , , status = ""] = meta.slice(1).split(" ");
+    if ([srcMode, dstMode].some(mode => mode === "160000" || mode === "120000")) {
+      kept.add(file);
+      continue;
+    }
+    if (status.startsWith("D")) {
+      deleted.add(file);
+    } else {
+      changed.add(file);
+      if (dstMode === "100755" || dstMode === "100644") modes[file] = dstMode;
+    }
   }
-  for (const file of untrackedPart.split("\0").filter(Boolean)) changed.add(file);
-  const clean = (file: string) => !file.startsWith(".git/") && file !== ".git" && !file.includes("\0");
-  return { changed: Array.from(changed).filter(clean), deleted: Array.from(deleted).filter(clean) };
+  const probed = execPart.split("\0").filter(Boolean);
+  const executables = new Set(probed.filter(entry => entry.startsWith("X")).map(entry => entry.slice(1)));
+  const links = new Set(probed.filter(entry => entry.startsWith("L")).map(entry => entry.slice(1)));
+  for (const file of untrackedPart.split("\0").filter(Boolean)) {
+    // A new symlink, or a nested repository (listed as "folder/"), is never pushed: kept as it is.
+    if (links.has(file) || file.endsWith("/")) {
+      kept.add(file);
+      continue;
+    }
+    changed.add(file);
+    modes[file] = executables.has(file) ? "100755" : "100644";
+  }
+  const clean = (file: string) => !/(^|\/)\.git(\/|$)/.test(file) && !file.includes("\0");
+  return { changed: Array.from(changed).filter(clean), deleted: Array.from(deleted).filter(clean), modes, kept: Array.from(kept) };
 }
 
 function readRepoFile(root: string, repo: LinkedRepo, file: string) {
@@ -250,56 +287,213 @@ function readRepoFile(root: string, repo: LinkedRepo, file: string) {
   }
 }
 
-export async function commitAndPush(opts: { sessionId: string; root: string; repo: LinkedRepo; token: string; message: string; branch?: string; signal?: AbortSignal; onOutput?: (chunk: string) => void }) {
+/** upstreamOnly: files a sync before the push took from GitHub as they are (the repository's, not this run's work). */
+export type PushResult =
+  | { nothingToPush: true; branch: string; synced?: string }
+  | { nothingToPush: false; branch: string; commitSha: string; commitUrl: string; compareUrl: string; changed: number; deleted: number; synced?: string; kept: string[]; upstreamOnly: string[] };
+
+/**
+ * Commit every change in the clone and push it. To the task's own branch after it moved on GitHub
+ * (someone pushed meanwhile), the workspace is brought up to date first (syncWithRemote), keeping
+ * its edits; conflicts stop the push with the files listed. scopes: the connection's OAuth scopes,
+ * so workflow files fail with a clear reason before anything is uploaded.
+ */
+export async function commitAndPush(opts: { sessionId: string; root: string; repo: LinkedRepo; token: string; message: string; branch?: string; signal?: AbortSignal; onOutput?: (chunk: string) => void; scopes?: string | null; autoSync?: boolean }): Promise<PushResult> {
   const { repo, token } = opts;
   const target = opts.branch?.trim() || repo.branch;
-  if (!/^[A-Za-z0-9._\/-]{1,200}$/.test(target) || target.includes("..")) throw new SandboxError("Invalid branch name.");
+  if (!/^[A-Za-z0-9._\/-]{1,200}$/.test(target) || target.includes("..") || /(^|\/)\.|\.lock(\/|$)|\/$|^\/|\/\//.test(target)) throw new SandboxError("Invalid branch name.");
   // A clone whose files are gone would read as every file deleted: pushing that empties the repository.
   const dest = repo.repoPath === "." ? opts.root : path.join(opts.root, repo.repoPath);
   if (!hasWorkingTree(dest, repo.repoPath === ".")) throw new SandboxError(`${repo.fullName}'s files are gone from the workspace, so a push would delete them on GitHub. Restore them with github_clone_to_workspace first.`);
-  const changes = await computeChanges(opts.root, repo, opts.signal);
-  if (!changes.changed.length && !changes.deleted.length) return { nothingToPush: true as const, branch: target };
+  let changes = await computeChanges(opts.root, repo, opts.signal);
+  if (!changes.changed.length && !changes.deleted.length) return { nothingToPush: true, branch: target };
+  const workflows = workflowFilesBlocked([...changes.changed, ...changes.deleted], opts.scopes);
+  if (workflows.length) throw new SandboxError(workflowScopeMessage(workflows));
 
-  // Fast-forward only: accept the remote head if it is our base or our own previous push to this branch.
-  const remoteHead = await branchHead(token, repo.fullName, target);
-  let parent = repo.baseSha;
+  // Fast-forward only: the remote head must be our base or our own previous push to this branch.
+  let remoteHead = await branchHead(token, repo.fullName, target);
+  let synced: string | undefined;
+  let upstreamOnly: string[] = [];
   if (remoteHead && remoteHead !== repo.baseSha && remoteHead !== repo.pushed[target]) {
-    throw new SandboxError(`${repo.fullName}@${target} has new commits that are not in the workspace. Push to a new branch (e.g. curialy/${Date.now().toString(36)}) and open a pull request instead.`);
+    if (target !== repo.branch) throw new SandboxError(`${repo.fullName}@${target} has commits this workspace doesn't have. Push to a new branch name instead, or to ${repo.branch} (which brings the workspace up to date first).`);
+    // Someone has to be there to resolve conflicts: only the agent's own pushes merge.
+    if (opts.autoSync === false) throw new SandboxError(`${repo.fullName}@${target} has new commits on GitHub that this workspace doesn't have. Ask the agent to bring the workspace up to date (it keeps its edits), or push to a new branch.`);
+    const sync = await syncWithRemote({ sessionId: opts.sessionId, root: opts.root, repo, token, signal: opts.signal, onOutput: opts.onOutput });
+    if (sync.conflicts.length) throw new SandboxError(conflictMessage(repo, sync.conflicts));
+    synced = sync.head;
+    upstreamOnly = sync.upstreamOnly;
+    remoteHead = sync.head;
+    changes = await computeChanges(opts.root, repo, opts.signal);
+    if (!changes.changed.length && !changes.deleted.length) return { nothingToPush: true, branch: target, synced };
   }
-  if (remoteHead) parent = remoteHead;
-
-  const baseCommit = await githubApi<{ tree: { sha: string } }>(token, `/repos/${repo.fullName}/git/commits/${repo.baseSha}`);
-  const entries: { path: string; mode: string; type: "blob"; sha: string | null }[] = [];
-  let total = 0;
-  opts.onOutput?.(`Uploading ${changes.changed.length} changed file(s), deleting ${changes.deleted.length}…\n`);
-  for (let index = 0; index < changes.changed.length; index += 6) {
-    throwIfAborted(opts.signal);
-    const batch = changes.changed.slice(index, index + 6).map(file => ({ file, data: readRepoFile(opts.root, repo, file) })).filter(item => item.data);
-    for (const item of batch) total += item.data!.content.length;
-    if (total > MAX_PUSH_TOTAL) throw new SandboxError(`Changes exceed ${MAX_PUSH_TOTAL / 1024 / 1024} MB; push a smaller set of files.`);
-    const blobs = await Promise.all(batch.map(item => githubApi<{ sha: string }>(token, `/repos/${repo.fullName}/git/blobs`, { method: "POST", body: JSON.stringify({ content: item.data!.content.toString("base64"), encoding: "base64" }) })));
-    batch.forEach((item, i) => entries.push({ path: item.file, mode: item.data!.executable ? "100755" : "100644", type: "blob", sha: blobs[i].sha }));
-  }
-  for (const file of changes.deleted) entries.push({ path: file, mode: "100644", type: "blob", sha: null });
-
-  const tree = await githubApi<{ sha: string }>(token, `/repos/${repo.fullName}/git/trees`, { method: "POST", body: JSON.stringify({ base_tree: baseCommit.tree.sha, tree: entries }) });
-  const commit = await githubApi<{ sha: string; html_url: string }>(token, `/repos/${repo.fullName}/git/commits`, { method: "POST", body: JSON.stringify({ message: opts.message, tree: tree.sha, parents: [parent] }) });
-  // Last check before the point of no return: a cancelled run leaves the branch untouched.
-  throwIfAborted(opts.signal);
+  const parent = remoteHead ?? repo.baseSha;
+  const limits = { signal: opts.signal, waitOutLimits: true };
+  const paths = [...changes.changed, ...changes.deleted];
+  // A conflict a sync left (its markers) must be resolved first, never pushed.
+  const unresolved = changes.changed.filter(file => hasSyncConflict(readRepoFile(opts.root, repo, file)?.content));
+  if (unresolved.length) throw new SandboxError(`${unresolved.slice(0, 10).join(", ")}${unresolved.length > 10 ? ` and ${unresolved.length - 10} more` : ""} still ${unresolved.length === 1 ? "has" : "have"} conflict markers from bringing the workspace up to date (<<<<<<< HEAD … >>>>>>> … (Workspace edits)). Resolve them, keeping both sides' intent, then push again.`);
   try {
-    if (remoteHead) await githubApi(token, `/repos/${repo.fullName}/git/refs/heads/${target}`, { method: "PATCH", body: JSON.stringify({ sha: commit.sha, force: false }) });
-    else await githubApi(token, `/repos/${repo.fullName}/git/refs`, { method: "POST", body: JSON.stringify({ ref: `refs/heads/${target}`, sha: commit.sha }) });
+    const baseCommit = await githubCall<{ tree: { sha: string } }>(token, `/repos/${repo.fullName}/git/commits/${repo.baseSha}`, {}, limits);
+    const files: TreeFile[] = [];
+    let total = 0;
+    for (const file of changes.changed) {
+      const data = readRepoFile(opts.root, repo, file);
+      if (!data) continue; // vanished, or not a regular file here
+      total += data.content.length;
+      if (total > MAX_PUSH_TOTAL) throw new SandboxError(`Changes exceed ${MAX_PUSH_TOTAL / 1024 / 1024} MB; push a smaller set of files.`);
+      files.push({ path: file, content: data.content, mode: changes.modes[file] ?? (data.executable ? "100755" : "100644") });
+    }
+    for (const file of changes.deleted) files.push({ path: file, delete: true });
+    opts.onOutput?.(`Uploading ${files.length - changes.deleted.length} changed file(s), deleting ${changes.deleted.length}…\n`);
+    const tree = await writeTree(token, repo.fullName, files, { ...limits, baseTree: baseCommit.tree.sha });
+    const commit = await githubCall<{ sha: string; html_url: string }>(token, `/repos/${repo.fullName}/git/commits`, { method: "POST", body: JSON.stringify({ message: opts.message, tree, parents: [parent] }) }, limits);
+    // Last check before the point of no return: a cancelled run leaves the branch untouched.
+    throwIfAborted(opts.signal);
+    try {
+      if (remoteHead) await githubCall(token, `/repos/${repo.fullName}/git/refs/heads/${target}`, { method: "PATCH", body: JSON.stringify({ sha: commit.sha, force: false }) }, limits);
+      else await githubCall(token, `/repos/${repo.fullName}/git/refs`, { method: "POST", body: JSON.stringify({ ref: `refs/heads/${target}`, sha: commit.sha }) }, limits);
+    } catch (error) {
+      if (error instanceof GitHubError && error.status === 422) throw new SandboxError(`GitHub rejected the update to ${target}: ${/protected/i.test(error.message) ? "the branch is protected" : "it is not a fast-forward (the branch moved again)"}. Push to a new branch and open a pull request${/protected/i.test(error.message) ? "" : ", or push again"}.`);
+      throw error;
+    }
+    await query(`UPDATE curialy.chat_sessions SET github_pushed = github_pushed || jsonb_build_object($2::text, $3::text), github_pushed_at = now(), updated_at = now() WHERE id = $1`, [opts.sessionId, target, commit.sha]);
+    repo.pushed[target] = commit.sha;
+    return {
+      nothingToPush: false, branch: target, commitSha: commit.sha, commitUrl: `${repo.url}/commit/${commit.sha}`,
+      compareUrl: target === repo.branch ? `${repo.url}/commit/${commit.sha}` : `${repo.url}/compare/${repo.branch}...${encodeURIComponent(target)}`,
+      changed: files.length - changes.deleted.length, deleted: changes.deleted.length, synced, kept: changes.kept, upstreamOnly,
+    };
   } catch (error) {
-    if (error instanceof GitHubError && error.status === 422) throw new SandboxError(`GitHub rejected the update to ${target} (not a fast-forward or protected branch). Push to a new branch and open a pull request.`);
+    if (error instanceof GitHubError) throw new SandboxError(describeGitHubError(error, { repo: repo.fullName, paths, scopes: opts.scopes }));
     throw error;
   }
-  await query(`UPDATE curialy.chat_sessions SET github_pushed = github_pushed || jsonb_build_object($2::text, $3::text), github_pushed_at = now(), updated_at = now() WHERE id = $1`, [opts.sessionId, target, commit.sha]);
-  repo.pushed[target] = commit.sha;
-  return {
-    nothingToPush: false as const, branch: target, commitSha: commit.sha, commitUrl: `${repo.url}/commit/${commit.sha}`,
-    compareUrl: target === repo.branch ? `${repo.url}/commit/${commit.sha}` : `${repo.url}/compare/${repo.branch}...${encodeURIComponent(target)}`,
-    changed: entries.filter(entry => entry.sha).length, deleted: changes.deleted.length,
+}
+
+/** The markers syncWithRemote's merge leaves in a conflicting file (its cherry-pick names the edits commit). */
+const SYNC_CONFLICT = /^<{7} HEAD$[^]*^>{7} [0-9a-f]{7,40} \(Workspace edits\)$/m;
+const hasSyncConflict = (content: Buffer | undefined) => Boolean(content && content.length <= 4 * 1024 * 1024 && !content.includes(0) && SYNC_CONFLICT.test(content.toString("utf8")));
+
+const conflictMessage = (repo: LinkedRepo, conflicts: string[]) =>
+  `${repo.fullName}@${repo.branch} moved on GitHub, and bringing the workspace up to date left conflicts in ${conflicts.length} file(s): ${conflicts.slice(0, 10).join(", ")}${conflicts.length > 10 ? ` and ${conflicts.length - 10} more` : ""}. Resolve the conflict markers (<<<<<<<, =======, >>>>>>>) in them, keeping both sides' intent, then push again.`;
+
+/** Copy what `from` (a git directory) has that `to` lacks: pack files and loose objects. */
+function copyObjects(from: string, to: string) {
+  const walk = (relative: string) => {
+    const source = path.join(from, "objects", relative);
+    for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
+      const next = path.join(relative, entry.name);
+      if (entry.isDirectory()) {
+        fs.mkdirSync(path.join(to, "objects", next), { recursive: true, mode: 0o2775 });
+        walk(next);
+      } else if (entry.isFile() && !fs.existsSync(path.join(to, "objects", next))) {
+        fs.copyFileSync(path.join(source, entry.name), path.join(to, "objects", next));
+      }
+    }
   };
+  walk("");
+}
+
+/** Write a ref as git does (a loose ref file), replacing a packed one by shadowing it. */
+function writeRef(gitDir: string, ref: string, sha: string) {
+  const file = path.join(gitDir, ...ref.split("/"));
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o2775 });
+  fs.writeFileSync(file, `${sha}\n`, { mode: 0o664 });
+}
+
+/**
+ * Bring a linked clone up to date with its branch on GitHub, keeping the workspace's edits. In a
+ * fresh folder of this process (as a clone is; git never runs in one the sandbox can reach), the
+ * edits are committed on the old base from this copy's files, then re-applied onto the new head
+ * (a three-way merge). The merged files go back into the workspace, conflicts with markers; the
+ * clone's history gets the new objects, an index of the new head and its refs; the task's base
+ * becomes the new head. The sandbox picks it all up at its next command.
+ */
+export async function syncWithRemote(opts: { sessionId: string; root: string; repo: LinkedRepo; token: string; signal?: AbortSignal; onOutput?: (chunk: string) => void }) {
+  const { repo, token } = opts;
+  const head = await branchHead(token, repo.fullName, repo.branch);
+  if (!head) throw new SandboxError(`${repo.fullName} no longer has a branch ${repo.branch}.`);
+  if (head === repo.baseSha) return { head, updated: false, conflicts: [] as string[], files: 0, upstreamOnly: [] as string[] };
+  const dest = repo.repoPath === "." ? opts.root : resolveInWorkspace(opts.root, repo.repoPath).absolute;
+  const gitDir = path.join(dest, ".git");
+  if (!fs.lstatSync(gitDir, { throwIfNoEntry: false })?.isDirectory()) throw new SandboxError(`${repo.fullName}'s history is missing from the workspace; call github_clone_to_workspace first, then sync.`);
+  const changes = await computeChanges(opts.root, repo, opts.signal);
+  // Files in dependency and cache folders never come back from the sandbox: not edits to carry over.
+  const cache = (file: string) => file.split("/").slice(0, -1).some(part => SYNC_SKIP.has(part));
+  const edits = changes.changed.filter(file => !cache(file)).map(file => ({ file, data: readRepoFile(opts.root, repo, file) }));
+  const missing = edits.filter(edit => !edit.data).map(edit => edit.file);
+  if (missing.length) throw new SandboxError(`Can't bring the workspace up to date: ${missing.slice(0, 5).join(", ")} ${missing.length === 1 ? "wasn't" : "weren't"} brought back from the sandbox (over its size limits). Delete or shrink ${missing.length === 1 ? "it" : "them"}, or push to a new branch instead.`);
+  opts.onOutput?.(`${repo.fullName}@${repo.branch} moved to ${head.slice(0, 7)}: bringing the workspace up to date, keeping its edits…\n`);
+  throwIfAborted(opts.signal);
+  const staging = path.join(WORKSPACE_ROOT, `.staging-${randomUUID()}`);
+  fs.mkdirSync(staging, { mode: 0o2770 });
+  const git = (args: string[], tokenFor: string | null = null) => appGit(["-c", "user.name=Curialy", "-c", "user.email=agent@curialy.tech", ...args], staging, tokenFor);
+  try {
+    await appGit(["init", "--quiet", "--initial-branch", repo.branch], staging, null);
+    await appGit(["remote", "add", "origin", `https://github.com/${repo.fullName}.git`], staging, null);
+    await appGit(["fetch", "--depth", "50", "--no-tags", "--progress", "origin", head, repo.baseSha], staging, token, opts.onOutput)
+      .catch(() => { throw new SandboxError(`Couldn't fetch ${repo.fullName}'s new commits together with the one this workspace started from (its history may have been rewritten). Push to a new branch instead.`); });
+    // Stopped meanwhile: nothing has been written to the workspace yet.
+    throwIfAborted(opts.signal);
+    // The workspace's edits as one commit on its base, from this copy's files.
+    await git(["checkout", "--quiet", "-B", "curialy-edits", repo.baseSha]);
+    for (const { file, data } of edits) {
+      const target = path.join(staging, file);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.rmSync(target, { recursive: true, force: true });
+      fs.writeFileSync(target, data!.content, { mode: data!.executable || changes.modes[file] === "100755" ? 0o775 : 0o664 });
+    }
+    for (const file of changes.deleted) fs.rmSync(path.join(staging, file), { force: true });
+    await git(["add", "--all", "--", "."]);
+    await git(["commit", "--quiet", "--allow-empty", "--no-verify", "-m", "Workspace edits"]);
+    const editsCommit = await git(["rev-parse", "HEAD"]);
+    // Onto the new head: a three-way merge of the edits (none: the workspace simply moves to it).
+    await git(["checkout", "--quiet", "-B", repo.branch, head]);
+    const hasEdits = edits.length > 0 || changes.deleted.length > 0;
+    const picked = hasEdits ? await git(["cherry-pick", "--no-commit", editsCommit]).then(() => true, () => false) : true;
+    const conflicts = (await git(["diff", "--name-only", "--diff-filter=U", "-z"])).split("\0").filter(Boolean);
+    // A failure that is not a conflict leaves the edits unapplied: nothing may be written back then.
+    if (!picked && !conflicts.length) throw new SandboxError(`Couldn't bring the workspace up to date: git could not re-apply its edits onto ${repo.fullName}'s new commits. Nothing was changed; push to a new branch instead.`);
+    // Every file the edits or the new commits touched goes back into the workspace, as merged.
+    const upstream = (await git(["diff", "--name-only", "-z", "--no-renames", repo.baseSha, head])).split("\0").filter(Boolean);
+    const touched = new Set([...upstream, ...changes.changed, ...changes.deleted]);
+    throwIfAborted(opts.signal);
+    let written = 0;
+    for (const file of touched) {
+      if (/(^|\/)\.git(\/|$)/.test(file)) continue;
+      const from = path.join(staging, file);
+      const { absolute } = resolveInWorkspace(dest, file);
+      const stat = fs.lstatSync(from, { throwIfNoEntry: false });
+      if (stat?.isFile()) {
+        fs.mkdirSync(path.dirname(absolute), { recursive: true, mode: 0o2775 });
+        if (fs.lstatSync(absolute, { throwIfNoEntry: false })?.isDirectory()) fs.rmSync(absolute, { recursive: true, force: true });
+        fs.writeFileSync(absolute, fs.readFileSync(from), { mode: stat.mode & 0o111 ? 0o775 : 0o664 });
+        fs.chmodSync(absolute, stat.mode & 0o111 ? 0o775 : 0o664);
+        written++;
+      } else if (!stat && fs.lstatSync(absolute, { throwIfNoEntry: false })?.isFile()) {
+        fs.unlinkSync(absolute);
+        written++;
+      }
+    }
+    // The clone's history: the new objects, an index of the new head, its branch and remote refs.
+    await git(["reset", "--quiet"]);
+    copyObjects(path.join(staging, ".git"), gitDir);
+    const shallow = [path.join(gitDir, "shallow"), path.join(staging, ".git", "shallow")].flatMap(file => (fs.existsSync(file) ? fs.readFileSync(file, "utf8").split("\n") : [])).filter(line => SHA.test(line));
+    if (shallow.length) fs.writeFileSync(path.join(gitDir, "shallow"), `${[...new Set(shallow)].join("\n")}\n`, { mode: 0o664 });
+    fs.copyFileSync(path.join(staging, ".git", "index"), path.join(gitDir, "index"));
+    writeRef(gitDir, `refs/heads/${repo.branch}`, head);
+    writeRef(gitDir, `refs/remotes/origin/${repo.branch}`, head);
+    fs.writeFileSync(path.join(gitDir, "HEAD"), `ref: refs/heads/${repo.branch}\n`, { mode: 0o664 });
+    // The task's base is the new head; a push to this branch from before is part of its history now.
+    await query("UPDATE curialy.chat_sessions SET github_base_sha = $2, github_pushed = github_pushed - $3::text, updated_at = now() WHERE id = $1", [opts.sessionId, head, repo.branch]);
+    repo.baseSha = head;
+    delete repo.pushed[repo.branch];
+    // Files taken from GitHub as they are: the repository's state, not this run's work (workspace-relative).
+    const mine = new Set([...changes.changed, ...changes.deleted]);
+    const upstreamOnly = upstream.filter(file => !mine.has(file)).map(file => (repo.repoPath === "." ? file : `${repo.repoPath}/${file}`));
+    return { head, updated: true, conflicts, files: written, upstreamOnly };
+  } finally {
+    fs.rmSync(staging, { recursive: true, force: true });
+  }
 }
 
 // ---- Snapshots: only the edits are archived (the repo itself can always be re-fetched) ----

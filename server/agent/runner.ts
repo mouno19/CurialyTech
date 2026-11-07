@@ -249,6 +249,8 @@ export type RunContext = {
   taskModel: string;
   /** Set during the clone step of a follow-up that switches the task to this repository. */
   repoSwitch?: string;
+  /** Files a sync took from the repository as they are (shared with team members): not this run's work. */
+  baseline?: Set<string>;
   /** The "an image could not be loaded" notice goes out once per run, not once per turn. */
   imageNoticeSent?: boolean;
   /** Shared with the run handle: publishing steps in flight. */
@@ -515,7 +517,7 @@ type RunOptions = {
  * every tool except the GitHub write tools (the preview goes through its own temporary repository).
  */
 function deployRunTools() {
-  const blocked = new Set(["github_commit_and_push", "github_create_pr", "github_clone_to_workspace", "generate_speech"]);
+  const blocked = new Set(["github_commit_and_push", "github_create_pr", "github_clone_to_workspace", "github_sync", "generate_speech"]);
   return new Set(toolsFor({ coding: true, web: true, eager: false, github: true }).map(tool => tool.name).filter(name => !blocked.has(name)));
 }
 
@@ -1076,6 +1078,7 @@ async function executeRun(handle: RunHandle, conversation: Record<string, unknow
       grants: opts.grants ?? {},
       failedPublishing: new Set(),
       taskModel: opts.spec.id,
+      baseline: new Set(),
       publishing: handle.publishing,
       chargeCredits: (amount: number, detail: string) => chargeCredits(handle, amount, detail),
       canSpend: async (credits: number) => {
@@ -2155,6 +2158,25 @@ async function trackedTool(ctx: RunContext, callId: string, name: string, input:
     ctx.outcome.publish = ctx.failedPublishing.size ? "failed" : "done";
   }
   if (snapshot) enforceReadOnly(ctx, snapshot, outcome);
+  // Files a sync brought from GitHub are the repository's, not this run's output: their current
+  // state becomes the starting point.
+  if (outcome.ok && outcome.baseline?.length) {
+    const now = workspaceManifest(ctx.root);
+    for (const file of outcome.baseline) {
+      const entry = now.get(file);
+      if (entry) ctx.manifest.set(file, entry);
+      else ctx.manifest.delete(file);
+      ctx.baseline?.add(file);
+    }
+    if (ctx.designState) {
+      const print = uiFingerprint(ctx.root, ctx.designState.printCache);
+      for (const file of outcome.baseline) {
+        const hash = print.get(file);
+        if (hash) ctx.designState.startPrint.set(file, hash);
+        else ctx.designState.startPrint.delete(file);
+      }
+    }
+  }
   // A repository cloned mid-run is the starting point for "files from this run", not output.
   if (name === "github_clone_to_workspace" && outcome.ok) {
     ctx.manifest = workspaceManifest(ctx.root);

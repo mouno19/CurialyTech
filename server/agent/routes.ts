@@ -27,7 +27,7 @@ import { listWorkspaceTree, removeWorkspace, resolveInWorkspace, SANDBOX_MODE, S
 import { activeRunsOf, agentStats, deleteAgentTask, getAgentTask, lastSeq, listAgentTasks, listEventsAfter, listWorkspaceSnapshot, loadWorkspaceSnapshot, readSnapshotFile, taskOwner } from "./store";
 import { findArchivedBuild, findBuildDirs, isPublishExcluded, isUnbuiltTemplate, materializeWorkspace, readWorkspaceFiles, restoreWorkspace, withWorkspaceLock } from "./workspaces";
 import { query } from "../db/pg";
-import { branchHead, createRepo, disconnect, getConnection, GITHUB_SCOPES, githubApi, GitHubError, isValidRepoName, listRepos, oauthConfigured, pushProjectToRepo, RemoteChangedError } from "../services/github";
+import { branchHead, createRepo, describeGitHubError, disconnect, getConnection, GITHUB_SCOPES, githubApi, GitHubError, isValidRepoName, listRepos, oauthConfigured, pushProjectToRepo, RemoteChangedError, workflowFilesBlocked, workflowScopeMessage } from "../services/github";
 import { cloneIntoWorkspace, commitAndPush, linkedRepo } from "./repos";
 import { absoluteAssetWarnings, detectPreviewRoot, previewBaseUrl } from "./preview";
 import { browse, sessionStatus } from "./browser";
@@ -128,7 +128,11 @@ function sendError(res: Response, error: unknown) {
   if (error instanceof SandboxError) return res.status(400).json({ error: error.message });
   if (error instanceof VoiceError) return res.status(error.status).json({ error: error.message, code: error.code });
   if (error instanceof RemoteChangedError) return res.status(409).json({ error: `${error.message} Pushing replaces their files; confirm to push anyway.`, code: "remote_changed", branch: error.branch });
-  if (error instanceof GitHubError) return res.status(error.status === 422 ? 422 : 502).json({ error: brandText(error.message) });
+  if (error instanceof GitHubError) {
+    console.error(`[agent] GitHub ${error.status}: ${redact(error.message).slice(0, 200)}`);
+    const message = brandText(describeGitHubError(error));
+    return res.status(error.status === 401 ? 409 : error.status === 422 ? 422 : 502).json({ error: message, ...(error.status === 401 ? { code: "github_reconnect" } : {}) });
+  }
   // Never log raw error objects: driver errors can carry request bodies with credentials.
   console.error("[agent]", error instanceof Error ? `${error.name}: ${redact(error.message)}` : redact(String(error)));
   return res.status(500).json({ error: error instanceof Error ? `Execution Error: ${brandText(redact(error.message))}` : "Unexpected error" });
@@ -963,13 +967,17 @@ export function agentRouter() {
       if (branch === linked.branch && !input.confirmDefaultBranch) return res.status(400).json({ error: `Pushing to ${linked.branch} needs explicit confirmation.`, code: "confirm_default_branch" });
       const pushed = await withWorkspaceLock(task.id, async () => {
         const { dir } = await materializeWorkspace(task.id);
-        return commitAndPush({ sessionId: task.id, root: dir, repo: linked, token: connection.token, message: input.message || `Curialy AI: ${task.prompt.split("\n")[0].slice(0, 60)}`, branch });
+        // No merge from the dialog: nobody would be there to resolve its conflicts.
+        return commitAndPush({ sessionId: task.id, root: dir, repo: linked, token: connection.token, message: input.message || `Curialy AI: ${task.prompt.split("\n")[0].slice(0, 60)}`, branch, scopes: connection.scopes, autoSync: false });
       });
       if (pushed.nothingToPush) return res.json({ repo: linked.fullName, url: linked.url, commitUrl: linked.url, files: 0, created: false, nothingToPush: true });
       return res.json({ repo: linked.fullName, url: linked.url, commitUrl: pushed.commitUrl, files: pushed.changed + pushed.deleted, created: false, branch: pushed.branch });
     }
     const { files } = await exportFiles(task.id);
     if (!files.length) return res.status(409).json({ error: "This task has no files to export." });
+    // GitHub takes workflow files only from a connection with the workflow permission: said before anything is created.
+    const workflows = workflowFilesBlocked(files.map(file => file.path), connection.scopes);
+    if (workflows.length) return res.status(409).json({ error: workflowScopeMessage(workflows), code: "github_reconnect" });
     let fullName = task.githubRepo;
     let created = false;
     if (!fullName) {

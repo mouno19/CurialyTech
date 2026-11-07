@@ -6,8 +6,9 @@ import { db, query } from "./db/pg";
 // the first credit spent after the previous one ended. Bonus credits (promo codes, grants) are spent
 // after the window's and never expire. Admins are not charged. Every change is a credit_events row.
 
+/** free_allowance_withheld: the account starts without the window allowance (see auth-github.ts); an own allowance still applies. */
 export type UserCredits = {
-  id: string; role: string; credit_allowance: number | null; bonus_credits: string; window_started_at: Date | null; window_used: string;
+  id: string; role: string; credit_allowance: number | null; bonus_credits: string; window_started_at: Date | null; window_used: string; free_allowance_withheld?: boolean;
 };
 
 export class CreditError extends Error {
@@ -43,10 +44,11 @@ export async function saveSettings(patch: Partial<CreditSettings>, by: string) {
 // ---- Balance ----
 
 export function balanceOf(row: UserCredits, settings: CreditSettings, now = Date.now()): CreditBalance {
-  const allowance = row.credit_allowance ?? settings.creditsPerWindow;
+  const allowance = row.credit_allowance ?? (row.free_allowance_withheld ? 0 : settings.creditsPerWindow);
   const bonus = Number(row.bonus_credits);
   const windowMs = settings.windowHours * 3_600_000;
-  const open = row.window_started_at !== null && now < row.window_started_at.getTime() + windowMs;
+  // Without an allowance there is no window, and so never a refill time.
+  const open = allowance > 0 && row.window_started_at !== null && now < row.window_started_at.getTime() + windowMs;
   const used = open ? Number(row.window_used) : 0;
   const remaining = Math.max(0, allowance - used);
   return {
@@ -58,7 +60,7 @@ export function balanceOf(row: UserCredits, settings: CreditSettings, now = Date
 }
 
 const round = (value: number) => Math.round(value * 100) / 100;
-const COLUMNS = "id, role, credit_allowance, bonus_credits, window_started_at, window_used";
+const COLUMNS = "id, role, credit_allowance, bonus_credits, window_started_at, window_used, free_allowance_withheld";
 
 export async function getBalance(userId: string): Promise<CreditBalance> {
   const [{ rows }, settings] = await Promise.all([query<UserCredits>(`SELECT ${COLUMNS} FROM curialy.users WHERE id = $1`, [userId]), getSettings()]);
@@ -99,11 +101,13 @@ export async function charge(userId: string, amount: number, sessionId: string |
     }
     const now = Date.now();
     const before = balanceOf(row, settings, now);
-    const windowStart = before.resetsAt ? row.window_started_at! : new Date(now);
     const fromWindow = Math.min(before.remaining, amount);
     const fromBonus = Math.min(before.bonus, amount - fromWindow);
-    // Whatever neither covers still counts against the window (it ends at the reset).
-    const windowUsed = before.used + amount - fromBonus;
+    // Whatever neither covers still counts against the window (it ends at the reset). Without an
+    // allowance there is no window: only bonus credits are spent, and no window is opened.
+    const windowless = before.allowance === 0;
+    const windowStart = windowless ? row.window_started_at : before.resetsAt ? row.window_started_at! : new Date(now);
+    const windowUsed = windowless ? Number(row.window_used) : before.used + amount - fromBonus;
     const { rows: [updated] } = await client.query<UserCredits>(
       `UPDATE curialy.users SET window_started_at = $2, window_used = $3, bonus_credits = bonus_credits - $4 WHERE id = $1 RETURNING ${COLUMNS}`,
       [userId, windowStart, round(windowUsed), round(fromBonus)],
@@ -125,6 +129,14 @@ export async function grant(userId: string, amount: number, by: string, note: st
   const { rowCount } = await query("UPDATE curialy.users SET bonus_credits = GREATEST(0, bonus_credits + $2) WHERE id = $1", [userId, round(amount)]);
   if (!rowCount) throw new CreditError("Account not found.", "invalid_code", 404);
   await query("INSERT INTO curialy.credit_events (user_id, kind, amount, detail, created_by) VALUES ($1, 'grant', $2, $3, $4)", [userId, round(amount), note.slice(0, 200) || null, by]);
+  return getBalance(userId);
+}
+
+/** Admin: give an account the free allowance, or take it away (an own allowance still applies either way). */
+export async function setFreeAllowance(userId: string, withheld: boolean, by: string) {
+  const { rowCount } = await query("UPDATE curialy.users SET free_allowance_withheld = $2 WHERE id = $1 AND role <> 'admin'", [userId, withheld]);
+  if (!rowCount) throw new CreditError("Account not found.", "invalid_code", 404);
+  await query("INSERT INTO curialy.credit_events (user_id, kind, amount, detail, created_by) VALUES ($1, 'adjust', 0, $2, $3)", [userId, withheld ? "free allowance removed" : "free allowance given", by]);
   return getBalance(userId);
 }
 
@@ -215,6 +227,12 @@ export async function redeemPromoCode(userId: string, rawCode: string) {
     const promo = rows[0] ? promoOf(rows[0]) : null;
     // One message for unknown codes and codes meant for someone else: a code's existence is not revealed.
     if (!promo || (promo.forUser && promo.forUser.id !== userId)) throw new CreditError("That code isn't valid.", "invalid_code", 400);
+    // A code for anyone is free credit for every account someone opens: not for an account that
+    // started without the free allowance (unless the operator gave it one). Said like an unknown code.
+    if (!promo.forUser) {
+      const { rows: [account] } = await client.query<{ free_allowance_withheld: boolean; credit_allowance: number | null }>("SELECT free_allowance_withheld, credit_allowance FROM curialy.users WHERE id = $1", [userId]);
+      if (account?.free_allowance_withheld && !account.credit_allowance) throw new CreditError("That code isn't valid.", "invalid_code", 400);
+    }
     if (promo.state === "disabled" || promo.state === "expired") throw new CreditError("That code has expired.", "invalid_code", 400);
     if (promo.state === "used_up") throw new CreditError("That code has already been used.", "code_used", 409);
     const inserted = await client.query("INSERT INTO curialy.promo_redemptions (code_id, user_id, credits) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", [promo.id, userId, promo.credits]);
@@ -232,11 +250,15 @@ export async function redeemPromoCode(userId: string, rawCode: string) {
   }
 }
 
-/** Recent credit activity for an account (admin view and the account's own history). */
-export async function creditHistory(userId: string, limit = 50) {
+/**
+ * Recent credit activity for an account (admin view and the account's own history). The account's
+ * own view leaves out the operator's notes on grants and adjustments.
+ */
+export async function creditHistory(userId: string, limit = 50, opts: { forAccount?: boolean } = {}) {
   const { rows } = await query<{ kind: string; amount: string; detail: string | null; session_id: string | null; created_at: Date }>(
     "SELECT kind, amount, detail, session_id, created_at FROM curialy.credit_events WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2",
     [userId, limit],
   );
-  return rows.map(row => ({ kind: row.kind, amount: Number(row.amount), detail: row.detail, taskId: row.session_id, at: row.created_at.toISOString() }));
+  const hidden = (kind: string) => opts.forAccount && (kind === "grant" || kind === "adjust");
+  return rows.map(row => ({ kind: row.kind, amount: Number(row.amount), detail: hidden(row.kind) ? null : row.detail, taskId: row.session_id, at: row.created_at.toISOString() }));
 }

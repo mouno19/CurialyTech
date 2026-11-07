@@ -39,8 +39,8 @@ export function keysRouter() {
 
 // ---- Gateway ----
 
-/** Per request: its key, its admission (slot, bytes, balance) and its credit hold. */
-type Admission = { key: GatewayKey; available: number; bytes: number; hold: number; release: () => void };
+/** Per request: its key, its admission (slot, bytes, balance) and its credit hold. refills: the account's credits come back with a window. */
+type Admission = { key: GatewayKey; available: number; refills: boolean; bytes: number; hold: number; release: () => void };
 const ADMITTED = new WeakMap<Request, Admission>();
 const KEYS = new WeakMap<Request, GatewayKey>();
 
@@ -131,7 +131,7 @@ async function admit(req: Request, res: Response, next: NextFunction) {
   inFlight.set(key.userId, (inFlight.get(key.userId) ?? 0) + 1);
   let released = false;
   const admission: Admission = {
-    key, available: Infinity, bytes, hold: 0,
+    key, available: Infinity, refills: true, bytes, hold: 0,
     release: () => {
       if (released) return;
       released = true;
@@ -147,6 +147,7 @@ async function admit(req: Request, res: Response, next: NextFunction) {
     try {
       const balance = await getBalance(key.userId);
       admission.available = balance.unlimited ? Infinity : balance.available;
+      admission.refills = balance.unlimited || balance.allowance > 0;
       if (!(admission.available > 0)) {
         admission.release();
         return send(res, 402, "insufficient_credits", outOfCreditsMessage(balance));
@@ -185,7 +186,7 @@ function refusal(admission: Admission, model: unknown, maxTokens: unknown, reque
   // The most this request could cost: its input and every token it may write.
   const hold = creditsFor(model, { inputTokens: Math.ceil(inputEstimate(request.messages) + inputEstimate(request.system) + inputEstimate(request.tools)), outputTokens: maxTokens });
   const room = admission.available - (held.get(key.userId) ?? 0);
-  if (hold > room) return { status: 402, type: "insufficient_credits", message: `This request could use up to ${hold} credits and ${Math.max(0, Math.floor(room * 100) / 100)} are available. Lower max_tokens or wait for your credits to refill.` };
+  if (hold > room) return { status: 402, type: "insufficient_credits", message: `This request could use up to ${hold} credits and ${Math.max(0, Math.floor(room * 100) / 100)} are available. Lower max_tokens or ${admission.refills ? "wait for your credits to refill" : "add credits with a promo code"}.` };
   admission.hold = hold;
   held.set(key.userId, (held.get(key.userId) ?? 0) + hold);
   return null;

@@ -26,7 +26,7 @@ const READ_TOOLS = ["list_files", "read_file", "search_files", "web_fetch", "bro
 // (RunContext.readOnly). Cloning the task's repository is setup, not an edit, so the Architect may.
 const ROLE_TOOLS: Record<TeamRole, string[]> = {
   architect: [...READ_TOOLS, "run_command", "github_list_repos", "github_get_repo", "github_clone_to_workspace", "delegate_research"],
-  engineer: [...READ_TOOLS, "run_command", "write_file", "edit_file", "delete_file", "update_plan", "attach_files", "test_preview_visual", "transcribe_audio", "generate_speech", "github_list_repos", "github_get_repo", "github_clone_to_workspace"],
+  engineer: [...READ_TOOLS, "run_command", "write_file", "edit_file", "delete_file", "update_plan", "attach_files", "test_preview_visual", "transcribe_audio", "generate_speech", "github_list_repos", "github_get_repo", "github_clone_to_workspace", "github_sync"],
   reviewer: [...READ_TOOLS, "run_command", "test_preview_visual"],
 };
 /** Only after the Reviewer approves. */
@@ -264,7 +264,7 @@ export async function runTeam(ctx: RunContext, conversation: Anthropic.MessagePa
     try {
       return await runAgentLoop(fork, state.engineer, { verify: opts?.verify ?? true, maxTurns: opts?.maxTurns });
     } finally {
-      for (const file of changedSince(before, workspaceManifest(ctx.root))) byCommand.add(file);
+      for (const file of changedSince(before, workspaceManifest(ctx.root))) if (!ctx.baseline?.has(file)) byCommand.add(file);
       // Self-healing may have escalated or failed over the Engineer: keep that model for later
       // rounds and keep the Reviewer independent of whoever actually wrote the code.
       if (fork.spec.id !== models.engineer.id) {

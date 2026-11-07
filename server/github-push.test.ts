@@ -141,3 +141,51 @@ describe("pushing a project to GitHub", () => {
     expect(blobCalls(calls).every(call => call.at === calls[0].at)).toBe(true);
   });
 });
+
+describe("GitHub failures, in words that say what to do", () => {
+  it("explains a revoked connection, organization restrictions, rate limits and refused writes", async () => {
+    const { describeGitHubError, workflowFilesBlocked } = await import("./services/github");
+    expect(describeGitHubError(new GitHubError("GitHub GET /user failed (401): Bad credentials", 401))).toMatch(/Reconnect GitHub/);
+    expect(describeGitHubError(new GitHubError("Resource protected by organization SAML enforcement", 403), { repo: "acme/app" })).toMatch(/acme uses single sign-on/);
+    expect(describeGitHubError(new GitHubError("the `acme` organization has enabled OAuth App access restrictions", 403), { repo: "acme/app" })).toMatch(/owner must approve Curialy/);
+    expect(describeGitHubError(new GitHubError("secondary rate limit", 403, 120_000))).toMatch(/wait 2 minute/);
+    const treeWrite = new GitHubError("GitHub POST /repos/octo/app/git/trees failed (404): Not Found", 404);
+    expect(describeGitHubError(treeWrite, { repo: "octo/app", paths: [".github/workflows/ci.yml", "src/a.ts"], scopes: "repo" })).toMatch(/workflow permission/);
+    // With the permission there, a refused write is about access, not workflows.
+    expect(describeGitHubError(treeWrite, { repo: "octo/app", paths: [".github/workflows/ci.yml"], scopes: "repo,workflow" })).toMatch(/can probably only read it/);
+    expect(describeGitHubError(treeWrite, { repo: "octo/app", paths: ["src/a.ts"] })).toMatch(/can probably only read it/);
+    // A 404 on a read is a missing repository or commit, never "read-only access".
+    const read = new GitHubError("GitHub GET /repos/octo/gone failed (404): Not Found", 404);
+    expect(describeGitHubError(read, { repo: "octo/gone", paths: ["src/a.ts"] })).toBe(read.message);
+    // Workflow files: blocked only when the scopes are known and lack it.
+    expect(workflowFilesBlocked([".github/workflows/ci.yml", ".github/dependabot.yml"], "read:user,repo,user:email")).toEqual([".github/workflows/ci.yml"]);
+    expect(workflowFilesBlocked([".github/workflows/ci.yml"], "repo workflow")).toEqual([]);
+    expect(workflowFilesBlocked([".github/workflows/ci.yml"], null)).toEqual([]);
+  });
+
+  it("returns the pull request that is already open instead of failing", async () => {
+    const { createPullRequest } = await import("./services/github");
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit = {}) => {
+      const path = String(url).replace("https://api.github.com", "");
+      const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
+      if (init.method === "POST" && path === "/repos/octo/site/pulls") return json({ message: "Validation Failed", errors: [{ message: "A pull request already exists for octo:fix." }] }, 422);
+      if (path.startsWith("/repos/octo/site/pulls?state=open&head=octo%3Afix&base=main")) return json([{ number: 7, html_url: "https://github.com/octo/site/pull/7", state: "open" }]);
+      return json({ message: "unexpected" }, 500);
+    }));
+    expect(await createPullRequest("token", "octo/site", { title: "Fix", body: "", head: "fix", base: "main" })).toMatchObject({ number: 7, existing: true });
+  });
+
+  it("lists repositories past the first page, organizations' included", async () => {
+    const { listRepos } = await import("./services/github");
+    const asked: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      asked.push(String(url));
+      const page = Number(new URL(String(url)).searchParams.get("page"));
+      const repos = Array.from({ length: page === 1 ? 100 : 20 }, (_, index) => ({ id: page * 1000 + index, name: `r${page}-${index}`, full_name: `o/r${page}-${index}`, private: false, default_branch: "main", description: null, updated_at: "2026-11-01", language: null, size: 1, html_url: "x" }));
+      return new Response(JSON.stringify(repos), { status: 200, headers: { "content-type": "application/json" } });
+    }));
+    expect(await listRepos("token", 300)).toHaveLength(120);
+    expect(asked).toHaveLength(2);
+    expect(asked[0]).toContain("affiliation=owner,collaborator,organization_member");
+  });
+});

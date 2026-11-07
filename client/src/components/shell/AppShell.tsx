@@ -359,6 +359,9 @@ function HealthStatus({ rail }: { rail: boolean }) {
 }
 
 function GitHubAccount({ rail }: { rail: boolean }) {
+  // Connecting (or reconnecting for new permissions) comes back to this page.
+  const [here] = useLocation();
+  const connectHref = `/api/auth/github/start${here && here !== "/" ? `?next=${encodeURIComponent(here)}` : ""}`;
   const { status, loading, error, refresh } = useGitHub();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const deferred = useDeferredSelect(triggerRef);
@@ -396,7 +399,7 @@ function GitHubAccount({ rail }: { rail: boolean }) {
     // Signing in with GitHub reads the profile only; repository access is this separate, explicit step.
     return withTip(
       "Connect your GitHub repositories",
-      <a className="nav-item" href="/api/auth/github/start">
+      <a className="nav-item" href={connectHref}>
         <GitHubMark />
         <span className="nav-text">Connect repositories</span>
       </a>,
@@ -434,7 +437,7 @@ function GitHubAccount({ rail }: { rail: boolean }) {
               </a>
             </DropdownMenu.Item>
             <DropdownMenu.Item asChild className="menu-item">
-              <a href="/api/auth/github/start">
+              <a href={connectHref}>
                 <RefreshCw size={15} aria-hidden="true" />
                 <span className="menu-item-body">
                   <span>Reconnect</span>

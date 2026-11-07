@@ -60,7 +60,7 @@ let deployStatus = "live";
 function project() {
   const root = path.join(tmp, `project-${Math.random().toString(16).slice(2)}`);
   const files: Record<string, string> = {
-    "index.html": "<h1>Hi</h1>", "app.js": "console.log(1)", ".env": "SECRET=1", ".env.example": "SECRET=", "attachments/upload.png": "png",
+    "index.html": "<h1>Hi</h1>", "app.js": "console.log(1)", ".env": "SECRET=1", ".env.example": "SECRET=", "attachments/upload.png": "png", ".github/workflows/ci.yml": "on: push",
     "package.json": "{}", "dist/index.html": "<h1>built</h1>", "node_modules/x/index.js": "x",
   };
   for (const [file, content] of Object.entries(files)) {

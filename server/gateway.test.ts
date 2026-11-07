@@ -41,9 +41,9 @@ vi.mock("./db/pg", () => ({
   db: () => { throw new Error("no pool in tests"); },
   adminUserId: async () => "admin",
 }));
-const credits = vi.hoisted(() => ({ available: 50, charges: [] as { userId: string; amount: number; detail: string }[] }));
+const credits = vi.hoisted(() => ({ available: 50, allowance: 60, charges: [] as { userId: string; amount: number; detail: string }[] }));
 vi.mock("./credits", () => ({
-  getBalance: async () => ({ unlimited: false, allowance: 60, used: 10, remaining: credits.available, bonus: 0, available: credits.available, resetsAt: new Date(Date.now() + 3600_000).toISOString() }),
+  getBalance: async () => ({ unlimited: false, allowance: credits.allowance, used: 10, remaining: credits.available, bonus: 0, available: credits.available, resetsAt: credits.allowance ? new Date(Date.now() + 3600_000).toISOString() : null }),
   charge: vi.fn(async (userId: string, amount: number, _session: unknown, detail: string) => { credits.charges.push({ userId, amount, detail }); }),
   outOfCreditsMessage: () => "You've used this window's credits.",
 }));
@@ -332,6 +332,21 @@ describe("the gateway", () => {
     expect((await big.json()).error.message).toMatch(/could use up to 13\.\d+ credits and 1 are available/);
     expect(upstream.calls).toEqual([]);
     expect((await call("/v1/messages", secret, { ...ask, max_tokens: 1024 })).status).toBe(200);
+  });
+
+  it("never promises a refill to an account whose credits don't refill", async () => {
+    const { secret } = await newKey("no-allowance-user");
+    credits.available = 1;
+    credits.allowance = 0;
+    try {
+      const big = await call("/v1/messages", secret, { ...ask, max_tokens: 16_384 });
+      expect(big.status).toBe(402);
+      const message = (await big.json()).error.message;
+      expect(message).toMatch(/add credits with a promo code/);
+      expect(message).not.toMatch(/refill/);
+    } finally {
+      credits.allowance = 60;
+    }
   });
 
   it("bills a stream the caller cut short for what it was sent, and assembles unstreamed replies", async () => {

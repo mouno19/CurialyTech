@@ -2,7 +2,8 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import type { Express, Request, Response } from "express";
 import { currentUser, forgetUser, issueSession, rateLimited } from "./auth";
 import { getSettings } from "./credits";
-import { query } from "./db/pg";
+import { db, query } from "./db/pg";
+import { FREE_ACCOUNTS_PER_NETWORK, networkHash, signupNetwork } from "./signup-network";
 import { authorizeUrl, exchangeCode, githubProfile, GITHUB_SCOPES, LOGIN_SCOPES, oauthConfigured, saveConnection, type GitHubProfile } from "./services/github";
 
 // GitHub OAuth, two uses of one app and one callback:
@@ -63,8 +64,12 @@ function begin(req: Request, res: Response, intent: Intent, next: string) {
 
 type AccountRow = { id: string; banned_at: Date | null };
 
-/** The account for a GitHub identity: the one already linked to it, or a new one when sign-ups are open. */
-export async function accountForGitHub(profile: GitHubProfile): Promise<{ id: string } | { refused: "banned" | "closed" }> {
+/**
+ * The account for a GitHub identity: the one already linked to it, or a new one when sign-ups are
+ * open. A new account remembers (as a keyed hash) the network it was created from; past the first
+ * few from one network, accounts start without the free allowance. `address`: the visitor's address.
+ */
+export async function accountForGitHub(profile: GitHubProfile, address?: string | null): Promise<{ id: string } | { refused: "banned" | "closed" }> {
   const { rows } = await query<AccountRow>("SELECT id, banned_at FROM curialy.users WHERE github_id = $1", [profile.id]);
   const displayName = (profile.name || profile.login).slice(0, 100);
   if (rows[0]) {
@@ -74,13 +79,33 @@ export async function accountForGitHub(profile: GitHubProfile): Promise<{ id: st
     return { id: rows[0].id };
   }
   if (!(await getSettings()).signupsOpen) return { refused: "closed" };
-  const { rows: created } = await query<{ id: string }>(
-    `INSERT INTO curialy.users (handle, display_name, role, github_id, login, avatar_url, email)
-     VALUES ($1, $2, 'user', $3, $4, $5, $6)
-     ON CONFLICT (github_id) WHERE github_id IS NOT NULL DO UPDATE SET login = EXCLUDED.login RETURNING id`,
-    [`gh:${profile.id}`, displayName, profile.id, profile.login, profile.avatarUrl, profile.email],
-  );
-  return { id: created[0].id };
+  const network = signupNetwork(address);
+  if (!network) console.warn("[auth] sign-up from a non-public address: no network recorded");
+  const hash = network ? networkHash(network) : null;
+  // Counted and created under one lock per network, so parallel sign-ups can't share a free place.
+  const client = await db().connect();
+  try {
+    await client.query("BEGIN");
+    let withheld = false;
+    if (hash) {
+      await client.query("SELECT pg_advisory_xact_lock(7718003, $1)", [hash.readInt32BE(0)]);
+      const { rows: [counted] } = await client.query<{ n: number }>("SELECT count(*)::int AS n FROM curialy.users WHERE signup_network = $1", [hash]);
+      withheld = counted.n >= FREE_ACCOUNTS_PER_NETWORK;
+    }
+    const { rows: created } = await client.query<{ id: string }>(
+      `INSERT INTO curialy.users (handle, display_name, role, github_id, login, avatar_url, email, signup_network, free_allowance_withheld)
+       VALUES ($1, $2, 'user', $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (github_id) WHERE github_id IS NOT NULL DO UPDATE SET login = EXCLUDED.login RETURNING id`,
+      [`gh:${profile.id}`, displayName, profile.id, profile.login, profile.avatarUrl, profile.email, hash, withheld],
+    );
+    await client.query("COMMIT");
+    return { id: created[0].id };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export function registerGitHubAuth(app: Express) {
@@ -91,11 +116,12 @@ export function registerGitHubAuth(app: Express) {
     begin(req, res, "login", safeNext(req.query.next));
   });
 
-  // Connect repositories to the signed-in account.
+  // Connect repositories to the signed-in account (or reconnect for new permissions); `next`: the
+  // page to come back to (a task the user was working on), else the home page with a notice.
   app.get("/api/auth/github/start", guarded(async (req: Request, res: Response) => {
     if (!(await currentUser(req))) return res.redirect(302, "/login");
     if (!oauthConfigured()) return res.redirect(302, "/?github=not_configured");
-    begin(req, res, "connect", "/");
+    begin(req, res, "connect", safeNext(req.query.next));
   }));
 
   app.get(CALLBACK_PATH, guarded(async (req: Request, res: Response) => {
@@ -113,7 +139,7 @@ export function registerGitHubAuth(app: Express) {
     try {
       const { token, scopes } = await exchangeCode(code, redirectUri(req));
       if (intent === "login") {
-        const account = await accountForGitHub(await githubProfile(token));
+        const account = await accountForGitHub(await githubProfile(token), req.ip);
         if ("refused" in account) return fail(account.refused);
         await issueSession(req, res, account.id);
         return res.redirect(302, next);
@@ -123,7 +149,7 @@ export function registerGitHubAuth(app: Express) {
       const granted = new Set(scopes.split(/[,\s]+/).filter(Boolean));
       if (!granted.has("repo")) return fail("missing_repo_scope");
       await saveConnection(user.id, token, scopes);
-      res.redirect(302, "/?github=connected");
+      res.redirect(302, next === "/" ? "/?github=connected" : next);
     } catch (error) {
       console.error(`[github] OAuth ${intent} callback failed:`, error instanceof Error ? error.message : error);
       fail("error");

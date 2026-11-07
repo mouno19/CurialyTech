@@ -15,9 +15,9 @@ import { StorageError } from "../media/storage-errors";
 
 /** Largest screenshot kept inline in the event log while file storage is unavailable (base64 chars). */
 const INLINE_SCREENSHOT_LIMIT = 400 * 1024;
-import { createPullRequest, getConnection, GitHubError, listRepos, repoDetails, resolveRepo, throwIfAborted } from "../services/github";
+import { createPullRequest, describeGitHubError, getConnection, githubApi, GitHubError, listRepos, repoDetails, resolveRepo, throwIfAborted } from "../services/github";
 import { taskOwner } from "./store";
-import { cloneIntoWorkspace, commitAndPush, linkedRepo } from "./repos";
+import { cloneIntoWorkspace, commitAndPush, linkedRepo, syncWithRemote } from "./repos";
 import { brandText } from "@shared/brand";
 import { storeArtifacts } from "./artifacts";
 import { absoluteAssetWarnings, detectPreviewRoot, previewBaseUrl, registerLiveServer, unregisterLiveServer, waitForPort } from "./preview";
@@ -63,7 +63,8 @@ export const OPERATOR_TOOLS = new Set(["deploy_preview", "delegate_research", "b
 
 export type ToolImage = { mediaType: "image/jpeg"; base64: string };
 /** images: screenshots for the model (vision models only); audit: the visual test's design audit, for the harness. */
-export type ToolOutcome = { ok: boolean; content: string; summary: string; exitCode?: number | null; images?: ToolImage[]; audit?: DesignAudit | null };
+/** baseline: files the tool took from the repository as they are (a sync): its state, not this run's work. */
+export type ToolOutcome = { ok: boolean; content: string; summary: string; exitCode?: number | null; images?: ToolImage[]; audit?: DesignAudit | null; baseline?: string[] };
 
 const VERIFY_PATTERN = /\b(tsc|vitest|jest|pytest|eslint|ruff|mypy|pyright|go (test|vet)|cargo (test|check)|node --test|(npm|pnpm|yarn)( run)? (test|lint|check|typecheck|build))\b/;
 export const isVerificationCommand = (command: string) => VERIFY_PATTERN.test(command);
@@ -142,6 +143,7 @@ const schemas = {
   github_get_repo: z.object({ repo: z.string().min(1).max(200) }),
   github_clone_to_workspace: z.object({ repo: z.string().min(1).max(200), branch: z.string().max(200).optional() }),
   github_commit_and_push: z.object({ message: z.string().min(3).max(5000), branch: z.string().max(200).optional() }),
+  github_sync: z.object({}).passthrough(),
   github_create_pr: z.object({ title: z.string().min(3).max(256), body: z.string().max(60000).default(""), head: z.string().max(200).optional(), base: z.string().max(200).optional(), draft: z.boolean().default(false) }),
   deploy_preview: z.object({
     kind: z.enum(["static", "node"]),
@@ -295,6 +297,11 @@ const GITHUB_TOOLS: ToolDef[] = [
     input_schema: { type: "object", properties: { repo: { type: "string" }, branch: { type: "string" } }, required: ["repo"] },
   },
   {
+    name: "github_sync",
+    description: "Bring the cloned repository up to date with its branch on GitHub (commits someone pushed since the clone), keeping your edits: a three-way merge. Conflicting files are listed and left with conflict markers to resolve. github_commit_and_push does this by itself when the branch moved; call this to work on the latest code first. Plain git pull/fetch inside run_command has no credentials and will fail.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
     name: "github_commit_and_push",
     description: "Commit every change in the cloned repository (edits, new files, deletions; .gitignore is respected) and push it to GitHub. Pushes to the cloned branch by default; pass branch to push to a new branch, which is the safe choice before github_create_pr. Plain 'git push' inside run_command has no credentials and will fail; always use this tool.",
     input_schema: { type: "object", properties: { message: { type: "string", description: "Commit message" }, branch: { type: "string" } }, required: ["message"] },
@@ -347,7 +354,8 @@ export async function executeTool(name: string, rawInput: unknown, ctx: ToolCont
   try {
     return await run(name as ToolName, parsed.data, ctx);
   } catch (error) {
-    const raw = error instanceof SandboxError || error instanceof Error ? error.message : String(error);
+    if (error instanceof GitHubError) console.error(`[tools] ${name}: GitHub ${error.status}: ${error.message.slice(0, 200)}`);
+    const raw = error instanceof GitHubError ? describeGitHubError(error) : error instanceof SandboxError || error instanceof Error ? error.message : String(error);
     if (raw !== brandText(raw)) console.error(`[tools] ${name} failed:`, raw);
     const message = brandText(raw);
     return { ok: false, content: `Error: ${message}`, summary: message.slice(0, 160) };
@@ -468,6 +476,7 @@ async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOu
     case "github_list_repos":
     case "github_get_repo":
     case "github_clone_to_workspace":
+    case "github_sync":
     case "github_commit_and_push":
     case "github_create_pr":
       return runGitHubTool(name, input, ctx);
@@ -538,6 +547,11 @@ async function runGitHubTool(name: ToolName, input: any, ctx: ToolContext): Prom
   const resolve = async (query: string) => {
     const match = await resolveRepo(token, query);
     if (match.repo) return match.repo;
+    // A bare name past the listed repositories: the owner's own repository of that name, if any.
+    if (!match.candidates.length && /^[A-Za-z0-9._-]+$/.test(query.trim())) {
+      const own = await githubApi(token, `/repos/${login}/${query.trim()}`).then(repo => resolveRepo(token, repo.full_name), () => null);
+      if (own?.repo) return own.repo;
+    }
     const options = match.candidates.map(repo => repo.full_name).join(", ");
     throw new Error(match.candidates.length ? `"${query}" matches several repositories: ${options}. Ask which one, or pass owner/name.` : `No repository matching "${query}" in ${login}'s account. Use github_list_repos to see what exists.`);
   };
@@ -597,20 +611,40 @@ async function runGitHubTool(name: ToolName, input: any, ctx: ToolContext): Prom
       const { message, branch } = input as z.infer<typeof schemas.github_commit_and_push>;
       const repo = await linkedRepo(ctx.sessionId);
       if (!repo) return { ok: false, content: "No repository is cloned in this task. Use github_clone_to_workspace first.", summary: "No linked repo" };
-      const result = await commitAndPush({ sessionId: ctx.sessionId, root: ctx.root, repo, token, message, branch, signal: ctx.signal, onOutput: log });
-      if (result.nothingToPush) return { ok: true, content: `Nothing to push: the workspace matches ${repo.fullName}@${repo.branch}.`, summary: "Nothing to push" };
+      const result = await commitAndPush({ sessionId: ctx.sessionId, root: ctx.root, repo, token, message, branch, signal: ctx.signal, onOutput: log, scopes: connection.scopes });
+      if (result.synced) ctx.onFileChange(".");
+      const syncedNote = result.synced ? ` ${repo.fullName}@${repo.branch} had moved on GitHub, so the workspace was brought up to date with it (${result.synced.slice(0, 7)}) first, keeping your edits.` : "";
+      if (result.nothingToPush) return { ok: true, content: `Nothing to push: the workspace matches ${repo.fullName}@${repo.branch}.${syncedNote}`, summary: "Nothing to push" };
+      const baseline = result.upstreamOnly.length ? { baseline: result.upstreamOnly } : {};
       ctx.emit({ type: "repo_push", fullName: repo.fullName, branch: result.branch, commitSha: result.commitSha, commitUrl: result.commitUrl, changed: result.changed, deleted: result.deleted });
-      return { ok: true, content: `Pushed ${result.changed} changed and ${result.deleted} deleted file(s) to ${repo.fullName}@${result.branch}: ${result.commitUrl}`, summary: `Pushed ${result.commitSha.slice(0, 7)} → ${result.branch}` };
+      const keptNote = result.kept.length ? ` Submodules and symlinks (${result.kept.slice(0, 3).join(", ")}${result.kept.length > 3 ? ` and ${result.kept.length - 3} more` : ""}) were left as GitHub has them.` : "";
+      return { ok: true, content: `Pushed ${result.changed} changed and ${result.deleted} deleted file(s) to ${repo.fullName}@${result.branch}: ${result.commitUrl}.${syncedNote}${keptNote}`, summary: `Pushed ${result.commitSha.slice(0, 7)} → ${result.branch}`, ...baseline };
+    }
+    case "github_sync": {
+      const repo = await linkedRepo(ctx.sessionId);
+      if (!repo) return { ok: false, content: "No repository is cloned in this task. Use github_clone_to_workspace first.", summary: "No linked repo" };
+      const result = await syncWithRemote({ sessionId: ctx.sessionId, root: ctx.root, repo, token, signal: ctx.signal, onOutput: log });
+      if (!result.updated) return { ok: true, content: `${repo.fullName}@${repo.branch} has no new commits: the workspace is up to date.`, summary: "Already up to date" };
+      ctx.onFileChange(".");
+      if (result.conflicts.length) {
+        return { ok: true, content: `Brought the workspace up to ${repo.fullName}@${repo.branch} (${result.head.slice(0, 7)}), keeping your edits, with conflicts in ${result.conflicts.length} file(s): ${result.conflicts.slice(0, 15).join(", ")}${result.conflicts.length > 15 ? ` and ${result.conflicts.length - 15} more` : ""}. Resolve the conflict markers (<<<<<<<, =======, >>>>>>>) in them, keeping both sides' intent, then push.`, summary: `Synced · ${result.conflicts.length} conflict(s)`, baseline: result.upstreamOnly };
+      }
+      return { ok: true, content: `Brought the workspace up to ${repo.fullName}@${repo.branch} (${result.head.slice(0, 7)}), keeping your edits (${result.files} file(s) updated).`, summary: `Synced to ${result.head.slice(0, 7)}`, baseline: result.upstreamOnly };
     }
     case "github_create_pr": {
       const { title, body, head, base, draft } = input as z.infer<typeof schemas.github_create_pr>;
       const repo = await linkedRepo(ctx.sessionId);
       if (!repo) return { ok: false, content: "No repository is cloned in this task.", summary: "No linked repo" };
-      const headBranch = head || Object.keys(repo.pushed).filter(branchName => branchName !== repo.branch).pop();
+      // Without a head: the one branch this task pushed (besides its own). Several: say which.
+      const pushedBranches = Object.keys(repo.pushed).filter(branchName => branchName !== repo.branch);
+      if (!head && pushedBranches.length > 1) return { ok: false, content: `This task pushed to several branches (${pushedBranches.join(", ")}): pass head with the one to open the pull request from.`, summary: "Which branch?" };
+      const headBranch = head || pushedBranches[0];
       if (!headBranch) return { ok: false, content: "Push your changes to a new branch with github_commit_and_push (branch: ...) before opening a pull request.", summary: "No head branch" };
       throwIfAborted(ctx.signal); // a cancelled run opens no pull request
       const pr = await createPullRequest(token, repo.fullName, { title, body: `${body}\n\n---\nOpened by Curialy AI.`.trim(), head: headBranch, base: base || repo.branch, draft });
-      ctx.emit({ type: "repo_pr", fullName: repo.fullName, number: pr.number, url: pr.html_url, head: headBranch, base: base || repo.branch });
+      // An already-open pull request is not this run's to report as opened.
+      if (!pr.existing) ctx.emit({ type: "repo_pr", fullName: repo.fullName, number: pr.number, url: pr.html_url, head: headBranch, base: base || repo.branch });
+      if (pr.existing) return { ok: true, content: `A pull request from ${headBranch} is already open: #${pr.number} ${pr.html_url}. Pushing to ${headBranch} updates it.`, summary: `PR #${pr.number} (already open)` };
       return { ok: true, content: `Opened PR #${pr.number}: ${pr.html_url}`, summary: `PR #${pr.number}` };
     }
     default:

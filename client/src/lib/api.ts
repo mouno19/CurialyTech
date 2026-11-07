@@ -296,6 +296,8 @@ export const accountApi = {
 export type AdminUser = {
   id: string; role: "admin" | "user"; login: string | null; name: string; avatarUrl: string | null; email: string | null; createdAt: string; lastSeenAt: string | null;
   banned: boolean; tasks: number; activeRuns: number; creditsUsedTotal: number; customAllowance: number | null; credits: CreditBalance;
+  /** withheld: the account has no free allowance (an own allowance still applies); note: the server's explanation, for the operator. */
+  freeAllowance?: { withheld: boolean; related: number; note: string | null };
 };
 export type PromoCode = {
   id: string; code: string; credits: number; forUser: { id: string; login: string | null } | null; maxRedemptions: number | null; redemptions: number;
@@ -309,6 +311,7 @@ export const adminApi = {
   history: (id: string) => api<{ credits: CreditBalance; history: CreditEvent[] }>(`/api/admin/users/${id}/credits`),
   grant: (id: string, amount: number, note: string) => api<{ credits: CreditBalance }>(`/api/admin/users/${id}/credits`, { method: "POST", json: { amount, note } }),
   allowance: (id: string, allowance: number | null) => api<{ credits: CreditBalance }>(`/api/admin/users/${id}/allowance`, { method: "PUT", json: { allowance } }),
+  freeAllowance: (id: string, withheld: boolean) => api<{ credits: CreditBalance }>(`/api/admin/users/${id}/free-allowance`, { method: "PUT", json: { withheld } }),
   ban: (id: string, banned: boolean) => api<{ banned: boolean }>(`/api/admin/users/${id}/ban`, { method: "POST", json: { banned } }),
   promoCodes: () => api<{ codes: PromoCode[] }>("/api/admin/promo-codes"),
   createPromoCode: (input: { code?: string; credits: number; forUserId?: string | null; maxRedemptions?: number | null; expiresAt?: string | null; note?: string }) =>

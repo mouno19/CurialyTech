@@ -15,7 +15,8 @@ export function creditsLine(credits: CreditBalance) {
 }
 
 export function refillLine(credits: CreditBalance) {
-  if (credits.unlimited) return null;
+  // Without an allowance nothing refills: the account's credits are its own (promo codes, grants).
+  if (credits.unlimited || credits.allowance === 0) return null;
   if (!credits.resetsAt) return `${formatCredits(credits.allowance)} every ${credits.windowHours} h`;
   return `Refills to ${formatCredits(credits.allowance)} at ${clockText(credits.resetsAt)}`;
 }
@@ -26,7 +27,7 @@ export function CreditsMeter({ rail }: { rail: boolean }) {
   const [open, setOpen] = useState(false);
   if (!info) return null;
   const { credits } = info;
-  const share = credits.unlimited || credits.allowance === 0 ? 1 : Math.min(1, credits.remaining / credits.allowance);
+  const share = credits.unlimited ? 1 : credits.allowance === 0 ? (credits.available > 0 ? 1 : 0) : Math.min(1, credits.remaining / credits.allowance);
   const low = !credits.unlimited && credits.available < 5;
   const button = (
     <button type="button" className="nav-item credits-meter" data-low={low || undefined} onClick={() => setOpen(true)} aria-label={rail ? `${creditsLine(credits)}. Open credits` : undefined}>
@@ -61,7 +62,7 @@ export function CreditsDialog({ open, onOpenChange, credits }: { open: boolean; 
       const result = await accountApi.redeem(code);
       await refreshAccount();
       setCode("");
-      toast.success(`${formatCredits(result.credits)} credits added.`, { description: "They're spent after this window's credits and don't expire." });
+      toast.success(`${formatCredits(result.credits)} credits added.`, { description: credits.allowance > 0 ? "They're spent after this window's credits and don't expire." : "They don't expire." });
     } catch (redeemError) {
       setError(errorMessage(redeemError, "That code didn't work."));
     } finally {
@@ -69,8 +70,17 @@ export function CreditsDialog({ open, onOpenChange, credits }: { open: boolean; 
     }
   };
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} size="sm" title="Credits" description={credits.unlimited ? "The operator's account is not charged." : `Every account gets ${formatCredits(credits.allowance)} credits every ${credits.windowHours} hours; a window starts with the first credit you spend.`}>
-      {!credits.unlimited && (
+    <Dialog open={open} onOpenChange={onOpenChange} size="sm" title="Credits" description={
+      credits.unlimited ? "The operator's account is not charged."
+        : credits.allowance === 0 ? "Credits on this account come from promo codes. They don't expire."
+          : `This account gets ${formatCredits(credits.allowance)} credits every ${credits.windowHours} hours; a window starts with the first credit you spend.`
+    }>
+      {!credits.unlimited && credits.allowance === 0 && (
+        <dl className="credits-facts">
+          <div><dt>Credits</dt><dd>{formatCredits(credits.bonus)}</dd></div>
+        </dl>
+      )}
+      {!credits.unlimited && credits.allowance > 0 && (
         <dl className="credits-facts">
           <div><dt>This window</dt><dd>{formatCredits(credits.remaining)} of {formatCredits(credits.allowance)} left</dd></div>
           <div><dt>Bonus credits</dt><dd>{formatCredits(credits.bonus)}</dd></div>

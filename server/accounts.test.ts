@@ -13,8 +13,12 @@ vi.mock("./db/pg", () => {
     if (text.startsWith("SELECT id, role, login, display_name")) return { rows: db.users.has(values[0] as string) ? [db.users.get(values[0] as string)] : [] };
     if (text.startsWith("SELECT id, banned_at FROM curialy.users WHERE github_id = $1")) return { rows: [...db.users.values()].filter(row => row.github_id === values[0]) };
     if (text.includes("FROM curialy.app_settings")) return { rows: [{ value: { signupsOpen: db.signupsOpen } }] };
+    if (text.startsWith("SELECT count(*)::int AS n FROM curialy.users WHERE signup_network = $1")) {
+      return { rows: [{ n: [...db.users.values()].filter(row => Buffer.isBuffer(row.signup_network) && (row.signup_network as Buffer).equals(values[0] as Buffer)).length }] };
+    }
     if (text.startsWith("INSERT INTO curialy.users")) {
       db.inserted.push(values);
+      db.users.set(`new-${db.inserted.length}`, { id: `new-${db.inserted.length}`, github_id: values[2], signup_network: values[6], free_allowance_withheld: values[7] });
       return { rows: [{ id: "new-user" }] };
     }
     return { rows: [], rowCount: 1 };
@@ -76,6 +80,26 @@ describe("where sign-in returns to", () => {
 describe("GitHub identities", () => {
   const profile = { id: 4242, login: "ada", name: "Ada Lovelace", avatarUrl: null, email: "ada@example.com" };
 
+  it("gives the free allowance to the first three accounts from one network, and not to the ones after", async () => {
+    for (const id of [801, 802, 803, 804]) await github.accountForGitHub({ ...profile, id }, "203.0.113.7");
+    // The same network, arriving IPv4-mapped; and another network.
+    await github.accountForGitHub({ ...profile, id: 805 }, "::ffff:203.0.113.7");
+    await github.accountForGitHub({ ...profile, id: 806 }, "198.51.100.20");
+    expect(db.inserted.map(values => values[7])).toEqual([false, false, false, true, true, false]);
+    // Only a hash is kept, never the address.
+    expect(Buffer.isBuffer(db.inserted[0][6])).toBe(true);
+    expect(JSON.stringify(db.inserted)).not.toContain("203.0.113.7");
+    // A local or unknown address counts toward nothing.
+    await github.accountForGitHub({ ...profile, id: 807 }, "127.0.0.1");
+    expect(db.inserted.at(-1)!.slice(6)).toEqual([null, false]);
+  });
+
+  it("never re-counts a returning account", async () => {
+    db.users.set("u9", row({ id: "u9", github_id: 909 }));
+    expect(await github.accountForGitHub({ ...profile, id: 909 }, "203.0.113.7")).toEqual({ id: "u9" });
+    expect(db.inserted).toEqual([]);
+  });
+
   it("finds the account already linked to the GitHub id, and refuses a banned one", async () => {
     db.users.set("u1", row({ id: "u1", github_id: 4242 }));
     expect(await github.accountForGitHub(profile)).toEqual({ id: "u1" });
@@ -86,7 +110,7 @@ describe("GitHub identities", () => {
 
   it("creates a free account (never an admin) while sign-ups are open, and none when they're closed", async () => {
     expect(await github.accountForGitHub({ ...profile, id: 777 })).toEqual({ id: "new-user" });
-    expect(db.inserted[0]).toEqual(["gh:777", "Ada Lovelace", 777, "ada", null, "ada@example.com"]);
+    expect(db.inserted[0]).toEqual(["gh:777", "Ada Lovelace", 777, "ada", null, "ada@example.com", null, false]);
     db.signupsOpen = false;
     const { getSettings } = await import("./credits");
     // The settings cache: wait it out instead of reaching into the module.
