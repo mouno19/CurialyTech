@@ -251,8 +251,34 @@ describe("conversation view", () => {
   it("takes the answer from done and keeps the other messages as progress notes", () => {
     const [view] = conversationRuns(completed("Fixed the bug.\n\n> **Verification failed** after 3 attempts"));
     expect(view.answer).toMatch(/^Fixed the bug/);
-    expect(view.answerSource?.text).toBe("Fixed the bug.");
+    expect(view.answerSources.map(source => source.text)).toEqual(["Fixed the bug."]);
     expect(view.notes.map(note => note.text)).toEqual(["Looking at the code"]);
+  });
+
+  it("keeps later messages as notes when the answer was accepted from an earlier one", () => {
+    const accepted = "## Done\n\nThe landing page is built. ".padEnd(600, "y");
+    const [view] = conversationRuns(run([
+      startOf(1),
+      ev(2, { type: "text_start", blockId: "a" }), ev(3, { type: "text_delta", blockId: "a", text: accepted }), ev(4, { type: "text_end", blockId: "a" }),
+      ev(5, { type: "text_start", blockId: "b" }), ev(6, { type: "text_delta", blockId: "b", text: "Taking another look at the spacing." }), ev(7, { type: "text_end", blockId: "b" }),
+      ev(8, { type: "text_start", blockId: "c" }), ev(9, { type: "text_delta", blockId: "c", text: "Ran out of turns while checking." }), ev(10, { type: "text_end", blockId: "c" }),
+      ev(11, { type: "done", status: "completed", answer: accepted }),
+    ]));
+    expect(view.answerSources.map(source => source.text)).toEqual([accepted]);
+    expect(view.notes.map(note => note.text)).toEqual(["Taking another look at the spacing.", "Ran out of turns while checking."]);
+  });
+
+  it("takes every part of a reply the output limit cut off as the answer, not as notes", () => {
+    const long = "## Report\n\n".padEnd(900, "x");
+    const [view] = conversationRuns(run([
+      startOf(1),
+      ev(2, { type: "text_start", blockId: "a" }), ev(3, { type: "text_delta", blockId: "a", text: "Checking the files" }), ev(4, { type: "text_end", blockId: "a" }),
+      ev(5, { type: "text_start", blockId: "b" }), ev(6, { type: "text_delta", blockId: "b", text: `${long} and the first ` }), ev(7, { type: "text_end", blockId: "b" }),
+      ev(8, { type: "text_start", blockId: "c" }), ev(9, { type: "text_delta", blockId: "c", text: "half ends here." }), ev(10, { type: "text_end", blockId: "c" }),
+      ev(11, { type: "done", status: "completed", answer: `${long} and the first half ends here.` }),
+    ]));
+    expect(view.answerSources.map(source => source.text)).toEqual([`${long} and the first `, "half ends here."]);
+    expect(view.notes.map(note => note.text)).toEqual(["Checking the files"]);
   });
 
   it("falls back to the last message for an older log without an answer", () => {
@@ -264,7 +290,7 @@ describe("conversation view", () => {
   it("never treats a failed run's last message as an answer", () => {
     const [view] = conversationRuns(run([startOf(1), ev(2, { type: "text_start", blockId: "a" }), ev(3, { type: "text_delta", blockId: "a", text: "Partial" }), ev(4, { type: "error", message: "It broke" }), ev(5, { type: "done", status: "failed", answer: "", error: "It broke" })]));
     expect(view.answer).toBe("");
-    expect(view.answerSource).toBeNull();
+    expect(view.answerSources).toEqual([]);
     expect(view.notes).toHaveLength(1);
     expect(runError(view.run)).toBe("It broke");
   });

@@ -17,6 +17,7 @@ import { previewHandler } from "../agent/preview";
 import { SANDBOX_MODE } from "../agent/sandbox";
 import { startCloudSandbox, stopCloudSandboxes } from "../agent/e2b";
 import { gatewayRouter, keysRouter } from "../gateway";
+import { startFollowUpQueue } from "../agent/queue";
 
 async function startServer() {
   const app = express();
@@ -31,6 +32,8 @@ async function startServer() {
   if (!sessionsConfigured()) console.warn("[auth] SESSION_SECRET missing: nobody can sign in until it is set.");
   // Agent commands run in a cloud sandbox per task when it is configured, never on this server.
   if (SANDBOX_MODE === "e2b") startCloudSandbox();
+  // Follow-ups sent during a run start when it ends (after the sandbox, which free accounts need).
+  startFollowUpQueue();
   console.log(`[sandbox] agent commands run ${SANDBOX_MODE === "e2b" ? "in a cloud sandbox per task" : SANDBOX_MODE === "systemd" ? "on this server as the sandbox user" : "unsandboxed (development)"}`);
   startWorkspaceSweeper(isBusy);
   startDeploymentSweeper(isBusy);

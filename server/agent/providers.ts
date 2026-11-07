@@ -38,7 +38,7 @@ export function anthropicClient(provider: ProviderId) {
   throw new Error(`${provider} is not an Anthropic-compatible provider.`);
 }
 
-/** Thinking budgets for models without adaptive thinking (kept well under MAX_TOKENS). */
+/** Thinking budgets for models without adaptive thinking (kept under BASE_OUTPUT_TOKENS, the smallest output budget a turn gets). */
 const THINKING_BUDGET: Record<ThinkingLevel, number> = { low: 2048, medium: 6144, high: 12_288 };
 
 /** Thinking/effort parameters a given model accepts. */

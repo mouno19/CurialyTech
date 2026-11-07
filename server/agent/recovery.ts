@@ -251,8 +251,12 @@ export const TOOL_SCREENSHOTS = "[Tool screenshots]";
 /** Prefix of the harness's design-check turn (runner.ts designCheck). */
 export const DESIGN_CHECK = "[Design check]";
 
-/** Harness-injected user turns (continue prompts, verification feedback, design checks, tool screenshots) are not user requests. */
-const INJECTED = /^(Your previous reply (was cut off|ran out of output)|Automated verification failed|\[Tool screenshots\]|\[Design check\]|\[Turn budget\]|\[Turn limit\]|\[Retry\]|\[(earlier )?image removed )/;
+/**
+ * Harness-injected user turns (continue prompts, verification feedback, design checks, tool
+ * screenshots) are not user requests. The output-limit notes match in their exact wording (runner.ts
+ * OUTPUT_LIMIT_NOTE), so a user's own message that starts the same way is never taken for one.
+ */
+const INJECTED = /^(Your previous reply (was cut off by the output limit\.|ran out of output tokens (before producing anything|while thinking))|Automated verification failed|\[Tool screenshots\]|\[Design check\]|\[Turn budget\]|\[Turn limit\]|\[Retry\]|\[(earlier )?image removed )/;
 /** Text the harness adds to a user turn (notes, checks), as opposed to what the user wrote. */
 export const isHarnessText = (text: string) => INJECTED.test(text.trimStart());
 

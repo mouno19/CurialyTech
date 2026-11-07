@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import * as Tabs from "@radix-ui/react-tabs";
 import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelHandle } from "react-resizable-panels";
 import { CircleStop, FolderGit2, Link2, MessagesSquare, Rocket, RotateCcw, SquareTerminal, Trash2, TriangleAlert, Upload, Workflow } from "lucide-react";
-import type { StatusReason } from "@shared/agent";
+import type { StatusReason, TaskQueue } from "@shared/agent";
 import { deriveTaskStatus, isActiveStatus, isFinalStatus, isRetryable, outcomeIssues, statusLabel } from "@shared/taskStatus";
 import { RepoSelector } from "@/components/RepoSelector";
 import { Button } from "@/components/common/Button";
@@ -14,7 +14,7 @@ import { StatusBadge } from "@/components/common/StatusBadge";
 import { AppShell, type TopbarAction } from "@/components/shell/AppShell";
 import { Conversation, type LatestOutcome, type PendingMessage } from "@/components/task/Conversation";
 import { ExportDialog } from "@/components/task/ExportDialog";
-import { FollowUpComposer } from "@/components/task/FollowUpComposer";
+import { FollowUpComposer, type FollowUpChoice, type QueueActions } from "@/components/task/FollowUpComposer";
 import { Inspector, InspectorRail, inspectorCounts } from "@/components/task/Inspector";
 import { TaskHeader } from "@/components/task/TaskHeader";
 import { newClientId, plural, prefs } from "@/components/task/format";
@@ -113,6 +113,20 @@ export default function TaskWorkspace({ id }: { id: string }) {
   useEffect(() => {
     if (shownPending.length !== pending.length) setPending(shownPending);
   }, [shownPending, pending.length]);
+
+  // ---- Follow-ups waiting for the run to end (the stored row's, or a newer answer to an action here) ----
+  const [queueSnap, setQueueSnap] = useState<{ queue: TaskQueue; at: number } | null>(null);
+  const storedQueue = row.row?.detail.queue ?? null;
+  const latestQueue = queueSnap && (!row.row || queueSnap.at > row.row.at) ? queueSnap.queue : storedQueue;
+  // A message whose run has started (its user message is in the stream) is no longer waiting.
+  const queue = useMemo(() => (latestQueue ? { ...latestQueue, items: latestQueue.items.filter(item => !item.clientMessageId || !echoed.has(item.clientMessageId)) } : null), [latestQueue, echoed]);
+  const acceptQueue = useCallback((next: TaskQueue) => setQueueSnap({ queue: next, at: Date.now() }), []);
+  // The next queued run starts on the server once this one ends: follow the row until it does
+  // (slowly while the next message is refused for now, e.g. for credits: the server retries every 30 s).
+  const queueStarting = Boolean(queue && !queue.held && queue.items.some(item => item.state === "starting" || (item.state === "waiting" && !item.error)));
+  const queueRefused = Boolean(queue && !queue.held && !queueStarting && queue.items.some(item => item.state === "waiting"));
+  usePoll(row.reload, 4000, queueStarting && !active);
+  usePoll(row.reload, 30_000, queueRefused && !active);
 
   // The scroller remounts when the layout switches at 1024px: track the element so following and
   // the "Jump to latest" state move to the new one.
@@ -298,21 +312,88 @@ export default function TaskWorkspace({ id }: { id: string }) {
     }
   };
 
-  const sendFollowUp = useCallback(async (text: string, files: PendingAttachment[]) => {
+  const sendFollowUp = useCallback(async (text: string, files: PendingAttachment[], choice: FollowUpChoice) => {
     const clientMessageId = newClientId();
+    const extras = { model: choice.model, repo: choice.repo?.full_name ?? null, repoBranch: choice.repo?.default_branch ?? null, ...(choice.replaceRepo ? { replaceRepo: true } : {}) };
+    // While a run is active the message waits in the queue and starts by itself when the run ends.
+    const queueIt = async () => {
+      const result = await agentApi.queue(id, text, files.map(file => file.id), { clientMessageId, ...extras });
+      acceptQueue(result.queue);
+      if (result.started) {
+        setActionSnap({ status: "queued", at: Date.now() });
+        reconnect();
+      } else {
+        announce(status === "cancelling" ? "Queued. It waits until you start it." : "Queued. It runs when this run finishes.");
+      }
+    };
+    if (active) return queueIt();
     stickNext();
     setPending(list => [...list, { clientMessageId, text, attachments: files.map(file => ({ mediaId: file.id, filename: file.filename, mimeType: file.mimeType, sizeBytes: file.sizeBytes, path: file.filename })) }]);
     try {
-      await agentApi.followUp(id, text, files.map(file => file.id), { clientMessageId, expectedRunId: runId });
+      await agentApi.followUp(id, text, files.map(file => file.id), { clientMessageId, expectedRunId: runId, ...extras });
       setActionSnap({ status: "queued", at: Date.now() });
       reconnect();
     } catch (failure) {
       setPending(list => list.filter(message => message.clientMessageId !== clientMessageId));
+      // A run started meanwhile (another tab, the queue): this message waits for it instead.
+      if (failure instanceof ApiError && failure.status === 409 && /still running/i.test(failure.message)) {
+        void reload();
+        return queueIt();
+      }
       // The task moved on (another tab, a run that started meanwhile): show what it is now.
       if (failure instanceof ApiError && failure.status === 409) void reload();
       throw failure;
     }
-  }, [id, runId, stickNext, reconnect, reload]);
+  }, [id, runId, active, status, stickNext, reconnect, reload, acceptQueue, announce]);
+
+  const queueActions = useMemo<QueueActions>(() => ({
+    edit: async (itemId, prompt) => {
+      try {
+        acceptQueue((await agentApi.editQueued(id, itemId, prompt)).queue);
+      } catch (failure) {
+        // Already started: the row shows its run.
+        if (failure instanceof ApiError && failure.status === 409) void reload();
+        throw failure;
+      }
+    },
+    remove: async itemId => {
+      try {
+        acceptQueue((await agentApi.removeQueued(id, itemId)).queue);
+      } catch (failure) {
+        // Already started: the row shows its run.
+        if (failure instanceof ApiError && failure.status === 409) void reload();
+        throw failure;
+      }
+    },
+    retry: async itemId => {
+      try {
+        const result = await agentApi.retryQueued(id, itemId);
+        acceptQueue(result.queue);
+        if (result.started) {
+          setActionSnap({ status: "queued", at: Date.now() });
+          reconnect();
+        }
+      } catch (failure) {
+        // Changed elsewhere (another tab started or retried it): show what it is now.
+        if (failure instanceof ApiError && failure.status === 409) void reload();
+        throw failure;
+      }
+    },
+    runNext: async () => {
+      try {
+        const result = await agentApi.runQueued(id);
+        acceptQueue(result.queue);
+        if (result.started) {
+          stickNext();
+          setActionSnap({ status: "queued", at: Date.now() });
+          reconnect();
+        }
+      } catch (failure) {
+        if (failure instanceof ApiError && failure.status === 409) void reload();
+        throw failure;
+      }
+    },
+  }), [id, acceptQueue, reload, reconnect, stickNext]);
 
   const onExported = (result: ExportResult) => {
     row.patch({ githubRepo: result.repo, githubRepoUrl: result.url, githubPushedAt: new Date().toISOString(), ...(task?.githubMode ? {} : { githubMode: "export" as const }) });
@@ -426,7 +507,7 @@ export default function TaskWorkspace({ id }: { id: string }) {
       streaming={streaming}
       pending={shownPending}
       header={header}
-      composer={<FollowUpComposer status={status} onSend={sendFollowUp} redeploy={redeploy} />}
+      composer={<FollowUpComposer taskId={id} task={task} status={status} onSend={sendFollowUp} redeploy={redeploy} queue={queue} queueActions={queueActions} />}
       scrollRef={bindConvo}
       stick={convo}
       onRetry={redeploy ? openDeploy : retryClick}

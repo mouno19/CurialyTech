@@ -169,10 +169,12 @@ export type RepoSelectorProps = {
   /** Deprecated and ignored: the popover picks its side to stay on screen. */
   openDown?: boolean;
   className?: string;
+  /** Offer the clear button next to a chosen repository (false: the value is the task's own, which can't be cleared here). */
+  clearable?: boolean;
 };
 
 /** Repository picker: the trigger opens a searchable list; the clear button sits next to it, never inside. */
-export function RepoSelector({ value, onChange, disabled = false, compact = false, align = "start", className }: RepoSelectorProps) {
+export function RepoSelector({ value, onChange, disabled = false, compact = false, align = "start", className, clearable = true }: RepoSelectorProps) {
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const label = value ?? (compact ? "Repo" : "Repository");
@@ -186,7 +188,7 @@ export function RepoSelector({ value, onChange, disabled = false, compact = fals
             <ChevronDown size={14} className="pick-chevron" aria-hidden="true" />
           </button>
         </Popover.Trigger>
-        {value && !disabled && <IconButton className="repo-clear" size="sm" label={`Clear repository ${value}`} tooltip="Clear repository" icon={X} onClick={() => onChange(null)} />}
+        {value && !disabled && clearable && <IconButton className="repo-clear" size="sm" label={`Clear repository ${value}`} tooltip="Clear repository" icon={X} onClick={() => onChange(null)} />}
       </span>
       <Popover.Portal>
         <Popover.Content

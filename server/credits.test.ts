@@ -111,7 +111,8 @@ describe("what a response costs", () => {
     expect(creditsFor("claude-sonnet-5-5", { inputTokens: 20_000, outputTokens: 1_250 })).toBe(1);
     expect(creditsFor("claude-opus-5-5", { inputTokens: 20_000, outputTokens: 1_250 })).toBe(5);
     expect(creditsFor("claude-haiku-5-5", { inputTokens: 20_000, outputTokens: 1_250 })).toBe(0.25);
-    expect(creditsFor("claude-sonnet-5-5", { inputTokens: 0, outputTokens: 1000, thinkingTokens: 5250 })).toBe(1);
+    // Opus, a turn at the old 16K limit: output_tokens already counts the thinking.
+    expect(creditsFor("claude-opus-5-5", { inputTokens: 10_024, outputTokens: 16_000 })).toBe(14.8);
     expect([modelWeight("r/gemini-3.8-flash"), modelWeight("llama3.1-8b"), modelWeight("openai-gpt-5.5")]).toEqual([0.25, 0.25, 1]);
   });
 });

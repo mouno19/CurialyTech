@@ -36,11 +36,11 @@ vi.mock("./db/pg", () => ({
 }));
 
 // Linked repositories: none unless a test sets one; its change listing fails like a damaged .git.
-const repos = vi.hoisted(() => ({ linked: null as null | Record<string, unknown>, failure: "Could not list repository changes (git exit 1)." }));
+const repos = vi.hoisted(() => ({ linked: null as null | Record<string, unknown>, failure: "Could not list repository changes (git exit 1).", edits: null as null | { path: string; content: Buffer }[] }));
 vi.mock("./agent/repos", async importOriginal => ({
   ...(await importOriginal<typeof import("./agent/repos")>()),
   linkedRepo: async () => repos.linked,
-  linkedSnapshotFiles: async () => { throw new Error(repos.failure); },
+  linkedSnapshotFiles: async () => { if (repos.edits) return repos.edits; throw new Error(repos.failure); },
 }));
 
 const { archiveWorkspace, collectWorkspaceFiles, findBuildDirs, isPublishExcluded, isUnbuiltTemplate, snapshotWorkspace, materializeWorkspace } = await import("./agent/workspaces");
@@ -194,6 +194,33 @@ describe("archive and restore", () => {
       warn.mockRestore();
       repos.linked = null;
       repos.failure = "Could not list repository changes (git exit 1).";
+      archive.saved.splice(0, archive.saved.length, ...earlier);
+    }
+  });
+
+  it("archives what sits next to a sub-folder repository whole; uploads over the limits pass (Vault has them), other files keep it here", async () => {
+    const id = "00000000-0000-4000-8000-0000000000e2";
+    const root = path.join(process.env.AGENT_WORKSPACE_ROOT!, id);
+    for (const [file, content] of Object.entries({ "site/index.html": "edited", "notes.md": "n", "attachments/photo.png": "x".repeat(3 * 1024 * 1024) })) {
+      fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+      fs.writeFileSync(path.join(root, file), content);
+    }
+    repos.linked = { fullName: "octo/site", url: "https://github.com/octo/site", branch: "main", baseSha: "a".repeat(40), repoPath: "site", pushed: {}, deleted: [] };
+    repos.edits = [{ path: "site/index.html", content: Buffer.from("edited") }];
+    const earlier = [...archive.saved];
+    try {
+      archive.saved.length = 0;
+      expect(await snapshotWorkspace(id)).toMatchObject({ files: 2 });
+      expect(archive.saved.map(file => file.path).sort()).toEqual(["notes.md", "site/index.html"]);
+      // A repository the task switched away from, with a file over the limits: nothing is dropped.
+      fs.mkdirSync(path.join(root, "old"), { recursive: true });
+      fs.writeFileSync(path.join(root, "old/big.bin"), "y".repeat(3 * 1024 * 1024));
+      archive.saved.length = 0;
+      await expect(snapshotWorkspace(id)).rejects.toThrow("Could not archive 1 file(s) outside site/ (over the limits, e.g. old/big.bin)");
+      expect(archive.saved).toEqual([]);
+    } finally {
+      repos.linked = null;
+      repos.edits = null;
       archive.saved.splice(0, archive.saved.length, ...earlier);
     }
   });

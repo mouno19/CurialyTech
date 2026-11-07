@@ -4,6 +4,7 @@ import path from "node:path";
 import { query } from "../db/pg";
 import { branchHead, githubApi, GitHubError, repoDetails, throwIfAborted } from "../services/github";
 import { randomUUID } from "node:crypto";
+import { SYNC_SKIP } from "./e2b";
 import { resolveInWorkspace, runCommand, SandboxError, WORKSPACE_ROOT } from "./sandbox";
 
 // Working on a user's existing GitHub repository.
@@ -68,9 +69,10 @@ function appGit(args: string[], cwd: string, token: string | null, onOutput?: (c
  * Fetch `fullName` at an exact commit and move it into the empty directory `dest`.
  * Git runs only in a fresh staging directory owned by this process (never in a directory the
  * sandbox user owns), so git's ownership checks stay on and no agent-planted config is ever read.
- * Returns the number of tracked files.
+ * historyOnly: move only the .git (checked out, so its index matches the commit) into a folder
+ * whose files are kept as they are. Returns the number of tracked files.
  */
-async function fetchCheckout(dest: string, fullName: string, branch: string, sha: string, token: string, onOutput?: (chunk: string) => void) {
+async function fetchCheckout(dest: string, fullName: string, branch: string, sha: string, token: string, onOutput?: (chunk: string) => void, opts: { historyOnly?: boolean } = {}) {
   if (!SHA.test(sha)) throw new Error("Invalid commit sha.");
   const staging = path.join(WORKSPACE_ROOT, `.staging-${randomUUID()}`);
   fs.mkdirSync(staging, { mode: 0o2770 });
@@ -82,18 +84,90 @@ async function fetchCheckout(dest: string, fullName: string, branch: string, sha
     await appGit(["update-ref", `refs/remotes/origin/${branch}`, sha], staging, null);
     await appGit(["branch", "--quiet", "--set-upstream-to", `origin/${branch}`], staging, null).catch(() => undefined);
     const tracked = await appGit(["ls-files"], staging, null).then(out => (out ? out.split("\n").length : 0));
-    for (const entry of fs.readdirSync(staging)) fs.renameSync(path.join(staging, entry), path.join(dest, entry));
+    if (opts.historyOnly) {
+      fs.renameSync(path.join(staging, ".git"), path.join(dest, ".git"));
+      return tracked;
+    }
+    for (const entry of fs.readdirSync(staging)) {
+      const from = path.join(staging, entry);
+      const to = path.join(dest, entry);
+      // A folder the destination already has (a restored root keeps attachments/): merged into it.
+      if (fs.lstatSync(to, { throwIfNoEntry: false })?.isDirectory()) {
+        fs.cpSync(from, to, { recursive: true });
+        fs.rmSync(from, { recursive: true, force: true });
+      } else {
+        fs.renameSync(from, to);
+      }
+    }
     return tracked;
   } finally {
     fs.rmSync(staging, { recursive: true, force: true });
   }
 }
 
-export async function cloneIntoWorkspace(opts: { sessionId: string; root: string; fullName: string; branch?: string; token: string; onOutput?: (chunk: string) => void }) {
+/**
+ * Whether the clone at `dir` still has its working tree: anything but folders outside its .git
+ * (dependency and cache folders, and the root's attachments/, are not the clone's).
+ */
+function hasWorkingTree(dir: string, atRoot: boolean) {
+  const walk = (current: string, top: boolean): boolean => {
+    let entries: fs.Dirent[];
+    try { entries = fs.readdirSync(current, { withFileTypes: true }); } catch { return false; }
+    return entries.some(entry => {
+      if (!entry.isDirectory()) return true;
+      if (entry.name === ".git" || SYNC_SKIP.has(entry.name) || (atRoot && top && entry.name === "attachments")) return false;
+      return walk(path.join(current, entry.name), false);
+    });
+  };
+  return walk(dir, true);
+}
+
+/**
+ * A linked clone whose folder was deleted (the sandbox mirrors deletions, and agents sometimes delete
+ * a clone to "clone it again"): its history and empty folders go, then the commit it was cloned at
+ * is fetched back into place. Only called when nothing of its working tree is left.
+ */
+async function restoreClone(root: string, repo: LinkedRepo, token: string, onOutput?: (chunk: string) => void) {
+  const atRoot = repo.repoPath === ".";
+  const dest = atRoot ? root : resolveInWorkspace(root, repo.repoPath).absolute;
+  const stat = fs.lstatSync(dest, { throwIfNoEntry: false });
+  if (stat && !stat.isDirectory()) throw new SandboxError(`${repo.repoPath} is not a folder; remove it, then clone again.`);
+  if (atRoot) {
+    // Only the uploads stay; dependency folders are rebuilt in the sandbox (and tracked ones come back with the fetch).
+    for (const entry of fs.readdirSync(root)) if (entry !== "attachments") fs.rmSync(path.join(root, entry), { recursive: true, force: true });
+  } else {
+    fs.rmSync(dest, { recursive: true, force: true });
+    fs.mkdirSync(dest, { mode: 0o2775 });
+  }
+  onOutput?.(`Restoring ${repo.fullName}@${repo.branch} (${repo.baseSha.slice(0, 7)}) into ${atRoot ? "the workspace root" : `${repo.repoPath}/`}: its files were deleted…\n`);
+  return fetchCheckout(dest, repo.fullName, repo.branch, repo.baseSha, token, onOutput);
+}
+
+/**
+ * replace: the user switched the task to this repository (a follow-up that picked another one). It
+ * is cloned next to the linked one (into the first free folder), which stays in the workspace as
+ * plain files, and the link moves only once the fetch has succeeded. Never set from an agent's own
+ * tool call.
+ */
+export async function cloneIntoWorkspace(opts: { sessionId: string; root: string; fullName: string; branch?: string; token: string; onOutput?: (chunk: string) => void; replace?: boolean }) {
   const existing = await linkedRepo(opts.sessionId);
-  if (existing) {
-    if (existing.fullName.toLowerCase() === opts.fullName.toLowerCase()) return { ...existing, alreadyLinked: true, files: 0 };
-    throw new SandboxError(`This task is already linked to ${existing.fullName}. Start a new task to work on another repository.`);
+  const switching = Boolean(existing && opts.replace && existing.fullName.toLowerCase() !== opts.fullName.toLowerCase());
+  if (existing && !switching) {
+    if (existing.fullName.toLowerCase() !== opts.fullName.toLowerCase()) throw new SandboxError(`This task is already linked to ${existing.fullName}. Start a new task to work on another repository.`);
+    const dest = existing.repoPath === "." ? opts.root : path.join(opts.root, existing.repoPath);
+    if (hasWorkingTree(dest, existing.repoPath === ".")) {
+      // Its files are here but its history is not (the folder was deleted, then made again): git
+      // there can't list the changes, so the history of the commit it was cloned at goes back in.
+      if (fs.lstatSync(path.join(dest, ".git"), { throwIfNoEntry: false })) return { ...existing, alreadyLinked: true, restored: false, historyRestored: false, files: 0, earlierPushes: [] as string[] };
+      opts.onOutput?.(`Restoring ${existing.fullName}'s history (${existing.baseSha.slice(0, 7)}) in ${existing.repoPath === "." ? "the workspace root" : `${existing.repoPath}/`}; its files stay as they are…\n`);
+      const files = await fetchCheckout(dest, existing.fullName, existing.branch, existing.baseSha, opts.token, opts.onOutput, { historyOnly: true });
+      return { ...existing, alreadyLinked: true, restored: false, historyRestored: true, files, earlierPushes: [] as string[] };
+    }
+    const files = await restoreClone(opts.root, existing, opts.token, opts.onOutput);
+    // Its pushes are on GitHub but not in the restored files: building on them again would undo them,
+    // so the push record goes (a push to those branches is then refused, not silently reverting).
+    await query("UPDATE curialy.chat_sessions SET github_pushed = '{}', github_deleted = '[]', updated_at = now() WHERE id = $1", [opts.sessionId]);
+    return { ...existing, pushed: {}, deleted: [], alreadyLinked: true, restored: true, historyRestored: false, files, earlierPushes: Object.keys(existing.pushed) };
   }
   const details = await repoDetails(opts.token, opts.fullName);
   if (details.size_kb > MAX_REPO_KB) throw new SandboxError(`${details.full_name} is ${Math.round(details.size_kb / 1024)} MB; repositories over ${MAX_REPO_KB / 1024} MB are not supported on this server.`);
@@ -101,14 +175,24 @@ export async function cloneIntoWorkspace(opts: { sessionId: string; root: string
   const sha = await branchHead(opts.token, details.full_name, branch);
   if (!sha) throw new SandboxError(`Branch ${branch} does not exist in ${details.full_name}.`);
 
-  // Clone into the workspace root when it is empty, otherwise into a sub-folder named after the repo.
+  // Clone into the workspace root when it is empty, otherwise into a sub-folder named after the repo
+  // (on a switch, the first free one of name, owner-name, name-2 … name-9).
   const occupied = fs.readdirSync(opts.root).length > 0;
-  const repoPath = occupied ? details.name : ".";
-  const dest = occupied ? path.join(opts.root, details.name) : opts.root;
+  let repoPath = ".";
   if (occupied) {
-    if (fs.existsSync(dest)) throw new SandboxError(`${details.name}/ already exists in the workspace.`);
-    fs.mkdirSync(dest, { mode: 0o2775 });
+    const owner = details.full_name.split("/")[0];
+    const names = switching ? [details.name, `${owner}-${details.name}`, ...Array.from({ length: 8 }, (_, index) => `${details.name}-${index + 2}`)] : [details.name];
+    // An empty folder (left by a clone cut short by a restart) is as good as none.
+    const isFree = (name: string) => {
+      const stat = fs.lstatSync(path.join(opts.root, name), { throwIfNoEntry: false });
+      return !stat || (stat.isDirectory() && fs.readdirSync(path.join(opts.root, name)).length === 0);
+    };
+    const free = names.find(isFree);
+    if (!free) throw new SandboxError(`${details.name}/ already exists in the workspace.`);
+    repoPath = free;
   }
+  const dest = occupied ? path.join(opts.root, repoPath) : opts.root;
+  if (occupied) fs.mkdirSync(dest, { recursive: true, mode: 0o2775 });
   opts.onOutput?.(`Fetching ${details.full_name}@${branch} (${sha.slice(0, 7)}) into ${repoPath === "." ? "the workspace root" : `${repoPath}/`}…\n`);
   let files = 0;
   try {
@@ -123,7 +207,9 @@ export async function cloneIntoWorkspace(opts: { sessionId: string; root: string
        github_repo_path = $6, github_pushed = '{}', github_deleted = '[]', updated_at = now() WHERE id = $1`,
     [opts.sessionId, details.full_name, details.html_url, branch, sha, repoPath],
   );
-  return { fullName: details.full_name, url: details.html_url, branch, baseSha: sha, repoPath, pushed: {}, deleted: [], alreadyLinked: false, files, details };
+  // On a switch into another folder than the repository's name: that folder may hold an earlier copy.
+  const taken = repoPath !== "." && repoPath !== details.name ? details.name : null;
+  return { fullName: details.full_name, url: details.html_url, branch, baseSha: sha, repoPath, pushed: {}, deleted: [], alreadyLinked: false, restored: false, historyRestored: false, files, details, replaced: switching ? existing! : null, taken, earlierPushes: [] as string[] };
 }
 
 export type RepoChanges = { changed: string[]; deleted: string[] };
@@ -168,6 +254,9 @@ export async function commitAndPush(opts: { sessionId: string; root: string; rep
   const { repo, token } = opts;
   const target = opts.branch?.trim() || repo.branch;
   if (!/^[A-Za-z0-9._\/-]{1,200}$/.test(target) || target.includes("..")) throw new SandboxError("Invalid branch name.");
+  // A clone whose files are gone would read as every file deleted: pushing that empties the repository.
+  const dest = repo.repoPath === "." ? opts.root : path.join(opts.root, repo.repoPath);
+  if (!hasWorkingTree(dest, repo.repoPath === ".")) throw new SandboxError(`${repo.fullName}'s files are gone from the workspace, so a push would delete them on GitHub. Restore them with github_clone_to_workspace first.`);
   const changes = await computeChanges(opts.root, repo, opts.signal);
   if (!changes.changed.length && !changes.deleted.length) return { nothingToPush: true as const, branch: target };
 

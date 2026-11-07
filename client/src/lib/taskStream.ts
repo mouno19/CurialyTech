@@ -584,8 +584,11 @@ export type RunView = {
   entries: TimelineItem[];
   /** The answer of a completed run: done.answer, or the run's last message in older logs. */
   answer: string;
-  /** The text block the answer came from (not repeated as a progress note). */
-  answerSource: ItemOf<"text"> | null;
+  /**
+   * The text blocks the answer came from (not repeated as progress notes): the run's last message,
+   * or its last few when a reply cut off by the output limit was continued in the next ones.
+   */
+  answerSources: ItemOf<"text">[];
   /** Assistant messages that are not the answer. */
   notes: ItemOf<"text">[];
 };
@@ -594,7 +597,7 @@ export function conversationRuns(state: Pick<StreamState, "runs" | "items">): Ru
   const views: RunView[] = state.runs.map(run => ({
     run,
     divider: run.trigger === "retry" || run.trigger === "deploy" ? { trigger: run.trigger, attempt: run.attempt, ts: run.ts, key: `divider:${run.seq}` } : null,
-    user: null, texts: [], cards: [], entries: [], answer: "", answerSource: null, notes: [],
+    user: null, texts: [], cards: [], entries: [], answer: "", answerSources: [], notes: [],
   }));
   for (const item of state.items) {
     const view = views[item.run];
@@ -617,24 +620,48 @@ export function conversationRuns(state: Pick<StreamState, "runs" | "items">): Ru
     if (end?.status === "completed") {
       const given = end.answer?.trim() ? end.answer : "";
       view.answer = given || last?.text || "";
-      if (last && (!given || squash(given).startsWith(squash(last.text).slice(0, 400)))) view.answerSource = last;
+      view.answerSources = given ? answerSources(view.texts, given) : last ? [last] : [];
     }
-    view.notes = view.texts.filter(text => text !== view.answerSource && text.text.trim());
+    view.notes = view.texts.filter(text => !view.answerSources.includes(text) && text.text.trim());
   }
   return views;
+}
+
+/**
+ * The text blocks `answer` was assembled from: the last one (the answer starts with it, and may add
+ * a note), or the last few when a reply that hit the output limit was continued in the next ones
+ * (the server joins them as they streamed: the answer holds all of them, whole). Failing that, one
+ * earlier block the answer starts with: an answer accepted before a design check asked for another
+ * look, whose later messages stay notes.
+ */
+function answerSources(texts: ItemOf<"text">[], answer: string) {
+  const target = squash(answer);
+  const bare = answer.replace(/\s+/g, "");
+  const startsWith = (text: string) => {
+    const squashed = squash(text);
+    return Boolean(squashed) && target.startsWith(squashed.slice(0, 400));
+  };
+  const oldest = Math.max(0, texts.length - 8);
+  for (let start = texts.length - 1; start >= oldest; start--) {
+    const parts = texts.slice(start);
+    const joined = parts.map(text => text.text).join("");
+    if (parts.length === 1 ? startsWith(joined) : Boolean(joined.trim()) && bare.startsWith(joined.replace(/\s+/g, ""))) return parts;
+  }
+  for (let index = texts.length - 2; index >= 0; index--) if (startsWith(texts[index].text)) return [texts[index]];
+  return [];
 }
 
 /**
  * The answer of a completed run whose log lacks it (no done event yet, or an older log): the stored
  * row's answer, else the run's last message. A run whose done carried an answer is left as it is.
  */
-export function resolveAnswer(view: RunView, rowAnswer?: string | null): Pick<RunView, "answer" | "answerSource" | "notes"> {
+export function resolveAnswer(view: RunView, rowAnswer?: string | null): Pick<RunView, "answer" | "answerSources" | "notes"> {
   if (view.run.end?.answer?.trim()) return view;
   const last = view.texts[view.texts.length - 1] ?? null;
   const row = rowAnswer?.trim() ? rowAnswer : "";
   const answer = row || last?.text || "";
-  const answerSource = last && (!row || squash(row).startsWith(squash(last.text).slice(0, 400))) ? last : null;
-  return { answer, answerSource, notes: view.texts.filter(text => text !== answerSource && text.text.trim()) };
+  const sources = row ? answerSources(view.texts, row) : last ? [last] : [];
+  return { answer, answerSources: sources, notes: view.texts.filter(text => !sources.includes(text) && text.text.trim()) };
 }
 
 /** Pushes, pull requests and live deploys a run made (shown when it was cancelled: they still happened). */

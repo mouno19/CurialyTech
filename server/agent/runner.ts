@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { aliasEffort, getModel, PHASES, REPLACED, teamCapable, wireModel, type AgentEvent, type AgentEventBody, type TeamRole, type CreateTaskRequest, type ModelSpec, type PhaseId, type PhaseState, type PlanStep, type RunOutcome, type RunTrigger, type StatusReason, type TaskMode, type TaskStatus, type ThinkingLevel } from "@shared/agent";
+import { aliasEffort, BASE_OUTPUT_TOKENS, followUpModelBlocked, formatOf, getModel, outputLimit, PHASES, REPLACED, teamCapable, wireModel, type AgentEvent, type AgentEventBody, type TeamRole, type CreateTaskRequest, type ModelSpec, type PhaseId, type PhaseState, type PlanStep, type RunOutcome, type RunTrigger, type StatusReason, type TaskMode, type TaskStatus, type ThinkingLevel } from "@shared/agent";
 import { isFinalStatus, isRetryable } from "@shared/taskStatus";
 import { splitGenerated, summarizeGenerated } from "@shared/generated";
 import { openChannel, type Emit, type TaskChannel } from "./bus";
@@ -12,7 +12,7 @@ import { clip, ensureWorkspace, readWorkspaceFile, runCommand, SANDBOX_MODE, wri
 import { addMessage, createAgentTask, getAgentTask, getConversation, settleTaskWrites, taskOwner, updateAgentTask, type ConversationFormat } from "./store";
 import { charge, getBalance, outOfCreditsMessage } from "../credits";
 import { voiceConfigured } from "../voice/engines";
-import { creditsFor, modelWeight } from "@shared/credits";
+import { creditsFor, modelWeight, OUTPUT_WEIGHT, TOKENS_PER_CREDIT } from "@shared/credits";
 import { adminUserId, query } from "../db/pg";
 import { executeTool, isVerificationCommand, shellQuote, toolsFor, type ToolOutcome } from "./tools";
 import { materializeWorkspace, snapshotWorkspace, withWorkspaceLock } from "./workspaces";
@@ -22,7 +22,7 @@ import { linkedRepo } from "./repos";
 import { brandText, ENGINE_ALIAS } from "@shared/brand";
 import { browserConfigured, closeLiveBrowser } from "./browser";
 import { allowedLooks, blockingFindings, designBriefFor, renderBrief, uiChanges, uiFingerprint, type DesignAudit, type DesignBrief, type PrintCache } from "./design";
-import { DESIGN_CHECK, diagnose, isHarnessText, latestRequestIndex, pruneSupersededShots, RecoveryEngine, repairOpenAIContent, repairOpenAIToolPairing, repairToolPairing, stripThinking, TOOL_SCREENSHOTS, ToolFailureWatch, type RecoveryFlags } from "./recovery";
+import { compactHistory, DESIGN_CHECK, diagnose, isHarnessText, latestRequestIndex, pruneSupersededShots, RecoveryEngine, repairOpenAIContent, repairOpenAIToolPairing, repairToolPairing, stripThinking, TOOL_SCREENSHOTS, ToolFailureWatch, type RecoveryFlags } from "./recovery";
 import { runTeam } from "./team";
 import { z } from "zod";
 import { hydrateImages, hydrateOpenAIImages, stageAttachments, userContent, type AttachmentDisplay, type AttachmentRef } from "./attachments";
@@ -33,11 +33,12 @@ const MAX_TURNS = 60;
 const MAX_HEAL_ITERATIONS = 4;
 /** Runs this process executes at once (each holds its conversation in memory; the service is memory-capped). */
 const MAX_CONCURRENT = Math.max(1, Number(process.env.AGENT_MAX_RUNS) || 3);
-const MAX_TOKENS = 16_000;
 /** Output budget for non-streamed (SQL) completions: nothing is shown until the reply is complete. */
 const SQL_MAX_TOKENS = 8192;
 
 export class TaskRejected extends Error {}
+/** Refused only for now (the task or the server is busy, or restarting): nothing was claimed, so trying later can succeed. */
+export class TaskBusy extends TaskRejected {}
 
 // ---------------------------------------------------------------------------
 // Model dispatch
@@ -246,6 +247,8 @@ export type RunContext = {
   failedPublishing: Set<string>;
   /** The model kept on the task row: a failover away from a route that refuses requests is for this run only. */
   taskModel: string;
+  /** Set during the clone step of a follow-up that switches the task to this repository. */
+  repoSwitch?: string;
   /** The "an image could not be loaded" notice goes out once per run, not once per turn. */
   imageNoticeSent?: boolean;
   /** Shared with the run handle: publishing steps in flight. */
@@ -254,6 +257,8 @@ export type RunContext = {
   chargeCredits: (amount: number, detail: string) => void;
   /** Whether the task's account can cover `credits` now (always true for the operator), counting charges still being booked. */
   canSpend: (credits: number) => Promise<boolean>;
+  /** Credits the task's account can spend now (null: unlimited), counting charges still being booked. */
+  spendable: () => Promise<number | null>;
   /** Credits the latest model response cost. */
   turnCredits?: () => number;
   root: string;
@@ -436,13 +441,14 @@ export function isDraining() {
 /**
  * Charge one model response to the task's account (cache reads at a tenth). A run whose account has
  * nothing left stops at once with reason "credits"; the response that was already paid for is kept.
+ * The output count already includes thinking (thinkingTokens is its share, never charged twice).
  */
 function chargeUsage(handle: RunHandle, model: string, usage: { inputTokens: number; outputTokens: number; thinkingTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number }) {
   // Cache reads cost a tenth of fresh input, cache writes a quarter more.
   const input = usage.inputTokens + Math.round((usage.cacheReadTokens ?? 0) / 10) + Math.round((usage.cacheWriteTokens ?? 0) * 1.25);
-  const amount = creditsFor(model, { inputTokens: input, outputTokens: usage.outputTokens, thinkingTokens: usage.thinkingTokens ?? 0 });
+  const amount = creditsFor(model, { inputTokens: input, outputTokens: usage.outputTokens });
   handle.lastTurnCredits = amount;
-  chargeCredits(handle, amount, `${model}: ${usage.inputTokens} in, ${usage.outputTokens + (usage.thinkingTokens ?? 0)} out`);
+  chargeCredits(handle, amount, `${model}: ${usage.inputTokens} in, ${usage.outputTokens} out${usage.thinkingTokens ? ` (${usage.thinkingTokens} thinking)` : ""}`);
 }
 
 /** Charge the task's account (never the operator's); a run whose account has nothing left stops. */
@@ -471,18 +477,18 @@ function stopRun(handle: RunHandle, reason: StopReason) {
 async function awaitPrevious(taskId: string) {
   const previous = handles.get(taskId);
   if (!previous) return;
-  if (previous.phase !== "finalizing" && !previous.settled) throw new TaskRejected("This task is still running.");
+  if (previous.phase !== "finalizing" && !previous.settled) throw new TaskBusy("This task is still running.");
   await Promise.race([previous.finalized, new Promise(resolve => setTimeout(resolve, FINALIZE_WAIT_MS))]);
-  if (handles.get(taskId) === previous && !previous.settled) throw new TaskRejected("The previous run is still finishing. Try again in a moment.");
+  if (handles.get(taskId) === previous && !previous.settled) throw new TaskBusy("The previous run is still finishing. Try again in a moment.");
   if (handles.get(taskId) === previous) handles.delete(taskId); // a forced, settled run: let it finish on its own
 }
 
 function admit() {
-  if (draining) throw new TaskRejected(RESTARTING);
-  if (executing() >= MAX_CONCURRENT) throw new TaskRejected("Curialy is running as many tasks as it can right now. Try again in a minute.");
+  if (draining) throw new TaskBusy(RESTARTING);
+  if (executing() >= MAX_CONCURRENT) throw new TaskBusy("Curialy is running as many tasks as it can right now. Try again in a minute.");
 }
 
-export const formatFor = (spec: ModelSpec): ConversationFormat => (spec.provider === "fast" || spec.provider === "core-chat" ? "openai" : "anthropic");
+export const formatFor = (spec: ModelSpec): ConversationFormat => formatOf(spec);
 
 /** Retry a database write that decides a run's outcome; transient errors must not lose it. */
 async function persistently<T>(label: string, write: () => Promise<T>): Promise<T> {
@@ -499,7 +505,7 @@ async function persistently<T>(label: string, write: () => Promise<T>): Promise<
 
 type RunOptions = {
   mode: TaskMode; effort: ThinkingLevel; webSearch: boolean; spec: ModelSpec; reason: string; team?: boolean;
-  restoredFiles?: number; cloneRepo?: { repo: string; branch?: string }; grants?: PublishGrants;
+  restoredFiles?: number; cloneRepo?: { repo: string; branch?: string; replace?: boolean }; grants?: PublishGrants;
   /** Restrict the tools this run may call (enforced in trackedTool, not only by what is offered). */
   allowedTools?: Set<string>;
 };
@@ -514,9 +520,10 @@ function deployRunTools() {
 }
 
 /** Register the handle, open its channel and announce the run (before the HTTP response). */
-async function announce(handle: RunHandle, message?: { text: string; attachments?: AttachmentDisplay[]; clientMessageId?: string }) {
+/** repo: the repository the request links (cloned as the run's first step), recorded so a retry clones it too. */
+async function announce(handle: RunHandle, message?: { text: string; attachments?: AttachmentDisplay[]; clientMessageId?: string }, repo?: FollowUpRepo) {
   handle.channel = await openChannel(handle.taskId, handle.runId);
-  handle.channel.emit({ type: "run_start", runId: handle.runId, attempt: handle.attempt, trigger: handle.trigger });
+  handle.channel.emit({ type: "run_start", runId: handle.runId, attempt: handle.attempt, trigger: handle.trigger, ...(repo ? { repo: { fullName: repo.fullName, branch: repo.branch ?? null, ...(repo.replace ? { replace: true } : {}) } } : {}) });
   if (message) handle.channel.emit({ type: "user_message", text: message.text, ...(message.attachments?.length ? { attachments: message.attachments } : {}), ...(message.clientMessageId ? { clientMessageId: message.clientMessageId } : {}) });
   handle.channel.emit({ type: "status", status: "queued" });
 }
@@ -539,7 +546,7 @@ export async function startTask(req: CreateTaskRequest, attachments: AttachmentR
     const conversation: Record<string, unknown>[] = [{ role: "user", content: userContent(req.prompt + staged.note, staged.images, format) }];
     await updateAgentTask(id, { conversation, workspaceState: "live" }, handle.runId);
     await addMessage(id, "user", req.prompt);
-    await announce(handle, { text: req.prompt, attachments: staged.display, clientMessageId: opts.clientMessageId });
+    await announce(handle, { text: req.prompt, attachments: staged.display, clientMessageId: opts.clientMessageId }, req.repo ? { fullName: req.repo, branch: req.repoBranch ?? null } : undefined);
     void executeRun(handle, conversation, { mode: req.mode, effort: req.effort, webSearch: req.webSearch, spec, reason: team ? `Dev Team: ${reason}` : reason, team, cloneRepo: req.repo ? { repo: req.repo, branch: req.repoBranch ?? undefined } : undefined });
     return id;
   } catch (error) {
@@ -577,13 +584,25 @@ async function abortStart(handle: RunHandle, error: unknown, message?: { text: s
   }
 }
 
+const settledListeners = new Set<(taskId: string) => void>();
+/** Called after a task's run has ended and released the task (the follow-up queue starts the next message). */
+export function onRunSettled(listener: (taskId: string) => void) {
+  settledListeners.add(listener);
+  return () => settledListeners.delete(listener);
+}
+function runSettled(taskId: string) {
+  for (const listener of settledListeners) {
+    try { listener(taskId); } catch (error) { console.error("[agent] run-settled listener:", error instanceof Error ? error.message : error); }
+  }
+}
+
 /** Claim a new run on a finished task (follow-up, retry, deploy) and register it here. */
 async function claimRun(taskId: string, trigger: RunTrigger, expectedRunId?: string | null) {
   admit();
   await awaitPrevious(taskId);
   // Check and register in one synchronous step: two requests released by the same finishing run
   // must not both register (the loser would remove the winner's entry and orphan its run).
-  if (handles.has(taskId)) throw new TaskRejected("This task is still running.");
+  if (handles.has(taskId)) throw new TaskBusy("This task is still running.");
   admit();
   const handle = newHandle(taskId, trigger);
   handles.set(taskId, handle);
@@ -597,20 +616,56 @@ async function claimRun(taskId: string, trigger: RunTrigger, expectedRunId?: str
     release();
     const row = await getLifecycleRow(taskId);
     if (!row) throw new TaskRejected("Task not found.");
-    throw new TaskRejected(isFinalStatus(row.status) ? "This task has changed since you loaded it. Reload and try again." : "This task is still running.");
+    throw new TaskBusy(isFinalStatus(row.status) ? "This task has changed since you loaded it. Reload and try again." : "This task is still running.");
   }
   handle.claimed = true;
   handle.attempt = claimed.attempt;
   return handle;
 }
 
-export async function followUp(taskId: string, prompt: string, attachments: AttachmentRef[] = [], opts: { clientMessageId?: string; expectedRunId?: string | null } = {}) {
-  if (isRunning(taskId)) throw new TaskRejected("This task is still running.");
+/** A repository a follow-up links the task to: cloned as its run's first step. replace: it switches a linked task to it. */
+export type FollowUpRepo = { fullName: string; branch?: string | null; replace?: boolean };
+
+/**
+ * The model a follow-up runs on: the task's own, or the one it switches to (same conversation
+ * format, able to do the task's kind of work, with its route set up). Throws TaskRejected otherwise.
+ */
+export function followUpSpec(task: { model: string; mode: TaskMode; team?: boolean; format?: ConversationFormat }, requested?: string | null) {
+  const current = getModel(task.model);
+  if (!requested || requested === task.model) {
+    if (!current) throw new TaskRejected(`Unknown model ${task.model}.`);
+    return { spec: current, switched: false };
+  }
+  const spec = getModel(REPLACED[requested] ?? requested);
+  const format = task.format ?? (current ? formatFor(current) : "anthropic");
+  const blocked = followUpModelBlocked(spec, { mode: task.mode, team: task.team, format });
+  if (blocked || !spec) throw new TaskRejected(`${spec?.label ?? requested} can't continue this task: ${blocked === "Start a new task to use it" ? "it reads conversations in another format, so start a new task to use it" : (blocked ?? "unknown model").toLowerCase()}.`);
+  if (!routeConfigured(spec)) throw new TaskRejected(`${spec.label} is not set up on this server.`);
+  // An old alias of the same model is not a switch.
+  return { spec, switched: spec.id !== (current?.id ?? task.model) };
+}
+
+/** Why a follow-up cannot link `repo` to the task (null: it can, or it is already the task's repository). */
+export function followUpRepoBlocked(task: { mode: TaskMode; githubRepo?: string; githubMode?: string }, repo: FollowUpRepo) {
+  if (task.mode !== "agent") return "Only agent tasks can work on a repository.";
+  if (task.githubRepo && task.githubMode !== "linked") return `This task exports to ${task.githubRepo}; start a new task to work on a repository.`;
+  if (task.githubRepo && task.githubRepo.toLowerCase() !== repo.fullName.toLowerCase() && !repo.replace) return `This task already has ${task.githubRepo}. Switch to ${repo.fullName} to work on it instead.`;
+  return null;
+}
+
+export async function followUp(taskId: string, prompt: string, attachments: AttachmentRef[] = [], opts: { clientMessageId?: string; expectedRunId?: string | null; model?: string | null; repo?: FollowUpRepo | null } = {}) {
+  if (isRunning(taskId)) throw new TaskBusy("This task is still running.");
+  // Before staging attachments: a start refused for capacity must not leave copies behind.
+  admit();
   const task = await getAgentTask(taskId);
   if (!task) throw new TaskRejected("Task not found.");
-  if (!isFinalStatus(task.status)) throw new TaskRejected("This task is still running.");
-  const spec = getModel(task.model);
-  if (!spec) throw new TaskRejected(`Unknown model ${task.model}.`);
+  if (!isFinalStatus(task.status)) throw new TaskBusy("This task is still running.");
+  const { spec, switched } = followUpSpec(task, opts.model);
+  const repoBlocked = opts.repo ? followUpRepoBlocked(task, opts.repo) : null;
+  if (repoBlocked) throw new TaskRejected(repoBlocked);
+  // Already this task's repository: nothing to clone. Another one replaces it (the user switched).
+  const sameRepo = Boolean(opts.repo && task.githubRepo && task.githubRepo.toLowerCase() === opts.repo.fullName.toLowerCase());
+  const cloneRepo = opts.repo && !sameRepo ? { repo: opts.repo.fullName, branch: opts.repo.branch ?? undefined, replace: Boolean(task.githubRepo) } : undefined;
   // Attachments land in the (restored, if archived) workspace before the run is claimed, so a
   // staging failure changes nothing about the task.
   let restoredFiles = 0;
@@ -628,12 +683,17 @@ export async function followUp(taskId: string, prompt: string, attachments: Atta
   try {
     const { messages, format } = await getConversation(taskId);
     const conversation = messages as Record<string, unknown>[];
+    // Reasoning signed by another model is not valid on this one.
+    if (switched && format === "anthropic") stripThinking(conversation as never);
     conversation.push({ role: "user", content: userContent(prompt + staged.note, staged.images, format) });
-    await updateAgentTask(taskId, { conversation, workspaceState: "live" }, handle.runId);
+    // The task's model changes now (the header and the next follow-up follow it), the history with it.
+    await updateAgentTask(taskId, { conversation, workspaceState: "live", ...(switched ? { model: spec.id } : {}) }, handle.runId);
     await addMessage(taskId, "user", prompt);
-    await announce(handle, { text: prompt, attachments: staged.display, clientMessageId: opts.clientMessageId });
+    await announce(handle, { text: prompt, attachments: staged.display, clientMessageId: opts.clientMessageId }, cloneRepo ? { fullName: cloneRepo.repo, branch: cloneRepo.branch ?? null, replace: cloneRepo.replace } : undefined);
+    const previous = getModel(task.model);
+    const reason = task.team ? "Dev Team follow-up." : switched ? `Follow-up, switched from ${previous?.label ?? task.model} to ${spec.label}.` : "Follow-up on the same model.";
     // An old Gemini variant id keeps the level it was created with.
-    void executeRun(handle, conversation, { mode: task.mode, effort: aliasEffort(task.model) ?? task.effort, webSearch: task.webSearch, spec, reason: task.team ? "Dev Team follow-up." : "Follow-up on the same model.", team: Boolean(task.team), restoredFiles });
+    void executeRun(handle, conversation, { mode: task.mode, effort: (switched ? undefined : aliasEffort(task.model)) ?? task.effort, webSearch: task.webSearch, spec, reason, team: Boolean(task.team), restoredFiles, cloneRepo });
     return { runId: handle.runId, attempt: handle.attempt };
   } catch (error) {
     await abortStart(handle, error, { text: prompt });
@@ -677,9 +737,12 @@ export async function retryTask(taskId: string, opts: { expectedRunId?: string |
   const spec = getModel(task.model);
   if (!spec) throw new TaskRejected(`Unknown model ${task.model}.`);
   const previousStatus = task.status;
-  const { rows: [latest] } = await query<{ trigger: string | null }>(
-    "SELECT data->>'trigger' AS trigger FROM curialy.agent_execution_logs WHERE session_id = $1 AND type = 'run_start' ORDER BY seq DESC LIMIT 1", [taskId],
-  ).catch(() => ({ rows: [] as { trigger: string | null }[] }));
+  // The latest run's trigger, and the repository the request it retries linked (if any).
+  const { rows: [latest] } = await query<{ trigger: string | null; repo: FollowUpRepo | null }>(
+    `SELECT data->>'trigger' AS trigger,
+       (SELECT data->'repo' FROM curialy.agent_execution_logs WHERE session_id = $1 AND type = 'run_start' AND COALESCE(data->>'trigger', '') <> 'retry' ORDER BY seq DESC LIMIT 1) AS repo
+     FROM curialy.agent_execution_logs WHERE session_id = $1 AND type = 'run_start' ORDER BY seq DESC LIMIT 1`, [taskId],
+  ).catch(() => ({ rows: [] as { trigger: string | null; repo: FollowUpRepo | null }[] }));
   if (latest?.trigger === "deploy") throw new TaskRejected("That run was a deploy. Start a new preview with Deploy (a retry cannot deploy).");
   const sideEffects = await previousRunSideEffects(taskId);
   const handle = await claimRun(taskId, "retry", opts.expectedRunId === undefined ? task.runId ?? null : opts.expectedRunId);
@@ -689,12 +752,22 @@ export async function retryTask(taskId: string, opts: { expectedRunId?: string |
     // The stopped run may have left a tool call without its result; the API rejects such histories.
     if (format === "anthropic") repairToolPairing(conversation as never);
     else repairOpenAIToolPairing(conversation as never);
+    dropDanglingTail(conversation);
     const why = previousStatus === "interrupted" ? "was interrupted before it finished (the server restarted or lost the worker)" : previousStatus === "cancelled" ? "was cancelled" : "failed";
     appendUserNote(conversation, format, `[Retry] The previous run ${why}.${sideEffects.text ? ` It had already done this, so do not repeat it: ${sideEffects.text}.` : ""} Continue the user's request from where it stopped: check the current state of the workspace first, then finish the work and verify it.`);
     await updateAgentTask(taskId, { conversation, workspaceState: "live" }, handle.runId);
     await announce(handle);
     // The retry re-reads the request (asksToDeploy), unless a run of this request already put a preview live.
-    void executeRun(handle, conversation, { mode: task.mode, effort: aliasEffort(task.model) ?? task.effort, webSearch: task.webSearch, spec, reason: `Retry (attempt ${handle.attempt}).`, team: Boolean(task.team), ...(sideEffects.deployedLive ? { grants: {} } : {}) });
+    // The request linked a repository whose clone never happened (that is often why the run failed):
+    // again, unless the task's repository changed since (the user linked another, or exported it). A
+    // link needs the task still without one; a switch, the repository it switched from.
+    const wanted = latest?.repo?.fullName ? latest.repo : null;
+    const linked = wanted ? await linkedRepo(taskId) : null;
+    const unchanged = wanted && (wanted.replace ? Boolean(linked) : !linked && !task.githubRepo);
+    const cloneRepo = wanted && unchanged && !followUpRepoBlocked(task, { ...wanted, replace: true }) && linked?.fullName.toLowerCase() !== wanted.fullName.toLowerCase()
+      ? { repo: wanted.fullName, branch: wanted.branch ?? undefined, replace: Boolean(wanted.replace) }
+      : undefined;
+    void executeRun(handle, conversation, { mode: task.mode, effort: aliasEffort(task.model) ?? task.effort, webSearch: task.webSearch, spec, reason: `Retry (attempt ${handle.attempt}).`, team: Boolean(task.team), cloneRepo, ...(sideEffects.deployedLive ? { grants: {} } : {}) });
     return { runId: handle.runId, attempt: handle.attempt };
   } catch (error) {
     await abortStart(handle, error);
@@ -723,6 +796,22 @@ async function previousRunSideEffects(taskId: string) {
 }
 
 /** Add a harness note as a user turn, merged into a trailing user turn so roles keep alternating. */
+/**
+ * Before a retry: a history that ends on an empty reply (a refusal saved by an older version) or on
+ * a request to continue a cut-off reply resumes from the last real reply instead, so the retry's
+ * note is not read as part of that request (and the API never sees an empty message).
+ */
+export function dropDanglingTail(conversation: Record<string, unknown>[]) {
+  for (;;) {
+    const last = conversation[conversation.length - 1];
+    if (!last) return;
+    const empty = last.role === "assistant" && !last.tool_calls && (Array.isArray(last.content) ? last.content.length === 0 : !last.content);
+    const continuation = isContinuationNote(last as never);
+    if (!empty && !continuation) return;
+    conversation.pop();
+  }
+}
+
 function appendUserNote(conversation: Record<string, unknown>[], format: ConversationFormat, text: string) {
   const last = conversation[conversation.length - 1];
   if (format === "anthropic" && last?.role === "user") {
@@ -859,6 +948,7 @@ async function forceSettle(handle: RunHandle, status: "cancelled" | "interrupted
   }
   // The stuck step finishes on its own; a new run of the task may start meanwhile.
   if (handles.get(handle.taskId) === handle) handles.delete(handle.taskId);
+  runSettled(handle.taskId);
 }
 
 /** Whether the task belongs to the operator (operator-only tools, no credits charged). */
@@ -994,6 +1084,14 @@ async function executeRun(handle: RunHandle, conversation: Record<string, unknow
         const owner = await taskOwner(taskId);
         return owner ? (await getBalance(owner)).available >= credits : false;
       },
+      spendable: async () => {
+        if (handle.operator) return null;
+        await (handle.charging ?? Promise.resolve()).catch(() => undefined);
+        const owner = await taskOwner(taskId);
+        if (!owner) return 0;
+        const balance = await getBalance(owner);
+        return balance.unlimited ? null : balance.available;
+      },
       turnCredits: () => handle.lastTurnCredits ?? 0,
       ...(opts.allowedTools ? { allowedTools: opts.allowedTools } : {}),
     };
@@ -1027,18 +1125,22 @@ async function executeRun(handle: RunHandle, conversation: Record<string, unknow
 
     if (opts.cloneRepo && runCtx.github) {
       // Repository picked in the UI: clone it as the first, fully visible step of the run.
-      const outcome = await trackedTool(runCtx, `${runCtx.runId}-clone`, "github_clone_to_workspace", { repo: opts.cloneRepo.repo, ...(opts.cloneRepo.branch ? { branch: opts.cloneRepo.branch } : {}) });
+      // A switch picked by the user: allowed for this step only (the agent's own clone calls never switch).
+      runCtx.repoSwitch = opts.cloneRepo.replace ? opts.cloneRepo.repo : undefined;
+      const outcome = await trackedTool(runCtx, `${runCtx.runId}-clone`, "github_clone_to_workspace", { repo: opts.cloneRepo.repo, ...(opts.cloneRepo.branch ? { branch: opts.cloneRepo.branch } : {}) }).finally(() => { runCtx.repoSwitch = undefined; });
       if (!outcome.ok) throw new Error(outcome.content);
       // The cloned repository is the starting point, not something this run produced.
       runCtx.manifest = workspaceManifest(root);
       runCtx.context = (await githubContext(taskId)).context;
-      const first = conversation[0];
-      const cloned = `\n\n[The repository ${opts.cloneRepo.repo} has already been cloned into the workspace: ${outcome.summary}.]`;
-      if (first && typeof first.content === "string") first.content += cloned;
-      else if (first && Array.isArray(first.content)) {
-        const text = [...(first.content as { type: string; text?: string }[])].reverse().find(block => block.type === "text");
+      // On the request that picked it: a new task's first message, or the follow-up's.
+      const request = conversation[latestRequestIndex(conversation as never)] ?? conversation[0];
+      const switched = opts.cloneRepo.replace ? ` The user switched this task to ${opts.cloneRepo.repo}: the previous repository stays in the workspace as plain files, and github_commit_and_push pushes ${opts.cloneRepo.repo} only.` : "";
+      const cloned = `\n\n[The repository ${opts.cloneRepo.repo} has already been cloned into the workspace: ${outcome.summary}.${switched}]`;
+      if (request && typeof request.content === "string") request.content += cloned;
+      else if (request && Array.isArray(request.content)) {
+        const text = [...(request.content as { type: string; text?: string }[])].reverse().find(block => block.type === "text");
         if (text) text.text = (text.text ?? "") + cloned;
-        else (first.content as unknown[]).push({ type: "text", text: cloned.trim() });
+        else (request.content as unknown[]).push({ type: "text", text: cloned.trim() });
       }
     } else if (opts.cloneRepo) {
       throw new Error("Connect GitHub to work on a repository.");
@@ -1138,6 +1240,7 @@ async function finishRun(handle: RunHandle, ctx: RunContext | null, end: RunEnd,
     await channel.close().catch(error => console.error(`[agent] close ${taskId} failed:`, error.message));
     if (handles.get(taskId) === handle) handles.delete(taskId);
     handle.resolveFinalized();
+    if (end.kind === "record") runSettled(taskId);
   }
 }
 
@@ -1196,8 +1299,8 @@ export async function shutdownRuns(timeoutMs = 15_000) {
 }
 
 /** Thinking/effort parameters for the current model, minus anything the recovery engine disabled. */
-function reasoning(ctx: RunContext) {
-  const params = reasoningParams(ctx.spec, ctx.effort);
+function reasoning(ctx: RunContext, effort = ctx.effort) {
+  const params = reasoningParams(ctx.spec, effort);
   if (ctx.flags.noThinking) delete params.thinking;
   if (ctx.flags.noEffort) delete params.output_config;
   return params;
@@ -1258,11 +1361,32 @@ export function describeError(error: unknown) {
 
 type OpenBlock = { kind: "thinking" | "text" | "tool_use"; id: string; started: number };
 
-async function streamTurn(ctx: RunContext, conversation: Anthropic.MessageParam[], turn: number, tools: Anthropic.Tool[]) {
+/**
+ * A turn's output budget: the model's own limit, and on a charged account no more than its credits
+ * cover (never under BASE_OUTPUT_TOKENS, the budget every turn had before). Thinking, text and tool
+ * input share it.
+ */
+async function outputBudget(ctx: RunContext) {
+  const limit = outputLimit(ctx.spec);
+  if (limit <= BASE_OUTPUT_TOKENS) return limit;
+  const available = await ctx.spendable().catch(() => 0);
+  if (available === null) return limit;
+  const affordable = Math.floor((Math.max(0, available) * TOKENS_PER_CREDIT) / (OUTPUT_WEIGHT * modelWeight(ctx.spec.id)));
+  return Math.min(limit, Math.max(BASE_OUTPUT_TOKENS, affordable));
+}
+
+const LOWER_EFFORT: Record<ThinkingLevel, ThinkingLevel | null> = { high: "medium", medium: "low", low: null };
+
+type TurnOptions = { maxTokens: number; effort?: ThinkingLevel };
+
+async function streamTurn(ctx: RunContext, conversation: Anthropic.MessageParam[], turn: number, tools: Anthropic.Tool[], turnOpts: TurnOptions) {
   const client = anthropicClient(ctx.spec.provider);
+  const effort = turnOpts.effort ?? ctx.effort;
   if (turn === 1) {
     const fixed = sanitizeErrorToolResults(conversation);
     if (fixed) ctx.emit({ type: "notice", level: "info", message: `Repaired ${fixed} earlier failed tool result(s) that contained images (rejected by the API).` });
+    // An empty reply (a refusal saved by an older version) would make every request fail.
+    dropEmptyReplies(conversation);
   }
   ctx.emit({ type: "turn_start", turn, model: ctx.spec.id });
   const messages = await hydrateImages(conversation, ctx.images, async mediaId => {
@@ -1270,12 +1394,12 @@ async function streamTurn(ctx: RunContext, conversation: Anthropic.MessageParam[
     return media && media.state !== "missing" ? loadMediaBytes(media.id) : null;
   }, message => { if (!ctx.imageNoticeSent) { ctx.imageNoticeSent = true; ctx.emit({ type: "notice", level: "warn", message }); } });
   const stream = client.messages.stream({
-    model: wireModel(ctx.spec, ctx.effort),
-    max_tokens: MAX_TOKENS,
+    model: wireModel(ctx.spec, effort),
+    max_tokens: turnOpts.maxTokens,
     system: [{ type: "text", text: ctx.system ?? (ctx.mode === "agent" ? AGENT_SYSTEM : CHAT_SYSTEM) }, ...[ctx.context, ctx.designText].filter((text): text is string => Boolean(text)).map(text => ({ type: "text" as const, text }))],
     messages,
     ...(tools.length ? { tools } : {}),
-    ...reasoning(ctx),
+    ...reasoning(ctx, effort),
   }, { signal: ctx.signal });
 
   const blocks = new Map<number, OpenBlock>();
@@ -1339,10 +1463,46 @@ async function streamTurn(ctx: RunContext, conversation: Anthropic.MessageParam[
   ctx.usage.inputTokens += usage.input_tokens + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0);
   ctx.usage.outputTokens += usage.output_tokens;
   ctx.usage.thinkingTokens += thinkingTokens;
-  ctx.emit({ type: "usage", turn, model: ctx.spec.id, inputTokens: usage.input_tokens, outputTokens: usage.output_tokens, thinkingTokens, cacheReadTokens: usage.cache_read_input_tokens ?? 0, cacheWriteTokens: usage.cache_creation_input_tokens ?? 0 });
+  ctx.emit({ type: "usage", turn, model: ctx.spec.id, inputTokens: usage.input_tokens, outputTokens: usage.output_tokens, thinkingTokens, cacheReadTokens: usage.cache_read_input_tokens ?? 0, cacheWriteTokens: usage.cache_creation_input_tokens ?? 0, stopReason: refusalCategory(message) ? `refusal: ${refusalCategory(message)}` : message.stop_reason ?? undefined, maxTokens: turnOpts.maxTokens });
   updateAgentTask(ctx.taskId, { usage: ctx.usage }, ctx.runToken);
   return message;
 }
+
+/** Why the model declined, when the API says (stop_details on a refusal). */
+function refusalCategory(message: Anthropic.Message) {
+  if (message.stop_reason !== "refusal") return null;
+  return (message as { stop_details?: { category?: string | null } | null }).stop_details?.category ?? null;
+}
+
+/** The raw text of a reply (not trimmed: a reply cut off mid-sentence continues in the next one). */
+const rawTextOf = (message: Anthropic.Message) => message.content.filter((block): block is Anthropic.TextBlock => block.type === "text").map(block => block.text).join("\n\n");
+
+/** Asks for the rest of a reply the output limit cut off, quoting where it stopped. */
+export function continuationNote(text: string) {
+  const tail = text.trimEnd().slice(-200);
+  return `Your previous reply was cut off by the output limit. It ended with: «${tail}». Continue from exactly that point, as if nothing had interrupted you: do not repeat, restart, shorten or summarize what you already wrote.`;
+}
+
+/**
+ * The harness's own output-limit notes (current and older wording), never a user's message that
+ * happens to start the same way. Shared with recovery's harness-text check.
+ */
+export const OUTPUT_LIMIT_NOTE = /^Your previous reply (was cut off by the output limit\.|ran out of output tokens (before producing anything|while thinking))/;
+const isContinuationNote = (message: { role: string; content: unknown } | undefined) => Boolean(message && message.role === "user" && typeof message.content === "string" && OUTPUT_LIMIT_NOTE.test(message.content));
+
+/** Whether the conversation's last user turn already ends with this note (it is added once per streak). */
+function endsWithNote(conversation: Anthropic.MessageParam[], note: string) {
+  const last = conversation[conversation.length - 1];
+  if (!last || last.role !== "user") return false;
+  if (typeof last.content === "string") return last.content.endsWith(note);
+  const block = last.content[last.content.length - 1];
+  return block?.type === "text" && block.text === note;
+}
+
+/** The tool result for a call whose input the output limit cut off. */
+export const TRUNCATED_TOOL_INPUT = "Your previous reply was cut off by the output limit before this tool call's input was complete, so it did not run. Send it again in full: do not shorten, summarize or leave out any of the content. If one call cannot hold it all, split it: write_file with the first part, then write_file with append: true for each following part.";
+
+const THINKING_ONLY_NOTE = "Your previous reply ran out of output tokens while thinking, before any answer or tool call. Keep your thinking brief this time: act or answer directly.";
 
 const textOf = (message: Anthropic.Message) => message.content.filter((block): block is Anthropic.TextBlock => block.type === "text").map(block => block.text).join("\n\n").trim();
 
@@ -1383,25 +1543,65 @@ export async function runAgentLoop(ctx: RunContext, conversation: Anthropic.Mess
   // The previous self-healing failure, for the breaker: the same failure twice ends self-healing.
   let lastFailure: string | undefined;
 
+  // A reply the output limit cut off, until the turns that continue it end it: the parts make one answer.
+  let carried = "";
+  // After a turn that spent its whole budget thinking: less deliberation until a turn ends normally.
+  let effortCap: ThinkingLevel | null = null;
+  let thinkingOnly = 0;
+
   let dropBudgetNote: (() => void) | null = null;
   try {
   for (let turn = 1; turn <= maxTurns; turn++) {
     if (turn === wrapUpTurn(maxTurns)) dropBudgetNote = noteForThisLoop(conversation, turnBudgetNote(maxTurns - turn + 1, maxTurns, opts.terminal));
-    const message = await healing(ctx, () => streamTurn(ctx, conversation, turn, ctx.spec.tools ? contextTools(ctx) : []));
+    const maxTokens = await outputBudget(ctx);
+    const message = await healing(ctx, () => streamTurn(ctx, conversation, turn, ctx.spec.tools ? contextTools(ctx) : [], { maxTokens, effort: effortCap ?? undefined }));
+    // Nothing of a refusal is kept: an empty reply in the history would fail every later turn (and a retry).
+    if (message.stop_reason === "refusal") {
+      const category = refusalCategory(message);
+      throw new Error(`The model declined this request${category ? ` (${category})` : ""}.`);
+    }
+    // Cut off by the output budget, or by the context window (4.5 models and newer stop there).
+    const windowFull = message.stop_reason === "model_context_window_exceeded";
+    const cutOff = message.stop_reason === "max_tokens" || windowFull;
+    const limit = windowFull ? "the context window" : `the output limit (${maxTokens.toLocaleString("en-US")} tokens)`;
+    const toolUses = message.content.filter((block): block is Anthropic.ToolUseBlock => block.type === "tool_use");
+    const text = rawTextOf(message);
+    if (cutOff && !toolUses.length && !text.trim()) {
+      // All thinking, and unfinished thinking cannot be sent back: the turn is asked again with less
+      // deliberation (at the lowest level, with a note to think briefly; kept, as the history only
+      // ever grows: a later reply's reasoning is bound to what came before it).
+      if (++thinkingOnly > 3) throw new Error(`The model kept reaching ${limit} while thinking, without answering.`);
+      if (windowFull && compactHistory(conversation as never, 1)) ctx.persist(conversation);
+      const lower: ThinkingLevel | null = ctx.spec.effort && !ctx.flags.noEffort ? LOWER_EFFORT[effortCap ?? ctx.effort] : null;
+      if (lower) effortCap = lower;
+      else if (!endsWithNote(conversation, THINKING_ONLY_NOTE)) appendUserNote(conversation as never, "anthropic", THINKING_ONLY_NOTE);
+      ctx.emit({ type: "notice", level: "info", message: `The model reached ${limit} while thinking, before it answered; asking again${lower ? ` with ${lower} effort` : " with a note to think briefly"}.` });
+      continue;
+    }
+    thinkingOnly = 0;
+    if (!cutOff) effortCap = null;
     conversation.push({ role: "assistant", content: message.content });
     ctx.persist(conversation);
-    lastText = textOf(message) || lastText;
 
-    if (message.stop_reason === "refusal") throw new Error("The model declined this request (refusal).");
+    if (cutOff && !toolUses.length) {
+      // Cut off mid-reply: the next turn continues it from where it stopped.
+      carried += text;
+      conversation.push({ role: "user", content: continuationNote(carried) });
+      ctx.emit({ type: "notice", level: "info", message: `The reply reached ${limit}; the model is continuing it.` });
+      continue;
+    }
+    lastText = (carried + text).trim() || lastText;
+    carried = "";
     if (message.stop_reason === "pause_turn") continue;
 
-    const toolUses = message.content.filter((block): block is Anthropic.ToolUseBlock => block.type === "tool_use");
     if (toolUses.length) {
+      // Only the reply's last block can be cut off: tool calls before it are complete and run.
+      const truncated = cutOff ? message.content[message.content.length - 1] : null;
       const results: Anthropic.ToolResultBlockParam[] = [];
       for (const use of toolUses) {
-        if (message.stop_reason === "max_tokens") {
-          ctx.emit({ type: "tool_result", callId: use.id, ok: false, summary: "Input truncated by max_tokens", durationMs: 0 });
-          results.push({ type: "tool_result", tool_use_id: use.id, is_error: true, content: "Your tool input was cut off by the output token limit. Split the work into smaller pieces (e.g. write a large file in several edit_file steps) and try again." });
+        if (use === truncated) {
+          ctx.emit({ type: "tool_result", callId: use.id, ok: false, summary: windowFull ? "Input cut off at the context window" : "Input cut off by the output limit", durationMs: 0 });
+          results.push({ type: "tool_result", tool_use_id: use.id, is_error: true, content: TRUNCATED_TOOL_INPUT });
           continue;
         }
         results.push(await runToolCall(ctx, use));
@@ -1415,11 +1615,6 @@ export async function runAgentLoop(ctx: RunContext, conversation: Anthropic.Mess
         const index = toolUses.findIndex(use => use.name === opts.terminal);
         if (index >= 0 && !results[index].is_error) return { text: lastText, terminal: toolUses[index].input as Record<string, unknown> };
       }
-      continue;
-    }
-
-    if (message.stop_reason === "max_tokens") {
-      conversation.push({ role: "user", content: "Your previous reply was cut off by the output limit. Continue exactly where you stopped." });
       continue;
     }
 
@@ -1447,6 +1642,11 @@ export async function runAgentLoop(ctx: RunContext, conversation: Anthropic.Mess
     conversation.push({ role: "user", content: step.message });
   }
   if (accepted !== null) return { text: await deliverAccepted(ctx, accepted, healIteration, coding && verifyAtEnd) };
+  // Out of turns in the middle of a reply that was being continued: that reply is the latest text.
+  if (carried.trim()) {
+    lastText = carried.trim();
+    if (isContinuationNote(conversation[conversation.length - 1])) conversation.pop();
+  }
   if (opts.terminal) {
     // A team member out of turns falls back to the orchestrator's default instead of failing the run.
     ctx.emit({ type: "notice", level: "warn", message: `${ctx.role ? `${ctx.role[0].toUpperCase()}${ctx.role.slice(1)}` : "Agent"} used its ${maxTurns}-turn budget without calling ${opts.terminal}.` });
@@ -1494,12 +1694,16 @@ async function wrapUpAtLimit(ctx: RunContext, conversation: Anthropic.MessagePar
   const dropLimitNote = noteForThisLoop(conversation, "[Turn limit] You are out of model turns. Do not call any tools. Reply now with your final summary: what you built or changed, how far it got, which checks pass, and what is unfinished.");
   let summary = "";
   try {
-    const message = await healing(ctx, () => streamTurn(ctx, conversation, maxTurns + 1, ctx.spec.tools ? contextTools(ctx) : []));
-    conversation.push({ role: "assistant", content: message.content });
-    // Tool calls in it are not run; their results keep the history valid for a follow-up.
+    const maxTokens = await outputBudget(ctx);
+    const message = await healing(ctx, () => streamTurn(ctx, conversation, maxTurns + 1, ctx.spec.tools ? contextTools(ctx) : [], { maxTokens }));
+    // Tool calls in it are not run; their results keep the history valid for a follow-up. A refusal,
+    // or a reply cut off while still thinking, leaves nothing worth keeping (or valid to send back).
     const uses = message.content.filter((block): block is Anthropic.ToolUseBlock => block.type === "tool_use");
-    if (uses.length) conversation.push({ role: "user", content: uses.map(use => ({ type: "tool_result" as const, tool_use_id: use.id, is_error: true, content: "Not run: the turn limit was reached." })) });
-    ctx.persist(conversation);
+    if (uses.length || textOf(message)) {
+      conversation.push({ role: "assistant", content: message.content });
+      if (uses.length) conversation.push({ role: "user", content: uses.map(use => ({ type: "tool_result" as const, tool_use_id: use.id, is_error: true, content: "Not run: the turn limit was reached." })) });
+      ctx.persist(conversation);
+    }
     summary = textOf(message);
   } catch (error) {
     if (ctx.signal.aborted) throw error;
@@ -1630,6 +1834,8 @@ async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unkno
   const system = () => ({ role: "system", content: [coding ? AGENT_SYSTEM : CHAT_SYSTEM, ctx.context, ctx.designText].filter(Boolean).join("\n\n") });
   let healIteration = 0;
   let lastText = "";
+  // A reply the output limit cut off, until the turns that continue it end it: the parts make one answer.
+  let carried = "";
   let accepted: string | null = null;
   // Models with hidden reasoning can spend the whole output budget thinking; the next turn thinks less.
   let effortCap: ThinkingLevel | null = null;
@@ -1644,6 +1850,7 @@ async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unkno
       budgetNote = { role: "user", content: turnBudgetNote(MAX_TURNS - turn + 1, MAX_TURNS) };
       conversation.push(budgetNote);
     }
+    const maxTokens = await outputBudget(ctx);
     const streamed = await healing(ctx, async () => {
     ctx.emit({ type: "turn_start", turn, model: ctx.spec.id });
     const thinkingId = `${ctx.runId}-${turn}.${ctx.recovery.count}-think`;
@@ -1667,7 +1874,7 @@ async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unkno
     sent = [system(), ...messages];
     for await (const chunk of streamOpenAIChat({
       provider: ctx.spec.provider, model: wireModel(ctx.spec, ctx.effort), messages: [system(), ...messages], tools: tools.length ? tools : undefined,
-      maxTokens: MAX_TOKENS, reasoningEffort: ctx.spec.effort && !ctx.flags.noEffort ? effortCap ?? ctx.effort : undefined, signal: ctx.signal,
+      maxTokens, reasoningEffort: ctx.spec.effort && !ctx.flags.noEffort ? effortCap ?? ctx.effort : undefined, signal: ctx.signal,
     })) {
       if (chunk.kind === "reasoning") {
         if (!thinkingStarted) {
@@ -1724,10 +1931,16 @@ async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unkno
     ctx.usage.inputTokens += usage.inputTokens;
     ctx.usage.outputTokens += usage.outputTokens;
     ctx.usage.thinkingTokens += usage.reasoningTokens;
-    ctx.emit({ type: "usage", turn, model: ctx.spec.id, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, thinkingTokens: usage.reasoningTokens, cacheReadTokens: usage.cachedTokens });
-    lastText = text.trim() || lastText;
+    ctx.emit({ type: "usage", turn, model: ctx.spec.id, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, thinkingTokens: usage.reasoningTokens, cacheReadTokens: usage.cachedTokens, stopReason: finish, maxTokens });
 
     const toolCalls = Array.from(calls.values()).filter(call => call.name);
+    // Cut off with no tool calls (mid-reply, or still reasoning): continued next turn, and the parts
+    // make one answer, also across a turn that only reasoned.
+    const cutText = finish === "length" && !toolCalls.length;
+    if (!cutText) {
+      lastText = (carried + text).trim() || lastText;
+      carried = "";
+    }
     conversation.push({
       role: "assistant",
       // The chat-completions route rejects null content; "" is only valid alongside tool_calls.
@@ -1742,11 +1955,16 @@ async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unkno
       for (const call of toolCalls) {
         let input: Record<string, unknown> = {};
         let outcome: ToolOutcome;
+        // Only the last call can be cut off (its arguments are incomplete JSON); the ones before it run.
+        if (finish === "length" && call === toolCalls[toolCalls.length - 1]) {
+          outcome = { ok: false, content: TRUNCATED_TOOL_INPUT, summary: "Input cut off by the output limit" };
+          ctx.emit({ type: "tool_result", callId: call.id, ok: false, summary: outcome.summary, durationMs: 0 });
+          conversation.push({ role: "tool", tool_call_id: call.id, content: outcome.content });
+          continue;
+        }
         try {
           input = JSON.parse(call.args || "{}");
-          outcome = finish === "length"
-            ? { ok: false, content: "Your tool arguments were cut off by the output limit. Split the work into smaller pieces and try again.", summary: "Input truncated" }
-            : await trackedTool(ctx, call.id, call.name, input);
+          outcome = await trackedTool(ctx, call.id, call.name, input);
         } catch (error) {
           if (ctx.signal.aborted) throw error;
           outcome = { ok: false, content: `INVALID_JSON: tool arguments were not valid JSON (${error instanceof Error ? error.message : error}). Re-issue the call.`, summary: "Invalid JSON" };
@@ -1773,12 +1991,17 @@ async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unkno
       continue;
     }
     if (finish === "length") {
-      if (!text) {
+      if (!text.trim()) {
         effortCap = "low";
-        conversation.push({ role: "user", content: "Your previous reply ran out of output tokens before producing anything. Think less and answer or act directly." });
+        ctx.emit({ type: "notice", level: "info", message: `The model used its whole output budget (${maxTokens.toLocaleString("en-US")} tokens) thinking before it answered; asking again with less deliberation.` });
+        // In the middle of a continued reply, the request to continue it stands.
+        conversation.push({ role: "user", content: carried.trim() ? `${continuationNote(carried)} Think less this time: write the rest directly.` : "Your previous reply ran out of output tokens before producing anything. Think less and answer or act directly." });
       } else {
-        conversation.push({ role: "user", content: "Your previous reply was cut off by the output limit. Continue exactly where you stopped." });
+        carried += text;
+        ctx.emit({ type: "notice", level: "info", message: `The reply reached the output limit (${maxTokens.toLocaleString("en-US")} tokens); the model is continuing it.` });
+        conversation.push({ role: "user", content: continuationNote(carried) });
       }
+      updateAgentTask(ctx.taskId, { conversation }, ctx.runToken);
       continue;
     }
     effortCap = null;
@@ -1797,6 +2020,8 @@ async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unkno
     conversation.push({ role: "user", content: step.message });
   }
   if (accepted !== null) return deliverAccepted(ctx, accepted, healIteration, coding);
+  // Out of turns in the middle of a reply that was being continued: that reply is the latest text.
+  if (carried.trim()) lastText = carried.trim();
   // Out of turns: the run ends with what it has (see wrapUpAtLimit), not as a failure.
   ctx.outcome.turnLimit = true;
   ctx.emit({ type: "notice", level: "warn", message: `Reached the ${MAX_TURNS}-turn limit; finishing with the work as it stands.` });
@@ -1843,6 +2068,19 @@ async function runToolCall(ctx: RunContext, use: Anthropic.ToolUseBlock): Promis
  * Repair history saved before the is_error fix: an is_error tool_result may only contain text.
  * Mutates in place (the repaired history is what gets persisted) and reports how many it fixed.
  */
+/** Remove assistant turns with no content (the API rejects them; the user turns around them merge). */
+export function dropEmptyReplies(conversation: Anthropic.MessageParam[]) {
+  let dropped = 0;
+  for (let index = conversation.length - 1; index >= 0; index--) {
+    const message = conversation[index];
+    if (message.role === "assistant" && (Array.isArray(message.content) ? message.content.length === 0 : !message.content)) {
+      conversation.splice(index, 1);
+      dropped++;
+    }
+  }
+  return dropped;
+}
+
 export function sanitizeErrorToolResults(conversation: Anthropic.MessageParam[]) {
   let fixed = 0;
   for (const message of conversation) {
@@ -1895,6 +2133,7 @@ async function trackedTool(ctx: RunContext, callId: string, name: string, input:
     charge: ctx.chargeCredits,
     canSpend: ctx.canSpend,
     ...(ctx.design ? { design: { surface: ctx.design.intent.surface, allowed: allowedLooks(ctx.design.intent) } } : {}),
+    ...(ctx.repoSwitch ? { repoSwitch: ctx.repoSwitch } : {}),
     vision: ctx.spec.vision,
     callId,
     signal: ctx.signal,

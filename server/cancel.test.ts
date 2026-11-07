@@ -370,6 +370,8 @@ async function loopContext(taskId: string) {
     usage: { inputTokens: 0, outputTokens: 0, thinkingTokens: 0 }, changedFiles: new Set(), agentVerifyCommands: [], manifest: new Map(), attached: new Map(), images: new Map(),
     context: "", github: true, flags: { noEager: false, noThinking: false, noEffort: false }, toolWatch: new ToolFailureWatch(), persist: () => undefined,
     outcome: { verification: "none" }, grants: { deploy: true }, failedPublishing: new Set(), taskModel: "claude-sonnet-4-5", publishing: { count: 0 },
+
+    spendable: async () => null,
   };
   ctx.recovery = new RecoveryEngine({ signal: ctx.signal, format: "anthropic", conversation: [], spec: ctx.spec, flags: ctx.flags, switchModel: () => undefined, persist: () => undefined, emit: () => undefined });
   return { ctx, events, controller };

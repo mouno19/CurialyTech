@@ -331,6 +331,32 @@ const MIGRATIONS: { id: number; sql: string }[] = [
       CREATE INDEX IF NOT EXISTS api_keys_user_idx ON curialy.api_keys (user_id, created_at DESC);
     `,
   },
+  {
+    id: 10,
+    sql: `
+      -- Follow-ups sent while a task's run is active: each starts by itself when the run before it
+      -- ends (server/agent/queue.ts). Started ones stay, with the run they started, so a re-sent
+      -- client message id is recognised; removed ones are deleted.
+      CREATE TABLE IF NOT EXISTS curialy.queued_followups (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        session_id uuid NOT NULL REFERENCES curialy.chat_sessions(id) ON DELETE CASCADE,
+        user_id uuid NOT NULL REFERENCES curialy.users(id) ON DELETE CASCADE,
+        prompt text NOT NULL,
+        attachments jsonb NOT NULL DEFAULT '[]'::jsonb,
+        model text,
+        repo jsonb,
+        client_message_id text,
+        state text NOT NULL DEFAULT 'waiting' CHECK (state IN ('waiting', 'starting', 'started', 'failed')),
+        error text,
+        run_id uuid,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS queued_followups_session_idx ON curialy.queued_followups (session_id, state, created_at);
+      CREATE UNIQUE INDEX IF NOT EXISTS queued_followups_client_idx ON curialy.queued_followups (session_id, client_message_id) WHERE client_message_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS queued_followups_run_idx ON curialy.queued_followups (run_id) WHERE run_id IS NOT NULL;
+    `,
+  },
 ];
 
 export async function migrate() {

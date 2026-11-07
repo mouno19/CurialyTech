@@ -53,14 +53,21 @@ export async function readWorkspaceFiles(root: string) {
 }
 
 /** The project's sources (build output folders and caches left out), as exported, deployed and archived. */
-export function collectWorkspaceFiles(root: string) {
+/** exclude: a folder (relative to the root) left out, e.g. a linked repository archived as edits only. */
+export function collectWorkspaceFiles(root: string, opts: { exclude?: string } = {}) {
   const files: { path: string; content: Buffer; sha256: string }[] = [];
   let total = 0;
   let skipped = 0;
+  const skippedPaths: string[] = [];
+  const excluded = opts.exclude ? path.join(root, opts.exclude) : null;
   const walk = (dir: string) => {
-    for (const entry of readDir(root, dir)) {
+    const entries = readDir(root, dir);
+    // Uploads last: when the limits run out, it is their files that are left out (Vault keeps them).
+    if (dir === root) entries.sort((a, b) => Number(a.name === "attachments") - Number(b.name === "attachments"));
+    for (const entry of entries) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
+        if (full === excluded) continue;
         // Build output is kept separately (role 'build', see buildFor); lockfiles and sources stay.
         if (!SKIP_DIRS.has(entry.name) && !isOutputDir(dir, entry.name)) walk(full);
         continue;
@@ -69,6 +76,7 @@ export function collectWorkspaceFiles(root: string) {
       const size = fs.statSync(full).size;
       if (size > MAX_FILE || total + size > MAX_TOTAL || files.length >= MAX_FILES) {
         skipped++;
+        skippedPaths.push(path.relative(root, full));
         continue;
       }
       const content = fs.readFileSync(full);
@@ -77,7 +85,7 @@ export function collectWorkspaceFiles(root: string) {
     }
   };
   walk(root);
-  return { files, total, skipped };
+  return { files, total, skipped, skippedPaths };
 }
 
 /**
@@ -139,6 +147,13 @@ export async function snapshotWorkspace(taskId: string) {
   await refreshWorkspace(root);
   await shareWorkspaceFiles(root, SKIP_DIRS);
   const repo = await linkedRepo(taskId);
+  // Next to a sub-folder repository, everything else (uploads, other projects, a repository the task
+  // switched away from) is archived whole, within its own limits. Uploads over them are safe in Vault
+  // already; any other file over them keeps the workspace on this server. Checked first, so a sweep
+  // that can't archive never opens a sandbox to list the repository's changes.
+  const outside = repo && repo.repoPath !== "." ? collectWorkspaceFiles(root, { exclude: repo.repoPath }) : null;
+  const lost = outside ? outside.skippedPaths.filter(file => !file.startsWith("attachments/")) : [];
+  if (lost.length) throw new Error(`Could not archive ${lost.length} file(s) outside ${repo!.repoPath}/ (over the limits, e.g. ${lost[0]}); the workspace stays on this server.`);
   // A repository git ran on but could not read (a damaged .git, "git exit 1") is archived whole
   // below, like an unlinked workspace, instead of failing on every sweep while the files stay on
   // this server. A sandbox that could not run git at all ("git exit null") is retried next sweep.
@@ -149,10 +164,9 @@ export async function snapshotWorkspace(taskId: string) {
     return null;
   }) : null;
   if (repo && edits) {
-    // Linked GitHub repo: archive only the agent's edits (plus anything outside the repo folder);
+    // Linked GitHub repo: archive only the agent's edits (plus everything outside the repo folder);
     // the unchanged repository is re-fetched from GitHub on restore.
-    const outside = repo.repoPath === "." ? [] : collectWorkspaceFiles(root).files.filter(file => !file.path.startsWith(`${repo.repoPath}/`));
-    const sources = [...edits, ...outside].map(file => ({ path: file.path, content: file.content, sha256: createHash("sha256").update(file.content).digest("hex") }));
+    const sources = [...edits, ...(outside?.files ?? [])].map(file => ({ path: file.path, content: file.content, sha256: createHash("sha256").update(file.content).digest("hex") }));
     const files = [...sources, ...buildFor(root, sources)];
     await saveWorkspaceSnapshot(taskId, files);
     return { files: files.length, bytes: files.reduce((sum, file) => sum + file.content.length, 0), skipped: 0 };

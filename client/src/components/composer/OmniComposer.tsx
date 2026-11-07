@@ -4,7 +4,7 @@ import * as Popover from "@radix-ui/react-popover";
 import * as RadioGroup from "@radix-ui/react-radio-group";
 import * as Switch from "@radix-ui/react-switch";
 import type { LucideIcon } from "lucide-react";
-import { ArrowUp, Bot, Check, ChevronDown, CloudOff, Globe, Info, MessageSquare, Mic, Paperclip, RotateCcw, SlidersHorizontal, Sparkles, Square, TriangleAlert, Users, X } from "lucide-react";
+import { ArrowUp, Bot, Check, ChevronDown, CloudOff, Globe, Info, MessageSquare, Paperclip, RotateCcw, SlidersHorizontal, Sparkles, TriangleAlert, Users, X } from "lucide-react";
 import { aliasEffort, effortApplies, getModel, PICKER_MODELS, REPLACED, teamCapable, type CreateTaskRequest, type ModelSpec, type TaskMode, type ThinkingLevel } from "@shared/agent";
 import { Button } from "@/components/common/Button";
 import { cx } from "@/components/common/cx";
@@ -20,8 +20,8 @@ import { Spinner } from "@/components/common/Spinner";
 import { TypingText } from "@/components/common/TypingText";
 import { usePresence, useTypewriter } from "@/lib/motion";
 import { AttachmentTray, MAX_ATTACHMENTS, useAttachments } from "@/lib/useAttachments";
-import { dictationSupported, useDictation } from "@/lib/useDictation";
-import { useAccount } from "@/lib/account";
+import { insertAtCursor } from "@/lib/insertText";
+import { DictationButton } from "./DictationButton";
 // The unsent prompt survives a reload, the GitHub sign-in round trip and a hand-off from the homepage.
 import { PREFS_KEY, readDraft, writeDraft } from "@/lib/composerDraft";
 
@@ -76,14 +76,23 @@ function modelBlocked(spec: ModelSpec, mode: TaskMode, team: boolean, probes: Pr
 const modelNote = (spec: ModelSpec) => (spec.provider === "core-sql" ? "Answers arrive all at once" : null);
 
 /** Model menu: Radix DropdownMenu in a portal, menuitemradio items grouped by family. */
-export function ModelPicker({ value, onChange, mode, team = false }: { value: string; onChange: (id: string) => void; mode: TaskMode; team?: boolean; /** Ignored (kept for older callers). */ openDown?: boolean }) {
+export function ModelPicker({ value, onChange, mode, team = false, auto = true, blocked, label: name = "Model" }: {
+  value: string; onChange: (id: string) => void; mode: TaskMode; team?: boolean;
+  /** Offer Auto (a new task); a follow-up continues on a named model. */
+  auto?: boolean;
+  /** Another reason a model can't be picked here (shown as its hint), e.g. a follow-up's conversation format. */
+  blocked?: (spec: ModelSpec) => string | null;
+  /** What the trigger is called for screen readers and its tooltip. */
+  label?: string;
+  /** Ignored (kept for older callers). */ openDown?: boolean;
+}) {
   const { providers } = useHealth();
-  const label = (value !== "auto" && getModel(value)?.label) || "Auto";
+  const label = (value !== "auto" && getModel(value)?.label) || (auto ? "Auto" : value);
   return (
     <DropdownMenu.Root>
-      <Tip content={`Model: ${label}`}>
+      <Tip content={`${name}: ${label}`}>
         <DropdownMenu.Trigger asChild>
-          <button type="button" className="pick-trigger omni-model" aria-label={`Model: ${label}`}>
+          <button type="button" className="pick-trigger omni-model" aria-label={`${name}: ${label}`}>
             <span className="omni-model-spark" aria-hidden="true" />
             <span className="pick-label">{label}</span>
             <ChevronDown size={14} className="pick-chevron" aria-hidden="true" />
@@ -93,16 +102,18 @@ export function ModelPicker({ value, onChange, mode, team = false }: { value: st
       <DropdownMenu.Portal>
         <DropdownMenu.Content className="menu omni-model-menu" side="bottom" align="start" sideOffset={6} collisionPadding={POPOVER_COLLISION} loop>
           <DropdownMenu.RadioGroup value={value} onValueChange={onChange}>
-            <DropdownMenu.RadioItem value="auto" className="menu-item" textValue="Auto">
-              <Sparkles size={15} aria-hidden="true" />
-              <span className="menu-item-body">
-                <span>Auto</span>
-                <span className="menu-item-hint">Picks a model to match each task</span>
-              </span>
-              <DropdownMenu.ItemIndicator className="menu-item-end"><Check size={14} aria-hidden="true" /></DropdownMenu.ItemIndicator>
-            </DropdownMenu.RadioItem>
-            {MODEL_FAMILIES.map(group => (
-              <ModelFamily key={group.label} label={group.label} models={group.models} mode={mode} team={team} probes={providers} />
+            {auto && (
+              <DropdownMenu.RadioItem value="auto" className="menu-item" textValue="Auto">
+                <Sparkles size={15} aria-hidden="true" />
+                <span className="menu-item-body">
+                  <span>Auto</span>
+                  <span className="menu-item-hint">Picks a model to match each task</span>
+                </span>
+                <DropdownMenu.ItemIndicator className="menu-item-end"><Check size={14} aria-hidden="true" /></DropdownMenu.ItemIndicator>
+              </DropdownMenu.RadioItem>
+            )}
+            {MODEL_FAMILIES.map((group, index) => (
+              <ModelFamily key={group.label} label={group.label} models={group.models} mode={mode} team={team} probes={providers} blocked={blocked} separator={auto || index > 0} />
             ))}
           </DropdownMenu.RadioGroup>
         </DropdownMenu.Content>
@@ -111,15 +122,15 @@ export function ModelPicker({ value, onChange, mode, team = false }: { value: st
   );
 }
 
-function ModelFamily({ label, models, mode, team, probes }: { label: string; models: ModelSpec[]; mode: TaskMode; team: boolean; probes: ProviderProbe[] | null }) {
+function ModelFamily({ label, models, mode, team, probes, blocked: extra, separator = true }: { label: string; models: ModelSpec[]; mode: TaskMode; team: boolean; probes: ProviderProbe[] | null; blocked?: (spec: ModelSpec) => string | null; separator?: boolean }) {
   const id = useId();
   return (
     <Fragment>
-      <DropdownMenu.Separator className="menu-sep" />
+      {separator && <DropdownMenu.Separator className="menu-sep" />}
       <DropdownMenu.Group aria-labelledby={id}>
         <DropdownMenu.Label id={id} className="menu-label">{label}</DropdownMenu.Label>
         {models.map(spec => {
-          const blocked = modelBlocked(spec, mode, team, probes);
+          const blocked = modelBlocked(spec, mode, team, probes) ?? extra?.(spec) ?? null;
           const hint = blocked ?? modelNote(spec);
           return (
             <DropdownMenu.RadioItem key={spec.id} value={spec.id} disabled={Boolean(blocked)} className="menu-item" textValue={spec.label}>
@@ -292,35 +303,19 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed, examples }: {
   const starting = usePresence(busy);
   const [arrivedWithDraft] = useState(() => readDraft().trim().length > 0);
   // Dictation: spoken text lands where the cursor is (or at the end), separated by a space.
-  const accountInfo = useAccount().info;
-  const voiceAvailable = Boolean(accountInfo?.voice?.available) && dictationSupported();
   const [dictationNote, setDictationNote] = useState("");
   // Where the cursor was when the box lost focus (pressing the microphone moves focus to it).
   const selection = useRef<{ start: number; end: number } | null>(null);
   const insertDictated = (text: string) => {
-    setPrompt(current => {
-      const start = Math.min(selection.current?.start ?? current.length, current.length);
-      const end = Math.min(selection.current?.end ?? current.length, current.length);
-      const before = current.slice(0, start);
-      const after = current.slice(end);
-      const glue = before && !/\s$/.test(before) ? " " : "";
-      return `${before}${glue}${text}${after && !/^\s/.test(after) ? " " : ""}${after}`;
-    });
+    const at = selection.current;
+    setPrompt(current => insertAtCursor(current, text, at));
     selection.current = null;
     requestAnimationFrame(() => textarea.current?.focus({ preventScroll: true }));
   };
-  const startDictation = () => {
-    const credits = accountInfo?.credits;
-    if (credits && !credits.unlimited && credits.available < 0.05) {
-      setNote("You're out of credits for dictation right now. They refill with your next window, or redeem a promo code.");
-      return;
-    }
-    void dictation.start();
-  };
-  const dictation = useDictation(insertDictated, (message, tone) => {
+  const dictationMessage = (message: string, tone?: "error") => {
     setDictationNote(message);
     if (tone === "error") setNote(message);
-  });
+  };
 
   // Ctrl+/ (⌘/ on a Mac) anywhere on the page starts typing here. A chord, not a bare "/": a
   // single-character shortcut would fire while dictating or reading (WCAG 2.1.4) and hide Quick Find.
@@ -489,7 +484,7 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed, examples }: {
         <p className="sr-only" role="status">
           {attachments.uploading ? `Uploading ${attachments.uploading === 1 ? "a file" : `${attachments.uploading} files`}…` : files ? `${files} ${files === 1 ? "file" : "files"} attached` : ""}
         </p>
-        <p className="sr-only" role="status">{dictation.state === "recording" ? "Recording. Press Stop when you're done." : dictation.state === "transcribing" ? "Turning your recording into text…" : dictationNote}</p>
+        <p className="sr-only" role="status">{dictationNote}</p>
         <div className="composer-bar">
           <div className="composer-tools">
             <ModelPicker value={prefs.model} mode={prefs.mode} team={agent && prefs.team} onChange={model => update({ model })} />
@@ -527,23 +522,7 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed, examples }: {
               </button>
             </Tip>
             {attachments.picker}
-            {voiceAvailable && (
-              <Tip content={dictation.state === "recording" ? "Stop and insert the text" : dictation.state === "transcribing" ? "Turning your recording into text…" : "Dictate: speak your task"}>
-                <button
-                  type="button"
-                  className="toggle omni-mic"
-                  data-recording={dictation.state === "recording" || undefined}
-                  aria-label={dictation.state === "recording" ? `Stop dictation (${dictation.seconds} seconds recorded)` : "Dictate"}
-                  aria-pressed={dictation.state === "recording"}
-                  aria-busy={dictation.state === "transcribing" || dictation.state === "starting" || undefined}
-                  aria-disabled={dictation.state === "transcribing" || dictation.state === "starting" || undefined}
-                  onClick={() => (dictation.state === "recording" ? dictation.stop() : dictation.state === "idle" ? startDictation() : undefined)}
-                >
-                  {dictation.state === "transcribing" || dictation.state === "starting" ? <Spinner size={14} /> : dictation.state === "recording" ? <Square size={12} aria-hidden="true" /> : <Mic size={14} aria-hidden="true" />}
-                  <span className="toggle-label">{dictation.state === "recording" ? `${Math.floor(dictation.seconds / 60)}:${String(dictation.seconds % 60).padStart(2, "0")}` : dictation.state === "transcribing" ? "Writing…" : "Dictate"}</span>
-                </button>
-              </Tip>
-            )}
+            <DictationButton onText={insertDictated} onNote={dictationMessage} tip="Dictate: speak your task" />
           </div>
           <div className="composer-send">
             <span className="composer-hint" aria-hidden="true"><kbd>Enter</kbd> to run · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line</span>

@@ -1,12 +1,12 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import type { AgentEvent, AgentEventBody, AgentTaskSummary, PhaseId, RunOutcome, StatusReason, TaskMode, TaskStatus, ThinkingLevel } from "@shared/agent";
+import type { AgentEvent, AgentEventBody, AgentTaskSummary, ConversationFormat, PhaseId, RunOutcome, StatusReason, TaskMode, TaskStatus, ThinkingLevel } from "@shared/agent";
 import { ACTIVE_STATUSES, LEGACY_RESTART_ERROR } from "@shared/taskStatus";
 import { db, query } from "../db/pg";
 import { cleanText, toJsonb } from "../db/json";
 import { LEASE_SECONDS, WORKER_ID } from "./lifecycle";
 
 // Conversation history is stored in the wire format of the provider that produced it.
-export type ConversationFormat = "anthropic" | "openai";
+export type { ConversationFormat };
 export type StoredConversation = Anthropic.MessageParam[] | Record<string, unknown>[];
 
 type SessionRow = {
@@ -15,10 +15,10 @@ type SessionRow = {
   workspace_state: string; github_repo: string | null; github_repo_url: string | null; github_pushed_at: Date | null;
   github_mode: "export" | "linked" | null; github_branch: string | null; team: boolean; created_at: Date; updated_at: Date;
   status_reason: StatusReason | null; status_changed_at: Date | null; started_at: Date | null; finished_at: Date | null;
-  run_id: string | null; attempt: number; cancel_requested_at: Date | null; outcome: RunOutcome | null;
+  run_id: string | null; attempt: number; cancel_requested_at: Date | null; outcome: RunOutcome | null; conversation_format: ConversationFormat | null;
 };
 
-const SUMMARY_COLUMNS = "id, prompt, status, mode, model, effort, web_search, phase, answer, error, usage, files_changed, workspace_state, github_repo, github_repo_url, github_pushed_at, github_mode, github_branch, team, created_at, updated_at, status_reason, status_changed_at, started_at, finished_at, run_id, attempt, cancel_requested_at, outcome";
+const SUMMARY_COLUMNS = "id, prompt, status, mode, model, effort, web_search, phase, answer, error, usage, files_changed, workspace_state, github_repo, github_repo_url, github_pushed_at, github_mode, github_branch, team, created_at, updated_at, status_reason, status_changed_at, started_at, finished_at, run_id, attempt, cancel_requested_at, outcome, conversation_format";
 
 function fromRow(row: SessionRow): AgentTaskSummary & { workspaceState: string } {
   // Rows recovered by the pre-lease code were marked failed with this text; they were interrupted.
@@ -32,6 +32,7 @@ function fromRow(row: SessionRow): AgentTaskSummary & { workspaceState: string }
     statusReason: (legacyRestart ? "server_restart" : row.status_reason) ?? undefined,
     statusChangedAt: row.status_changed_at?.toISOString(), startedAt: row.started_at?.toISOString(), finishedAt: row.finished_at?.toISOString(),
     runId: row.run_id ?? undefined, attempt: row.attempt, cancelRequested: Boolean(row.cancel_requested_at), outcome: row.outcome ?? undefined,
+    format: row.conversation_format ?? undefined,
     createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(),
   };
 }

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Whole runs (retry, cancel, the Deploy action) through the real runner, lifecycle, store and bus,
 // over an in-memory stand-in for the few SQL statements they send, with a scripted model.
@@ -12,10 +12,83 @@ process.env.AGENT_SANDBOX = "none";
 
 type Session = Record<string, any>;
 type Logged = { seq: number; type: string; data: Record<string, any>; created_at: Date };
-const fake = vi.hoisted(() => ({ rows: new Map<string, Session>(), logs: new Map<string, Logged[]>(), unexpected: [] as string[], messages: [] as string[] }));
+const fake = vi.hoisted(() => ({ rows: new Map<string, Session>(), logs: new Map<string, Logged[]>(), unexpected: [] as string[], messages: [] as string[], role: "admin", available: 0, queue: [] as Record<string, any>[] }));
 const ACTIVE = ["queued", "running", "cancelling"];
 
+/** curialy.queued_followups (queue.ts), statement by statement. */
+function queueAnswer(text: string, values: any[]): { rows: any[]; rowCount?: number } {
+  const shown = (row: Record<string, any>) => ["waiting", "starting", "failed"].includes(row.state);
+  const ordered = (rows: Record<string, any>[]) => rows.slice().sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
+  const copy = (row: Record<string, any> | undefined) => (row ? [{ ...row }] : []);
+  if (text.startsWith("INSERT INTO curialy.queued_followups")) {
+    const [sessionId, userId, prompt, attachments, modelId, repo, clientMessageId, cap] = values;
+    if (fake.queue.some(row => row.session_id === sessionId && row.client_message_id === clientMessageId)) return { rows: [] };
+    if (fake.queue.filter(row => row.session_id === sessionId && shown(row)).length >= cap) return { rows: [] };
+    const row = { id: `q${fake.queue.length + 1}`, session_id: sessionId, user_id: userId, prompt, attachments: JSON.parse(attachments), model: modelId, repo: repo ? JSON.parse(repo) : null, client_message_id: clientMessageId, state: "waiting", error: null, run_id: null, created_at: new Date(Date.now() + fake.queue.length) };
+    fake.queue.push(row);
+    return { rows: [{ ...row }] };
+  }
+  const byId = (id: string, session?: string) => fake.queue.find(row => row.id === id && (session === undefined || row.session_id === session));
+  if (text.includes("WHERE session_id = $1 AND client_message_id = $2")) return { rows: copy(fake.queue.find(row => row.session_id === values[0] && row.client_message_id === values[1])) };
+  if (text.includes("WHERE session_id = $1 AND state IN ('waiting', 'starting', 'failed') ORDER BY")) return { rows: ordered(fake.queue.filter(row => row.session_id === values[0] && shown(row))).map(row => ({ ...row })) };
+  if (text.includes("WHERE session_id = $1 AND state IN ('waiting', 'starting') ORDER BY created_at, id LIMIT 1")) return { rows: copy(ordered(fake.queue.filter(row => row.session_id === values[0] && ["waiting", "starting"].includes(row.state)))[0]) };
+  if (text.includes("SET prompt = $3")) {
+    const row = byId(values[1], values[0]);
+    if (!row || !["waiting", "failed"].includes(row.state)) return { rows: [] };
+    row.prompt = values[2];
+    return { rows: copy(row) };
+  }
+  if (text.startsWith("DELETE FROM curialy.queued_followups")) {
+    const row = byId(values[1], values[0]);
+    if (!row || !["waiting", "failed"].includes(row.state)) return { rows: [], rowCount: 0 };
+    fake.queue.splice(fake.queue.indexOf(row), 1);
+    return { rows: [], rowCount: 1 };
+  }
+  if (text.includes("SET state = 'waiting', error = NULL")) {
+    const row = byId(values[1], values[0]);
+    if (!row || row.state !== "failed") return { rows: [] };
+    Object.assign(row, { state: "waiting", error: null });
+    return { rows: copy(row) };
+  }
+  if (text.includes("WHERE run_id = $1 LIMIT 1")) return { rows: fake.queue.some(row => row.run_id === values[0]) ? [{ "?column?": 1 }] : [] };
+  if (text.includes("SET error = $2")) {
+    const row = byId(values[0]);
+    if (row?.state === "waiting") row.error = values[1];
+    return { rows: [], rowCount: row ? 1 : 0 };
+  }
+  if (text.includes("SET state = 'starting'")) {
+    const row = byId(values[0]);
+    if (!row || row.state !== "waiting") return { rows: [] };
+    Object.assign(row, { state: "starting", error: null });
+    return { rows: copy(row) };
+  }
+  if (text.includes("SET state = 'started', updated_at = now(), run_id = COALESCE(q.run_id") && text.includes("WHERE q.id = $1 AND q.state = 'starting'")) {
+    const row = byId(values[0]);
+    if (row?.state !== "starting") return { rows: [], rowCount: 0 };
+    const entries = fake.logs.get(row.session_id) ?? [];
+    const message = entries.find(entry => entry.type === "user_message" && entry.data.clientMessageId === row.client_message_id);
+    const start = message ? entries.filter(entry => entry.type === "run_start" && entry.seq < message.seq).at(-1) : undefined;
+    Object.assign(row, { state: "started", run_id: row.run_id ?? start?.data.runId ?? null });
+    return { rows: [], rowCount: 1 };
+  }
+  if (text.includes("SET state = 'started', run_id = $2")) {
+    Object.assign(byId(values[0]) ?? {}, { state: "started", run_id: values[1] });
+    return { rows: [], rowCount: 1 };
+  }
+  if (text.includes("SET state = $2, error = $3")) {
+    Object.assign(byId(values[0]) ?? {}, { state: values[1], error: values[2] });
+    return { rows: [], rowCount: 1 };
+  }
+  fake.unexpected.push(text.slice(0, 120));
+  return { rows: [], rowCount: 0 };
+}
+
 function answer(text: string, values: any[]): { rows: any[]; rowCount?: number } {
+  if (text.includes("curialy.queued_followups")) return queueAnswer(text, values);
+  if (text.includes("type = 'user_message' AND data->>'clientMessageId' = $2")) {
+    const entries = fake.logs.get(values[0]) ?? [];
+    return { rows: entries.some(entry => entry.type === "user_message" && entry.data.clientMessageId === values[1]) ? [{ "?column?": 1 }] : [] };
+  }
   const log = (id: string) => { if (!fake.logs.has(id)) fake.logs.set(id, []); return fake.logs.get(id)!; };
   const append = (id: string, base: number, bodies: Record<string, any>[]) => bodies.map((data, index) => {
     const entry = { seq: base + index + 1, type: data.type, data, created_at: new Date() };
@@ -88,8 +161,9 @@ function answer(text: string, values: any[]): { rows: any[]; rowCount?: number }
   }
   if (text.startsWith("SELECT MAX(seq) AS seq")) return { rows: [{ seq: maxSeq(values[0]) || null }] };
   if (text.startsWith("SELECT data->>'trigger' AS trigger")) {
-    const start = log(values[0]).filter(entry => entry.type === "run_start").at(-1);
-    return { rows: start ? [{ trigger: start.data.trigger ?? null }] : [] };
+    const starts = log(values[0]).filter(entry => entry.type === "run_start");
+    const request = starts.filter(entry => entry.data.trigger !== "retry").at(-1);
+    return { rows: starts.length ? [{ trigger: starts.at(-1)!.data.trigger ?? null, repo: request?.data.repo ?? null }] : [] };
   }
   if (text.includes("type IN ('repo_push', 'repo_pr', 'deployment')")) {
     // Since the latest run that took a request (retries continue it).
@@ -103,7 +177,7 @@ function answer(text: string, values: any[]): { rows: any[]; rowCount?: number }
   if (text.startsWith("INSERT INTO curialy.messages")) { fake.messages.push(`${values[1]}: ${values[2]}`); return { rows: [], rowCount: 1 }; }
   // Every task here is the operator's.
   if (text.startsWith("SELECT user_id FROM curialy.chat_sessions WHERE id = $1")) return { rows: row ? [{ user_id: "admin" }] : [] };
-  if (text.startsWith("SELECT role FROM curialy.users WHERE id = $1")) return { rows: [{ role: "admin" }] };
+  if (text.startsWith("SELECT role FROM curialy.users WHERE id = $1")) return { rows: [{ role: fake.role }] };
   fake.unexpected.push(text.slice(0, 120));
   return { rows: [], rowCount: 0 };
 }
@@ -126,23 +200,40 @@ const publish = vi.hoisted(() => ({
 }));
 vi.mock("./services/github", async importOriginal => ({ ...(await importOriginal<typeof import("./services/github")>()), createRepo: publish.createRepo, pushProjectToRepo: publish.pushProjectToRepo, createPullRequest: publish.createPullRequest, getConnection: async () => null }));
 vi.mock("./agent/repos", async importOriginal => ({ ...(await importOriginal<typeof import("./agent/repos")>()), commitAndPush: publish.commitAndPush }));
+// Credits, for the few tests that run as a paying account (fake.role = "user").
+vi.mock("./credits", async importOriginal => {
+  const balance = () => ({ unlimited: fake.role === "admin", allowance: 60, used: 0, remaining: fake.available, bonus: 0, available: fake.available, resetsAt: null, windowHours: 5 });
+  return { ...(await importOriginal<typeof import("./credits")>()), getBalance: async () => balance(), charge: async () => balance() };
+});
 vi.mock("./agent/deploy", async importOriginal => ({ ...(await importOriginal<typeof import("./agent/deploy")>()), deployPreview: publish.deployPreview }));
 vi.mock("./media/snowflake", async importOriginal => ({ ...(await importOriginal<typeof import("./media/snowflake")>()), storeMedia: publish.storeMedia }));
 
-// The model: each turn's blocks come from `script`; a "hang" turn streams until the run is stopped.
-// "refuse" answers the turn the way a route that lost access does (403 "Not authorized for this endpoint").
-const model = vi.hoisted(() => ({ script: (_turn: number): Record<string, any>[] | "hang" | "refuse" => [], turns: 0, hanging: false, systems: [] as { text: string }[][], models: [] as string[] }));
+// The model: each turn's blocks come from `script` (or blocks with a stop reason); a "hang" turn
+// streams until the run is stopped. "refuse" answers the turn the way a route that lost access
+// does (403 "Not authorized for this endpoint"). `params` records what each turn was sent.
+type Scripted = { content: Record<string, any>[]; stop_reason?: string; stop_details?: Record<string, any>; wait?: Promise<unknown> };
+const model = vi.hoisted(() => ({ script: (_turn: number): Record<string, any>[] | Scripted | "hang" | "refuse" => [], turns: 0, hanging: false, systems: [] as { text: string }[][], models: [] as string[], params: [] as Record<string, any>[] }));
+// OpenAI-format models (GPT, Grok, Kimi, GLM): each turn's stream chunks come from `chat.script`.
+const chat = vi.hoisted(() => ({ script: (_turn: number): Record<string, any>[] => [], turns: 0, params: [] as Record<string, any>[] }));
 vi.mock("./agent/providers", async importOriginal => ({
   ...(await importOriginal<typeof import("./agent/providers")>()),
+  streamOpenAIChat: async function* (opts: { maxTokens: number; messages: unknown[] }) {
+    const turn = ++chat.turns;
+    chat.params.push(JSON.parse(JSON.stringify({ maxTokens: opts.maxTokens, messages: opts.messages })));
+    for (const chunk of chat.script(turn)) yield chunk;
+    yield { kind: "usage", inputTokens: 10, outputTokens: 5, reasoningTokens: 0, cachedTokens: 0 };
+  },
   anthropicClient: () => ({
     messages: {
-      stream: (params: { model: string; system?: { text: string }[] }, options: { signal?: AbortSignal } = {}) => {
+      stream: (params: { model: string; system?: { text: string }[]; max_tokens?: number; output_config?: unknown; messages?: unknown[] }, options: { signal?: AbortSignal } = {}) => {
         const turn = ++model.turns;
         model.systems.push(JSON.parse(JSON.stringify(params.system ?? [])));
         model.models.push(params.model);
+        model.params.push(JSON.parse(JSON.stringify({ max_tokens: params.max_tokens, output_config: params.output_config ?? null, messages: params.messages ?? [] })));
         const planned = model.script(turn);
-        const content = planned === "hang" || planned === "refuse" ? [] : planned;
-        const message = { id: `msg${turn}`, type: "message", role: "assistant", model: params.model, content, stop_reason: content.some(block => block.type === "tool_use") ? "tool_use" : "end_turn", stop_sequence: null, usage: { input_tokens: 10, output_tokens: 5 } };
+        const scripted = planned === "hang" || planned === "refuse" ? null : Array.isArray(planned) ? { content: planned } as Partial<Scripted> : planned;
+        const content = scripted?.content ?? [];
+        const message = { id: `msg${turn}`, type: "message", role: "assistant", model: params.model, content, stop_reason: scripted?.stop_reason ?? (content.some(block => block.type === "tool_use") ? "tool_use" : "end_turn"), stop_details: scripted?.stop_details ?? null, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 5 } };
         return {
           async *[Symbol.asyncIterator]() {
             if (planned === "refuse") throw Object.assign(new Error("403 Not authorized for this endpoint."), { status: 403 });
@@ -150,9 +241,14 @@ vi.mock("./agent/providers", async importOriginal => ({
               model.hanging = true;
               await new Promise((_, reject) => options.signal?.addEventListener("abort", () => reject(Object.assign(new Error("Request was aborted."), { name: "AbortError" })), { once: true }));
             }
+            if (scripted?.wait) {
+              model.hanging = true;
+              await scripted.wait;
+            }
             for (const [index, block] of content.entries()) {
-              yield { type: "content_block_start", index, content_block: block.type === "tool_use" ? { ...block, input: {} } : { type: "text", text: "" } };
+              yield { type: "content_block_start", index, content_block: block.type === "tool_use" ? { ...block, input: {} } : block.type === "thinking" ? { type: "thinking", thinking: "", signature: "" } : { type: "text", text: "" } };
               if (block.type === "text") yield { type: "content_block_delta", index, delta: { type: "text_delta", text: block.text } };
+              if (block.type === "thinking") yield { type: "content_block_delta", index, delta: { type: "thinking_delta", thinking: block.thinking } };
               yield { type: "content_block_stop", index };
             }
           },
@@ -195,6 +291,10 @@ function seedTask(patch: Session = {}) {
   return id;
 }
 
+const runnerTask = (id: string) => {
+  const row = fake.rows.get(id)!;
+  return { id, status: row.status, statusReason: row.status_reason ?? undefined, runId: row.run_id ?? undefined };
+};
 const finished = (id: string) => vi.waitFor(() => {
   expect(ACTIVE).not.toContain(fake.rows.get(id)!.status);
   expect(runner.isBusy(id)).toBe(false);
@@ -219,6 +319,12 @@ beforeEach(() => {
   model.hanging = false;
   model.systems.length = 0;
   model.models.length = 0;
+  model.params.length = 0;
+  chat.turns = 0;
+  chat.params.length = 0;
+  fake.queue.length = 0;
+  fake.role = "admin";
+  fake.available = 0;
   fake.unexpected.length = 0;
   fake.messages.length = 0;
   for (const spy of Object.values(publish)) spy.mockClear();
@@ -419,6 +525,374 @@ describe("a route that refuses every request", () => {
     // The next follow-up starts on the task's own model again, once the route is back.
     expect(fake.rows.get(id)).toMatchObject({ status: "completed", answer: "Done on the backup route.", model: "claude-opus-5-5" });
     expect(fake.unexpected).toEqual([]);
+  });
+});
+
+describe("replies that reach the output limit", () => {
+  const sent = (turn: number) => JSON.stringify(model.params[turn - 1].messages);
+  const notices = (id: string) => latestRun(id).filter(entry => entry.type === "notice").map(entry => entry.data.message as string);
+
+  it("gives a turn the model's whole output budget (thinking, text and tool input share it)", async () => {
+    const id = seedTask({ status: "completed", status_reason: null, model: "claude-opus-5-5" });
+    model.script = () => [{ type: "text", text: "Done." }];
+    await runner.followUp(id, "Write the report", []);
+    await finished(id);
+    expect(model.params[0].max_tokens).toBe(64_000);
+    expect(latestRun(id).find(entry => entry.type === "usage")!.data).toMatchObject({ stopReason: "end_turn", maxTokens: 64_000 });
+  });
+
+  it("caps a paying account's budget at what its credits cover, never below the old 16K", async () => {
+    fake.role = "user";
+    fake.available = 30;
+    const id = seedTask({ status: "completed", status_reason: null, model: "claude-opus-5-5" });
+    model.script = () => [{ type: "text", text: "Done." }];
+    await runner.followUp(id, "Write the report", []);
+    await finished(id);
+    // 30 credits on Opus (x5, output x4): 30 * 25,000 / 20 = 37,500 output tokens.
+    expect(model.params[0].max_tokens).toBe(37_500);
+    fake.available = 2;
+    await runner.followUp(id, "Again", []);
+    await finished(id);
+    expect(model.params[1].max_tokens).toBe(16_000);
+  });
+
+  it("asks again with less effort when a turn spends the whole budget thinking, never sending the unfinished thinking back", async () => {
+    const id = seedTask({ status: "completed", status_reason: null, model: "claude-sonnet-5-5", effort: "high" });
+    model.script = turn => (turn === 1 ? { content: [{ type: "thinking", thinking: "Let me consider every option…" }], stop_reason: "max_tokens" } : [{ type: "text", text: "The plan: three steps." }]);
+    await runner.followUp(id, "Plan the migration", []);
+    await finished(id);
+    expect(fake.rows.get(id)).toMatchObject({ status: "completed", answer: "The plan: three steps." });
+    expect(model.params[0].output_config).toEqual({ effort: "high" });
+    expect(model.params[1].output_config).toEqual({ effort: "medium" });
+    expect(sent(2)).not.toContain("Let me consider every option");
+    expect(sent(2)).not.toContain("cut off");
+    expect(JSON.stringify(fake.rows.get(id)!.conversation)).not.toContain("Let me consider every option");
+    expect(notices(id)).toContainEqual(expect.stringContaining("reached the output limit (64,000 tokens) while thinking, before it answered; asking again with medium effort"));
+  });
+
+  it("joins a reply the output limit cut off with the turn that continues it", async () => {
+    const id = seedTask({ status: "completed", status_reason: null, model: "claude-sonnet-5-5" });
+    model.script = turn => (turn === 1 ? { content: [{ type: "text", text: "## Report\n\nPart one, " }], stop_reason: "max_tokens" } : [{ type: "text", text: "part two." }]);
+    await runner.followUp(id, "Write the report", []);
+    await finished(id);
+    expect(fake.rows.get(id)).toMatchObject({ status: "completed", answer: "## Report\n\nPart one, part two." });
+    expect(latestRun(id).at(-1)!.data).toMatchObject({ type: "done", answer: "## Report\n\nPart one, part two." });
+    // The continuation was asked for where the reply stopped, without shortening it.
+    expect(sent(2)).toContain("It ended with: «## Report\\n\\nPart one,»");
+    expect(sent(2)).toContain("do not repeat, restart, shorten or summarize");
+    expect(fake.messages).toContain("assistant: ## Report\n\nPart one, part two.");
+  });
+
+  it("refuses only the tool call that was cut off, and lets a long file be written in parts", async () => {
+    const id = seedTask({ status: "completed", status_reason: null, model: "claude-sonnet-5-5" });
+    model.script = turn => {
+      if (turn === 1) return { content: [{ type: "tool_use", id: "t1", name: "write_file", input: { path: "notes.md", content: "First part. " } }, { type: "tool_use", id: "t2", name: "write_file", input: { path: "cut.md", content: "Half" } }], stop_reason: "max_tokens" };
+      if (turn === 2) return [{ type: "tool_use", id: "t3", name: "write_file", input: { path: "notes.md", content: "Second part.", append: true } }];
+      return [{ type: "text", text: "Wrote the notes." }];
+    };
+    await runner.followUp(id, "Write the notes", []);
+    await finished(id);
+    expect(fs.readFileSync(path.join(tmp, id, "notes.md"), "utf8")).toBe("First part. Second part.");
+    expect(fs.existsSync(path.join(tmp, id, "cut.md"))).toBe(false);
+    expect(sent(2)).toContain("so it did not run. Send it again in full: do not shorten, summarize or leave out any of the content");
+    expect(latestRun(id).filter(entry => entry.type === "tool_result").map(entry => [entry.data.callId, entry.data.ok])).toEqual([["t1", true], ["t2", false], ["t3", true]]);
+  });
+
+  it("keeps nothing of a refusal, says why, and a retry resumes from a valid history", async () => {
+    const id = seedTask({ status: "completed", status_reason: null, model: "claude-sonnet-5-5" });
+    model.script = () => ({ content: [], stop_reason: "refusal", stop_details: { type: "refusal", category: "cyber" } });
+    await runner.followUp(id, "Scan this network", []);
+    await finished(id);
+    const row = fake.rows.get(id)!;
+    expect(row.status).toBe("failed");
+    expect(row.error).toContain("The model declined this request (cyber).");
+    expect(row.conversation.filter((message: any) => message.role === "assistant" && Array.isArray(message.content) && message.content.length === 0)).toEqual([]);
+    model.script = () => [{ type: "text", text: "Here is what I can do instead." }];
+    await runner.retryTask(id);
+    await finished(id);
+    expect(fake.rows.get(id)).toMatchObject({ status: "completed", answer: "Here is what I can do instead." });
+  });
+
+  it("on an OpenAI-format model: runs the complete calls, refuses the cut one, and joins a continued reply", async () => {
+    const id = seedTask({ status: "completed", status_reason: null, model: "openai-gpt-5.5", conversation_format: "openai", conversation: [{ role: "user", content: "Build a landing page" }, { role: "assistant", content: "Working on it." }] });
+    chat.script = turn => {
+      if (turn === 1) return [
+        { kind: "tool_delta", index: 0, id: "c1", name: "write_file", args: JSON.stringify({ path: "a.md", content: "A" }) },
+        { kind: "tool_delta", index: 1, id: "c2", name: "write_file", args: '{"path":"b.md","content":"Hal' },
+        { kind: "finish", reason: "length" },
+      ];
+      if (turn === 2) return [{ kind: "text", text: "Report part one, " }, { kind: "finish", reason: "length" }];
+      return [{ kind: "text", text: "part two." }, { kind: "finish", reason: "stop" }];
+    };
+    await runner.followUp(id, "Write the report", []);
+    await finished(id);
+    expect(chat.params[0].maxTokens).toBe(64_000);
+    expect(fs.readFileSync(path.join(tmp, id, "a.md"), "utf8")).toBe("A");
+    expect(fs.existsSync(path.join(tmp, id, "b.md"))).toBe(false);
+    const toolMessages = chat.params[1].messages.filter((message: any) => message.role === "tool");
+    expect(toolMessages.map((message: any) => message.tool_call_id)).toEqual(["c1", "c2"]);
+    expect(toolMessages[1].content).toContain("so it did not run. Send it again in full");
+    expect(JSON.stringify(chat.params[2].messages)).toContain("It ended with: «Report part one,»");
+    expect(fake.rows.get(id)).toMatchObject({ status: "completed", answer: "Report part one, part two." });
+    expect(latestRun(id).filter(entry => entry.type === "tool_result").map(entry => [entry.data.callId, entry.data.ok])).toEqual([["c1", true], ["c2", false]]);
+  });
+
+  it("continues a reply that stopped at the context window, like one at the output limit", async () => {
+    const id = seedTask({ status: "completed", status_reason: null, model: "claude-sonnet-4-5" });
+    model.script = turn => (turn === 1 ? { content: [{ type: "text", text: "First half, " }], stop_reason: "model_context_window_exceeded" } : [{ type: "text", text: "second half." }]);
+    await runner.followUp(id, "Write it all", []);
+    await finished(id);
+    expect(fake.rows.get(id)).toMatchObject({ status: "completed", answer: "First half, second half." });
+    expect(sent(2)).toContain("It ended with: «First half,»");
+    expect(notices(id)).toContainEqual(expect.stringContaining("reached the context window"));
+  });
+
+  it("keeps the note to think briefly in the history (a later reply's reasoning is bound to what came before it)", async () => {
+    const id = seedTask({ status: "completed", status_reason: null, model: "claude-sonnet-5-5", effort: "low" });
+    model.script = turn => (turn === 1 ? { content: [{ type: "thinking", thinking: "Hmm…" }], stop_reason: "max_tokens" } : [{ type: "text", text: "Answer." }]);
+    await runner.followUp(id, "Decide", []);
+    await finished(id);
+    expect(model.params[1].output_config).toEqual({ effort: "low" });
+    expect(sent(2)).toContain("ran out of output tokens while thinking");
+    expect(JSON.stringify(fake.rows.get(id)!.conversation)).toContain("ran out of output tokens while thinking");
+    expect(fake.rows.get(id)).toMatchObject({ status: "completed", answer: "Answer." });
+  });
+
+  it("on an OpenAI-format model: keeps a continued reply across a turn that only reasoned", async () => {
+    const id = seedTask({ status: "completed", status_reason: null, model: "kimi-k3", conversation_format: "openai", conversation: [{ role: "user", content: "Hi" }, { role: "assistant", content: "Hello." }] });
+    chat.script = turn => (turn === 1 ? [{ kind: "text", text: "Part one, " }, { kind: "finish", reason: "length" }]
+      : turn === 2 ? [{ kind: "reasoning", text: "Where was I…" }, { kind: "finish", reason: "length" }]
+      : [{ kind: "text", text: "part two." }, { kind: "finish", reason: "stop" }]);
+    await runner.followUp(id, "Write the report", []);
+    await finished(id);
+    expect(fake.rows.get(id)).toMatchObject({ status: "completed", answer: "Part one, part two." });
+    expect(JSON.stringify(chat.params[2].messages)).toContain("It ended with: «Part one,». Continue from exactly that point");
+    expect(JSON.stringify(chat.params[2].messages)).toContain("Think less this time: write the rest directly.");
+  });
+
+  it("never takes a user's message that starts like a harness note for one", () => {
+    const history: Record<string, unknown>[] = [{ role: "user", content: "Go" }, { role: "assistant", content: [{ type: "text", text: "Done" }] }, { role: "user", content: "Your previous reply was cut off, so please send the whole table again." }];
+    runner.dropDanglingTail(history);
+    expect(history).toHaveLength(3);
+  });
+
+  it("drops a dangling continuation note or an empty reply before a retry", () => {
+    const history: Record<string, unknown>[] = [{ role: "user", content: "Go" }, { role: "assistant", content: [{ type: "text", text: "Part" }] }, { role: "user", content: "Your previous reply was cut off by the output limit. Continue exactly where you stopped." }];
+    runner.dropDanglingTail(history);
+    expect(history).toHaveLength(2);
+    const refused: Record<string, unknown>[] = [{ role: "user", content: "Go" }, { role: "assistant", content: [] }];
+    runner.dropDanglingTail(refused);
+    expect(refused).toEqual([{ role: "user", content: "Go" }]);
+    const toolCall: Record<string, unknown>[] = [{ role: "user", content: "Go" }, { role: "assistant", content: "", tool_calls: [{ id: "c1" }] }];
+    runner.dropDanglingTail(toolCall);
+    expect(toolCall).toHaveLength(2);
+  });
+});
+
+describe("follow-ups queued during a run", () => {
+  let queue: typeof import("./agent/queue");
+  beforeAll(async () => {
+    queue = await import("./agent/queue");
+    queue.startFollowUpQueue();
+  });
+  /** A run that works until the test lets it finish. */
+  function gatedTask(patch: Session = {}) {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const id = seedTask({ status: "completed", status_reason: null, ...patch });
+    return { id, gate, release };
+  }
+  const userMessages = (id: string) => fake.logs.get(id)!.filter(entry => entry.type === "user_message").map(entry => entry.data);
+  const startedRuns = (id: string) => fake.logs.get(id)!.filter(entry => entry.type === "run_start").length;
+
+  it("starts a message queued during a run when the run ends, echoing its client id", async () => {
+    const { id, gate, release } = gatedTask();
+    model.script = turn => (turn === 1 ? { content: [{ type: "text", text: "Header done." }], wait: gate } : [{ type: "text", text: "Footer added." }]);
+    await runner.followUp(id, "Build the header", []);
+    await vi.waitFor(() => expect(model.hanging).toBe(true));
+    const item = await queue.queueMessage(id, "admin", { prompt: "Also add a footer", attachments: [], clientMessageId: "q-1" });
+    expect(item).toMatchObject({ state: "waiting", prompt: "Also add a footer", clientMessageId: "q-1" });
+    // Sent twice (a retried request): still one message.
+    expect((await queue.queueMessage(id, "admin", { prompt: "Also add a footer", attachments: [], clientMessageId: "q-1" })).id).toBe(item.id);
+    expect(await queue.drainQueue(id)).toMatchObject({ kind: "running" });
+    release();
+    await vi.waitFor(() => expect(fake.rows.get(id)).toMatchObject({ status: "completed", answer: "Footer added." }), { timeout: 8000, interval: 20 });
+    await finished(id);
+    expect(userMessages(id).at(-1)).toMatchObject({ text: "Also add a footer", clientMessageId: "q-1" });
+    expect(latestRun(id)[0].data).toMatchObject({ type: "run_start", trigger: "follow_up" });
+    expect(fake.queue[0]).toMatchObject({ state: "started", run_id: fake.rows.get(id)!.run_id });
+    expect(await queue.listQueue(runnerTask(id))).toEqual({ items: [], held: null });
+    expect(fake.unexpected).toEqual([]);
+  });
+
+  it("starts waiting messages oldest first, one run each, and holds no more than five", async () => {
+    const { id, gate, release } = gatedTask();
+    model.script = turn => (turn === 1 ? { content: [{ type: "text", text: "First." }], wait: gate } : [{ type: "text", text: `Reply ${turn}.` }]);
+    await runner.followUp(id, "Start", []);
+    await vi.waitFor(() => expect(model.hanging).toBe(true));
+    for (const n of [1, 2, 3, 4, 5]) await queue.queueMessage(id, "admin", { prompt: `Step ${n}`, attachments: [] });
+    await expect(queue.queueMessage(id, "admin", { prompt: "Step 6", attachments: [] })).rejects.toThrow(/Up to 5 messages/);
+    release();
+    await vi.waitFor(() => expect(fake.queue.every(row => row.state === "started")).toBe(true), { timeout: 15_000, interval: 25 });
+    await finished(id);
+    expect(userMessages(id).slice(-5).map(message => message.text)).toEqual(["Step 1", "Step 2", "Step 3", "Step 4", "Step 5"]);
+    expect(startedRuns(id)).toBe(1 + 1 + 5);
+    expect(fake.rows.get(id)).toMatchObject({ status: "completed", answer: "Reply 6." });
+  });
+
+  it("waits for the user after a stop, and starts when asked; edits and removals work until then", async () => {
+    const id = seedTask({ status: "completed", status_reason: null });
+    model.script = turn => (turn === 1 ? "hang" : [{ type: "text", text: "Started on request." }]);
+    const run = await runner.followUp(id, "Long job", []);
+    await vi.waitFor(() => expect(model.hanging).toBe(true));
+    const first = await queue.queueMessage(id, "admin", { prompt: "Then this", attachments: [] });
+    const second = await queue.queueMessage(id, "admin", { prompt: "And this", attachments: [] });
+    await runner.requestCancel(id, run.runId);
+    await finished(id);
+    await vi.waitFor(async () => expect((await queue.listQueue(runnerTask(id))).held).toBe("The run was stopped, so the queue waits for you."));
+    expect(await queue.drainQueue(id)).toMatchObject({ kind: "held" });
+    expect(await queue.editQueued(id, first.id, "Then this, in blue")).toMatchObject({ prompt: "Then this, in blue" });
+    expect(await queue.removeQueued(id, second.id)).toBe(true);
+    expect(await queue.drainQueue(id, { force: true })).toMatchObject({ kind: "started" });
+    await finished(id);
+    expect(userMessages(id).at(-1)).toMatchObject({ text: "Then this, in blue" });
+    // Started: no longer editable or removable.
+    expect(await queue.editQueued(id, first.id, "Too late")).toBeNull();
+    expect(await queue.removeQueued(id, first.id)).toBe(false);
+    expect(fake.queue.map(row => row.prompt)).toEqual(["Then this, in blue"]);
+  });
+
+  it("holds the rest of the queue when a run it started fails", async () => {
+    const { id, gate, release } = gatedTask();
+    model.script = turn => (turn === 1 ? { content: [{ type: "text", text: "Done." }], wait: gate } : turn === 2 ? { content: [], stop_reason: "refusal" } : [{ type: "text", text: "Should not run." }]);
+    await runner.followUp(id, "Start", []);
+    await vi.waitFor(() => expect(model.hanging).toBe(true));
+    await queue.queueMessage(id, "admin", { prompt: "Risky step", attachments: [] });
+    await queue.queueMessage(id, "admin", { prompt: "Next step", attachments: [] });
+    release();
+    await vi.waitFor(() => expect(fake.rows.get(id)!.status).toBe("failed"), { timeout: 8000, interval: 20 });
+    await finished(id);
+    await vi.waitFor(async () => expect((await queue.listQueue(runnerTask(id))).held).toBe("The last queued message failed, so the rest wait for you."));
+    expect(model.turns).toBe(2);
+    expect(fake.queue.map(row => row.state)).toEqual(["started", "waiting"]);
+  });
+
+  it("keeps a message waiting while the server runs as many tasks as it can, and starts it once there is room", async () => {
+    const busy = [1, 2, 3].map(() => seedTask({ status: "completed", status_reason: null }));
+    model.script = turn => (turn <= 3 ? "hang" : [{ type: "text", text: "Room at last." }]);
+    const runs = [];
+    for (const id of busy) runs.push(await runner.followUp(id, "Long job", []));
+    await vi.waitFor(() => expect(model.turns).toBe(3));
+    const id = seedTask({ status: "completed", status_reason: null });
+    await queue.queueMessage(id, "admin", { prompt: "When there is room", attachments: [] });
+    expect(await queue.drainQueue(id)).toMatchObject({ kind: "deferred", error: expect.stringMatching(/as many tasks/) });
+    expect(fake.queue[0]).toMatchObject({ state: "waiting", error: expect.stringMatching(/as many tasks/) });
+    for (const [index, other] of busy.entries()) await runner.requestCancel(other, runs[index].runId);
+    for (const other of busy) await finished(other);
+    expect(await queue.drainQueue(id)).toMatchObject({ kind: "started" });
+    await finished(id);
+    expect(fake.rows.get(id)).toMatchObject({ status: "completed", answer: "Room at last." });
+  });
+
+  it("settles a claim whose run did start (only the record was lost) and goes on with the next", async () => {
+    const id = seedTask({ status: "completed", status_reason: null });
+    model.script = () => [{ type: "text", text: "Second ran." }];
+    const first = await queue.queueMessage(id, "admin", { prompt: "First", attachments: [], clientMessageId: "q-started" });
+    await queue.queueMessage(id, "admin", { prompt: "Second", attachments: [] });
+    fake.queue[0].state = "starting";
+    const firstRun = "10000000-0000-4000-8000-0000000000aa";
+    fake.logs.get(id)!.push({ seq: 5, type: "run_start", data: { type: "run_start", runId: firstRun, attempt: 2, trigger: "follow_up" }, created_at: new Date() });
+    fake.logs.get(id)!.push({ seq: 6, type: "user_message", data: { type: "user_message", text: "First", clientMessageId: first.clientMessageId }, created_at: new Date() });
+    expect(await queue.drainQueue(id)).toMatchObject({ kind: "started" });
+    await finished(id);
+    expect(fake.queue.map(row => row.state)).toEqual(["started", "started"]);
+    // Its run comes from the log, so a failure of that run still holds the rest.
+    expect(fake.queue[0].run_id).toBe(firstRun);
+    expect(fake.rows.get(id)).toMatchObject({ answer: "Second ran." });
+  });
+
+  it("waits for the user after a stop that arrived as the run finished", async () => {
+    const id = seedTask({ status: "completed", status_reason: null, cancel_requested_at: new Date() });
+    await queue.queueMessage(id, "admin", { prompt: "After the stop", attachments: [] });
+    expect(await queue.drainQueue(id)).toMatchObject({ kind: "held", reason: "The run was stopped, so the queue waits for you." });
+  });
+
+  it("starts nothing past a message whose start is still in progress (or was cut short)", async () => {
+    const id = seedTask({ status: "completed", status_reason: null });
+    await queue.queueMessage(id, "admin", { prompt: "First", attachments: [] });
+    await queue.queueMessage(id, "admin", { prompt: "Second", attachments: [] });
+    fake.queue[0].state = "starting";
+    expect(await queue.drainQueue(id)).toMatchObject({ kind: "busy" });
+    expect(fake.queue.map(row => row.state)).toEqual(["starting", "waiting"]);
+    expect(model.turns).toBe(0);
+  });
+
+  it("keeps a message that can't start yet (another model refused) as failed, with the reason", async () => {
+    const id = seedTask({ status: "completed", status_reason: null });
+    model.script = () => [{ type: "text", text: "On the next one." }];
+    await queue.queueMessage(id, "admin", { prompt: "Switch formats", attachments: [], model: "openai-gpt-5.5" });
+    await queue.queueMessage(id, "admin", { prompt: "Carry on", attachments: [] });
+    await vi.waitFor(async () => expect(await queue.drainQueue(id)).toMatchObject({ kind: expect.stringMatching(/started|running|busy/) }));
+    await finished(id);
+    expect(fake.queue.map(row => row.state)).toEqual(["failed", "started"]);
+    expect(fake.queue[0].error).toMatch(/another format/);
+    expect(userMessages(id).at(-1)).toMatchObject({ text: "Carry on" });
+  });
+});
+
+describe("a follow-up on another model", () => {
+  const thinkingHistory = [
+    { role: "user", content: "Build a landing page" },
+    { role: "assistant", content: [{ type: "thinking", thinking: "Plan it.", signature: "sig-opus" }, { type: "text", text: "Working on it." }] },
+  ];
+
+  it("runs on the model it picks, keeps it as the task's model, and sends no reasoning signed by the old one", async () => {
+    const id = seedTask({ status: "completed", status_reason: null, model: "claude-opus-5-5", conversation: thinkingHistory });
+    model.script = () => [{ type: "text", text: "Done on Sonnet." }];
+    await runner.followUp(id, "Make it faster", [], { model: "claude-sonnet-5-5" });
+    await finished(id);
+    expect(model.models).toEqual(["claude-sonnet-5-5"]);
+    expect(JSON.stringify(model.params[0].messages)).not.toContain("sig-opus");
+    expect(fake.rows.get(id)).toMatchObject({ status: "completed", model: "claude-sonnet-5-5", answer: "Done on Sonnet." });
+    expect(latestRun(id).find(entry => entry.type === "dispatch")!.data.reason).toBe("Follow-up, switched from Claude Opus 5.5 to Claude Sonnet 5.5.");
+  });
+
+  it("refuses a model that reads another conversation format, or can't do the task's work", async () => {
+    const id = seedTask({ status: "completed", status_reason: null, model: "claude-opus-5-5" });
+    await expect(runner.followUp(id, "Try GPT", [], { model: "openai-gpt-5.5" })).rejects.toThrow(/another format, so start a new task/);
+    await expect(runner.followUp(id, "Try Argon", [], { model: "gemini-4-argon" })).rejects.toThrow(/chat mode only/);
+    expect(fake.rows.get(id)).toMatchObject({ status: "completed", model: "claude-opus-5-5", run_id: OLD_RUN });
+    expect(runner.followUpRepoBlocked({ mode: "agent" }, { fullName: "octo/app" })).toBeNull();
+    expect(runner.followUpRepoBlocked({ mode: "agent", githubRepo: "octo/app", githubMode: "linked" }, { fullName: "OCTO/app" })).toBeNull();
+    expect(runner.followUpRepoBlocked({ mode: "agent", githubRepo: "octo/app", githubMode: "linked" }, { fullName: "octo/other" })).toMatch(/already has octo\/app/);
+    expect(runner.followUpRepoBlocked({ mode: "chat" }, { fullName: "octo/app" })).toMatch(/Only agent tasks/);
+  });
+
+  it("a retry clones the repository its request picked when that clone never happened", async () => {
+    const id = seedTask({ status: "failed", status_reason: "error" });
+    fake.logs.get(id)!.push({ seq: 5, type: "run_start", data: { type: "run_start", runId: "10000000-0000-4000-8000-000000000010", attempt: 2, trigger: "follow_up", repo: { fullName: "octo/app", branch: "main" } }, created_at: new Date() });
+    model.script = () => [{ type: "text", text: "Should not get here." }];
+    await runner.retryTask(id, { expectedRunId: OLD_RUN });
+    await finished(id);
+    // No GitHub connection in these tests: the clone step is what fails, which shows it ran.
+    expect(fake.rows.get(id)).toMatchObject({ status: "failed" });
+    expect(fake.rows.get(id)!.error).toContain("Connect GitHub to work on a repository.");
+    expect(latestRun(id)[0].data).toMatchObject({ type: "run_start", trigger: "retry" });
+  });
+
+  it("a retry leaves the repository alone when the user linked another one since that request", async () => {
+    const id = seedTask({ status: "failed", status_reason: "error", github_repo: "octo/small", github_mode: "linked" });
+    fake.logs.get(id)!.push({ seq: 5, type: "run_start", data: { type: "run_start", runId: "10000000-0000-4000-8000-000000000010", attempt: 2, trigger: "follow_up", repo: { fullName: "octo/big", branch: "main" } }, created_at: new Date() });
+    model.script = () => [{ type: "text", text: "Carried on with octo/small." }];
+    await runner.retryTask(id, { expectedRunId: OLD_RUN });
+    await finished(id);
+    expect(fake.rows.get(id)).toMatchObject({ status: "completed", answer: "Carried on with octo/small." });
+  });
+
+  it("drops empty replies (older refusals) from a history before sending it", () => {
+    const history: any[] = [{ role: "user", content: "a" }, { role: "assistant", content: [] }, { role: "user", content: "b" }, { role: "assistant", content: [{ type: "text", text: "ok" }] }];
+    expect(runner.dropEmptyReplies(history)).toBe(1);
+    expect(history.map(message => message.content)).toEqual(["a", "b", [{ type: "text", text: "ok" }]]);
   });
 });
 

@@ -1,4 +1,4 @@
-import type { AgentTaskSummary, CreateTaskRequest, ModelSpec, StatusReason, TaskStatus } from "@shared/agent";
+import type { AgentTaskSummary, CreateTaskRequest, ModelSpec, QueuedMessage, StatusReason, TaskQueue, TaskStatus } from "@shared/agent";
 import type { ApiKeyInfo } from "@shared/gateway";
 import type { CreditBalance, CreditSettings } from "@shared/credits";
 import type { DeploymentState } from "@shared/taskStatus";
@@ -79,7 +79,11 @@ export type GitHubRepo = { id: number; name: string; full_name: string; private:
 export type GitHubStatus = { configured: boolean; connected: boolean; login: string | null; name: string | null; avatarUrl: string | null; scopes: string[]; missingScopes: string[]; connectedAt: string | null };
 /** completedWithIssues: completed runs whose outcome had problems (failing checks, review not approved, publish failed). */
 export type TaskStats = { total: number; completed: number; completedWithIssues?: number; failed: number; cancelled: number; interrupted: number; running: number; filesChanged: number; active: number };
-export type TaskDetail = { task: AgentTaskSummary; /** an event channel is open on this server */ live: boolean; /** a run is executing on this server */ running: boolean };
+export type TaskDetail = { task: AgentTaskSummary; /** an event channel is open on this server */ live: boolean; /** a run is executing on this server */ running: boolean; /** follow-ups waiting for the run to end */ queue?: TaskQueue };
+/** What a follow-up asks for besides its text: another model (same conversation format), a repository to link. */
+export type FollowUpExtras = { model?: string | null; repo?: string | null; repoBranch?: string | null; /** the task has another repository: switch to this one */ replaceRepo?: boolean };
+/** started: the run had already ended, so the message started at once. */
+export type QueueStarted = { runId: string; itemId: string } | null;
 
 /** Result of POST /cancel: 200 when final or confirmed, 202 while "cancelling". */
 export type CancelResult = { status: TaskStatus; statusReason?: StatusReason; runId: string | null; changed: boolean };
@@ -160,8 +164,18 @@ export const agentApi = {
   task: (id: string) => api<TaskDetail>(`/api/agent/tasks/${enc(id)}`),
   create: (body: CreateTaskRequest & { clientMessageId?: string }) => api<{ taskId: string }>("/api/agent/tasks", { method: "POST", json: body }),
   /** 409 when the task is active or changed since expectedRunId; 503 while the server restarts. */
-  followUp: (id: string, prompt: string, attachmentIds: string[] = [], opts: { clientMessageId?: string; expectedRunId?: string | null } = {}) =>
+  followUp: (id: string, prompt: string, attachmentIds: string[] = [], opts: { clientMessageId?: string; expectedRunId?: string | null } & FollowUpExtras = {}) =>
     api<FollowUpResult>(`/api/agent/tasks/${enc(id)}/messages`, { method: "POST", json: { prompt, attachmentIds, ...opts } }),
+  /** A follow-up sent while a run is active: it waits and starts by itself when the run ends. 409 when the queue is full. */
+  queue: (id: string, prompt: string, attachmentIds: string[] = [], opts: { clientMessageId?: string } & FollowUpExtras = {}) =>
+    api<{ item: QueuedMessage; started: QueueStarted; queue: TaskQueue }>(`/api/agent/tasks/${enc(id)}/queue`, { method: "POST", json: { prompt, attachmentIds, ...opts } }),
+  /** 409 once the message has started. */
+  editQueued: (id: string, itemId: string, prompt: string) => api<{ item: QueuedMessage; queue: TaskQueue }>(`/api/agent/tasks/${enc(id)}/queue/${enc(itemId)}`, { method: "PATCH", json: { prompt } }),
+  removeQueued: (id: string, itemId: string) => api<{ removed: true; queue: TaskQueue }>(`/api/agent/tasks/${enc(id)}/queue/${enc(itemId)}`, { method: "DELETE" }),
+  /** A message that could not start goes back in line. */
+  retryQueued: (id: string, itemId: string) => api<{ started: QueueStarted; queue: TaskQueue }>(`/api/agent/tasks/${enc(id)}/queue/${enc(itemId)}/retry`, { method: "POST", json: {} }),
+  /** Start the next waiting message now (also when the queue waits for the user). */
+  runQueued: (id: string) => api<{ started: QueueStarted; queue: TaskQueue }>(`/api/agent/tasks/${enc(id)}/queue/next`, { method: "POST", json: {} }),
   /** Idempotent. Pass the runId the UI is showing so a stale tab cannot cancel a newer run. */
   cancel: (id: string, runId?: string | null) => api<CancelResult>(`/api/agent/tasks/${enc(id)}/cancel`, { method: "POST", json: runId ? { runId } : {} }),
   /** failed | cancelled | interrupted only; 409 otherwise (completed: send a follow-up instead). */

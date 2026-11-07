@@ -119,6 +119,71 @@ describe("cloud sandbox sync", () => {
     expect(exists(path.join(root, ".git/COMMIT_EDITMSG"))).toBe(false);
   });
 
+  // A repository cloned into a sub-folder (the root held attachments/) syncs like one at the root.
+  const NESTED = { "attachments/a.png": "x", "muzu-new/.git/HEAD": "ref: refs/heads/main\n", "muzu-new/.git/config": "[core]\n", "muzu-new/src/a.kt": "a", "muzu-new/README.md": "r" };
+
+  it("mirrors a deleted clone folder whole, history included, so no folder of history alone is left", async () => {
+    const { root, remote } = task(NESTED);
+    expect((await run(root, "rm -rf muzu-new && ls")).output).toBe("attachments\n");
+    // A folder holding only its history would read as every file deleted (a push would delete them all).
+    expect(exists(path.join(root, "muzu-new"))).toBe(false);
+    expect(fs.readFileSync(path.join(root, "attachments/a.png"), "utf8")).toBe("x");
+    expect((await run(root, "test -e muzu-new || echo gone")).output).toBe("gone\n");
+    expect(exists(path.join(remote(), "muzu-new"))).toBe(false);
+  });
+
+  it("gives the history back to the sandbox when only .git was deleted, also to a replacement sandbox", async () => {
+    const { id, root } = task(NESTED);
+    await run(root, "rm -rf muzu-new/.git");
+    // Kept here (git there would fail without it, and the sandbox can't fetch it), and uploaded again.
+    expect(fs.readFileSync(path.join(root, "muzu-new/.git/HEAD"), "utf8")).toBe("ref: refs/heads/main\n");
+    expect((await run(root, "cat muzu-new/.git/HEAD")).output).toBe("ref: refs/heads/main\n");
+    fakes.get(id)!.killed = true;
+    expect((await run(root, "test -f muzu-new/.git/HEAD && cat muzu-new/src/a.kt")).output).toBe("a");
+    expect(fakes.get(id)!.created).toBe(2);
+  });
+
+  it("moves a renamed clone's sources and drops its history at the old place", async () => {
+    const { root } = task(NESTED);
+    await run(root, "mv muzu-new app");
+    expect(fs.readFileSync(path.join(root, "app/src/a.kt"), "utf8")).toBe("a");
+    expect(exists(path.join(root, "muzu-new"))).toBe(false);
+    // The new folder's history stays in the sandbox (history never comes back here).
+    expect(exists(path.join(root, "app/.git"))).toBe(false);
+  });
+
+  it("never brings back a nested repository's history", async () => {
+    const { root } = task(NESTED);
+    await run(root, "echo x >> muzu-new/.git/config && mkdir -p muzu-new/.git/objects/ab && echo o > muzu-new/.git/objects/ab/cd && echo b > muzu-new/b.kt");
+    expect(fs.readFileSync(path.join(root, "muzu-new/.git/config"), "utf8")).toBe("[core]\n");
+    expect(exists(path.join(root, "muzu-new/.git/objects/ab/cd"))).toBe(false);
+    expect(fs.readFileSync(path.join(root, "muzu-new/b.kt"), "utf8")).toBe("b\n");
+  });
+
+  it("keeps the server's pack when the sandbox repacks a nested repository past the pull limit", async () => {
+    const { root } = task({ ...NESTED, "muzu-new/.git/objects/pack/p.pack": "pack" });
+    const result = await run(root, "head -c 9000000 /dev/zero > muzu-new/.git/objects/pack/new.pack && rm muzu-new/.git/objects/pack/p.pack");
+    expect(fs.readFileSync(path.join(root, "muzu-new/.git/objects/pack/p.pack"), "utf8")).toBe("pack");
+    expect(exists(path.join(root, "muzu-new/.git/objects/pack/new.pack"))).toBe(false);
+    // History files are never offered back, so they are never "kept only in the sandbox" either.
+    expect(result.output).not.toContain("Kept only in the sandbox");
+  });
+
+  it("still syncs files that only look like history (.github, .gitignore, .gitkeep, x.git)", async () => {
+    const { root } = task();
+    const files = [".github/workflows/ci.yml", "repo/.gitignore", "repo/.gitattributes", "a/.gitkeep", "x.git/f", "repo/.gitmodules"];
+    await run(root, files.map(file => `mkdir -p "$(dirname ${file})" && echo y > ${file}`).join(" && "));
+    for (const file of files) expect(fs.readFileSync(path.join(root, file), "utf8")).toBe("y\n");
+    await run(root, `rm ${files.join(" ")}`);
+    for (const file of files) expect(exists(path.join(root, file))).toBe(false);
+  });
+
+  it("gives uploaded files their executable bit back", async () => {
+    const { root } = task({ gradlew: "#!/bin/sh\necho built\n", "notes.txt": "n" });
+    fs.chmodSync(path.join(root, "gradlew"), 0o755);
+    expect((await run(root, "./gradlew && test ! -x notes.txt && echo plain")).output).toBe("built\nplain\n");
+  });
+
   it.skipIf(process.getuid?.() === 0)("does not delete local files when a sandbox folder can't be listed", async () => {
     const { root, remote } = task({ "secret/a.txt": "a", "b.txt": "b" });
     await run(root, "true");

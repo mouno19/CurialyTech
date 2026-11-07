@@ -10,7 +10,7 @@ import { MODELS, type AgentEvent, type AgentEventBody } from "@shared/agent";
 import { isActiveStatus, isFinalStatus } from "@shared/taskStatus";
 import { deleteMedia, getMedia, isElsewhere, listMedia, markMediaMissing, mediaStatus, mediaUsage, openMedia, storageConfig, storeMedia, assertStorageAvailable } from "../media/snowflake";
 import { accountOf, rateLimited, requireAdmin } from "../auth";
-import { assertCanStart, charge, CreditError, getBalance, outOfCreditsMessage } from "../credits";
+import { charge, getBalance, outOfCreditsMessage } from "../credits";
 import { speakStandard, transcribe, voiceConfigured, VoiceError } from "../voice/engines";
 import { MAX_DICTATION_BYTES, MAX_DICTATION_SECONDS, READ_ALOUD_INPUT_CHARS, READ_ALOUD_MAX_CHARS, speakableText, VOICES, worstCaseSeconds } from "@shared/voice";
 import { voiceCredits } from "@shared/credits";
@@ -20,8 +20,10 @@ import { deployConfigured, deploymentSession, destroyDeployment, listDeployments
 import { appendTaskEvent } from "./events";
 import { countActiveRuns, getLifecycleRow, judgeStaleness } from "./lifecycle";
 import { PROVIDER_ENV, probeProviders } from "./providers";
-import { activeTaskCount, followUp, isBusy, isRunning, requestCancel, RESTARTING, retryTask, startDeployRun, startTask, TaskRejected } from "./runner";
-import { cloudSandboxReady, listWorkspaceTree, removeWorkspace, resolveInWorkspace, SANDBOX_MODE, SandboxError, workspacePath } from "./sandbox";
+import { activeTaskCount, followUp, followUpRepoBlocked, followUpSpec, isBusy, isRunning, requestCancel, RESTARTING, retryTask, startDeployRun, startTask, TaskRejected, type FollowUpRepo } from "./runner";
+import { admissionRefusal, oneAtATime } from "./admission";
+import { drainQueue, editQueued, listQueue, queueMessage, QueueRejected, removeQueued, requeue } from "./queue";
+import { listWorkspaceTree, removeWorkspace, resolveInWorkspace, SANDBOX_MODE, SandboxError, workspacePath } from "./sandbox";
 import { activeRunsOf, agentStats, deleteAgentTask, getAgentTask, lastSeq, listAgentTasks, listEventsAfter, listWorkspaceSnapshot, loadWorkspaceSnapshot, readSnapshotFile, taskOwner } from "./store";
 import { findArchivedBuild, findBuildDirs, isPublishExcluded, isUnbuiltTemplate, materializeWorkspace, readWorkspaceFiles, restoreWorkspace, withWorkspaceLock } from "./workspaces";
 import { query } from "../db/pg";
@@ -49,7 +51,16 @@ const followUpSchema = z.object({
   attachmentIds: z.array(z.string().uuid()).max(10).default([]),
   clientMessageId: z.string().trim().max(80).optional(),
   expectedRunId: z.string().uuid().nullish(),
+  /** Continue on another model (same conversation format). */
+  model: z.string().trim().max(80).nullish(),
+  /** Link a repository (a task without one): cloned as the run's first step. */
+  repo: z.string().trim().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, "Repository must be owner/name").nullish(),
+  repoBranch: z.string().trim().max(200).nullish(),
+  /** The task has another repository: switch to this one (it stays in the workspace as files). */
+  replaceRepo: z.boolean().optional(),
 });
+const queueEditSchema = z.object({ prompt: z.string().trim().min(1).max(20_000) });
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** runId: the run the client saw (a stale tab cannot cancel or retry a newer run by accident). */
 const runRefSchema = z.object({ runId: z.string().uuid().nullish() });
 const deploySchema = z.object({ confirm: z.literal(true, "Confirm the deploy to start it."), runId: z.string().uuid().nullish() });
@@ -113,6 +124,7 @@ function sendError(res: Response, error: unknown) {
   if (error instanceof z.ZodError) return res.status(400).json({ error: error.issues.map(issue => issue.message).join("; ") });
   if (error instanceof StorageError) return sendStorageError(res, error);
   if (error instanceof TaskRejected) return res.status(error.message === RESTARTING ? 503 : 409).json({ error: brandText(error.message) });
+  if (error instanceof QueueRejected) return res.status(error.status).json({ error: error.message });
   if (error instanceof SandboxError) return res.status(400).json({ error: error.message });
   if (error instanceof VoiceError) return res.status(error.status).json({ error: error.message, code: error.code });
   if (error instanceof RemoteChangedError) return res.status(409).json({ error: `${error.message} Pushing replaces their files; confirm to push anyway.`, code: "remote_changed", branch: error.branch });
@@ -190,41 +202,31 @@ function viewerFor<T extends { viewer: string | null }>(req: Request, status: T)
   return accountOf(req).role === "admin" ? status : { ...status, viewer: null };
 }
 
-// Starting a run is serialized per account, so "one run at a time" holds for simultaneous requests.
-const startChains = new Map<string, Promise<unknown>>();
-function oneAtATime<T>(userId: string, fn: () => Promise<T>): Promise<T> {
-  const previous = startChains.get(userId) ?? Promise.resolve();
-  const next = previous.catch(() => undefined).then(fn);
-  startChains.set(userId, next);
-  void next.finally(() => { if (startChains.get(userId) === next) startChains.delete(userId); }).catch(() => undefined);
-  return next;
+/** Whether the signed-in account may start a run now (see admission.ts); answers the refusal if not. */
+async function admitRun(req: Request, res: Response) {
+  const refusal = await admissionRefusal(accountOf(req));
+  if (!refusal) return true;
+  res.status(refusal.status).json({ error: refusal.error, code: refusal.code, ...(refusal.credits ? { credits: refusal.credits } : {}) });
+  return false;
 }
 
 /**
- * Free accounts: their commands run only in a cloud sandbox of their own (never on this server, where
- * tasks would share one user), with credits to start, one run at a time. The operator is not limited.
+ * What a follow-up asks for besides its text, checked before it starts or waits: the model it runs
+ * on and the repository it links, with the task owner's GitHub connected for that (the run clones
+ * with it). A queued message keeps its model even when it is the task's current one, since an
+ * earlier queued message may switch the task to another before this one starts.
  */
-async function admitRun(req: Request, res: Response) {
-  const user = accountOf(req);
-  if (user.role === "admin") return true;
-  if (!cloudSandboxReady()) {
-    res.status(503).json({ error: "Tasks can't start right now: the command sandbox isn't available. Try again later.", code: "sandbox_unavailable" });
-    return false;
+async function followUpExtras(task: NonNullable<Awaited<ReturnType<typeof getAgentTask>>>, input: z.infer<typeof followUpSchema>, opts: { queued?: boolean } = {}) {
+  const model = input.model && (opts.queued || input.model !== task.model) ? followUpSpec(task, input.model).spec.id : null;
+  const repo: FollowUpRepo | null = input.repo ? { fullName: input.repo, branch: input.repoBranch ?? null, replace: Boolean(input.replaceRepo) } : null;
+  if (repo) {
+    const blocked = followUpRepoBlocked(task, repo);
+    if (blocked) throw new TaskRejected(blocked);
+    const owner = await taskOwner(task.id);
+    if (!owner || !(await getConnection(owner))) throw new TaskRejected("Connect GitHub first to work on a repository.");
   }
-  if (await activeRunsOf(user.id) > 0) {
-    res.status(429).json({ error: "You already have a task running. Wait for it to finish (or stop it) before starting another.", code: "busy" });
-    return false;
-  }
-  try {
-    await assertCanStart(user.id);
-    return true;
-  } catch (error) {
-    if (error instanceof CreditError) {
-      res.status(402).json({ error: error.message, code: error.code, credits: error.balance });
-      return false;
-    }
-    throw error;
-  }
+  const same = Boolean(repo && task.githubRepo && task.githubRepo.toLowerCase() === repo.fullName.toLowerCase());
+  return { model, repo: same ? null : repo };
 }
 
 const MAX_VIEW_BYTES = 25 * 1024 * 1024;
@@ -320,7 +322,7 @@ export function agentRouter() {
 
   router.get("/tasks/:id", handle(async (req, res) => {
     const task = await taskOr404(req, res);
-    if (task) res.json({ task, live: isLive(task.id), running: isRunning(task.id) });
+    if (task) res.json({ task, live: isLive(task.id), running: isRunning(task.id), queue: await listQueue(task) });
   }));
 
   router.delete("/tasks/:id", handle(async (req, res) => {
@@ -370,11 +372,67 @@ export function agentRouter() {
     const task = await taskOr404(req, res);
     if (!task) return;
     const input = followUpSchema.parse(req.body);
+    const extras = await followUpExtras(task, input);
     await oneAtATime(accountOf(req).id, async () => {
       if (!(await admitRun(req, res))) return;
-      const started = await followUp(task.id, input.prompt, await resolveAttachments(input.attachmentIds, accountOf(req).id), { clientMessageId: input.clientMessageId, expectedRunId: input.expectedRunId });
+      const started = await followUp(task.id, input.prompt, await resolveAttachments(input.attachmentIds, accountOf(req).id), { clientMessageId: input.clientMessageId, expectedRunId: input.expectedRunId, ...extras });
       res.status(202).json({ ok: true, status: "queued", ...started });
     });
+  }));
+
+  // Follow-ups sent while a run is active: they wait, and start by themselves when it ends (queue.ts).
+  // Credits and "one run at a time" are checked when each one starts, not here.
+  router.post("/tasks/:id/queue", handle(async (req, res) => {
+    const task = await taskOr404(req, res);
+    if (!task) return;
+    const input = followUpSchema.parse(req.body);
+    const extras = await followUpExtras(task, input, { queued: true });
+    const item = await queueMessage(task.id, accountOf(req).id, { prompt: input.prompt, attachments: await resolveAttachments(input.attachmentIds, accountOf(req).id), clientMessageId: input.clientMessageId, ...extras });
+    // The run may have ended while this was on its way: then it starts now.
+    const drained = await drainQueue(task.id).catch(() => null);
+    const fresh = await getAgentTask(task.id);
+    res.status(201).json({ item, started: drained?.kind === "started" ? { runId: drained.runId, itemId: drained.itemId } : null, queue: fresh ? await listQueue(fresh) : { items: [item], held: null } });
+  }));
+
+  router.patch("/tasks/:id/queue/:item", handle(async (req, res) => {
+    const task = await taskOr404(req, res);
+    if (!task) return;
+    if (!UUID.test(String(req.params.item))) return res.status(404).json({ error: "Queued message not found." });
+    const input = queueEditSchema.parse(req.body);
+    const item = await editQueued(task.id, String(req.params.item), input.prompt);
+    if (!item) return res.status(409).json({ error: "That message already started (or was removed)." });
+    res.json({ item, queue: await listQueue(task) });
+  }));
+
+  router.delete("/tasks/:id/queue/:item", handle(async (req, res) => {
+    const task = await taskOr404(req, res);
+    if (!task) return;
+    if (!UUID.test(String(req.params.item))) return res.status(404).json({ error: "Queued message not found." });
+    if (!(await removeQueued(task.id, String(req.params.item)))) return res.status(409).json({ error: "That message already started (or was removed)." });
+    res.json({ removed: true, queue: await listQueue(task) });
+  }));
+
+  // Try a message that could not start again: back in line at its place.
+  router.post("/tasks/:id/queue/:item/retry", handle(async (req, res) => {
+    const task = await taskOr404(req, res);
+    if (!task) return;
+    if (!UUID.test(String(req.params.item))) return res.status(404).json({ error: "Queued message not found." });
+    if (!(await requeue(task.id, String(req.params.item)))) return res.status(409).json({ error: "That message is not waiting to be tried again." });
+    const drained = await drainQueue(task.id).catch(() => null);
+    const fresh = await getAgentTask(task.id);
+    res.json({ started: drained?.kind === "started" ? { runId: drained.runId, itemId: drained.itemId } : null, queue: await listQueue(fresh ?? task) });
+  }));
+
+  // Start the next waiting message now, also when the queue waits for the user (after a stop).
+  router.post("/tasks/:id/queue/next", handle(async (req, res) => {
+    const task = await taskOr404(req, res);
+    if (!task) return;
+    const drained = await drainQueue(task.id, { force: true });
+    if (drained.kind === "refused") return res.status(drained.refusal.status).json({ error: drained.refusal.error, code: drained.refusal.code, ...(drained.refusal.credits ? { credits: drained.refusal.credits } : {}) });
+    if (drained.kind === "running" || drained.kind === "busy") return res.status(409).json({ error: "This task is still running; the next message starts when it ends." });
+    if (drained.kind === "deferred") return res.status(409).json({ error: drained.error });
+    const fresh = await getAgentTask(task.id);
+    res.status(drained.kind === "started" ? 202 : 200).json({ started: drained.kind === "started" ? { runId: drained.runId, itemId: drained.itemId } : null, queue: await listQueue(fresh ?? task) });
   }));
 
   // The Deploy action: a confirmed, separate run that may publish one temporary private preview.
@@ -827,6 +885,8 @@ export function agentRouter() {
     const task = await taskOr404(req, res);
     if (!task) return;
     if (isBusy(task.id) || isActiveStatus(task.status)) return res.status(409).json({ error: "Wait for the task to finish before selecting a repository." });
+    // An exported task's columns name its export target: linking would overwrite them.
+    if (task.githubRepo && task.githubMode !== "linked") return res.status(409).json({ error: `This task exports to ${task.githubRepo}; start a new task to work on a repository.` });
     const input = linkSchema.parse(req.body ?? {});
     const connection = await getConnection(accountOf(req).id);
     if (!connection) return res.status(409).json({ error: "Connect GitHub first." });

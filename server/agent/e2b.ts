@@ -20,8 +20,14 @@ const INSTANCE = process.env.E2B_INSTANCE || `${os.hostname()}:${process.env.POR
 
 /** Never synced: dependencies, caches and virtualenvs live (and are rebuilt) in the sandbox only. */
 export const SYNC_SKIP = new Set(["node_modules", ".tmp", ".cache", ".next", ".nuxt", ".svelte-kit", "__pycache__", ".venv", "venv", ".pytest_cache", ".turbo", ".parcel-cache", ".npm", ".pnpm-store", ".yarn"]);
-/** Uploaded with the sources (git runs in the sandbox) but never brought back. */
-const PUSH_ONLY = ".git/";
+/**
+ * A repository's history, at the root or in a cloned sub-folder: uploaded with the sources (git runs
+ * in the sandbox) but never brought back, and never deleted here when the sandbox deletes it. The
+ * history here is the fetch the clone made, so the sandbox can always get it back.
+ */
+const pushOnly = (file: string) => /(^|\/)\.git(\/|$)/.test(file);
+/** A repository's HEAD: the prefix before it is that repository's history folder. */
+const HISTORY_HEAD = /(^|\/)\.git\/HEAD$/;
 const MAX_PULL_FILE = 8 * 1024 * 1024;
 const MAX_PULL_BYTES = 150 * 1024 * 1024;
 const MAX_PULL_FILES = 3000;
@@ -72,6 +78,8 @@ type Box = {
 };
 
 const boxes = new Map<string, Box>();
+/** Forget a sandbox that is gone, unless another caller has already replaced it. */
+const forget = (box: Box) => { if (boxes.get(box.taskId) === box) boxes.delete(box.taskId); };
 const opening = new Map<string, Promise<Box>>();
 let counter = 0;
 
@@ -174,6 +182,8 @@ const scanRemote = async (box: Box, before = "") => parseScan(await box.remote.e
 async function upload(box: Box, root: string, files: string[]) {
   let batch: { path: string; data: Buffer }[] = [];
   let bytes = 0;
+  // Uploads carry no file mode: executables (gradlew, scripts) get theirs back after the batch.
+  const executable: string[] = [];
   const flush = async () => {
     if (batch.length) await box.remote.write(batch);
     batch = [];
@@ -183,7 +193,10 @@ async function upload(box: Box, root: string, files: string[]) {
     let data: Buffer;
     try {
       const fd = fs.openSync(path.join(root, file), fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
-      try { data = fs.readFileSync(fd); } finally { fs.closeSync(fd); }
+      try {
+        data = fs.readFileSync(fd);
+        if (fs.fstatSync(fd).mode & 0o111) executable.push(file);
+      } finally { fs.closeSync(fd); }
     } catch {
       continue; // gone or unreadable since the listing
     }
@@ -192,15 +205,32 @@ async function upload(box: Box, root: string, files: string[]) {
     bytes += data.length;
   }
   await flush();
+  if (executable.length) await xargsRemote(box, executable, "chmod +x");
 }
 
-async function removeRemote(box: Box, files: string[]) {
-  const list = `/tmp/.curialy-rm-${++counter}`;
+/** Run `command -- <files>` in the sandbox's workspace (the list travels as a file, so any name is safe). */
+async function xargsRemote(box: Box, files: string[], command: string) {
+  const list = `/tmp/.curialy-list-${++counter}`;
   await box.remote.write([{ path: list, data: Buffer.from(files.map(file => `${file}\0`).join("")) }]);
-  await box.remote.exec(`cd ${REMOTE_ROOT} && xargs -0 -r rm -f -- < ${list}; rm -f ${list}; true`);
+  await box.remote.exec(`cd ${REMOTE_ROOT} && xargs -0 -r ${command} -- < ${list}; rm -f ${list}; true`);
 }
+
+const removeRemote = (box: Box, files: string[]) => xargsRemote(box, files, "rm -f");
 
 const localBytes = (listing: Listing) => [...listing.values()].reduce((sum, entry) => sum + entry.size, 0);
+
+/** Folders here that the sandbox's deletions left empty (only files sync, so the sandbox has none of them). */
+function removeEmptyFolders(root: string, deleted: string[]) {
+  const folders = new Set<string>();
+  for (const file of deleted) for (let dir = path.posix.dirname(file); dir !== "." && dir !== "/"; dir = path.posix.dirname(dir)) folders.add(dir);
+  // Deepest first, so a folder whose only content was an emptied folder goes too.
+  for (const dir of [...folders].sort((a, b) => b.length - a.length)) {
+    try {
+      const { absolute } = resolveInWorkspace(root, dir);
+      if (fs.lstatSync(path.join(root, dir), { throwIfNoEntry: false })?.isDirectory()) fs.rmdirSync(absolute);
+    } catch { /* not empty, gone, or not a plain folder */ }
+  }
+}
 
 /**
  * Bring back what changed in the sandbox since the sides last agreed. `uploaded` paths were just
@@ -213,7 +243,7 @@ async function pull(box: Box, root: string, { files: scan, partial }: Scan, uplo
   let budget = MAX_PULL_BYTES;
   let room = MAX_LOCAL_BYTES - localBytes(box.local);
   for (const [file, entry] of scan) {
-    if (uploaded.has(file) || file.startsWith(PUSH_ONLY) || box.remoteSeen.get(file)?.sig === entry.sig) continue;
+    if (uploaded.has(file) || pushOnly(file) || box.remoteSeen.get(file)?.sig === entry.sig) continue;
     if (entry.size > MAX_PULL_FILE || entry.size > budget || entry.size > room || changed.length >= MAX_PULL_FILES) {
       if (!box.remoteOnly.has(file)) tooLarge.push(file);
       box.remoteOnly.add(file);
@@ -225,7 +255,17 @@ async function pull(box: Box, root: string, { files: scan, partial }: Scan, uplo
     room -= entry.size;
   }
   // From a partial listing nothing counts as deleted: an unreadable folder is not an empty one.
-  const deleted = partial ? [] : [...box.remoteSeen.keys()].filter(file => !scan.has(file) && !uploaded.has(file) && !file.startsWith(PUSH_ONLY));
+  const deleted = partial ? [] : [...box.remoteSeen.keys()].filter(file => !scan.has(file) && !uploaded.has(file) && !pushOnly(file));
+  // A repository whose HEAD vanished from a complete listing (only that counts: a history file git
+  // removed itself, in gc or pack-refs, must stay removed). With its whole folder deleted or moved,
+  // its history goes here too: a folder of history alone would read as every file deleted, and a
+  // push from it would delete them all. With .git alone deleted (or at the root), the history is
+  // uploaded again at the next sync: git there fails without it, and the sandbox cannot fetch it.
+  const vanished = partial ? [] : [...box.remoteSeen.keys()].filter(file => HISTORY_HEAD.test(file) && !scan.has(file) && !uploaded.has(file)).map(file => file.slice(0, -"HEAD".length));
+  const folderOf = (history: string) => history.slice(0, -".git/".length);
+  const files = [...scan.keys()];
+  const goneWithFolder = vanished.filter(history => folderOf(history) !== "" && !files.some(file => file.startsWith(folderOf(history)) && !file.startsWith(history)));
+  const lostHistory = vanished.filter(history => !goneWithFolder.includes(history));
   const seen: Listing = new Map(scan);
   if (partial) for (const [file, entry] of box.remoteSeen) if (!seen.has(file)) seen.set(file, entry);
   let next = 0;
@@ -264,8 +304,18 @@ async function pull(box: Box, root: string, { files: scan, partial }: Scan, uplo
       failed.push(`${file} (${message(error)})`);
     }
   }
+  for (const history of goneWithFolder) {
+    try {
+      const { absolute } = resolveInWorkspace(root, history.slice(0, -1));
+      if (fs.lstatSync(absolute, { throwIfNoEntry: false })?.isDirectory()) fs.rmSync(absolute, { recursive: true, force: true });
+    } catch (error) {
+      failed.push(`${history} (${message(error)})`);
+    }
+  }
+  removeEmptyFolders(root, [...deleted, ...goneWithFolder.map(history => `${history}HEAD`)]);
   box.remoteSeen = seen;
-  if (changed.length || deleted.length) box.local = scanLocal(root);
+  if (changed.length || deleted.length || goneWithFolder.length) box.local = scanLocal(root);
+  if (lostHistory.length) for (const file of [...box.local.keys()]) if (lostHistory.some(folder => file.startsWith(folder))) box.local.delete(file);
   if (tooLarge.length) notes.push(`[sandbox] Kept only in the sandbox (too large to bring back to the workspace): ${tooLarge.slice(0, 8).join(", ")}${tooLarge.length > 8 ? ` and ${tooLarge.length - 8} more` : ""}.`);
   if (failed.length) notes.push(`[sandbox] Could not bring back: ${failed.slice(0, 5).join("; ")}${failed.length > 5 ? ` and ${failed.length - 5} more` : ""}.`);
   return notes;
@@ -363,7 +413,7 @@ async function liveBox(taskId: string, root: string, needMs: number, sync: boole
     } catch (error) {
       box.active--;
       if (!sandboxGone(error)) throw error;
-      boxes.delete(taskId);
+      forget(box);
       if (attempt > 0) throw error;
     }
   }
@@ -425,7 +475,7 @@ async function runRemote(opts: CommandOptions): Promise<CommandResult> {
       }
       // Gone before the command started (e.g. it reached its time limit): nothing ran, so start over once.
       if (attempt === 0 && sandboxGone(error)) {
-        boxes.delete(taskId);
+        if (box) forget(box);
         continue;
       }
       note(`Could not start the command sandbox: ${message(error)}`);
@@ -459,7 +509,7 @@ async function runRemote(opts: CommandOptions): Promise<CommandResult> {
         timedOut = true;
         exitCode = 124;
       } else if (sandboxGone(error)) {
-        boxes.delete(taskId);
+        forget(live);
         note(`[sandbox] The sandbox stopped while the command ran (${message(error)}). Run it again; dependencies may need installing again.`);
         return result(null);
       } else {
@@ -477,7 +527,7 @@ async function runRemote(opts: CommandOptions): Promise<CommandResult> {
       const before = finished ? killSession : "";
       for (const line of await withSyncLock(live, async () => pull(live, opts.root, await scanRemote(live, before)))) note(line);
     } catch (error) {
-      if (sandboxGone(error)) boxes.delete(taskId);
+      if (sandboxGone(error)) forget(live);
       else if (finished) await stopSession();
       note(`[sandbox] Could not bring the command's changes back to the workspace: ${message(error)}`);
     }
@@ -504,7 +554,7 @@ async function refresh(taskId: string, root: string) {
       await pull(box, root, await scanRemote(box));
     });
   } catch (error) {
-    if (sandboxGone(error)) boxes.delete(taskId);
+    if (sandboxGone(error)) forget(box);
     else throw error;
   }
 }

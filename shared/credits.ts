@@ -3,7 +3,7 @@
 
 /** One credit is this many weighted tokens on a standard model. */
 export const TOKENS_PER_CREDIT = 25_000;
-/** Output and thinking tokens cost about four times as much as input. */
+/** Output tokens (thinking included) cost about four times as much as input. */
 export const OUTPUT_WEIGHT = 4;
 
 export type CreditSettings = {
@@ -25,11 +25,12 @@ export function modelWeight(modelId: string) {
   return 1;
 }
 
-export type TokenUsage = { inputTokens: number; outputTokens: number; thinkingTokens?: number };
+/** outputTokens: everything the model generated, thinking included (the APIs count it that way). */
+export type TokenUsage = { inputTokens: number; outputTokens: number };
 
 /** Credits one model response costs (two decimals). */
 export function creditsFor(modelId: string, usage: TokenUsage) {
-  const weighted = (usage.inputTokens + OUTPUT_WEIGHT * (usage.outputTokens + (usage.thinkingTokens ?? 0))) * modelWeight(modelId);
+  const weighted = (usage.inputTokens + OUTPUT_WEIGHT * usage.outputTokens) * modelWeight(modelId);
   return Math.round((weighted / TOKENS_PER_CREDIT) * 100) / 100;
 }
 

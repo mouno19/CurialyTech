@@ -41,14 +41,21 @@ export type ModelSpec = {
   variants?: Record<ThinkingLevel, string>;
   /** Not in the picker: internal routes (failover, Research Agent) and legacy ids old tasks still use. */
   hidden?: boolean;
+  /** Output tokens one reply may use (thinking, text and tool input together); checked on each route. */
+  maxOutput?: number;
 };
 
+/** A reply's output budget when the model has no maxOutput of its own (and the floor for a charged account). */
+export const BASE_OUTPUT_TOKENS = 16_000;
+export const outputLimit = (spec: ModelSpec) => spec.maxOutput ?? BASE_OUTPUT_TOKENS;
+
 type Flags = Partial<Omit<ModelSpec, "id" | "label">>;
-const claude = (id: string, label: string, flags: Flags = {}): ModelSpec => ({ id, label, provider: "core", group: "Core", tools: true, thinking: "adaptive-summarized", effort: true, eagerInput: true, vision: true, ...flags });
+// 64,000 output tokens: accepted by every Claude model on both routes (Opus 4.5 allows no more).
+const claude = (id: string, label: string, flags: Flags = {}): ModelSpec => ({ id, label, provider: "core", group: "Core", tools: true, thinking: "adaptive-summarized", effort: true, eagerInput: true, vision: true, maxOutput: 64_000, ...flags });
 // The relay's copy of a Claude model: hidden, reached only by self-healing failover.
 const backup = (id: string, label: string): ModelSpec => ({ ...claude(id, `${label} · backup route`), provider: "relay", group: "Relay", hidden: true });
 // Cortex's OpenAI-compatible chat/completions endpoint.
-const chat = (id: string, label: string, flags: Flags = {}): ModelSpec => ({ id, label, provider: "core-chat", group: "Core", tools: true, thinking: "none", effort: true, eagerInput: false, vision: true, ...flags });
+const chat = (id: string, label: string, flags: Flags = {}): ModelSpec => ({ id, label, provider: "core-chat", group: "Core", tools: true, thinking: "none", effort: true, eagerInput: false, vision: true, maxOutput: 64_000, ...flags });
 // Chat-only models (no tool calling): open weights on Cortex inference, and models Cortex serves
 // only through SQL AI_COMPLETE (core-sql: no streaming, answer arrives whole).
 const textOnly = { tools: false, thinking: "none", effort: false, eagerInput: false, vision: false } as const;
@@ -71,14 +78,15 @@ export const MODELS: ModelSpec[] = [
   chat("openai-gpt-5.2", "OpenAI GPT 5.2"),
   chat("openai-gpt-5", "OpenAI GPT 5"),
   // The relay serves Gemini 3.8 Flash only as its high variant (low and medium answer 404 "Unknown model").
-  { id: "r/gemini-3.8-flash", label: "Gemini 3.8 Flash", provider: "relay", group: "Gemini", tools: true, thinking: "none", effort: false, eagerInput: false, vision: true, wire: "r/gemini-3.8-flash-high" },
+  { id: "r/gemini-3.8-flash", label: "Gemini 3.8 Flash", provider: "relay", group: "Gemini", tools: true, thinking: "none", effort: false, eagerInput: false, vision: true, wire: "r/gemini-3.8-flash-high", maxOutput: 64_000 },
   // Gemini 4 Argon, 3.7 Flash and Llama 3.3 run on Cortex only through SQL AI_COMPLETE: chat-only, replies arrive whole.
   { id: "gemini-4-argon", label: "Gemini 4 Argon", provider: "core-sql", group: "Core", ...textOnly },
   { id: "gemini-3.7-flash", label: "Gemini 3.7 Flash", provider: "core-sql", group: "Core", ...textOnly },
   // No longer served by the relay (404 "Unknown model"): kept so saved tasks resolve (REPLACED).
   { id: "r/gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "relay", group: "Gemini", tools: true, thinking: "none", effort: false, eagerInput: false, vision: true, hidden: true },
   chat("grok-4.7", "Grok 4.7"),
-  chat("grok-4.6", "Grok 4.6"),
+  // Slow to start at 64K (it answers at 32K).
+  chat("grok-4.6", "Grok 4.6", { maxOutput: 32_000 }),
   chat("kimi-k3", "Kimi K3", { thinking: "reasoning-content" }),
   chat("glm-5.3", "GLM 5.3", { thinking: "reasoning-content", vision: false }),
   { id: "llama3.3-70b", label: "Llama 3.3 70B", provider: "core-sql", group: "Core", ...textOnly },
@@ -93,8 +101,8 @@ export const MODELS: ModelSpec[] = [
   backup("r/claude-sonnet-5-5", "Claude Sonnet 5.5"),
   backup("r/claude-sonnet-5", "Claude Sonnet 5"),
   backup("r/claude-haiku-4-5", "Claude Haiku 4.5"),
-  { id: "r/claude-opus-4-6-thinking", label: "Claude Opus 4.6 · backup route", provider: "relay", group: "Relay", tools: true, thinking: "adaptive", effort: true, eagerInput: true, vision: true, hidden: true },
-  { id: "r/claude-sonnet-4-6", label: "Claude Sonnet 4.6 · backup route", provider: "relay", group: "Relay", tools: true, thinking: "adaptive", effort: true, eagerInput: true, vision: true, hidden: true },
+  { id: "r/claude-opus-4-6-thinking", label: "Claude Opus 4.6 · backup route", provider: "relay", group: "Relay", tools: true, thinking: "adaptive", effort: true, eagerInput: true, vision: true, hidden: true, maxOutput: 64_000 },
+  { id: "r/claude-sonnet-4-6", label: "Claude Sonnet 4.6 · backup route", provider: "relay", group: "Relay", tools: true, thinking: "adaptive", effort: true, eagerInput: true, vision: true, hidden: true, maxOutput: 64_000 },
   { id: "research-agent", label: "Curialy Research Agent", provider: "research", group: "Research", ...textOnly, hidden: true },
 ];
 
@@ -124,6 +132,25 @@ export function getModel(id: string) {
 /** The thinking level an old aliased id implied (its variant), if any. */
 export function aliasEffort(id: string): ThinkingLevel | undefined {
   return ALIASES[id]?.effort;
+}
+
+/** How a task's history is stored and sent: Anthropic Messages, or OpenAI Chat Completions. */
+export type ConversationFormat = "anthropic" | "openai";
+
+/** The history format a model reads: Chat Completions for the core-chat and fast engines, else Messages. */
+export const formatOf = (spec: ModelSpec): ConversationFormat => (spec.provider === "fast" || spec.provider === "core-chat" ? "openai" : "anthropic");
+
+/**
+ * Why a follow-up cannot continue this task on `spec` (null: it can). The history goes on as it is,
+ * so the model must read the task's conversation format, and an agent or Dev Team task needs a
+ * model that can do its work.
+ */
+export function followUpModelBlocked(spec: ModelSpec | undefined, task: { mode: TaskMode; team?: boolean; format: ConversationFormat }): string | null {
+  if (!spec || spec.hidden) return "Not available";
+  if (task.mode === "agent" && !spec.tools) return "Chat mode only";
+  if (task.team && !teamCapable(spec)) return "Can't join a Dev Team";
+  if (formatOf(spec) !== task.format) return "Start a new task to use it";
+  return null;
 }
 
 /** Dev Team members share one conversation format (Anthropic Messages): Claude on either route, or Gemini. */
@@ -186,7 +213,8 @@ export type FileChangeKind = "create" | "modify" | "delete";
 export type AgentEventBody =
   | { type: "status"; status: TaskStatus; reason?: StatusReason }
   /** First event of every run: a boundary the UI uses to scope "this run's" output and outcome. */
-  | { type: "run_start"; runId: string; attempt: number; trigger: RunTrigger }
+  /** repo: the repository the run's request links (cloned as its first step); a retry clones it again if that never happened. */
+  | { type: "run_start"; runId: string; attempt: number; trigger: RunTrigger; repo?: { fullName: string; branch: string | null; replace?: boolean } }
   | { type: "team_agent"; role: TeamRole; status: "waiting" | "working" | "done" | "failed"; model: string; activity: string }
   | { type: "handoff"; from: TeamRole; to: TeamRole | "user"; kind: "plan" | "review" | "fixes" | "report"; title: string; content: string; round?: number }
   | { type: "user_message"; text: string; attachments?: { mediaId: string; filename: string; mimeType: string; sizeBytes: number; path: string }[]; clientMessageId?: string }
@@ -213,7 +241,7 @@ export type AgentEventBody =
   /** Self-healing around a model turn: what failed and what was done about it. */
   | { type: "recovery"; kind: string; action: string; detail: string; attempt: number; delayMs?: number; model?: string }
   /** cacheWriteTokens: input written to the prompt cache (charged a quarter more); partial: the response was cut off, output estimated. */
-  | { type: "usage"; turn: number; model: string; inputTokens: number; outputTokens: number; thinkingTokens: number; cacheReadTokens: number; cacheWriteTokens?: number; partial?: boolean }
+  | { type: "usage"; turn: number; model: string; inputTokens: number; outputTokens: number; thinkingTokens: number; cacheReadTokens: number; cacheWriteTokens?: number; partial?: boolean; stopReason?: string; maxTokens?: number }
   | { type: "external"; source: "research" | "research"; status: string; detail: string; url?: string }
   /** unavailable: the image could not be kept (file storage down and too large to inline). */
   | { type: "media"; callId: string; mediaId: string | null; filename: string; mimeType: string; caption: string; inlineDataUrl?: string; unavailable?: boolean }
@@ -239,6 +267,28 @@ export type GeneratedSummary = { count: number; bytes: number; dirs: { dir: stri
 
 /** agent: which Dev Team member produced the event (absent for solo runs and orchestration). */
 export type AgentEvent = AgentEventBody & { seq: number; ts: string; agent?: TeamRole };
+
+/** A follow-up waiting for the task's current run to end; it starts by itself (unless the queue is held). */
+export type QueuedMessage = {
+  id: string;
+  prompt: string;
+  attachments: { id: string; filename: string; mimeType: string; sizeBytes: number }[];
+  /** The model it switches the task to, if any. */
+  model: string | null;
+  /** The repository it links the task to (cloned as the run's first step), if any; replace: it switches from the task's current one. */
+  repo: { fullName: string; branch: string | null; replace?: boolean } | null;
+  clientMessageId: string | null;
+  /** waiting: in line; starting: being started now; failed: could not start (error says why). */
+  state: "waiting" | "starting" | "failed";
+  /** Why it has not started yet (e.g. credits) or could not start. */
+  error: string | null;
+  createdAt: string;
+};
+
+/** held: why the queue waits for the user instead of starting the next message (null: it runs on its own). */
+export type TaskQueue = { items: QueuedMessage[]; held: string | null };
+
+export const MAX_QUEUED_MESSAGES = 5;
 
 export type AgentTaskSummary = {
   id: string;
@@ -269,6 +319,8 @@ export type AgentTaskSummary = {
   attempt?: number;
   cancelRequested?: boolean;
   outcome?: RunOutcome;
+  /** How the history is stored: a follow-up can switch only to a model that reads it. */
+  format?: ConversationFormat;
   createdAt: string;
   updatedAt: string;
 };

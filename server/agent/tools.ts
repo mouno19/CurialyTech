@@ -50,6 +50,8 @@ export type ToolContext = {
   canSpend?: (credits: number) => Promise<boolean>;
   /** The run's design brief, for the visual test's audit: the kind of interface and the looks the user asked for. */
   design?: { surface: Surface; allowed: string[] };
+  /** The repository the user switched the task to (the harness's clone step of such a follow-up only). */
+  repoSwitch?: string;
 };
 
 /**
@@ -100,7 +102,7 @@ const schemas = {
   update_plan: z.object({ steps: z.array(z.object({ title: z.string().min(1).max(300), status: z.enum(["pending", "in_progress", "done"]) })).min(1).max(30) }),
   list_files: z.object({ path: z.string().default("."), depth: z.number().int().min(1).max(8).default(3) }),
   read_file: z.object({ path: z.string().min(1), start_line: z.number().int().min(1).optional(), end_line: z.number().int().min(1).optional() }),
-  write_file: z.object({ path: z.string().min(1), content: z.string() }),
+  write_file: z.object({ path: z.string().min(1), content: z.string(), append: z.boolean().optional() }),
   edit_file: z.object({ path: z.string().min(1), old_string: z.string().min(1), new_string: z.string(), replace_all: z.boolean().default(false) }),
   delete_file: z.object({ path: z.string().min(1) }),
   search_files: z.object({ pattern: z.string().min(1).max(500), path: z.string().default(".") }),
@@ -177,8 +179,8 @@ const CODING_TOOLS: ToolDef[] = [
   },
   {
     name: "write_file",
-    description: "Create or fully overwrite a file with the given content. Prefer edit_file for targeted changes to existing files.",
-    input_schema: { type: "object", properties: { path: { type: "string" }, content: { type: "string", description: "Complete file contents" } }, required: ["path", "content"] },
+    description: "Create or fully overwrite a file with the given content. With append: true the content is added to the end of the file instead: write a long file in parts that way (first part without append), never shortened to fit one call. Prefer edit_file for targeted changes to existing files.",
+    input_schema: { type: "object", properties: { path: { type: "string" }, content: { type: "string", description: "Complete file contents (or, with append, the next part)" }, append: { type: "boolean", description: "Add content to the end of the file instead of replacing it" } }, required: ["path", "content"] },
   },
   {
     name: "edit_file",
@@ -289,7 +291,7 @@ const GITHUB_TOOLS: ToolDef[] = [
   },
   {
     name: "github_clone_to_workspace",
-    description: "Clone one of the user's repositories into this task's workspace so its files can be read, edited and tested with the other tools. Accepts 'owner/name' or a bare name. Clones the default branch unless branch is given. One repository per task.",
+    description: "Clone one of the user's repositories into this task's workspace so its files can be read, edited and tested with the other tools. Accepts 'owner/name' or a bare name. Clones the default branch unless branch is given. One repository per task. Never delete the cloned folder to start over: undo changes with git inside it (git checkout, git restore). Stashes and local commits do not survive a new sandbox. If its files were deleted anyway, calling this again restores it at the commit it was cloned at.",
     input_schema: { type: "object", properties: { repo: { type: "string" }, branch: { type: "string" } }, required: ["repo"] },
   },
   {
@@ -378,10 +380,12 @@ async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOu
       return { ok: true, content: clip(numbered, 60_000), summary: `${file.relative} lines ${start + 1}-${end} of ${lines.length}` };
     }
     case "write_file": {
-      const { path, content } = input as z.infer<typeof schemas.write_file>;
+      const { path, content, append } = input as z.infer<typeof schemas.write_file>;
       const previous = readWorkspaceFile(ctx.root, path);
-      const { relative } = writeWorkspaceFile(ctx.root, path, content);
-      const { added, removed } = emitFileChange(ctx, relative, previous.exists ? previous.content : null, content);
+      const next = append && previous.exists ? previous.content + content : content;
+      const { relative } = writeWorkspaceFile(ctx.root, path, next);
+      const { added, removed } = emitFileChange(ctx, relative, previous.exists ? previous.content : null, next);
+      if (append && previous.exists) return { ok: true, content: `Appended ${Buffer.byteLength(content)} bytes to ${relative} (${Buffer.byteLength(next)} bytes now).`, summary: `Appended to ${relative} (+${added} −${removed})` };
       return { ok: true, content: `Wrote ${relative} (${Buffer.byteLength(content)} bytes).`, summary: `${previous.exists ? "Updated" : "Created"} ${relative} (+${added} −${removed})` };
     }
     case "edit_file": {
@@ -561,14 +565,31 @@ async function runGitHubTool(name: ToolName, input: any, ctx: ToolContext): Prom
     case "github_clone_to_workspace": {
       const { repo: query, branch } = input as z.infer<typeof schemas.github_clone_to_workspace>;
       const repo = await resolve(query);
-      const result = await cloneIntoWorkspace({ sessionId: ctx.sessionId, root: ctx.root, fullName: repo.full_name, branch, token, onOutput: log });
-      if (result.alreadyLinked) return { ok: true, content: `${result.fullName} is already cloned at ${result.repoPath} (branch ${result.branch}).`, summary: `${result.fullName} already cloned` };
+      const result = await cloneIntoWorkspace({ sessionId: ctx.sessionId, root: ctx.root, fullName: repo.full_name, branch, token, onOutput: log, replace: ctx.repoSwitch?.toLowerCase() === repo.full_name.toLowerCase() });
+      if (result.restored) {
+        ctx.onFileChange(".");
+        const pushedTo = result.earlierPushes;
+        return {
+          ok: true,
+          content: `Restored ${result.fullName}@${result.branch} (${result.baseSha.slice(0, 7)}) into ${result.repoPath === "." ? "the workspace root" : `${result.repoPath}/`}: its files had been deleted, so the commit it was cloned at was fetched again (${result.files} tracked files). Edits made there before the deletion are gone.${pushedTo.length ? ` Commits pushed earlier are still on GitHub (${pushedTo.join(", ")}), but this folder starts again from the cloned commit, so pushing to those branches is refused: push to a new branch and open a pull request (redo those edits first if they are still needed).` : ""}`,
+          summary: `Restored ${result.fullName} · ${result.files} files`,
+        };
+      }
+      if (result.historyRestored) {
+        ctx.onFileChange(".");
+        return { ok: true, content: `Restored ${result.fullName}'s history in ${result.repoPath === "." ? "the workspace root" : `${result.repoPath}/`}: it was missing, so git could not list the changes there. Its files were kept as they are, compared with the commit it was cloned at (${result.baseSha.slice(0, 7)}).`, summary: `Restored ${result.fullName}'s history` };
+      }
+      if (result.alreadyLinked) return { ok: true, content: `${result.fullName} is already cloned at ${result.repoPath} (branch ${result.branch}). Undo changes with git inside that folder (git checkout, git restore); never delete it to clone again.`, summary: `${result.fullName} already cloned` };
       ctx.emit({ type: "repo", fullName: result.fullName, branch: result.branch, baseSha: result.baseSha, repoPath: result.repoPath, url: result.url });
       ctx.onFileChange(".");
+      const where = (repoPath: string) => (repoPath === "." ? "the workspace root" : `${repoPath}/`);
+      const switched = result.replaced
+        ? ` The user switched this task from ${result.replaced.fullName} to it: ${where(result.replaced.repoPath)} keeps ${result.replaced.fullName}'s files, but github_commit_and_push now pushes ${result.fullName} only.${result.taken ? ` ${result.taken}/ was taken, so this copy is in ${result.repoPath}/; ${result.taken}/ may hold an earlier copy (plain files now): carry over any edits from it that are still needed.` : ""}`
+        : "";
       const tree = listWorkspaceTree(ctx.root, result.repoPath, 2, 200).map(entry => (entry.type === "dir" ? `${entry.path}/` : entry.path)).join("\n");
       return {
         ok: true,
-        content: `Cloned ${result.fullName}@${result.branch} (${result.baseSha.slice(0, 7)}) into ${result.repoPath === "." ? "the workspace root" : `${result.repoPath}/`}: ${result.files} tracked files.\nTop of the tree:\n${tree}\n\nRead the README and key config files before making changes. Push edits with github_commit_and_push.`,
+        content: `Cloned ${result.fullName}@${result.branch} (${result.baseSha.slice(0, 7)}) into ${where(result.repoPath)}: ${result.files} tracked files.${switched}\nTop of the tree:\n${tree}\n\nRead the README and key config files before making changes. Push edits with github_commit_and_push.`,
         summary: `Cloned ${result.fullName}@${result.branch} · ${result.files} files`,
       };
     }
