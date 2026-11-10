@@ -3,7 +3,9 @@
 // (/home/ubuntu/curialy-tools/CONTRACT.md, shared/agent.ts). Nothing here is real data, and nothing
 // here imports app code (the client and shared modules are being rewritten in parallel).
 // Times are relative to `now`, so "expired", "3h ago" and countdowns stay true on every run.
+// Billing (plans, crypto orders, API wallets and usage) lives in billing-fixtures.mjs.
 import { deflateSync } from "node:zlib";
+import { createBilling } from "./billing-fixtures.mjs";
 
 export const ORIGIN = "https://curialy.test";
 export const LOGIN = "mouno19";
@@ -1048,7 +1050,8 @@ export function createFixtures({ now = Date.now(), deployUrls = "vendor" } = {})
     ["GET", "/api/agent/media/:id", ({ params }) => (mediaIds.has(params.id) ? storageDown() : { status: 404, json: { error: "Not found.", code: "media_not_found" } })],
     ["DELETE", "/api/agent/media/:id", ({ params }) => (mediaIds.has(params.id) ? storageDown({ error: "File storage is temporarily unavailable, so nothing was deleted." }) : { status: 404, json: { error: "Not found.", code: "media_not_found" } })],
 
-    ["GET", "/api/agent/github", () => ({ json: github })],
+    // The signed-in account's own GitHub connection (the operator's unless a check signs in as another).
+    ["GET", "/api/agent/github", () => ({ json: githubOf() })],
     ["DELETE", "/api/agent/github", () => ({ json: { disconnected: true } })],
     ["GET", "/api/agent/github/repos", () => ({ json: repos })],
     ["GET", "/api/github/repos", () => ({ json: repos })],
@@ -1060,29 +1063,52 @@ export function createFixtures({ now = Date.now(), deployUrls = "vendor" } = {})
   ];
 
   /** tRPC procedures (httpBatchLink + superjson): name -> plain JSON result. */
-  // Signed in as the operator (unlimited) unless a check asks for a free account (state.account = "free").
+  // Signed in as the operator (unlimited) unless a check asks for another account: "free"
+  // (ada-lovelace, on Pro, with an API balance) or "newcomer" (on the free allowance, nothing bought).
   const operator = { id: "00000000-0000-4000-8000-0000000000aa", role: "admin", login: "mouno19", displayName: "Operator", avatarUrl: null, email: null };
   const free = { id: "00000000-0000-4000-8000-0000000000bb", role: "user", login: "ada-lovelace", displayName: "Ada Lovelace", avatarUrl: null, email: null };
-  const account = () => (state.account === "free" ? free : operator);
-  const freeCredits = { unlimited: false, allowance: 60, used: 41.5, remaining: 18.5, bonus: 25, available: 43.5, resetsAt: new Date(now + 2 * 3_600_000 + 14 * 60_000).toISOString(), windowHours: 5 };
-  const operatorCredits = { unlimited: true, allowance: 60, used: 0, remaining: 60, bonus: 0, available: 60, resetsAt: null, windowHours: 5 };
-  const credits = () => (state.account === "free" ? freeCredits : operatorCredits);
+  const newcomer = { id: "00000000-0000-4000-8000-0000000000dd", role: "user", login: "katherine-johnson", displayName: "Katherine Johnson", avatarUrl: null, email: null };
+  const account = () => (state.account === "free" ? free : state.account === "newcomer" ? newcomer : operator);
+  // People on other orders and in the accounts list (billing-fixtures.mjs names them too).
+  const person = (n, login, name) => ({ id: `00000000-0000-4000-8000-0000000000${n}`, login, name });
+  const billingUsers = {
+    operator: { id: operator.id, login: operator.login, name: operator.displayName }, free: { id: free.id, login: free.login, name: free.displayName },
+    newcomer: { id: newcomer.id, login: newcomer.login, name: newcomer.displayName }, grace: person("cc", "grace-hopper-with-a-long-login", "Grace Hopper"),
+    hedy: person("e1", "hedy-lamarr", "Hedy Lamarr"), alan: person("e2", "alan-turing-research", "Alan Turing"), margaret: person("e3", "margaret-hamilton", "Margaret Hamilton"), radia: person("e4", "radia-perlman", "Radia Perlman"),
+  };
+  const billing = createBilling({ now, state, users: billingUsers });
+  const githubOf = () => (state.account === "operator" ? github : { ...github, login: account().login, name: account().displayName, avatarUrl: null });
+  const resetsSoon = new Date(now + 2 * 3_600_000 + 14 * 60_000).toISOString();
+  const balance = (fields, plan = null) => ({ unlimited: false, allowance: 60, used: 0, remaining: 60, bonus: 0, available: 60, resetsAt: null, windowHours: 5, ...fields, plan });
+  // On Pro: the plan's allowance is larger than the free one, so it applies (shared/credits.ts CreditBalance.plan).
+  const freeCredits = balance({ allowance: 6000, used: 1284.5, remaining: 4715.5, bonus: 25, available: 4740.5, resetsAt: resetsSoon }, billing.planOf(billingUsers.free));
+  const newcomerCredits = balance({ used: 41.5, remaining: 18.5, bonus: 25, available: 43.5, resetsAt: resetsSoon });
+  const operatorCredits = { unlimited: true, allowance: 60, used: 0, remaining: 60, bonus: 0, available: 60, resetsAt: null, windowHours: 5, plan: null };
+  const credits = () => (state.account === "free" ? freeCredits : state.account === "newcomer" ? newcomerCredits : operatorCredits);
+  const days = n => new Date(now - n * 86_400_000).toISOString();
+  const minutesAgo = n => new Date(now - n * 60_000).toISOString();
+  const billingOf = user => ({ plan: billing.planOf(user), apiBalanceUsd: billing.apiBalanceUsd(user) });
   const adminUsers = [
-    { id: operator.id, role: "admin", login: "mouno19", name: "Operator", avatarUrl: null, email: null, createdAt: new Date(now - 4 * 86_400_000).toISOString(), lastSeenAt: new Date(now - 60_000).toISOString(), banned: false, tasks: 45, activeRuns: 1, creditsUsedTotal: 0, customAllowance: null, credits: operatorCredits },
-    { id: free.id, role: "user", login: "ada-lovelace", name: "Ada Lovelace", avatarUrl: null, email: "ada@example.com", createdAt: new Date(now - 2 * 86_400_000).toISOString(), lastSeenAt: new Date(now - 25 * 60_000).toISOString(), banned: false, tasks: 7, activeRuns: 0, creditsUsedTotal: 132.4, customAllowance: null, credits: freeCredits },
-    { id: "00000000-0000-4000-8000-0000000000cc", role: "user", login: "grace-hopper-with-a-long-login", name: "Grace Hopper", avatarUrl: null, email: null, createdAt: new Date(now - 6 * 3_600_000).toISOString(), lastSeenAt: null, banned: true, tasks: 1, activeRuns: 0, creditsUsedTotal: 3, customAllowance: 120, credits: { ...freeCredits, allowance: 120, remaining: 117, used: 3, bonus: 0, available: 117 } },
+    { id: operator.id, role: "admin", login: "mouno19", name: "Operator", avatarUrl: null, email: null, createdAt: days(4), lastSeenAt: minutesAgo(1), banned: false, tasks: 45, activeRuns: 1, creditsUsedTotal: 0, customAllowance: null, credits: operatorCredits, plan: null, apiBalanceUsd: 0 },
+    { id: free.id, role: "user", login: "ada-lovelace", name: "Ada Lovelace", avatarUrl: null, email: "ada@example.com", createdAt: days(41), lastSeenAt: minutesAgo(25), banned: false, tasks: 7, activeRuns: 0, creditsUsedTotal: 9843.6, customAllowance: null, credits: freeCredits, ...billingOf(billingUsers.free) },
+    { id: billingUsers.grace.id, role: "user", login: "grace-hopper-with-a-long-login", name: "Grace Hopper", avatarUrl: null, email: null, createdAt: new Date(now - 6 * 3_600_000).toISOString(), lastSeenAt: null, banned: true, tasks: 1, activeRuns: 0, creditsUsedTotal: 3, customAllowance: 120, credits: balance({ allowance: 120, remaining: 117, used: 3, available: 117, resetsAt: resetsSoon }), ...billingOf(billingUsers.grace) },
+    { id: newcomer.id, role: "user", login: newcomer.login, name: newcomer.displayName, avatarUrl: null, email: null, createdAt: days(6), lastSeenAt: minutesAgo(3), banned: false, tasks: 3, activeRuns: 0, creditsUsedTotal: 211.5, customAllowance: null, credits: newcomerCredits, ...billingOf(billingUsers.newcomer) },
+    { id: billingUsers.hedy.id, role: "user", login: "hedy-lamarr", name: "Hedy Lamarr", avatarUrl: null, email: null, createdAt: days(19), lastSeenAt: minutesAgo(90), banned: false, tasks: 12, activeRuns: 0, creditsUsedTotal: 402, customAllowance: null, credits: balance({ used: 12, remaining: 48, available: 48, resetsAt: resetsSoon }), ...billingOf(billingUsers.hedy) },
+    { id: billingUsers.alan.id, role: "user", login: "alan-turing-research", name: "Alan Turing", avatarUrl: null, email: null, createdAt: minutesAgo(40), lastSeenAt: minutesAgo(5), banned: false, tasks: 0, activeRuns: 0, creditsUsedTotal: 0, customAllowance: null, credits: balance({}), ...billingOf(billingUsers.alan) },
+    { id: billingUsers.margaret.id, role: "user", login: "margaret-hamilton", name: "Margaret Hamilton", avatarUrl: null, email: "margaret@example.com", createdAt: days(33), lastSeenAt: minutesAgo(600), banned: false, tasks: 61, activeRuns: 1, creditsUsedTotal: 48_120, customAllowance: null, credits: balance({ allowance: 30_000, used: 2_310, remaining: 27_690, available: 27_690, resetsAt: resetsSoon }, billing.planOf(billingUsers.margaret)), ...billingOf(billingUsers.margaret) },
+    { id: billingUsers.radia.id, role: "user", login: "radia-perlman", name: "Radia Perlman", avatarUrl: null, email: null, createdAt: days(8), lastSeenAt: days(2), banned: false, tasks: 4, activeRuns: 0, creditsUsedTotal: 96, customAllowance: null, credits: balance({}), ...billingOf(billingUsers.radia) },
   ];
   const promoCodes = [
     { id: "00000000-0000-4000-8000-0000000000d1", code: "LAUNCH-2026", credits: 100, forUser: null, maxRedemptions: 50, redemptions: 12, expiresAt: new Date(now + 20 * 86_400_000).toISOString(), disabledAt: null, note: "Launch post", createdAt: new Date(now - 86_400_000).toISOString(), state: "active" },
     { id: "00000000-0000-4000-8000-0000000000d2", code: "K7PQR-3MXWT", credits: 500, forUser: { id: free.id, login: "ada-lovelace" }, maxRedemptions: 1, redemptions: 1, expiresAt: null, disabledAt: null, note: null, createdAt: new Date(now - 3_600_000).toISOString(), state: "used_up" },
   ];
   routes.push(
-    ["GET", "/api/account", () => ({ json: { user: account(), credits: credits(), github, voice: { available: true } } })],
+    ["GET", "/api/account", () => ({ json: { user: account(), credits: credits(), github: githubOf(), voice: { available: true } } })],
     // Voice: dictation and read aloud answer from fixtures (no audio is recorded or played in a check).
     ["POST", "/api/agent/voice/transcribe", () => ({ json: { text: "Build a landing page with a pricing table", seconds: 3.2, language: "en" } })],
     ["POST", "/api/agent/tasks/:id/speech", () => ({ contentType: "audio/mpeg", body: "" })],
     ["GET", "/api/account/credits", () => ({ json: { credits: credits(), history: [] } })],
-    ["GET", "/api/admin/overview", () => ({ json: { users: 3, newToday: 1, activeToday: 2, activeRuns: 1, creditsUsedToday: 87.25, activePromoCodes: 1, settings: { creditsPerWindow: 60, windowHours: 5, signupsOpen: true } } })],
+    ["GET", "/api/admin/overview", () => ({ json: { users: adminUsers.length, newToday: 1, activeToday: 5, activeRuns: 2, creditsUsedToday: 2318.25, activePromoCodes: 1, settings: { creditsPerWindow: 60, windowHours: 5, signupsOpen: true } } })],
     ["GET", "/api/admin/users", () => ({ json: { users: adminUsers, more: false } })],
     ["GET", "/api/admin/promo-codes", () => ({ json: { codes: promoCodes } })],
     ["GET", "/api/admin/settings", () => ({ json: { settings: { creditsPerWindow: 60, windowHours: 5, signupsOpen: true } } })],
@@ -1091,11 +1117,14 @@ export function createFixtures({ now = Date.now(), deployUrls = "vendor" } = {})
     ["GET", "/api/admin/users/:id/credits", ({ params }) => ({ json: { credits: adminUsers.find(user => user.id === params.id)?.credits ?? freeCredits, history: [] } })],
     ["POST", "/api/admin/users/:id/credits", () => ({ json: { credits: freeCredits } })],
     ["PUT", "/api/admin/users/:id/allowance", () => ({ json: { credits: freeCredits } })],
+    ["PUT", "/api/admin/users/:id/free-allowance", ({ params }) => ({ json: { credits: adminUsers.find(user => user.id === params.id)?.credits ?? freeCredits } })],
     ["POST", "/api/admin/users/:id/ban", () => ({ json: { banned: true } })],
     ["POST", "/api/admin/promo-codes", () => ({ status: 201, json: { code: promoCodes[0] } })],
     ["POST", "/api/admin/promo-codes/:id/disable", () => ({ json: { codes: promoCodes } })],
     // GitHub sign-in leaves the site: the check never follows it.
     ["GET", "/api/auth/github/login", () => ({ status: 302, headers: { location: "/login" } })],
+    // Plans & Billing, payments, the Developer API balance, keys and usage (billing-fixtures.mjs).
+    ...billing.routes,
   );
 
   const trpc = {
@@ -1113,12 +1142,16 @@ export function createFixtures({ now = Date.now(), deployUrls = "vendor" } = {})
     liveTaskIds: scenarios.filter(scenario => scenario.live).map(scenario => scenario.id),
     redeployTaskId: TASK.redeploy,
     sandbox: { taskId: TASK.completed, path: DEEP_FILE },
-    data: { providers, storage, stats, models, keys, github, repos, media, legacyDeployments },
+    data: { providers, storage, stats, models, keys, github, repos, media, legacyDeployments, adminUsers, billing: billing.data },
+    /** Billing pages: the payment page's states (one order each), the order the admin dialog opens. */
+    billing: { payStates: billing.payStates, reviewOrderCode: billing.reviewOrderCode, reports: billing.reports, users: billing.users },
     /** Values that are leak bait on purpose (skipped by the fixture self-scan). */
     baitValues: new Set([SECRET_LIVE_URL, SECRET_REPLAY_URL, ...[...tasks.values()].flatMap(task => task.deployments.map(view => view.url))]),
     reset() {
       state.signedIn = true;
       state.account = "operator";
+      // Orders' countdowns and deadlines are relative to the check that is starting.
+      billing.refresh(Date.now());
     },
   };
 }

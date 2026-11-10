@@ -5,7 +5,8 @@ import * as RadioGroup from "@radix-ui/react-radio-group";
 import * as Switch from "@radix-ui/react-switch";
 import type { LucideIcon } from "lucide-react";
 import { ArrowUp, Bot, Check, ChevronDown, CloudOff, Globe, Info, MessageSquare, Paperclip, RotateCcw, SlidersHorizontal, Sparkles, TriangleAlert, Users, X } from "lucide-react";
-import { aliasEffort, effortApplies, getModel, PICKER_MODELS, REPLACED, teamCapable, type CreateTaskRequest, type ModelSpec, type TaskMode, type ThinkingLevel } from "@shared/agent";
+import { aliasEffort, effortApplies, getModel, outputLimit, PICKER_MODELS, REPLACED, teamCapable, type CreateTaskRequest, type ModelSpec, type TaskMode, type ThinkingLevel } from "@shared/agent";
+import { formatTokenCount, modelLimits } from "@shared/billing";
 import { Button } from "@/components/common/Button";
 import { cx } from "@/components/common/cx";
 import { IconButton } from "@/components/common/IconButton";
@@ -75,6 +76,15 @@ function modelBlocked(spec: ModelSpec, mode: TaskMode, team: boolean, probes: Pr
 
 const modelNote = (spec: ModelSpec) => (spec.provider === "core-sql" ? "Answers arrive all at once" : null);
 
+/**
+ * "1M context · 64K output", from the operator's list of model limits (null when it has none). The
+ * output is what one reply may really use here: the listed limit, or the route's when that is lower.
+ */
+function limitsNote(spec: ModelSpec) {
+  const limits = modelLimits(spec.id);
+  return limits ? `${formatTokenCount(limits.contextWindow)} context · ${formatTokenCount(Math.min(limits.maxOutput, outputLimit(spec)))} output` : null;
+}
+
 /** Model menu: Radix DropdownMenu in a portal, menuitemradio items grouped by family. */
 export function ModelPicker({ value, onChange, mode, team = false, auto = true, blocked, label: name = "Model" }: {
   value: string; onChange: (id: string) => void; mode: TaskMode; team?: boolean;
@@ -131,7 +141,7 @@ function ModelFamily({ label, models, mode, team, probes, blocked: extra, separa
         <DropdownMenu.Label id={id} className="menu-label">{label}</DropdownMenu.Label>
         {models.map(spec => {
           const blocked = modelBlocked(spec, mode, team, probes) ?? extra?.(spec) ?? null;
-          const hint = blocked ?? modelNote(spec);
+          const hint = [blocked ?? modelNote(spec), limitsNote(spec)].filter(Boolean).join(" · ") || null;
           return (
             <DropdownMenu.RadioItem key={spec.id} value={spec.id} disabled={Boolean(blocked)} className="menu-item" textValue={spec.label}>
               <span className="menu-item-body">

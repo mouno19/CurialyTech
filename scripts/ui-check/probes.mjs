@@ -333,6 +333,26 @@ export function installProbes() {
 }
 
 /**
+ * How many px of content are scrolled out of sight: in an open dialog (its body scrolls), else in
+ * the app's scroll areas (the shell's .page) or the document. run.mjs grows the viewport by this
+ * much for a "tall" screenshot, so one image holds the whole page or dialog.
+ */
+export function contentOverflow() {
+  // Only scroll areas that grow with the viewport: a fixed-height scroller (a table capped at
+  // 320px, one inside a closed <details>) would add its overflow again on every round.
+  const GROWS = ".page, .app-content, .dialog-body, .sheet-body";
+  const shown = el => el.getBoundingClientRect().height > 0 && (typeof el.checkVisibility !== "function" || el.checkVisibility());
+  const layers = [...document.querySelectorAll("[role=\"dialog\"],[role=\"alertdialog\"]")].filter(el => shown(el) && !el.classList.contains("nav-drawer"));
+  let extra = layers.length ? 0 : Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+  const scrollers = layers.length ? layers.flatMap(layer => [...layer.querySelectorAll(GROWS)]) : [...document.querySelectorAll(GROWS)];
+  for (const el of scrollers) {
+    if (!shown(el) || !/(auto|scroll)/.test(getComputedStyle(el).overflowY)) continue;
+    extra = Math.max(extra, el.scrollHeight - el.clientHeight);
+  }
+  return Math.ceil(extra);
+}
+
+/**
  * Init script for live runs. Playwright cannot stream a fulfilled response, and a finished SSE
  * body makes a real EventSource reconnect. For the task ids in `liveIds` this EventSource fetches
  * the same routed text/event-stream body, replays events up to the sync's maxSeq at once, delivers

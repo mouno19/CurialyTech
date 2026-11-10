@@ -249,7 +249,8 @@ export const authApi = {
 // ---- Accounts, credits and the operator's dashboard ----
 
 export type Account = { id: string; role: "admin" | "user"; login: string | null; displayName: string; avatarUrl: string | null; email: string | null };
-export type CreditEvent = { kind: "usage" | "grant" | "promo" | "adjust"; amount: number; detail: string | null; taskId: string | null; at: string };
+/** plan: a plan started, was extended or ended (amount 0; the detail says which and until when). */
+export type CreditEvent = { kind: "usage" | "grant" | "promo" | "adjust" | "plan"; amount: number; detail: string | null; taskId: string | null; at: string };
 export type AccountInfo = { user: Account; credits: CreditBalance; github: { configured: boolean; connected: boolean; login: string | null }; voice?: { available: boolean } };
 
 /** A binary response (audio) with the same error handling as api(). */
@@ -298,6 +299,9 @@ export type AdminUser = {
   banned: boolean; tasks: number; activeRuns: number; creditsUsedTotal: number; customAllowance: number | null; credits: CreditBalance;
   /** withheld: the account has no free allowance (an own allowance still applies); note: the server's explanation, for the operator. */
   freeAllowance?: { withheld: boolean; related: number; note: string | null };
+  /** The active plan (null: none, or it has ended), and the Developer API balance in US dollars. */
+  plan: { id: "pro" | "max"; name: string; expiresAt: string; creditsPerWindow: number } | null;
+  apiBalanceUsd: number;
 };
 export type PromoCode = {
   id: string; code: string; credits: number; forUser: { id: string; login: string | null } | null; maxRedemptions: number | null; redemptions: number;

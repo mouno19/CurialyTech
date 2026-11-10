@@ -62,7 +62,7 @@ export default function Login({ configured, github, signupsOpen, onSignedIn }: {
         <div className="card login-card lp-login-rise">
           <h1 className="serif-title">Sign in</h1>
           <p className="muted login-note">
-            {signupsOpen ? "New here? Signing in with GitHub creates your account. It's free, with credits that refill every 5 hours." : "Sign in with the GitHub account you use on Curialy."}
+            {signupsOpen ? "New here? Signing in with GitHub creates your account. It's free to start." : "Sign in with the GitHub account you use on Curialy."}
           </p>
           {signinError && (
             <div className="notice" data-tone="warning" role="alert">

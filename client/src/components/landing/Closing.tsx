@@ -72,14 +72,14 @@ export function FinalCTA({ signedIn }: { signedIn: boolean }) {
             </figure>
             <div className="lp-final-grid">
               <div className="lp-final-main">
-                <SectionLabel index="06">Start shipping</SectionLabel>
+                <SectionLabel index="07">Start shipping</SectionLabel>
                 <h2 id="lp-final-title" className="lp-h2">
                   Your backlog called.
                   <br />
                   <em>Curialy</em> picked up.
                 </h2>
                 <p className="lp-lede">
-                  Sign in with GitHub and hand over your first task. It's free, with credits that refill every 5 hours, and every task gets a sandbox of its own in seconds.
+                  Sign in with GitHub and hand over your first task. It's free to start, and every task gets a sandbox of its own in seconds.
                 </p>
               </div>
               <div className="lp-final-side">

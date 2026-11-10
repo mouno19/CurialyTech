@@ -92,11 +92,12 @@ export const errorBody = (failure: Pick<Failure, "status" | "type" | "message">)
  * route has refused (a malformed request is reported at once: no other route would accept it
  * either). Only a refusal or a connection that never got an answer moves on to the next route.
  */
-export async function sendUpstream(api: UpstreamApi, model: string, body: Record<string, unknown>, opts: { version: string; beta?: string; signal: AbortSignal }): Promise<{ response: Response } | { failure: Failure }> {
+/** deadlineMs: give up after this long (default UPSTREAM_DEADLINE_MS), reading the reply included. */
+export async function sendUpstream(api: UpstreamApi, model: string, body: Record<string, unknown>, opts: { version: string; beta?: string; signal: AbortSignal; deadlineMs?: number }): Promise<{ response: Response } | { failure: Failure }> {
   // Serialized once: each route only swaps the model id in front.
   const rest = JSON.stringify({ ...body, model: undefined, stream: true, ...(api === "chat" ? { stream_options: { include_usage: true } } : {}) });
   const payload = (id: string) => `{"model":${JSON.stringify(id)},${rest.slice(1)}`;
-  const signal = AbortSignal.any([opts.signal, AbortSignal.timeout(UPSTREAM_DEADLINE_MS)]);
+  const signal = AbortSignal.any([opts.signal, AbortSignal.timeout(opts.deadlineMs ?? UPSTREAM_DEADLINE_MS)]);
   let last: Failure = { status: 503, type: "curialy_api_error", message: UNAVAILABLE };
   for (const route of routesFor(api, model)) {
     let response: Response;

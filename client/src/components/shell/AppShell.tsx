@@ -4,7 +4,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Popover from "@radix-ui/react-popover";
 import type { LucideIcon } from "lucide-react";
-import { Activity, ChevronsUpDown, ExternalLink, House, Images, KeyRound, LayoutDashboard, LogOut, Menu, MoreHorizontal, PanelLeftClose, PanelLeftOpen, PlugZap, RefreshCw, ShieldCheck, SquareTerminal, Store, Unplug, X, Braces } from "lucide-react";
+import { Activity, ChevronsUpDown, ExternalLink, House, Images, KeyRound, LayoutDashboard, LogOut, Menu, MoreHorizontal, PanelLeftClose, PanelLeftOpen, PlugZap, RefreshCw, ShieldCheck, SquareTerminal, Store, Unplug, Wallet, X, Braces } from "lucide-react";
 import { toast } from "sonner";
 import { agentApi, authApi, errorMessage, relativeTime, type ProviderProbe } from "@/lib/api";
 import { needsOperator, useGitHub, useHealth } from "@/lib/appStatus";
@@ -72,6 +72,7 @@ const NAV: { href: string; label: string; icon: LucideIcon; badge?: boolean; ope
   { href: "/integrations", label: "System Integrations", icon: PlugZap },
   { href: "/skills", label: "Skill Store", icon: Store },
   { href: "/developer", label: "Developer API", icon: Braces },
+  { href: "/billing", label: "Plans & Billing", icon: Wallet },
   { href: "/keys", label: "API Key Manager", icon: KeyRound, operator: true },
   { href: "/admin", label: "Admin", icon: ShieldCheck, operator: true },
 ];
@@ -85,7 +86,9 @@ function readCollapsed() {
   }
 }
 
-const isCurrent = (location: string, href: string) => (href === "/" ? location === "/" : location === href || location.startsWith(`${href}/`));
+// A payment page belongs to Plans & Billing.
+const isCurrent = (location: string, href: string) =>
+  href === "/" ? location === "/" : location === href || location.startsWith(`${href}/`) || (href === "/billing" && location.startsWith("/pay/"));
 const isAppRoute = (href: string) => href.startsWith("/") && !href.startsWith("//") && !href.startsWith("/api/");
 const externalProps = (href: string) => (/^https?:\/\//.test(href) ? { target: "_blank", rel: "noopener noreferrer" } : {});
 

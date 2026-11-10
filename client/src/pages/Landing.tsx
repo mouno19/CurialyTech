@@ -7,6 +7,7 @@ import { Capabilities, HowItWorks, StackStrip } from "@/components/landing/Secti
 import { UseCases } from "@/components/landing/UseCases";
 import { WorkspacePreview } from "@/components/landing/WorkspacePreview";
 import { FinalCTA, Footer, Principles } from "@/components/landing/Closing";
+import { Pricing } from "@/components/landing/Pricing";
 
 /**
  * The public homepage (the reference landing design): for visitors at "/", and for the operator
@@ -37,6 +38,8 @@ export default function Landing({ signedIn }: { signedIn: boolean }) {
         <WorkspacePreview signedIn={signedIn} />
         <UseCases onUse={task => setSeed({ prompt: task.prompt, team: task.team ?? false, nonce: Date.now() })} />
         <Principles />
+        {/* Live prices from the catalog (the section is there at once; its prices fill in when they load). */}
+        <Pricing signedIn={signedIn} />
         <FinalCTA signedIn={signedIn} />
       </main>
       <Footer signedIn={signedIn} />

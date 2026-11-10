@@ -23,13 +23,15 @@ import { fileURLToPath } from "node:url";
 import { createFixtures, ORIGIN, VENDOR_PATTERN } from "./fixtures.mjs";
 import { createRouter, FONT_HOSTS } from "./router.mjs";
 import { buildPlan, formatSummary, judge, newRecord, noteRequest, serializeRecord, summarize, VIEWPORTS } from "./harness.mjs";
-import { heldEventSourceScript, installProbes } from "./probes.mjs";
+import { contentOverflow, heldEventSourceScript, installProbes } from "./probes.mjs";
 import { createSession, credentialsFromEnv, makeRedactor, releaseSession } from "./browserbase.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "../..");
 const SHOT_NAME = /^\d{2,3}-[a-z0-9-]+-\d{3,4}x\d{3,4}\.png$/;
 const CHECK_BUDGET_MS = 75_000;
+/** A tall screenshot never grows the viewport past this (px). */
+const TALL_MAX = 14_000;
 
 class SetupError extends Error {}
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -221,10 +223,117 @@ async function act(page, check, record) {
         await page.getByRole("menuitem", { name: /^Push\b/ }).first().click({ timeout: 5000 });
       }
       await page.getByRole("dialog").getByText(/has commits that weren't pushed from here/).first().waitFor({ state: "visible", timeout: 6000 });
+    } else if (check.action === "pick-method") {
+      // The payment page's first steps: a network, then a coin; step 3's button appears.
+      await page.getByRole("radio", { name: /BNB Chain/ }).first().click({ timeout: 6000 });
+      await page.getByRole("radio", { name: /^USDT\b/ }).first().click({ timeout: 5000 });
+      await page.getByRole("button", { name: /Get payment details for USDT/ }).first().waitFor({ state: "visible", timeout: 5000 });
+    } else if (check.action === "credits-30d" || check.action === "range-30d" || check.action === "range-24h") {
+      // A usage chart's range control (Plans & Billing's period, the Developer API's range).
+      const span = check.action === "range-24h" ? "24 hours" : "30 days";
+      await page.getByRole("radio", { name: span, exact: true }).first().click({ timeout: 6000 });
+      await page.locator(`figure.chart[aria-label$="last ${span}"]`).first().waitFor({ state: "visible", timeout: 6000 });
+    } else if (check.action === "add-balance") {
+      await page.getByRole("button", { name: "Add balance", exact: true }).first().click({ timeout: 6000 });
+      await page.getByRole("dialog", { name: "Add balance" }).getByRole("radio", { name: "$25" }).first().waitFor({ state: "visible", timeout: 5000 });
+    } else if (check.action === "account-billing") {
+      // Accounts tab: the Billing dialog of the account on Pro.
+      await page.locator("tr", { hasText: "ada-lovelace" }).first().getByRole("button", { name: "Billing" }).click({ timeout: 6000 });
+      await page.getByRole("dialog").getByText("API balance history").first().waitFor({ state: "visible", timeout: 6000 });
+    } else if (check.action === "credits-dialog") {
+      // The sidebar's credits meter (in the navigation drawer below 1024px).
+      const meter = page.locator(".sidebar .credits-meter").first();
+      if (await meter.isVisible().catch(() => false)) await meter.click({ timeout: 6000 });
+      else {
+        await page.getByRole("button", { name: "Open navigation" }).first().click({ timeout: 6000 });
+        await page.locator(".nav-drawer .credits-meter").first().click({ timeout: 5000 });
+      }
+      await page.getByRole("dialog", { name: "Credits" }).first().waitFor({ state: "visible", timeout: 5000 });
+    } else if (check.action === "home-menu") {
+      await page.getByRole("button", { name: "Open the menu" }).first().click({ timeout: 6000 });
+      await page.getByRole("dialog").getByRole("link", { name: /^Pricing/ }).first().waitFor({ state: "visible", timeout: 5000 });
+    } else if (check.action === "nav-pricing") {
+      // The navbar's Pricing link (the menu sheet's below 1024px) scrolls smoothly to the section.
+      if (check.viewport.width >= 1024) await page.locator(".lp-nav-links a[href=\"#pricing\"]").first().click({ timeout: 6000 });
+      else {
+        await page.getByRole("button", { name: "Open the menu" }).first().click({ timeout: 6000 });
+        await page.getByRole("dialog").getByRole("link", { name: /^Pricing/ }).first().click({ timeout: 5000 });
+      }
+      await page.waitForFunction(() => {
+        const section = document.getElementById("pricing");
+        if (!section) return false;
+        const top = Math.round(section.getBoundingClientRect().top);
+        const settled = window.__uiCheckPricingTop === top;
+        window.__uiCheckPricingTop = top;
+        return settled && top >= -2 && top < 200;
+      }, null, { timeout: 8000, polling: 200 });
+      // Through the section once, so every reveal in it fires, then back to its top.
+      await page.evaluate(async () => {
+        const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+        const section = document.getElementById("pricing");
+        const top = section.getBoundingClientRect().top + window.scrollY;
+        for (let y = top; y < top + section.offsetHeight; y += Math.round(window.innerHeight * 0.6)) {
+          window.scrollTo({ top: y, behavior: "instant" });
+          await wait(160);
+        }
+        window.scrollTo({ top: top - 80, behavior: "instant" });
+        await wait(700);
+      });
     }
   } catch (error) {
     record.actionError = `${check.action}: ${firstLine(error?.message)}`;
   }
+}
+
+/**
+ * The whole page in one image: app pages scroll inside the shell's .page (and dialogs inside their
+ * body), so a full-page screenshot would only hold the viewport. The viewport grows by what is
+ * scrolled out of sight (the probes already ran at the real size), then goes back.
+ */
+async function tallScreenshot(page, check, record, file) {
+  let height = check.viewport.height;
+  let before = Infinity;
+  for (let round = 0; round < 3 && height < TALL_MAX; round++) {
+    const extra = await page.evaluate(contentOverflow).catch(() => 0);
+    // Content that grows with the viewport (a centred dialog) can take a second round; anything that doesn't shrink isn't chased.
+    if (extra <= 1 || extra >= before) break;
+    before = extra;
+    height = Math.min(TALL_MAX, height + extra);
+    await page.setViewportSize({ width: check.viewport.width, height });
+    await sleep(400);
+  }
+  record.notes.shotHeight = height;
+  try {
+    await page.screenshot({ path: file, type: "png", animations: "disabled", timeout: 30_000 });
+  } finally {
+    if (height !== check.viewport.height) {
+      await page.setViewportSize(check.viewport);
+      await sleep(300);
+    }
+  }
+}
+
+/** One section of a document-scrolling page (the homepage's pricing), from a full-page capture. */
+async function clipScreenshot(page, check, record, file) {
+  // A capture beyond the viewport drops the classic scrollbar, so the page reflows wider and the
+  // section moves: measure without it (phones have overlay scrollbars anyway). And no pointer over
+  // a card, which would lift it.
+  await page.addStyleTag({ content: "html { scrollbar-width: none; }" }).catch(() => undefined);
+  await page.mouse.move(0, 0).catch(() => undefined);
+  await sleep(300);
+  const clip = await page.evaluate(selector => {
+    const element = document.querySelector(selector);
+    if (!element) return null;
+    const rect = element.getBoundingClientRect();
+    return { x: 0, y: Math.max(0, Math.floor(rect.top + window.scrollY)), width: document.documentElement.clientWidth, height: Math.ceil(rect.height) };
+  }, check.clip);
+  if (!clip || clip.height < 1) {
+    record.ready.push(`"${check.clip}" was not on the page, so the screenshot is the viewport`);
+    await page.screenshot({ path: file, type: "png", animations: "disabled", timeout: 20_000 });
+    return;
+  }
+  record.notes.shotClip = clip;
+  await page.screenshot({ path: file, type: "png", animations: "disabled", fullPage: true, clip, timeout: 30_000 });
 }
 
 async function runCheck(page, driver, check, record, ctx) {
@@ -254,7 +363,9 @@ async function runCheck(page, driver, check, record, ctx) {
   record.facts = await page.evaluate(opts => window.__uiCheck.facts(opts), { vendor: { source: VENDOR_PATTERN.source, flags: VENDOR_PATTERN.flags }, phone: check.phone, touchMin: config.touchMin });
   if (check.action === "model-menu") record.menu = await page.evaluate(() => window.__uiCheck.menu());
   const file = path.join(config.out, check.shot);
-  await page.screenshot({ path: file, type: "png", animations: "disabled", fullPage: Boolean(check.fullPage), timeout: 20_000 });
+  if (check.clip) await clipScreenshot(page, check, record, file);
+  else if (check.tall) await tallScreenshot(page, check, record, file);
+  else await page.screenshot({ path: file, type: "png", animations: "disabled", fullPage: Boolean(check.fullPage), timeout: 20_000 });
   record.screenshot = file;
 
   // Reduced motion before the focus walk: it also makes focus-ring transitions instant.

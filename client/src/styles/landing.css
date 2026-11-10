@@ -460,3 +460,37 @@ html.lp-document { scroll-behavior: smooth; scroll-padding-top: 5rem; }
 
 /* Forced colours: the ghost text would sit on top of the forced placeholder. */
 @media (forced-colors: active) { .lp-composer-ghost { display: none; } }
+
+/* ---------- Pricing (components/landing/Pricing.tsx: live prices from the catalog) ---------- */
+.lp-pricing { border-top: 1px solid var(--rule); }
+.lp-pricing-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 24px; }
+.lp-pricing-head .lp-offer { margin: 0; }
+.lp-offer .lp-dot { background: var(--vermilion); }
+.lp-plans { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; margin: 3.5rem 0 0; padding: 0; list-style: none; }
+.lp-plans > li { display: flex; }
+.lp-plan { display: flex; flex: 1 1 auto; flex-direction: column; padding: 28px 24px; border: 1px solid var(--ink); border-radius: 12px; background: var(--composer); transition: transform var(--dur-3) var(--ease-out), box-shadow var(--dur-3) var(--ease-out); }
+.lp-plan:hover { transform: translate(-2px, -2px); box-shadow: var(--shadow-ink-sm); }
+.lp-plan-name { margin: 0; font: 400 1.875rem/1.1 var(--font-display); color: var(--ink); }
+.lp-plan-price { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin: 20px 0 0; }
+.lp-plan-amount { font: 400 3.75rem/1 var(--font-display); letter-spacing: -0.02em; color: var(--ink); }
+.lp-plan-list { font: 400 1.6rem/1 var(--font-display); color: var(--graphite); text-decoration-thickness: 1px; }
+.lp-plan-term { margin: 10px 0 24px; font: 11.5px/1.5 var(--font-mono); letter-spacing: 0.06em; color: var(--graphite); }
+/* Cards share a row height; the credits rule follows the same name, price and term in each, so it lines up across them. */
+.lp-plan-credits { display: flex; flex-direction: column; gap: 4px; margin: 0; padding-top: 16px; border-top: 1px dashed var(--rule); font-size: 1rem; line-height: 1.5; color: var(--ink); }
+.lp-plan-credits > span { font-size: 14px; color: var(--ink-soft); }
+.lp-pricing-foot { display: grid; grid-template-columns: minmax(0, 1fr); gap: 32px 24px; margin-top: 3rem; }
+.lp-pricing-notes { display: flex; flex-direction: column; gap: 16px; }
+.lp-pricing-api { max-width: 36rem; margin: 0; font-size: 1.125rem; line-height: 1.6; color: var(--ink); text-wrap: pretty; }
+.lp-pricing-coins { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 0; font: 11.5px/1.6 var(--font-mono); color: var(--ink-soft); }
+.lp-pricing-logos { display: inline-flex; flex: none; gap: 6px; }
+.lp-pricing-logos > img { display: block; }
+.lp-pricing-cta { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }
+@media (min-width: 768px) {
+  .lp-plans { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 5rem; }
+  .lp-pricing-foot { margin-top: 4rem; }
+}
+@media (min-width: 1024px) {
+  .lp-pricing-foot { grid-template-columns: repeat(12, minmax(0, 1fr)); }
+  .lp-pricing-notes { grid-column: span 7; }
+  .lp-pricing-cta { grid-column: 9 / span 4; align-self: end; }
+}

@@ -17,7 +17,7 @@ import type { StarterTask } from "@/lib/starterTasks";
 import { agentApi, ApiError, formatTokens, relativeTime, type TaskStats } from "@/lib/api";
 import { clockText, refreshAccount, untilText, useAccount } from "@/lib/account";
 import { CreditsDialog, creditsLine, refillLine } from "@/components/shell/CreditsMeter";
-import type { CreditBalance } from "@shared/credits";
+import { MIN_CREDITS_TO_START, type CreditBalance } from "@shared/credits";
 import { useHealth } from "@/lib/appStatus";
 import { modeLabel, modelLabel, statusTime, TaskDuration, taskNote, TaskSkeleton, tokenTotal, useTaskList } from "./Tasks";
 
@@ -88,14 +88,16 @@ export default function Dashboard() {
       void refreshAccount();
       navigate(`/tasks/${taskId}`);
     } catch (error) {
-      // Out of credits: say when they refill (local time) and offer a promo code; the task stays in the composer.
+      // Out of credits: say when they refill (local time) and offer a plan or a promo code; the task stays in the composer.
       if (error instanceof ApiError && error.code === "no_credits") {
         void refreshAccount();
         setCreditsOpen(true);
         const balance = (error.data as { credits?: CreditBalance } | undefined)?.credits;
+        // Extending a plan adds days, not credits: on the top plan only a promo code adds any before the refill.
+        const more = balance?.plan?.id === "max" ? "a promo code adds credits now" : balance?.plan ? "a higher plan or a promo code adds credits now" : "a plan or a promo code adds credits now";
         throw new Error(balance?.resetsAt
-          ? `You're out of credits until ${clockText(balance.resetsAt)} (${untilText(balance.resetsAt)}). Your task stays here; a promo code adds credits now.`
-          : "Your account has no credits right now. Redeem a promo code to continue.");
+          ? `You're out of credits until ${clockText(balance.resetsAt)} (${untilText(balance.resetsAt)}). Your task stays here; ${more}.`
+          : `Your account has no credits right now. Your task stays here; ${more}.`);
       }
       throw error;
     } finally {
@@ -143,6 +145,7 @@ export default function Dashboard() {
                 <p className="dash-credits">
                   <button type="button" className="ink-link" onClick={() => setCreditsOpen(true)}>{creditsLine(account.credits)}</button>
                   <span className="dash-credits-refill">{refillLine(account.credits)}</span>
+                  {account.credits.available < MIN_CREDITS_TO_START && <Link href="/billing" className="ink-link dash-credits-more">Get more credits</Link>}
                 </p>
               )}
             </aside>

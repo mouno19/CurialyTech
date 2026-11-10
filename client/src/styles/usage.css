@@ -1,0 +1,189 @@
+/* Usage charts and the Developer API page's balance, pricing and usage sections (usage engineer). */
+
+/* ---------- Charts (components/charts) ---------- */
+/* Series tones, for marks only: text stays in text tokens. Checked with the dataviz validator on
+   --surface (card): every pair allowed to touch in a stack (see ChartTone) clears colour-blind
+   dE 8 and full-colour dE 15, and every tone 3:1. On bare paper vermilion and ochre fall just
+   under 3:1; the tooltip and the table carry the values there. ink and slate are the neutrals,
+   told apart by lightness, which no colour blindness changes. */
+.chart [data-hue="ink"] { --series: var(--ink-soft); }
+.chart [data-hue="accent"] { --series: var(--vermilion); }
+.chart [data-hue="slate"] { --series: var(--graphite); }
+.chart [data-hue="moss"] { --series: var(--moss); }
+.chart [data-hue="ochre"] { --series: color-mix(in oklab, var(--ochre) 85%, var(--paper)); }
+
+.chart { display: flex; flex-direction: column; gap: 10px; min-width: 0; margin: 0; }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; padding: 0; list-style: none; font-size: 12px; line-height: 1.4; color: var(--text-2); }
+.chart-legend > li { display: inline-flex; align-items: center; gap: 6px; }
+.chart-swatch { flex: none; width: 10px; height: 10px; border-radius: 2px; background: var(--series); }
+.chart-frame { position: relative; min-width: 0; }
+/* The plot is one tab stop; the arrow keys move along the bars. Horizontal drags scrub, vertical ones scroll. */
+.chart-plot { position: relative; overflow: hidden; border-radius: var(--r-xs); touch-action: pan-y; }
+.chart-svg { display: block; }
+.chart-grid line { stroke: var(--border); stroke-width: 1; }
+.chart-grid .chart-baseline { stroke: var(--border-strong); }
+.chart-axis text, .chart-ref text, .chart-peak { font-family: var(--font-mono); font-size: var(--fs-micro); font-variant-numeric: tabular-nums; }
+.chart-axis text { fill: var(--text-3); }
+/* Labels that can cross a bar wear a ring of the surface. */
+.chart-ref text, .chart-peak { fill: var(--text-2); paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+/* Dashed: a threshold, never a gridline. */
+.chart-ref line { stroke: var(--text-2); stroke-width: 1; stroke-dasharray: 4 3; }
+.chart-seg { fill: var(--series); }
+/* Bars rise from the baseline once, as a range arrives (base.css turns this off for reduced motion). */
+.chart-bar { transform-box: view-box; transform-origin: 0 var(--chart-base); animation: grow-y var(--dur-enter) var(--ease-out) backwards; animation-delay: calc(var(--i, 0) * 8ms); }
+.chart-bars { transition: opacity var(--dur-1) var(--ease-out); }
+.chart-plot[data-active] .chart-bars { opacity: 0.4; }
+.chart-wash { fill: var(--hover); }
+
+/* The readout: values lead, series names follow, keyed by a short stroke of the series colour. */
+.chart-tip { position: absolute; top: 4px; z-index: 1; min-width: 120px; padding: 7px 10px 8px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-raised); box-shadow: var(--shadow-pop); color: var(--text); font-size: 12px; line-height: 1.35; pointer-events: none; }
+.chart-tip-time { margin-bottom: 5px; font-size: 11.5px; color: var(--text-3); }
+.chart-tip-rows { display: grid; grid-template-columns: 12px auto minmax(0, 1fr); align-items: center; gap: 3px 7px; margin: 0; padding: 0; list-style: none; }
+.chart-tip-rows > li { display: contents; }
+.chart-tip-rows strong { font-family: var(--font-mono); font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.chart-tip-rows > li > span:last-child { color: var(--text-2); overflow-wrap: anywhere; }
+.chart-tip-rows > .chart-tip-rule { display: block; grid-column: 1 / -1; height: 1px; margin: 2px 0; background: var(--border); }
+.chart-key { width: 12px; height: 3px; border-radius: 2px; background: var(--series); }
+
+.chart-empty { display: grid; place-items: center; border: 1px dashed var(--border); border-radius: var(--r-md); }
+
+/* The same numbers as a table, one disclosure away. */
+.chart-table > summary { width: fit-content; color: var(--text-2); font-size: 12.5px; font-weight: 500; }
+.chart-table > summary:hover { color: var(--text); }
+.chart-table .table-wrap { max-height: 320px; margin-top: 8px; overflow: auto; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); }
+.chart-table .data-table thead th { position: sticky; top: 0; z-index: 1; background: var(--surface); }
+.chart-table .data-table tbody th { font-family: var(--font-sans); font-size: 13px; font-weight: 500; letter-spacing: normal; text-transform: none; color: var(--text); }
+.chart-table .data-table tbody tr:hover th { background: var(--hover); }
+.chart-table .chart-num { text-align: right; }
+.chart-table-note { margin-top: 6px; font-size: 12px; color: var(--text-3); }
+
+/* Ranked bars: label and value on one line, the bar under them from a hairline baseline. */
+.rank { gap: 12px; }
+.rank-list { display: grid; gap: 14px; margin: 0; padding: 0; list-style: none; }
+.rank-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 5px 12px; }
+.rank-label { min-width: 0; overflow-wrap: anywhere; font-size: 13px; font-weight: 500; color: var(--text); }
+.rank-value { font-family: var(--font-mono); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--text); }
+.rank-track { grid-column: 1 / -1; display: block; height: 10px; border-left: 1px solid var(--border-strong); }
+.rank-bar { display: block; width: max(2px, var(--share)); height: 100%; border-radius: 0 4px 4px 0; background: var(--ink-soft); transform-origin: left; animation: grow-x var(--dur-enter) var(--ease-out) backwards; }
+.rank-detail { grid-column: 1 / -1; font-size: 12px; line-height: 1.4; color: var(--text-3); }
+.rank-more { align-self: flex-start; }
+
+/* ---------- Developer API: balance ---------- */
+.api-balance-body { display: grid; gap: 16px; padding: 18px 18px 16px; }
+.api-hero { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+/* The page's one hero figure: the sans face with proportional figures. */
+.api-hero-value { font-size: 48px; font-weight: 600; line-height: 1; letter-spacing: -0.03em; color: var(--text); overflow-wrap: anywhere; }
+.api-hero-value[data-words] { font-size: 32px; letter-spacing: -0.02em; }
+.api-skeleton-label { width: 72px; }
+.api-skeleton-hero { width: min(220px, 70%); height: 46px; border-radius: var(--r-sm); }
+.api-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 12px 24px; margin: 0; }
+.api-facts > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.api-facts dt { font-size: 12.5px; font-weight: 500; color: var(--text-2); }
+.api-facts dd { margin: 0; font-size: 14px; color: var(--text); overflow-wrap: anywhere; }
+.api-balance-note { max-width: 68ch; font-size: 13.5px; color: var(--text-2); }
+.api-stale { font-size: 12px; color: var(--text-3); }
+.api-buys { display: grid; gap: 6px; padding-top: 14px; border-top: 1px dashed var(--border); }
+.api-buys .select { max-width: 320px; }
+.api-buys-result { font-size: 13.5px; color: var(--text-2); }
+.api-buys-result strong { font-weight: 600; color: var(--text); }
+.api-foot-text { font-size: 13px; color: var(--text-2); }
+
+/* ---------- Developer API: prices ---------- */
+/* The offer: the pressed-toggle colours (vermilion-ink on the wash, 4.93:1). */
+.api-offer { --tone-fg: var(--accent-text); --tone-bg: var(--vermilion-wash); --tone-border: var(--accent-strong); max-width: none; }
+.api-prices { container: api-prices / inline-size; }
+.api-prices-body, .api-errors-body { display: grid; gap: 18px; padding: 16px 18px 18px; }
+.api-lead { max-width: 72ch; font-size: 13.5px; color: var(--text-2); }
+.api-group { display: grid; gap: 8px; min-width: 0; }
+.api-group-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; font-size: 13.5px; font-weight: 600; color: var(--text); }
+.api-group-note { font: 400 12px/1.4 var(--font-mono); color: var(--text-3); }
+/* overflow-x: a safety net only; below 960px the rows stack and never need it. */
+.api-price-wrap { min-width: 0; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--r-md); }
+/* Two classes: these beat the kit's :is(.data-table, table.table) cell rules. */
+.data-table.api-price-table :is(th, td) { vertical-align: top; }
+.data-table.api-price-table tbody th { font-family: var(--font-sans); font-size: 13px; font-weight: 500; letter-spacing: normal; text-transform: none; white-space: normal; color: var(--text); }
+.data-table .api-num { text-align: right; }
+/* The kit's last-row and hover rules cover td only: the row headers here follow them. */
+:is(.data-table.api-price-table, .api-table .data-table) tbody tr:last-child > th { border-bottom: 0; }
+:is(.data-table.api-price-table, .api-table .data-table) tbody tr:hover > th { background: var(--hover); }
+.api-model { display: block; }
+.api-model-id { display: block; margin-top: 2px; font-size: 11.5px; color: var(--text-3); overflow-wrap: anywhere; }
+.api-list { margin-right: 6px; color: var(--text-3); text-decoration-thickness: 1px; }
+.api-now { font-weight: 600; color: var(--text); }
+.api-line, .api-sub { display: block; }
+.api-sub { color: var(--text-3); }
+/* A model's long-context rates sit on a second row under it. */
+.data-table.api-price-table tr[data-long] > :is(th, td) { border-bottom-color: transparent; }
+.data-table.api-price-table .api-long > :is(th, td) { padding-top: 0; }
+.data-table.api-price-table .api-long > th { padding-left: 28px; font-weight: 400; color: var(--text-2); }
+.api-cell-label { display: none; }
+.api-unpriced { font-size: 12.5px; color: var(--text-3); }
+.api-notes { display: grid; gap: 6px; margin: 0; padding-left: 18px; font-size: 12.5px; line-height: 1.5; color: var(--text-2); }
+/* Narrow cards: each model becomes a block of labelled values (the header row stays for screen readers). */
+@container api-prices (max-width: 960px) {
+  .api-price-table thead { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+  .api-price-table, .api-price-table tbody { display: block; }
+  .api-price-table tr { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px 16px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+  .api-price-table tbody tr:last-child { border-bottom: 0; }
+  .api-price-table tr[data-long] { padding-bottom: 6px; border-bottom: 0; }
+  .api-price-table tr.api-long { padding-top: 0; }
+  .data-table.api-price-table :is(th, td) { display: block; padding: 0; border: 0; text-align: left; }
+  .data-table.api-price-table .api-long > th { padding-left: 0; }
+  .data-table.api-price-table tbody th { grid-column: 1 / -1; }
+  .data-table.api-price-table td:empty { display: none; }
+  .data-table.api-price-table tbody tr:hover > :is(th, td) { background: none; }
+  .api-cell-label { display: block; margin-bottom: 2px; font: 500 var(--fs-micro)/1.4 var(--font-mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-3); }
+}
+
+/* ---------- Developer API: usage ---------- */
+.api-usage { display: grid; gap: 14px; min-width: 0; }
+.api-usage-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; }
+.api-usage-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px; }
+.api-updating { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-3); }
+.api-usage-body { display: grid; gap: 16px; min-width: 0; transition: opacity var(--dur-2) var(--ease-out); }
+/* Another range is loading: the last one stays, dimmed, so nothing jumps. */
+.api-usage-body[aria-busy="true"] { opacity: 0.55; }
+.api-kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 1px; margin: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--border); box-shadow: var(--shadow-hair); }
+.api-kpi { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 12px 14px 14px; background: var(--surface); }
+.api-kpi dt { font-size: 12.5px; font-weight: 500; line-height: 1.3; color: var(--text-2); }
+.api-kpi dd { margin: 0; }
+.api-kpi-value { font-size: 22px; font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; color: var(--text); overflow-wrap: anywhere; }
+.api-kpi-hint { font-size: 12px; line-height: 1.4; color: var(--text-3); }
+.api-charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.api-chart[data-wide] { grid-column: 1 / -1; }
+.api-chart-body { padding: 14px 18px 16px; }
+.api-table .data-table tbody th { font-family: var(--font-sans); font-size: 13px; font-weight: 500; letter-spacing: normal; text-transform: none; white-space: normal; color: var(--text); }
+.api-key-name { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+/* By key: the prefix under the name; a narrow card lays each key out as a block of labelled values. */
+.api-key-table { container: api-keys / inline-size; }
+.api-key-prefix { display: table; margin-top: 4px; }
+@container api-keys (max-width: 440px) {
+  .api-key-table thead { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+  .api-key-table table, .api-key-table tbody { display: block; }
+  .api-key-table tr { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 14px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+  .api-key-table tbody tr:first-child { padding-top: 0; }
+  .api-key-table tbody tr:last-child { padding-bottom: 0; border-bottom: 0; }
+  .api-key-table .data-table :is(th, td) { display: block; padding: 0; border: 0; text-align: left; }
+  .api-key-table tbody th { grid-column: 1 / -1; }
+  .api-key-table .data-table tbody tr:hover > :is(th, td) { background: none; }
+  .api-key-table .api-cell-label { display: block; margin-bottom: 2px; font: 500 var(--fs-micro)/1.4 var(--font-mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-3); }
+}
+@container page (max-width: 980px) { .api-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@container page (max-width: 760px) { .api-charts { grid-template-columns: minmax(0, 1fr); } }
+@container page (max-width: 520px) {
+  .api-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .api-kpi-value { font-size: 20px; }
+  .api-balance-body, .api-chart-body { padding-inline: 14px; }
+}
+
+/* ---------- Developer API: errors ---------- */
+.api-errors { display: grid; margin: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--r-md); }
+.api-errors > div { display: grid; grid-template-columns: minmax(0, 15rem) minmax(0, 1fr); gap: 4px 18px; padding: 11px 14px; }
+.api-errors > div + div { border-top: 1px solid var(--border); }
+.api-errors dt { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; font: 500 12.5px/1.45 var(--font-mono); color: var(--text); }
+.api-errors dt > code { color: var(--text-2); overflow-wrap: anywhere; }
+.api-status { font-weight: 600; font-variant-numeric: tabular-nums; }
+.api-errors dd { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-2); }
+/* The sample wraps instead of scrolling sideways on phones. */
+.api-errors-body .code-block { white-space: pre-wrap; overflow-wrap: anywhere; }
+@container page (max-width: 640px) { .api-errors > div { grid-template-columns: minmax(0, 1fr); } }

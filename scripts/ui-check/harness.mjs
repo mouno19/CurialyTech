@@ -69,12 +69,35 @@ export function buildPlan(fx, { viewports = VIEWPORTS, only = null } = {}) {
     { id: "welcome", path: "/welcome", fullPage: true, action: "scroll-through" },
     { id: "not-found", path: "/no-such-page/at-all" },
   ];
+  // Billing (crypto payments, 30-day plans, the paid Developer API): the free account's pages (on
+  // Pro, with an API balance and requests running) and a newcomer's, the payment page in every
+  // state, the operator's Payments and Plans tabs, the homepage's pricing. tall: one screenshot
+  // holds the whole page or dialog (run.mjs); clip: just that section of the homepage.
+  const billing = fx.billing ? [
+    { id: "billing", path: "/billing", account: "free", tall: true },
+    { id: "billing-newcomer", path: "/billing", account: "newcomer", tall: true, action: "credits-30d" },
+    ...fx.billing.payStates.map(state => ({ id: `pay-${state.key}`, path: `/pay/${state.code}`, account: "free", tall: !state.short, ...(state.action ? { action: state.action } : {}) })),
+    { id: "developer", path: "/developer", account: "free", tall: true },
+    { id: "developer-30d", path: "/developer", account: "free", tall: true, action: "range-30d" },
+    { id: "developer-24h", path: "/developer", account: "free", tall: true, action: "range-24h" },
+    { id: "developer-add-balance", path: "/developer", account: "free", action: "add-balance" },
+    { id: "admin-payments", path: "/admin?tab=payments", tall: true },
+    { id: "admin-order", path: `/admin?tab=payments&order=${encodeURIComponent(fx.billing.reviewOrderCode)}`, tall: true },
+    { id: "admin-plans", path: "/admin?tab=plans", tall: true },
+    { id: "admin-account-billing", path: "/admin", tall: true, action: "account-billing" },
+    { id: "home-pricing", path: "/", signedOut: true, action: "nav-pricing", clip: "#pricing" },
+    { id: "credits-dialog", path: "/billing", account: "free", action: "credits-dialog" },
+    { id: "credits-dialog-newcomer", path: "/billing", account: "newcomer", action: "credits-dialog" },
+  ] : [];
   const checks = [];
   for (const viewport of viewports) {
     const phone = viewport.width <= PHONE_MAX;
     for (const page of pages) checks.push({ ...page, viewport, phone });
     checks.push({ id: "dashboard-model-menu", path: "/", viewport, phone, action: "model-menu" });
     if (phone) for (const scenario of fx.scenarios) checks.push({ id: `task-${scenario.key}-inspector`, path: `/tasks/${scenario.id}`, scenario: scenario.key, live: scenario.live, task: true, viewport, phone, action: "inspector" });
+    for (const page of billing) checks.push({ ...page, viewport, phone });
+    // Below 1024px the homepage's sections (Pricing among them) are in the menu sheet.
+    if (billing.length && viewport.width < 1024) checks.push({ id: "home-menu", path: "/", signedOut: true, viewport, phone, action: "home-menu" });
   }
   const wide = viewports.find(viewport => viewport.width >= 1024);
   const interrupted = fx.scenarios.find(scenario => scenario.key === "interrupted");

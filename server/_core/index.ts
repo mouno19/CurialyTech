@@ -18,6 +18,8 @@ import { SANDBOX_MODE } from "../agent/sandbox";
 import { startCloudSandbox, stopCloudSandboxes } from "../agent/e2b";
 import { gatewayRouter, keysRouter } from "../gateway";
 import { startFollowUpQueue } from "../agent/queue";
+import { billingAdminRouter, billingRouter } from "../billing/routes";
+import { startPaymentWatcher } from "../billing/watcher";
 
 async function startServer() {
   const app = express();
@@ -29,6 +31,8 @@ async function startServer() {
   await migrate();
   // Runs whose worker is gone become interrupted (with terminal events), never "running" forever.
   await startLifecycle();
+  // Submitted payments are checked on-chain and applied; unpaid orders expire.
+  const stopPaymentWatcher = startPaymentWatcher();
   if (!sessionsConfigured()) console.warn("[auth] SESSION_SECRET missing: nobody can sign in until it is set.");
   // Agent commands run in a cloud sandbox per task when it is configured, never on this server.
   if (SANDBOX_MODE === "e2b") startCloudSandbox();
@@ -75,6 +79,9 @@ async function startServer() {
   app.use("/api/agent", requireUser, agentRouter());
   app.use("/api/account", accountRouter());
   app.use("/api/keys", keysRouter());
+  // Plans, API top-ups and crypto payments (the catalog is public; the rest checks the account itself).
+  app.use("/api/billing", billingRouter());
+  app.use("/api/admin/billing", billingAdminRouter());
   app.use("/api/admin", adminRouter());
   app.get("/api/github/repos", requireUser, (req, res) => void githubReposHandler(req, res).catch(error => res.status(502).json({ error: error instanceof Error ? error.message : "GitHub request failed" })));
   // tRPC API
@@ -107,6 +114,7 @@ async function startServer() {
     console.log(`[server] ${signal}: stopping`);
     const force = setTimeout(() => process.exit(1), 25_000);
     force.unref();
+    stopPaymentWatcher();
     try {
       const stopped = await shutdownRuns(15_000);
       if (stopped) console.log(`[server] interrupted ${stopped} running task(s)`);

@@ -368,6 +368,82 @@ const MIGRATIONS: { id: number; sql: string }[] = [
       CREATE INDEX IF NOT EXISTS users_signup_network_idx ON curialy.users (signup_network) WHERE signup_network IS NOT NULL;
     `,
   },
+  {
+    id: 12,
+    sql: `
+      -- Plans (frozen allowance at purchase), and the Developer API balance in micro-dollars.
+      ALTER TABLE curialy.users ADD COLUMN IF NOT EXISTS plan_id text;
+      ALTER TABLE curialy.users ADD COLUMN IF NOT EXISTS plan_expires_at timestamptz;
+      ALTER TABLE curialy.users ADD COLUMN IF NOT EXISTS plan_credits_per_window integer;
+      ALTER TABLE curialy.users ADD COLUMN IF NOT EXISTS api_balance_micros bigint NOT NULL DEFAULT 0;
+
+      CREATE TABLE IF NOT EXISTS curialy.payment_orders (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        code text NOT NULL UNIQUE,
+        user_id uuid NOT NULL REFERENCES curialy.users(id) ON DELETE RESTRICT,
+        kind text NOT NULL CHECK (kind IN ('plan', 'api')),
+        plan_id text CHECK (plan_id IS NULL OR plan_id IN ('pro', 'max')),
+        -- What a plan gives, fixed when it is sold (the operator may change the plan before it is paid).
+        plan_days integer, plan_credits_per_window integer,
+        list_usd numeric(12,2) NOT NULL,
+        discount_percent integer NOT NULL DEFAULT 0,
+        price_usd numeric(12,2) NOT NULL,
+        credit_usd numeric(12,2),
+        network text, coin text, pay_address text,
+        expected_amount text, expected_units numeric(78,0), quote_usd_price numeric(20,8), quoted_at timestamptz,
+        tx_hash text,
+        status text NOT NULL DEFAULT 'awaiting_payment' CHECK (status IN ('awaiting_payment','pending','confirming','review','completed','rejected','expired')),
+        status_detail text,
+        confirmations integer, required_confirmations integer,
+        tx_from text, tx_block_time timestamptz, received_units numeric(78,0), chain_verified_at timestamptz,
+        check_count integer NOT NULL DEFAULT 0, next_check_at timestamptz, last_checked_at timestamptz,
+        admin_note text,
+        expires_at timestamptz NOT NULL,
+        submitted_at timestamptz, completed_at timestamptz, applied_at timestamptz, applied_detail jsonb,
+        created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
+      );
+      -- One transaction pays one order: only an order it matched holds it (confirming, completed, or verified
+      -- and waiting for the operator). Anyone can paste a hash they see arrive at the wallet, so an order
+      -- whose check didn't match blocks nobody.
+      CREATE UNIQUE INDEX IF NOT EXISTS payment_orders_paid_tx_idx ON curialy.payment_orders (network, tx_hash)
+        WHERE tx_hash IS NOT NULL AND (status IN ('confirming', 'completed') OR (status = 'review' AND chain_verified_at IS NOT NULL));
+      CREATE INDEX IF NOT EXISTS payment_orders_tx_idx ON curialy.payment_orders (network, tx_hash) WHERE tx_hash IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS payment_orders_user_idx ON curialy.payment_orders (user_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS payment_orders_check_idx ON curialy.payment_orders (status, next_check_at);
+      CREATE INDEX IF NOT EXISTS payment_orders_amount_idx ON curialy.payment_orders (network, coin, expected_units) WHERE expected_units IS NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS curialy.payment_events (
+        id bigserial PRIMARY KEY,
+        order_id uuid NOT NULL REFERENCES curialy.payment_orders(id) ON DELETE CASCADE,
+        from_status text, to_status text NOT NULL,
+        actor text NOT NULL CHECK (actor IN ('customer', 'system', 'admin')), actor_id uuid,
+        note text, created_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS payment_events_order_idx ON curialy.payment_events (order_id, id);
+
+      CREATE TABLE IF NOT EXISTS curialy.api_usage (
+        id bigserial PRIMARY KEY,
+        user_id uuid NOT NULL REFERENCES curialy.users(id) ON DELETE CASCADE,
+        key_id uuid REFERENCES curialy.api_keys(id) ON DELETE SET NULL,
+        model text NOT NULL,
+        input_tokens integer NOT NULL DEFAULT 0, output_tokens integer NOT NULL DEFAULT 0,
+        cache_read_tokens integer NOT NULL DEFAULT 0, cache_write_tokens integer NOT NULL DEFAULT 0,
+        list_micros bigint NOT NULL DEFAULT 0, cost_micros bigint NOT NULL DEFAULT 0, discount_percent integer NOT NULL DEFAULT 0,
+        created_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS api_usage_user_idx ON curialy.api_usage (user_id, created_at);
+
+      CREATE TABLE IF NOT EXISTS curialy.api_ledger (
+        id bigserial PRIMARY KEY,
+        user_id uuid NOT NULL REFERENCES curialy.users(id) ON DELETE CASCADE,
+        kind text NOT NULL CHECK (kind IN ('topup', 'grant', 'refund', 'adjust')),
+        amount_micros bigint NOT NULL, balance_after_micros bigint NOT NULL,
+        order_id uuid REFERENCES curialy.payment_orders(id) ON DELETE SET NULL,
+        note text, created_by uuid, created_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS api_ledger_user_idx ON curialy.api_ledger (user_id, created_at DESC);
+    `,
+  },
 ];
 
 export async function migrate() {

@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { creditsFor, modelWeight } from "@shared/credits";
 
-// Credits: the balance a window shows, the order a charge spends in (window, then bonus), and the
-// checks that refuse bad promo codes and settings before anything is written.
+// Credits: the balance a window shows, the order a charge spends in (window, then bonus), plans
+// (their allowance while they last), and the checks that refuse bad promo codes and settings before
+// anything is written.
 
 const store = vi.hoisted(() => ({
   promo: null as null | Record<string, unknown>,
@@ -10,14 +11,18 @@ const store = vi.hoisted(() => ({
   updates: [] as unknown[][],
   events: [] as unknown[][],
   settings: null as null | Record<string, unknown>,
+  billing: null as null | Record<string, unknown>,
+  history: [] as Record<string, unknown>[],
 }));
 
 vi.mock("./db/pg", () => {
   const run = async (text: string, values: unknown[] = []) => {
+    if (text.includes("FROM curialy.app_settings WHERE key = 'billing'")) return { rows: store.billing ? [{ value: store.billing }] : [] };
     if (text.includes("FROM curialy.app_settings")) return { rows: store.settings ? [{ value: store.settings }] : [] };
     if (text.startsWith("SELECT id, role, credit_allowance")) return { rows: store.user ? [store.user] : [] };
     if (text.startsWith("SELECT *, NULL::text AS for_login FROM curialy.promo_codes")) return { rows: store.promo ? [store.promo] : [] };
-    if (text.startsWith("SELECT free_allowance_withheld, credit_allowance FROM curialy.users")) return { rows: store.user ? [store.user] : [] };
+    if (text.startsWith("SELECT free_allowance_withheld, credit_allowance")) return { rows: store.user ? [store.user] : [] };
+    if (text.startsWith("SELECT kind, amount, detail, session_id, created_at FROM curialy.credit_events")) return { rows: store.history };
     if (text.startsWith("INSERT INTO curialy.promo_redemptions")) return { rows: [], rowCount: 1 };
     if (text.startsWith("UPDATE curialy.users SET window_started_at")) {
       store.updates.push(values);
@@ -35,6 +40,7 @@ vi.mock("./db/pg", () => {
 });
 
 const credits = await import("./credits");
+const { resetBillingSettings } = await import("./billing/settings");
 
 const HOUR = 3_600_000;
 const user = (patch: Record<string, unknown> = {}) => ({ id: "u1", role: "user", credit_allowance: null, bonus_credits: "0", window_started_at: null, window_used: "0", ...patch });
@@ -46,6 +52,9 @@ beforeEach(() => {
   store.updates.length = 0;
   store.events.length = 0;
   store.settings = null;
+  store.billing = null;
+  store.history = [];
+  resetBillingSettings();
 });
 
 describe("balance", () => {
@@ -65,7 +74,7 @@ describe("balance", () => {
     expect(credits.balanceOf(withheld, settings, now)).toMatchObject({ allowance: 0, used: 0, remaining: 0, bonus: 12, available: 12, resetsAt: null });
     expect(credits.balanceOf({ ...withheld, credit_allowance: 40 }, settings, now)).toMatchObject({ allowance: 40, remaining: 37 });
     // Its out-of-credits text never promises a refill.
-    expect(credits.outOfCreditsMessage(credits.balanceOf(user({ free_allowance_withheld: true }), settings, now))).toBe("Your account has no credits right now. Redeem a promo code to continue.");
+    expect(credits.outOfCreditsMessage(credits.balanceOf(user({ free_allowance_withheld: true }), settings, now))).toBe("Your account has no credits right now. Get a plan or redeem a promo code to continue.");
   });
 
   it("uses an account's own allowance, never shows a negative remainder, and marks admins unlimited", () => {
@@ -73,6 +82,74 @@ describe("balance", () => {
     expect(credits.balanceOf(user({ credit_allowance: 200 }), settings, now)).toMatchObject({ allowance: 200, remaining: 200 });
     expect(credits.balanceOf(user({ window_started_at: new Date(now), window_used: "75" }), settings, now)).toMatchObject({ remaining: 0, available: 0 });
     expect(credits.balanceOf(user({ role: "admin" }), settings, now).unlimited).toBe(true);
+  });
+});
+
+describe("plans", () => {
+  const DAY = 86_400_000;
+  const pro = (patch: Record<string, unknown> = {}) => user({ plan_id: "pro", plan_expires_at: new Date(Date.now() + 10 * DAY), plan_credits_per_window: 6000, ...patch });
+
+  it("raise the allowance to the plan's while it lasts, and never lower it", () => {
+    const now = Date.now();
+    const balance = credits.balanceOf(pro(), settings, now);
+    expect(balance).toMatchObject({ allowance: 6000, remaining: 6000, available: 6000 });
+    expect(balance.plan).toEqual({ id: "pro", name: "Pro", expiresAt: new Date(now + 10 * DAY).toISOString(), creditsPerWindow: 6000 });
+    // An own allowance above the plan's stays.
+    expect(credits.balanceOf(pro({ credit_allowance: 10_000 }), settings, now).allowance).toBe(10_000);
+    // The allowance frozen at purchase counts, not today's setting.
+    expect(credits.balanceOf(pro({ plan_credits_per_window: 5000 }), settings, now).allowance).toBe(5000);
+    // A window already open uses the plan's allowance.
+    expect(credits.balanceOf(pro({ window_started_at: new Date(now - 3_600_000), window_used: "75" }), settings, now)).toMatchObject({ used: 75, remaining: 5925 });
+  });
+
+  it("give a paid plan's allowance to an account that started without the free one", () => {
+    const now = Date.now();
+    const withheld = pro({ free_allowance_withheld: true, window_started_at: new Date(now - 3_600_000), window_used: "10" });
+    expect(credits.balanceOf(withheld, settings, now)).toMatchObject({ allowance: 6000, used: 10, remaining: 5990, plan: { id: "pro" } });
+    expect(credits.balanceOf(withheld, settings, now).resetsAt).not.toBeNull();
+  });
+
+  it("are ignored once ended, and admins stay unlimited", () => {
+    const now = Date.now();
+    expect(credits.balanceOf(pro({ plan_expires_at: new Date(now - 1000) }), settings, now)).toMatchObject({ allowance: 60, plan: null });
+    expect(credits.balanceOf(pro({ plan_expires_at: new Date(now - 1000), free_allowance_withheld: true }), settings, now)).toMatchObject({ allowance: 0, plan: null });
+    expect(credits.balanceOf(user({ plan_id: "gold", plan_expires_at: new Date(now + DAY) }), settings, now).plan).toBeNull();
+    expect(credits.balanceOf(pro({ role: "admin" }), settings, now)).toMatchObject({ unlimited: true, plan: { id: "pro" } });
+  });
+
+  it("are named as the billing settings name them", async () => {
+    store.billing = { plans: { max: { name: "Max Team" } } };
+    store.user = user({ plan_id: "max", plan_expires_at: new Date(Date.now() + DAY), plan_credits_per_window: 30000 });
+    const balance = await credits.getBalance("u1");
+    expect(balance).toMatchObject({ allowance: 30000, plan: { id: "max", name: "Max Team", creditsPerWindow: 30000 } });
+    // A plan that somehow has no frozen allowance uses the plan's own.
+    store.user = user({ plan_id: "pro", plan_expires_at: new Date(Date.now() + DAY), plan_credits_per_window: null });
+    expect((await credits.getBalance("u1")).plan).toMatchObject({ name: "Pro", creditsPerWindow: 6000 });
+  });
+
+  it("are spent from like any allowance, and point to a plan when credits run out", async () => {
+    store.user = pro({ bonus_credits: "5" });
+    expect(await credits.charge("u1", 100, "t1", "turn")).toMatchObject({ used: 100, remaining: 5900, bonus: 5 });
+    const empty = credits.balanceOf(user({ window_started_at: new Date(), window_used: "60" }), settings);
+    expect(credits.outOfCreditsMessage(empty)).toMatch(/^You've used this window's credits\. They refill in 5 h; a plan or a promo code adds more now\.$/);
+  });
+
+  it("let an account without the free allowance redeem a code for anyone while one lasts", async () => {
+    const open = { id: "p1", code: "WELCOME-2026", credits: 50, for_user_id: null, max_redemptions: null, redemptions: 0, expires_at: null, disabled_at: null, note: null, created_at: new Date() };
+    store.promo = open;
+    store.user = pro({ free_allowance_withheld: true });
+    expect(await credits.redeemPromoCode("u1", "WELCOME-2026")).toMatchObject({ credits: 50 });
+    store.user = pro({ free_allowance_withheld: true, plan_expires_at: new Date(Date.now() - 1000) });
+    await expect(credits.redeemPromoCode("u1", "WELCOME-2026")).rejects.toThrow("That code isn't valid.");
+  });
+
+  it("show in the account's own history without the operator's note", async () => {
+    store.history = [
+      { kind: "plan", amount: "0", detail: "Pro plan until 9 Dec 2026 (given by the operator) · note: beta tester, see ticket 41", session_id: null, created_at: new Date() },
+      { kind: "plan", amount: "0", detail: "Max plan until 9 Dec 2026 (order CUR-7K3M2QX9)", session_id: null, created_at: new Date() },
+    ];
+    expect((await credits.creditHistory("u1", 30, { forAccount: true })).map(entry => entry.detail)).toEqual(["Pro plan until 9 Dec 2026 (given by the operator)", "Max plan until 9 Dec 2026 (order CUR-7K3M2QX9)"]);
+    expect((await credits.creditHistory("u1", 30))[0].detail).toContain("beta tester");
   });
 });
 

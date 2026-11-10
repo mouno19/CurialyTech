@@ -347,6 +347,93 @@ export async function selfTest(config) {
   expect(compileRoute(["GET", "/api/workspace/preview/:taskId/:token/*", () => ({})]).regex.test("/api/workspace/preview/a/b"), "the /* route must also match without a trailing path");
   s3.detail = `${routed} requests routed${publicDir.temporary ? " (no build at UI_CHECK_DIST yet: a stand-in client was used)" : ` (built client at ${publicDir.dir})`}`;
 
+  // ---- Billing fixtures vs shared/billing.ts ----
+  const sb = section("billing");
+  {
+    const ORDER_KEYS = ["code", "kind", "planId", "title", "listUsd", "discountPercent", "priceUsd", "creditUsd", "network", "coin", "payAddress", "expectedAmount", "quoteUsdPrice", "txHash", "receivedAmount", "status", "statusDetail", "confirmations", "requiredConfirmations", "createdAt", "quotedAt", "expiresAt", "submitUntil", "submittedAt", "completedAt", "applied", "explorerUrl", "events"];
+    const ADMIN_KEYS = [...ORDER_KEYS, "user", "adminNote", "txFrom", "txBlockTime", "checkCount", "lastCheckedAt", "chainVerifiedAt"];
+    const TOTAL_KEYS = ["requests", "inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "costMicros", "listMicros"];
+    const PAY_STATUSES = ["awaiting_payment", "pending", "confirming", "review", "completed", "rejected", "expired"];
+    const hasKeys = (value, keys, what) => expect(value && keys.every(key => key in value) && Object.keys(value).every(key => keys.includes(key)), `${what}: keys differ from the type (${Object.keys(value ?? {}).filter(key => !keys.includes(key)).concat(keys.filter(key => !(key in (value ?? {})))).join(", ")})`);
+    let shared = null;
+    try {
+      shared = await import(pathToFileURL(path.join(config.repo, "shared/billing.ts")).href);
+    } catch (error) {
+      sb.notes.push(`shared/billing.ts not importable (${error.message.split("\n")[0]}): the catalog is checked against itself only`);
+    }
+    const data = fx.data.billing;
+    const catalog = asJson(send("GET", "/api/billing/catalog"));
+    expect(catalog?.plans?.length === 2 && catalog.plans.every(plan => plan.discountPercent === 90 && plan.priceUsd === Math.round(plan.listUsd * 10) / 100), "catalog: Pro and Max at 90% off");
+    expect(catalog?.networks?.length === 4 && catalog.models?.length === 19, `catalog: 4 networks and 19 models (got ${catalog?.networks?.length} and ${catalog?.models?.length})`);
+    if (shared && catalog) {
+      for (const model of catalog.models) {
+        const list = shared.API_PRICES[model.id];
+        expect(list && ["input", "output", "cacheRead", "cacheWrite"].every(key => list[key] === model.list[key]), `catalog: ${model.id} list prices differ from API_PRICES (run billing-catalog.gen.mjs)`);
+        const limits = shared.modelLimits(model.id);
+        expect((limits?.contextWindow ?? null) === model.contextWindow && (limits?.maxOutput ?? null) === model.maxOutput, `catalog: ${model.id} limits differ from MODEL_LIMITS (run billing-catalog.gen.mjs)`);
+        const offer = shared.discountedPrices(model.list, catalog.discount.apiPercent);
+        expect(["input", "output", "cacheRead", "cacheWrite"].every(key => offer[key] === model.price[key]), `catalog: ${model.id} offer prices are not discountedPrices()`);
+      }
+      expect(catalog.networks.every(network => shared.networkInfo(network.id)?.coins.length === network.coins.length), "catalog: networks differ from PAYMENT_NETWORKS");
+    }
+    const operatorOrders = asJson(send("GET", "/api/billing/orders"));
+    expect(operatorOrders?.orders?.length === 0, "the operator's own order list should be empty");
+    fx.state.account = "free";
+    const own = asJson(send("GET", "/api/billing/orders"))?.orders ?? [];
+    for (const status of PAY_STATUSES) expect(own.some(order => order.status === status), `the free account has no order in status ${status}`);
+    for (const order of data.customerOrders) {
+      hasKeys(order, ORDER_KEYS, `order ${order.code}`);
+      expect(/^CUR-[0-9A-HJKMNP-TV-Z]{8}$/.test(order.code), `order ${order.code}: not a CUR- code`);
+      expect(PAY_STATUSES.includes(order.status) && order.events.every(event => PAY_STATUSES.includes(event.status) && ["customer", "system", "admin"].includes(event.actor) && !Number.isNaN(Date.parse(event.at))), `order ${order.code}: bad status or events`);
+      expect(!order.events.some(event => event.actor === "admin" && event.note), `order ${order.code}: the payer's view must not carry the operator's notes`);
+      if (order.network) expect(order.payAddress && order.expectedAmount && /^\d+(\.\d+)?$/.test(order.expectedAmount), `order ${order.code}: details issued without a wallet or amount`);
+      if (shared && order.txHash) expect(shared.normalizeTxHash(order.network, order.txHash) !== null && order.explorerUrl === shared.explorerTxUrl(order.network, order.txHash), `order ${order.code}: the hash or explorer link isn't valid for ${order.network}`);
+    }
+    for (const order of data.orders) hasKeys(order, ADMIN_KEYS, `admin order ${order.code}`);
+    for (const state of fx.billing.payStates) {
+      const reply = send("GET", `/api/billing/orders/${state.code}`);
+      check(`pay state ${state.key}`, reply, state.key === "unknown" ? { status: 404, expected: true } : { status: 200, json: body => body.order.code === state.code });
+    }
+    for (const range of ["24h", "7d", "30d", "90d"]) {
+      const report = asJson(send("GET", `/api/billing/api/usage?range=${range}&tz=${encodeURIComponent("America/New_York")}`));
+      expect(report?.buckets?.length === { "24h": 24, "7d": 7, "30d": 30, "90d": 90 }[range] && report.bucket === (range === "24h" ? "hour" : "day"), `api usage ${range}: wrong bucket count or size`);
+      const sum = rows => Object.fromEntries(TOTAL_KEYS.map(key => [key, rows.reduce((total, row) => total + row[key], 0)]));
+      for (const [what, rows] of [["buckets", report.buckets], ["byModel", report.byModel], ["byKey", report.byKey]]) {
+        const got = sum(rows);
+        expect(TOTAL_KEYS.every(key => got[key] === report.totals[key]), `api usage ${range}: ${what} don't add up to the totals`);
+      }
+      expect(report.totals.requests > 0 && report.totals.costMicros > 0 && report.totals.costMicros < report.totals.listMicros, `api usage ${range}: no charged requests at the offer price`);
+      const starts = report.buckets.map(bucket => Date.parse(bucket.start));
+      expect(starts.every((start, index) => !index || start > starts[index - 1]) && starts.at(-1) <= fx.now, `api usage ${range}: buckets out of order or in the future`);
+      const credits = asJson(send("GET", `/api/billing/credits/usage?range=${range}&tz=UTC`));
+      expect(credits?.buckets?.length === report.buckets.length && Math.abs(credits.buckets.reduce((total, bucket) => total + bucket.credits, 0) - credits.totals.credits) < 0.05 && credits.allowance === 6000, `credit usage ${range}: buckets, totals or allowance wrong`);
+    }
+    check("bad usage range", send("GET", "/api/billing/api/usage?range=1y&tz=UTC"), { status: 400, expected: true });
+    const account = asJson(send("GET", "/api/billing/account"));
+    expect(account?.plan?.id === "pro" && account.apiWallet.reservedMicros > 0 && account.apiWallet.availableMicros === account.apiWallet.balanceMicros - account.apiWallet.reservedMicros && account.operator === false, "the free account: on Pro, with a reservation");
+    const me = asJson(send("GET", "/api/account"));
+    expect(me?.credits?.plan?.id === "pro" && me.credits.allowance === me.credits.plan.creditsPerWindow, "the free account's credits: the plan's allowance");
+    fx.state.account = "newcomer";
+    const fresh = asJson(send("GET", "/api/account"));
+    expect(fresh?.credits?.plan === null && asJson(send("GET", "/api/billing/orders"))?.orders?.length === 0 && asJson(send("GET", "/api/billing/account"))?.apiWallet.balanceMicros === 0, "the newcomer: no plan, no orders, no API balance");
+    fx.reset();
+    for (const user of fx.data.adminUsers) expect("plan" in user.credits && "plan" in user && typeof user.apiBalanceUsd === "number", `admin user ${user.login}: credits.plan, plan or apiBalanceUsd missing`);
+    const wallets = asJson(send("GET", "/api/admin/billing/wallets"));
+    expect(wallets?.networks?.some(network => network.unavailable) && wallets.networks.some(network => network.coins.some(coin => coin.amount === "0")), "wallet balances: need a zero and an unreachable network");
+    const overview = asJson(send("GET", "/api/admin/billing/overview"));
+    expect(overview && PAY_STATUSES.every(status => typeof overview.counts[status] === "number") && overview.counts.review === 2, "admin overview: counts per status (two in review)");
+    check("admin orders: attention", send("GET", "/api/admin/billing/orders?status=attention&q=&offset=0"), { status: 200, json: body => body.orders.length === 2 && body.orders.every(order => order.status === "review") });
+    check("admin orders: search", send("GET", "/api/admin/billing/orders?status=all&q=hedy&offset=0"), { status: 200, json: body => body.orders.length === 1 });
+    check("admin order dialog", send("GET", `/api/admin/billing/orders/${fx.billing.reviewOrderCode}`), { status: 200, json: body => body.order.status === "review" && body.order.txFrom });
+    check("admin account billing", send("GET", `/api/admin/billing/users/${fx.billing.users.free.id}`), { status: 200, json: body => body.plan && body.orders.length > 5 && body.ledger.length >= 3 && body.orders.every(order => order.events.length === 0) });
+    check("developer keys", send("GET", "/api/keys"), { status: 200, json: body => Array.isArray(body.keys) });
+    fx.state.signedIn = false;
+    check("signed out: the catalog is public", send("GET", "/api/billing/catalog"), { status: 200 });
+    check("signed out: orders need a session", send("GET", "/api/billing/orders"), { status: 401, expected: false });
+    fx.reset();
+    sb.detail = `${data.customerOrders.length} orders (${PAY_STATUSES.length} statuses), ${catalog?.models?.length ?? 0} priced models, 4 usage ranges${shared ? ", prices match shared/billing.ts" : ""}`;
+  }
+
   // ---- SSE bodies ----
   const s4 = section("streams");
   for (const task of tasks) {

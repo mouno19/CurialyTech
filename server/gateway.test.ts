@@ -4,8 +4,10 @@ import express from "express";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 // The Developer API end to end over HTTP: keys (create once, list, revoke), key authentication,
-// the model allowlist, failover from the internal bridge to the relay's copy of the model, and what
-// never reaches a caller or the log: upstream names, hosts, headers and error texts.
+// the model allowlist, failover from the internal bridge to the relay's copy of the model, what
+// never reaches a caller or the log (upstream names, hosts, headers and error texts), and what a
+// request costs: held against the account's API balance while it runs, then charged at list price
+// less the API discount (the operator's usage recorded at no cost).
 
 process.env.CORTEX_BRIDGE_URL = "http://bridge.test";
 process.env.RELAY_API_URL = "https://relay.test";
@@ -41,12 +43,34 @@ vi.mock("./db/pg", () => ({
   db: () => { throw new Error("no pool in tests"); },
   adminUserId: async () => "admin",
 }));
-const credits = vi.hoisted(() => ({ available: 50, allowance: 60, charges: [] as { userId: string; amount: number; detail: string }[] }));
-vi.mock("./credits", () => ({
-  getBalance: async () => ({ unlimited: false, allowance: credits.allowance, used: 10, remaining: credits.available, bonus: 0, available: credits.available, resetsAt: credits.allowance ? new Date(Date.now() + 3600_000).toISOString() : null }),
-  charge: vi.fn(async (userId: string, amount: number, _session: unknown, detail: string) => { credits.charges.push({ userId, amount, detail }); }),
-  outOfCreditsMessage: () => "You've used this window's credits.",
+
+// The API wallet: balances per account ($10 unless a test sets one) and every usage row written.
+const wallet = vi.hoisted(() => ({
+  balances: new Map<string, number>(),
+  records: [] as any[],
+  /** Replaces the balance lookup (a slow or failing database). */
+  lookup: null as null | ((userId: string) => Promise<number>),
+  /** Charges wait for this before they are written (a slow database). */
+  writing: null as null | Promise<void>,
+  failCharges: false,
 }));
+vi.mock("./billing/wallet", () => ({
+  apiBalanceMicros: vi.fn(async (userId: string) => (wallet.lookup ? wallet.lookup(userId) : wallet.balances.get(userId) ?? 10_000_000)),
+  recordApiUsage: vi.fn(async (record: any) => {
+    await wallet.writing;
+    if (wallet.failCharges) throw new Error("Connection terminated unexpectedly (db.example.com:5432)");
+    wallet.records.push(record);
+    wallet.balances.set(record.userId, (wallet.balances.get(record.userId) ?? 10_000_000) - record.costMicros);
+  }),
+}));
+const billing = vi.hoisted(() => ({ discount: { percent: 90, plans: true, api: true, endsAt: null as string | null } }));
+vi.mock("./billing/settings", async () => {
+  const { DEFAULT_BILLING_SETTINGS } = await import("../shared/billing");
+  return { getBillingSettings: vi.fn(async () => ({ ...DEFAULT_BILLING_SETTINGS, discount: billing.discount })) };
+});
+// Credits no longer pay for the API: nothing here may touch them.
+const credits = vi.hoisted(() => ({ getBalance: vi.fn(), charge: vi.fn(), outOfCreditsMessage: vi.fn() }));
+vi.mock("./credits", () => credits);
 vi.mock("./auth", async importOriginal => ({
   ...(await importOriginal<typeof import("./auth")>()),
   requireUser: (req: any, res: any, next: any) => (req.headers["x-test-user"] ? next() : res.status(401).json({ error: "Sign in required." })),
@@ -59,7 +83,8 @@ const upstream = vi.hoisted(() => ({ calls: [] as Upstream[], bridge: null as nu
 const realFetch = globalThis.fetch;
 const reply = (status: number, body: unknown, headers: Record<string, string> = {}) => new Response(typeof body === "string" ? body : JSON.stringify(body), { status, headers: { "content-type": "application/json", "x-snowflake-request-id": "sf-123", server: "envoy", ...headers } });
 const message = (model: string, text = "Hello!") => ({ id: "msg_1", type: "message", role: "assistant", model, content: [{ type: "text", text }], stop_reason: "end_turn", usage: { input_tokens: 20_000, output_tokens: 1_250 } });
-const stream = (events: object[]) => new Response(events.map(event => `event: ${(event as { type: string }).type}\ndata: ${JSON.stringify(event)}\n\n`).join(""), { status: 200, headers: { "content-type": "text/event-stream", "x-snowflake-fe-instance": "fe-9" } });
+const sseOf = (events: object[]) => events.map(event => `event: ${(event as { type: string }).type}\ndata: ${JSON.stringify(event)}\n\n`).join("");
+const stream = (events: object[]) => new Response(sseOf(events), { status: 200, headers: { "content-type": "text/event-stream", "x-snowflake-fe-instance": "fe-9" } });
 /** A whole message as the stream of events the model service sends for it. */
 const streamOf = (whole: { id: string; model: string; content: any[]; stop_reason: string; usage: { input_tokens: number; output_tokens: number } }) => stream([
   { type: "message_start", message: { id: whole.id, type: "message", role: "assistant", model: whole.model, content: [], stop_reason: null, usage: { input_tokens: whole.usage.input_tokens, output_tokens: 1 } } },
@@ -69,15 +94,33 @@ const streamOf = (whole: { id: string; model: string; content: any[]; stop_reaso
   { type: "message_delta", delta: { stop_reason: whole.stop_reason, stop_sequence: null }, usage: { output_tokens: whole.usage.output_tokens } },
   { type: "message_stop" },
 ]);
+/** A reply's events with the usage the model service reports for it (`start`: the counts message_start carries). */
+const counted = (start: Record<string, number>, output: number) => [
+  { type: "message_start", message: { id: "msg_u", type: "message", role: "assistant", model: "claude-opus-5-5", content: [], usage: { output_tokens: 1, ...start } } },
+  { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+  { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Done." } },
+  { type: "content_block_stop", index: 0 },
+  { type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: output } },
+  { type: "message_stop" },
+];
+/** A streamed reply that sends `events` only once opened. */
+function gated(events: object[]) {
+  let open = () => undefined as void;
+  const response = new Response(new ReadableStream({ start: controller => { open = () => { controller.enqueue(new TextEncoder().encode(sseOf(events))); controller.close(); }; } }), { status: 200, headers: { "content-type": "text/event-stream" } });
+  return { response, open: () => open() };
+}
 
-const { gatewayRouter, keysRouter, resetLookupLimits } = await import("./gateway");
+const { gatewayRouter, keysRouter, reservedFor, resetLookupLimits } = await import("./gateway");
 const { resetRouteHealth } = await import("./gateway/upstream");
+const { apiBalanceMicros } = await import("./billing/wallet");
 let server: Server;
 let base = "";
 beforeAll(async () => {
   vi.stubGlobal("fetch", async (input: string | URL, init: RequestInit = {}) => {
     const url = String(input);
     if (url.startsWith(base)) return realFetch(input, init);
+    // Like undici: a request whose signal is already aborted is never sent.
+    if (init.signal?.aborted) throw init.signal.reason ?? new Error("aborted");
     const call: Upstream = { url, headers: Object.fromEntries(Object.entries(init.headers ?? {})), body: init.body ? JSON.parse(String(init.body)) : null };
     upstream.calls.push(call);
     const handler = url.startsWith("http://bridge.test") ? upstream.bridge : url.startsWith("https://relay.test") ? upstream.relay : null;
@@ -109,14 +152,20 @@ beforeEach(() => {
   upstream.calls.length = 0;
   upstream.bridge = call => streamOf(message(call.body.model));
   upstream.relay = call => streamOf(message(call.body.model.replace(/^r\//, "")));
-  credits.available = 50;
-  credits.charges.length = 0;
+  wallet.balances.clear();
+  wallet.records.length = 0;
+  wallet.lookup = null;
+  wallet.writing = null;
+  wallet.failCharges = false;
+  billing.discount = { percent: 90, plans: true, api: true, endsAt: null };
   warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 });
 afterEach(() => {
   // Nothing about the upstream ever reaches the log.
   for (const call of warn.mock.calls) expect(JSON.stringify(call)).not.toMatch(/snowflake|bridge\.test|relay\.test|relay-secret-key/i);
   warn.mockRestore();
+  expect(credits.charge).not.toHaveBeenCalled();
+  expect(credits.getBalance).not.toHaveBeenCalled();
 });
 
 const api = (path: string, init: RequestInit & { user?: string } = {}) => realFetch(`${base}${path}`, { ...init, headers: { "content-type": "application/json", ...(init.user ? { "x-test-user": init.user } : {}), ...(init.headers ?? {}) } });
@@ -128,6 +177,13 @@ async function newKey(user = "user-1", models?: string[], role = "user") {
 }
 const call = (path: string, secret: string, body: unknown, headers: Record<string, string> = {}) => realFetch(`${base}${path}`, { method: "POST", headers: { "content-type": "application/json", "x-api-key": secret, ...headers }, body: JSON.stringify(body) });
 const ask = { model: "claude-opus-5-5", max_tokens: 1024, messages: [{ role: "user", content: "Hello!" }] };
+/** The usage row the gateway writes for a reply. */
+const row = (userId: string, keyId: string, model: string, usage: [number, number, number?, number?], listMicros: number, costMicros: number, discountPercent: number) => ({
+  userId, keyId, model, usage: { inputTokens: usage[0], outputTokens: usage[1], cacheReadTokens: usage[2] ?? 0, cacheWriteTokens: usage[3] ?? 0 }, listMicros, costMicros, discountPercent,
+});
+/** Every hold of the account given back. */
+const settled = (user: string) => vi.waitFor(() => expect(reservedFor(user)).toEqual({ reservedMicros: 0, reservedTokens: 0, requests: 0 }));
+const EMPTY = "Your API balance is empty. Add balance on the Developer API page: https://curialy.tech/developer";
 
 describe("API keys", () => {
   it("shows a new key's secret once, then lists only its prefix, and revoking stops it at once", async () => {
@@ -175,7 +231,7 @@ describe("the gateway", () => {
   });
 
   it("answers from the bridge with no upstream header, and charges the key's account", async () => {
-    const { secret } = await newKey("bridge-user");
+    const { key, secret } = await newKey("bridge-user");
     const response = await call("/v1/messages", secret, ask);
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ model: "claude-opus-5-5", content: [{ type: "text", text: "Hello!" }] });
@@ -183,13 +239,10 @@ describe("the gateway", () => {
     expect(response.headers.get("access-control-allow-origin")).toBe("*");
     for (const name of response.headers.keys()) expect(name).not.toMatch(/snowflake|envoy|^server$/);
     expect(upstream.calls).toEqual([expect.objectContaining({ url: "http://bridge.test/v1/messages", body: expect.objectContaining({ model: "claude-opus-5-5", stream: true }) })]);
-    // 20k in + 1250 out on Opus (weight 5): 5 credits, as for the agent.
-    await vi.waitFor(() => expect(credits.charges).toEqual([{ userId: "bridge-user", amount: 5, detail: "API claude-opus-5-5: 20000 in, 1250 out" }]));
-    // The operator's account is not charged.
-    const { secret: operator } = await newKey("operator", undefined, "admin");
-    credits.charges.length = 0;
-    expect((await call("/v1/messages", operator, ask)).status).toBe(200);
-    expect(credits.charges).toEqual([]);
+    // 20k in at $4 and 1,250 out at $20 per million: $0.105 at list, $0.0105 after 90% off.
+    await vi.waitFor(() => expect(wallet.records).toEqual([row("bridge-user", key.id, "claude-opus-5-5", [20_000, 1_250], 105_000, 10_500, 90)]));
+    expect(wallet.balances.get("bridge-user")).toBe(10_000_000 - 10_500);
+    await settled("bridge-user");
   });
 
   it("moves to the relay's copy of the model when the bridge refuses, and stays there for a while", async () => {
@@ -233,21 +286,13 @@ describe("the gateway", () => {
     upstream.relay = () => reply(400, { error: { message: "[antigravity/claude-opus-4-6-thinking] [400]: invalid base64 at messages.0" } });
     const relayed = await (await call("/v1/messages", secret, ask)).json();
     expect(relayed.error).toEqual({ message: "The request was not accepted. Check its parameters and try again.", type: "invalid_request_error", code: 400 });
-  });
-
-  it("refuses free accounts that are out of credits or ask for more than they may", async () => {
-    const { secret } = await newKey("broke-user");
-    credits.available = 0;
-    const broke = await call("/v1/messages", secret, ask);
-    expect(broke.status).toBe(402);
-    expect((await broke.json()).error.type).toBe("insufficient_credits");
-    credits.available = 50;
-    expect((await call("/v1/messages", secret, { ...ask, max_tokens: 64_000 })).status).toBe(400);
-    expect(upstream.calls).toEqual([]);
+    // A request the model service never took costs nothing, and holds nothing afterwards.
+    expect(wallet.records).toEqual([]);
+    await settled("mask-user");
   });
 
   it("streams Anthropic events through, counts their usage, and masks an error event", async () => {
-    const { secret } = await newKey("stream-user");
+    const { key, secret } = await newKey("stream-user");
     upstream.bridge = () => stream([
       { type: "message_start", message: { id: "msg_s", type: "message", role: "assistant", model: "claude-opus-5-5", content: [], usage: { input_tokens: 10_000, output_tokens: 1 } } },
       { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
@@ -261,12 +306,16 @@ describe("the gateway", () => {
     const body = await response.text();
     expect(body).toContain('event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}');
     expect(body).toContain("event: message_stop");
-    await vi.waitFor(() => expect(credits.charges).toEqual([{ userId: "stream-user", amount: 4, detail: "API claude-opus-5-5: 10000 in, 2500 out" }]));
+    // 10k in, 2,500 out: $0.04 + $0.05 at list.
+    await vi.waitFor(() => expect(wallet.records).toEqual([row("stream-user", key.id, "claude-opus-5-5", [10_000, 2_500], 90_000, 9_000, 90)]));
 
     upstream.bridge = () => stream([{ type: "message_start", message: { id: "m", model: "claude-opus-5-5", usage: { input_tokens: 5 } } }, { type: "error", error: { type: "overloaded_error", message: "Snowflake region us-west-2 overloaded" } }]);
     const failed = await (await call("/v1/messages", secret, { ...ask, stream: true })).text();
     expect(failed).toContain('event: error\ndata: {"type":"error","error":{"type":"api_error","message":"The requested model service is currently unavailable. Please retry shortly."}}');
     expect(failed).not.toMatch(/snowflake|us-west-2/i);
+    // What it read before the error is billed: 5 input tokens.
+    await vi.waitFor(() => expect(wallet.records.at(-1)).toEqual(row("stream-user", key.id, "claude-opus-5-5", [5, 0], 20, 2, 90)));
+    await settled("stream-user");
   });
 
   it("serves OpenAI Chat Completions from the same models, whole and streamed", async () => {
@@ -305,7 +354,7 @@ describe("the gateway", () => {
     expect(new Set(parsed.map(chunk => chunk.id))).toEqual(new Set(["chatcmpl-msg_c"]));
   });
 
-  it("lets at most three requests of a free account run at once, even when they arrive together", async () => {
+  it("lets at most three requests of an account run at once, even when they arrive together, holding each one's cost", async () => {
     const { secret } = await newKey("burst-user");
     const gates: (() => void)[] = [];
     upstream.bridge = () => new Response(new ReadableStream({ start: controller => { gates.push(() => { controller.enqueue(new TextEncoder().encode(`event: message_stop\ndata: {"type":"message_stop"}\n\n`)); controller.close(); }); } }), { status: 200, headers: { "content-type": "text/event-stream" } });
@@ -313,52 +362,45 @@ describe("the gateway", () => {
     await vi.waitFor(() => expect(upstream.calls.length).toBe(3));
     const statuses: number[] = [];
     for (const response of pending) {
-      const settled = await Promise.race([response.then(answer => answer.status), new Promise<number>(resolve => setTimeout(() => resolve(0), 300))]);
-      statuses.push(settled);
+      const status = await Promise.race([response.then(answer => answer.status), new Promise<number>(resolve => setTimeout(() => resolve(0), 300))]);
+      statuses.push(status);
     }
+    // Each holds 4 input tokens at the cache-write rate and 64 out, after 90% off; 3 + 64 tokens.
+    expect(reservedFor("burst-user")).toEqual({ reservedMicros: 3 * 132, reservedTokens: 3 * 70, requests: 3 });
     gates.forEach(open => open());
     const final = (await Promise.all(pending)).map(answer => answer.status);
     expect(final.filter(status => status === 200)).toHaveLength(3);
     expect(final.filter(status => status === 429)).toHaveLength(7);
     expect(upstream.calls).toHaveLength(3);
+    await settled("burst-user");
   });
 
-  it("holds what a request could cost: a free account cannot ask for more than its credits cover", async () => {
-    const { secret } = await newKey("hold-user");
-    credits.available = 1;
-    // Opus, 16384 tokens out: up to about 13 credits.
-    const big = await call("/v1/messages", secret, { ...ask, max_tokens: 16_384 });
-    expect(big.status).toBe(402);
-    expect((await big.json()).error.message).toMatch(/could use up to 13\.\d+ credits and 1 are available/);
-    expect(upstream.calls).toEqual([]);
-    expect((await call("/v1/messages", secret, { ...ask, max_tokens: 1024 })).status).toBe(200);
+  it("charges nothing for a whole reply that ended in an error: the caller got no content", async () => {
+    const { secret } = await newKey("whole-failure");
+    upstream.bridge = () => stream([{ type: "message_start", message: { id: "m", model: "claude-opus-5-5", usage: { input_tokens: 5 } } }, { type: "error", error: { type: "overloaded_error", message: "overloaded" } }]);
+    const whole = await call("/v1/messages", secret, ask);
+    expect(whole.status).toBe(503);
+    await settled("whole-failure");
+    expect(wallet.records).toEqual([]);
   });
 
-  it("never promises a refill to an account whose credits don't refill", async () => {
-    const { secret } = await newKey("no-allowance-user");
-    credits.available = 1;
-    credits.allowance = 0;
-    try {
-      const big = await call("/v1/messages", secret, { ...ask, max_tokens: 16_384 });
-      expect(big.status).toBe(402);
-      const message = (await big.json()).error.message;
-      expect(message).toMatch(/add credits with a promo code/);
-      expect(message).not.toMatch(/refill/);
-    } finally {
-      credits.allowance = 60;
-    }
-  });
-
-  it("bills a stream the caller cut short for what it was sent, and assembles unstreamed replies", async () => {
-    const { secret } = await newKey("cut-user");
+  it("bills a stream the caller cut short for what the model really wrote, hidden reasoning included, and assembles unstreamed replies", async () => {
+    const { key, secret } = await newKey("cut-user");
     const long = "x".repeat(40_000);
+    let left!: () => void;
+    const callerLeft = new Promise<void>(resolve => { left = resolve; });
     upstream.bridge = () => new Response(new ReadableStream({
-      start: controller => {
+      start: async controller => {
         const send = (event: object) => controller.enqueue(new TextEncoder().encode(`event: ${(event as { type: string }).type}\ndata: ${JSON.stringify(event)}\n\n`));
         send({ type: "message_start", message: { id: "m", type: "message", role: "assistant", model: "claude-opus-5-5", content: [], usage: { input_tokens: 1000, output_tokens: 1 } } });
         send({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } });
         send({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: long } });
-        // ...and the final count never comes: the caller leaves first.
+        // The caller leaves; the model finishes anyway, and its count (25,000 out: most of it
+        // reasoning the caller never saw) is what the reply cost.
+        await callerLeft;
+        send({ type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 25_000 } });
+        send({ type: "message_stop" });
+        controller.close();
       },
     }), { status: 200, headers: { "content-type": "text/event-stream" } });
     const response = await call("/v1/messages", secret, { ...ask, stream: true });
@@ -366,8 +408,10 @@ describe("the gateway", () => {
     let received = "";
     while (!received.includes(long)) received += new TextDecoder().decode((await reader.read()).value);
     await reader.cancel();
-    // 1000 in, 10000 out (40000 characters at about 4 a token) on Opus: (1000 + 4 × 10000) × 5 / 25000 = 8.2 credits.
-    await vi.waitFor(() => expect(credits.charges).toEqual([{ userId: "cut-user", amount: 8.2, detail: "API claude-opus-5-5: 1000 in, 10000 out" }]));
+    left();
+    // 1000 in, 25000 out on Opus 5.5: $0.504 at list (not the 10,000 its visible text would suggest).
+    await vi.waitFor(() => expect(wallet.records).toEqual([row("cut-user", key.id, "claude-opus-5-5", [1_000, 25_000], 504_000, 50_400, 90)]));
+    await settled("cut-user");
 
     // Unstreamed: the stream is assembled into one message, tool input included.
     upstream.bridge = call => streamOf({ ...message(call.body.model, "Checking."), content: [{ type: "text", text: "Checking." }, { type: "tool_use", id: "toolu_9", name: "lookup", input: { q: "Lyon", n: 2 } }], stop_reason: "tool_use" });
@@ -384,13 +428,13 @@ describe("the gateway", () => {
     expect((await call("/v1/messages", "cur_live_ffffffffffffffffffffffffffffffff", ask)).status).toBe(429);
     const { scrub } = await import("./gateway/upstream");
     const scrubbed = scrub("[antigravity/claude-opus-4-6-thinking] [403]: HTTP 403 (reset after 23s), x-snowflake-request-id: 7f2e-11ab, request-id: req_99, id 3fa85f64-5717-4562-b3fc-2c963f66afa6, https://ab12.snowflakecomputing.com/api/v2 Snowflake r/claude-opus-5-5");
-    expect(scrubbed).not.toMatch(/antigravity|snowflake|7f2e|req_99|3fa85f64|https?:|\.com|r\/claude/i);
+    expect(scrubbed).not.toMatch(/antigravity|snowflake|7f2e|req_99|3fa85f64|https?:|\.com/i);
     expect(scrubbed).toContain("HTTP 403 (reset after 23s)");
     expect(scrubbed).toContain("claude-opus-5-5");
   });
 
   it("serves GPT, Grok, Kimi and GLM as they are on /v1/chat/completions, with standard fields only", async () => {
-    const { secret } = await newKey("chat-user");
+    const { key, secret } = await newKey("chat-user");
     const chunk = (fields: object) => ({ id: "chatcmpl-abc", object: "chat.completion.chunk", created: 1_793_900_000, model: "grok-4.7", system_fingerprint: "fp_upstream", service_tier: "default", obfuscation: "xyz", ...fields });
     const chatReply = () => new Response([
       chunk({ choices: [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: null }] }),
@@ -413,8 +457,8 @@ describe("the gateway", () => {
       usage: { prompt_tokens: 20_000, completion_tokens: 1_250, total_tokens: 21_250 },
     });
     expect(upstream.calls[0]).toMatchObject({ url: "http://bridge.test/v1/chat/completions", body: { model: "grok-4.7", stream: true, stream_options: { include_usage: true }, max_tokens: 4096 } });
-    // 20k in + 1250 out at weight 1: 1 credit.
-    await vi.waitFor(() => expect(credits.charges).toEqual([{ userId: "chat-user", amount: 1, detail: "API grok-4.7: 20000 in, 1250 out" }]));
+    // 20k in at $2 and 1,250 out at $6 per million.
+    await vi.waitFor(() => expect(wallet.records).toEqual([row("chat-user", key.id, "grok-4.7", [20_000, 1_250], 47_500, 4_750, 90)]));
 
     // Streamed without include_usage: cleaned chunks, no usage chunk, [DONE]; the caller's limit is passed on.
     upstream.calls.length = 0;
@@ -427,8 +471,8 @@ describe("the gateway", () => {
     expect(parsed.every(entry => Object.keys(entry).sort().join() === "choices,created,id,model,object" && entry.model === "grok-4.7")).toBe(true);
     expect(streamed).not.toMatch(/fp_upstream|obfuscation|service_tier|snowflake/i);
     // With include_usage, the usage chunk is the caller's too.
-    const counted = await (await call("/v1/chat/completions", secret, { model: "grok-4.7", stream: true, stream_options: { include_usage: true }, messages: [{ role: "user", content: "Hi" }] })).text();
-    expect(counted).toContain('"usage":{"prompt_tokens":20000,"completion_tokens":1250,"total_tokens":21250}');
+    const withUsage = await (await call("/v1/chat/completions", secret, { model: "grok-4.7", stream: true, stream_options: { include_usage: true }, messages: [{ role: "user", content: "Hi" }] })).text();
+    expect(withUsage).toContain('"usage":{"prompt_tokens":20000,"completion_tokens":1250,"total_tokens":21250}');
 
     // On /v1/messages these models are pointed to the right endpoint.
     const wrong = await call("/v1/messages", secret, { ...ask, model: "kimi-k3" });
@@ -463,13 +507,14 @@ describe("the gateway", () => {
   });
 
   it("keeps chat-model failures out of Claude's routing, standard usage only, and holds and bills every input and output", async () => {
-    const { secret } = await newKey("review3-user");
+    const { key, secret } = await newKey("review3-user");
     // A chat model's rate limit says nothing about the Claude endpoint: Claude still goes to the bridge first.
     upstream.bridge = call => (call.url.endsWith("/v1/chat/completions") ? reply(429, { error: { message: "rate limited" } }) : streamOf(message(call.body.model)));
     expect((await call("/v1/chat/completions", secret, { model: "kimi-k3", messages: [{ role: "user", content: "Hi" }] })).status).toBe(429);
     upstream.calls.length = 0;
     expect((await call("/v1/messages", secret, ask)).status).toBe(200);
     expect(upstream.calls.map(entry => entry.url)).toEqual(["http://bridge.test/v1/messages"]);
+    await vi.waitFor(() => expect(wallet.records).toHaveLength(1));
 
     // Usage leaves with the standard fields only; reasoning reported only in the total is billed too.
     const usage = { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 4200, prompt_tokens_details: { cached_tokens: 0, cache_write_tokens: 50 }, completion_tokens_details: { reasoning_tokens: 3000, accepted_prediction_tokens: 0 } };
@@ -478,19 +523,20 @@ describe("the gateway", () => {
       { id: "c1", object: "chat.completion.chunk", created: 1, model: "glm-5.3", choices: [{ index: 0, delta: { function_call: { arguments: '"Lyon"}' } }, finish_reason: "function_call" }] },
       { id: "c1", object: "chat.completion.chunk", created: 1, model: "glm-5.3", choices: [], usage },
     ].map(entry => `data: ${JSON.stringify(entry)}\n\n`).join("") + "data: [DONE]\n\n", { status: 200, headers: { "content-type": "text/event-stream" } });
-    credits.charges.length = 0;
+    wallet.records.length = 0;
     const whole = await (await call("/v1/chat/completions", secret, { model: "glm-5.3", messages: [{ role: "user", content: "Hi" }] })).json();
     expect(whole.usage).toEqual({ prompt_tokens: 1000, completion_tokens: 200, total_tokens: 4200, prompt_tokens_details: { cached_tokens: 0 }, completion_tokens_details: { reasoning_tokens: 3000 } });
     expect(whole.choices[0].message).toEqual({ role: "assistant", content: null, function_call: { name: "lookup", arguments: '{"q":"Lyon"}' } });
-    // 1000 in, 3200 out (4200 - 1000) at weight 1: (1000 + 4 × 3200) / 25000 = 0.55 credits.
-    await vi.waitFor(() => expect(credits.charges).toEqual([{ userId: "review3-user", amount: 0.55, detail: "API glm-5.3: 1000 in, 3200 out" }]));
+    // 1000 in, 3200 out (4200 - 1000): 1,000 x $1.40 + 3,200 x $4.40 per million.
+    await vi.waitFor(() => expect(wallet.records).toEqual([row("review3-user", key.id, "glm-5.3", [1_000, 3_200], 15_480, 1_548, 90)]));
 
     // A huge response format counts toward what the request could cost.
-    credits.available = 1;
+    wallet.balances.set("review3-user", 10_000);
     upstream.calls.length = 0;
     const schema = { type: "json_schema", json_schema: { name: "big", schema: { type: "object", description: "x".repeat(400_000) } } };
     const held = await call("/v1/chat/completions", secret, { model: "kimi-k3", max_tokens: 100, response_format: schema, messages: [{ role: "user", content: "Hi" }] });
     expect(held.status).toBe(402);
+    expect((await held.json()).error).toMatchObject({ type: "insufficient_balance", message: expect.stringMatching(/^This request could cost up to \$0\.04 and \$0\.01 is available\./) });
     expect(upstream.calls).toEqual([]);
   });
 
@@ -502,5 +548,305 @@ describe("the gateway", () => {
     const missing = await realFetch(`${base}/v1/embeddings`, { method: "POST" });
     expect(missing.status).toBe(404);
     expect((await missing.json()).error.type).toBe("not_found_error");
+  });
+});
+
+describe("paying for the API", () => {
+  it("refuses an account whose API balance is empty before reading the body, and a balance it cannot read", async () => {
+    const { secret } = await newKey("empty-user");
+    for (const balance of [0, -500]) {
+      wallet.balances.set("empty-user", balance);
+      const refused = await call("/v1/messages", secret, ask);
+      expect(refused.status).toBe(402);
+      expect(await refused.json()).toEqual({ error: { message: EMPTY, type: "insufficient_balance", code: 402 } });
+    }
+    // Refused at admission: a body it never needed is not parsed (this one is not JSON).
+    const unread = await realFetch(`${base}/v1/messages`, { method: "POST", headers: { "content-type": "application/json", "x-api-key": secret }, body: "{not json" });
+    expect(unread.status).toBe(402);
+    expect(upstream.calls).toEqual([]);
+    await settled("empty-user");
+
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      wallet.lookup = async () => { throw new Error("connect ECONNREFUSED db.example.com:5432"); };
+      const down = await call("/v1/messages", secret, ask);
+      expect(down.status).toBe(503);
+      expect((await down.json()).error.message).toBe("The requested model service is currently unavailable. Please retry shortly.");
+      expect(JSON.stringify(error.mock.calls)).toContain("[Curialy Gateway] balance lookup failed");
+      expect(JSON.stringify(error.mock.calls)).not.toContain("example.com");
+    } finally {
+      error.mockRestore();
+    }
+    expect(upstream.calls).toEqual([]);
+    await settled("empty-user");
+  });
+
+  it("caps max_tokens at the model's limit when streaming and lower without, naming both", async () => {
+    const { secret } = await newKey("limit-user");
+    const streamedTooLong = await call("/v1/messages", secret, { ...ask, max_tokens: 64_001, stream: true });
+    expect(streamedTooLong.status).toBe(400);
+    expect((await streamedTooLong.json()).error).toEqual({ type: "invalid_request_error", code: 400, message: "max_tokens can be at most 64000 on claude-opus-5-5 (16384 without streaming)." });
+    const wholeTooLong = await call("/v1/messages", secret, { ...ask, max_tokens: 16_385 });
+    expect((await wholeTooLong.json()).error.message).toBe("max_tokens can be at most 16384 on claude-opus-5-5 without streaming; stream the reply (stream: true) for up to 64000.");
+    // The same limits on Chat Completions, for Claude and the OpenAI-format models.
+    expect((await call("/v1/chat/completions", secret, { model: "claude-opus-5-5", max_completion_tokens: 20_000, messages: [{ role: "user", content: "Hi" }] })).status).toBe(400);
+    expect((await call("/v1/chat/completions", secret, { model: "openai-gpt-5.4", max_tokens: 64_001, stream: true, messages: [{ role: "user", content: "Hi" }] })).status).toBe(400);
+    expect(upstream.calls).toEqual([]);
+    expect((await call("/v1/messages", secret, { ...ask, max_tokens: 64_000, stream: true })).status).toBe(200);
+    expect((await call("/v1/messages", secret, { ...ask, max_tokens: 16_384 })).status).toBe(200);
+    // The operator's keys keep no limit beyond the model's own.
+    const { secret: operator } = await newKey("limit-operator", undefined, "admin");
+    expect((await call("/v1/messages", operator, { ...ask, max_tokens: 100_000 })).status).toBe(200);
+  });
+
+  it("holds the most a request can cost after the discount, and refuses one the balance cannot cover", async () => {
+    const { secret } = await newKey("hold-user");
+    wallet.balances.set("hold-user", 10_000);
+    // Opus 5.5 non-streaming at 16,384 tokens: up to $0.0328 after 90% off.
+    const big = await call("/v1/messages", secret, { ...ask, max_tokens: 16_384 });
+    expect(big.status).toBe(402);
+    expect((await big.json()).error).toEqual({ type: "insufficient_balance", code: 402, message: "This request could cost up to $0.03 and $0.01 is available. Lower max_tokens or add balance on the Developer API page: https://curialy.tech/developer" });
+    // Without the discount even 1,024 tokens could cost $0.0205.
+    billing.discount = { ...billing.discount, api: false };
+    const listPrice = await call("/v1/messages", secret, ask);
+    expect(listPrice.status).toBe(402);
+    expect((await listPrice.json()).error.message).toMatch(/^This request could cost up to \$0\.02 and \$0\.01 is available\./);
+    // An offer that has ended is no discount either.
+    billing.discount = { percent: 90, plans: true, api: true, endsAt: new Date(Date.now() - 60_000).toISOString() };
+    expect((await call("/v1/messages", secret, ask)).status).toBe(402);
+    expect(upstream.calls).toEqual([]);
+    billing.discount = { percent: 90, plans: true, api: true, endsAt: null };
+    expect((await call("/v1/messages", secret, ask)).status).toBe(200);
+    await settled("hold-user");
+  });
+
+  it("holds what a request can really cost however its input is shaped, and never more than the model can read", async () => {
+    const { secret } = await newKey("shape-user");
+    // 40,000 characters of tool input buried 50 levels deep, beside keys and numbers: all of it counts.
+    let nested: unknown = { note: "y".repeat(40_000) };
+    for (let level = 0; level < 50; level++) nested = { level, inner: nested };
+    const deep = gated(counted({ input_tokens: 10 }, 5));
+    upstream.bridge = () => deep.response;
+    const first = call("/v1/messages", secret, { ...ask, max_tokens: 1000, stream: true, messages: [
+      { role: "user", content: "Look it up." },
+      { role: "assistant", content: [{ type: "tool_use", id: "toolu_1", name: "lookup", input: nested }] },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_1", content: "ok" }] },
+    ] });
+    // The slot is taken before the body is read; the hold once it is.
+    await vi.waitFor(() => expect(reservedFor("shape-user").reservedTokens).toBeGreaterThan(10_000 + 1000));
+    deep.open();
+    await (await first).text();
+    await settled("shape-user");
+
+    // An image counts as an image, not as the length of its encoding.
+    const picture = gated(counted({ input_tokens: 10 }, 5));
+    upstream.bridge = () => picture.response;
+    const second = call("/v1/messages", secret, { ...ask, max_tokens: 1000, stream: true, messages: [{ role: "user", content: [{ type: "image", source: { type: "base64", media_type: "image/png", data: "A".repeat(2_000_000) } }, { type: "text", text: "What is this?" }] }] });
+    await vi.waitFor(() => expect(reservedFor("shape-user").reservedTokens).toBeGreaterThan(0));
+    expect(reservedFor("shape-user").reservedTokens).toBeLessThan(1600 + 1000 + 100);
+    picture.open();
+    await (await second).text();
+    await settled("shape-user");
+
+    // Six million characters can't be read whole by a model with a 1M-token window: the hold stops there.
+    const huge = gated(counted({ input_tokens: 10 }, 5));
+    upstream.bridge = () => huge.response;
+    const third = call("/v1/messages", secret, { ...ask, max_tokens: 1000, stream: true, messages: [{ role: "user", content: "z".repeat(6_000_000) }] });
+    await vi.waitFor(() => expect(reservedFor("shape-user").reservedTokens).toBe(1_000_000 + 1000));
+    huge.open();
+    await (await third).text();
+    await settled("shape-user");
+  });
+
+  it("holds past the long-context threshold at the long-context rates", async () => {
+    const { secret } = await newKey("long-user");
+    // About 100K input tokens, plus a quarter: past Haiku 5.5's 100K threshold, so its long-context
+    // cache-write rate holds about $0.0081 (the standard rates would hold $0.0016).
+    const long = { model: "claude-haiku-5-5", max_tokens: 1000, messages: [{ role: "user", content: "x".repeat(400_000) }] };
+    wallet.balances.set("long-user", 5_000);
+    const refused = await call("/v1/messages", secret, long);
+    expect(refused.status).toBe(402);
+    expect((await refused.json()).error.message).toMatch(/^This request could cost up to \$0\.0081 and \$0\.005 is available\./);
+    wallet.balances.set("long-user", 9_000);
+    expect((await call("/v1/messages", secret, long)).status).toBe(200);
+  });
+
+  it("shows a running request's hold in reservedFor and gives it back after success, failure and a cut-short stream", async () => {
+    const { secret } = await newKey("reserve-user");
+    const gate = gated(counted({ input_tokens: 1_000 }, 200));
+    upstream.bridge = () => gate.response;
+    const running = call("/v1/messages", secret, { ...ask, stream: true });
+    await vi.waitFor(() => expect(upstream.calls).toHaveLength(1));
+    // 3 input tokens (estimated) and 1,024 out; up to $0.00205 after the discount.
+    expect(reservedFor("reserve-user")).toEqual({ reservedMicros: 2_052, reservedTokens: 1_030, requests: 1 });
+    gate.open();
+    expect((await running).status).toBe(200);
+    await (await running).text();
+    await settled("reserve-user");
+
+    // Refused by the model service: nothing charged, nothing held.
+    upstream.bridge = () => reply(500, { message: "unavailable" });
+    upstream.relay = () => reply(500, { message: "unavailable" });
+    expect((await call("/v1/messages", secret, ask)).status).toBe(503);
+    await settled("reserve-user");
+    expect(wallet.records).toHaveLength(1);
+  });
+
+  it("never lets two requests spend the same balance, even when one was charged after the other read it", async () => {
+    const { key, secret } = await newKey("race-user");
+    wallet.balances.set("race-user", 30_000);
+    // A holds $0.020004 (10,000 tokens out) and costs $0.0184 when it ends.
+    const first = gated(counted({ input_tokens: 1_000 }, 9_000));
+    upstream.bridge = () => first.response;
+    const a = call("/v1/messages", secret, { ...ask, max_tokens: 10_000, stream: true });
+    await vi.waitFor(() => expect(upstream.calls).toHaveLength(1));
+    // While A runs, what is left cannot hold B.
+    const blocked = await call("/v1/messages", secret, { ...ask, max_tokens: 10_000, stream: true });
+    expect(blocked.status).toBe(402);
+    expect((await blocked.json()).error.message).toMatch(/^This request could cost up to \$0\.02 and \$0\.01 is available\./);
+
+    // B reads the balance before A is charged, and decides after: A's charge still counts.
+    let release = () => undefined as void;
+    const read = new Promise<void>(resolve => { release = resolve; });
+    let asked = false;
+    wallet.lookup = async userId => {
+      const balance = wallet.balances.get(userId)!;
+      asked = true;
+      await read;
+      return balance;
+    };
+    const b = call("/v1/messages", secret, { ...ask, max_tokens: 10_000, stream: true });
+    await vi.waitFor(() => expect(asked).toBe(true));
+    first.open();
+    expect((await a).status).toBe(200);
+    await (await a).text();
+    await vi.waitFor(() => expect(wallet.records).toEqual([row("race-user", key.id, "claude-opus-5-5", [1_000, 9_000], 184_000, 18_400, 90)]));
+    await vi.waitFor(() => expect(reservedFor("race-user").reservedMicros).toBe(0));
+    release();
+    const late = await b;
+    expect(late.status).toBe(402);
+    expect((await late.json()).error.message).toMatch(/^This request could cost up to \$0\.02 and \$0\.01 is available\./);
+    expect(upstream.calls).toHaveLength(1);
+    await settled("race-user");
+  });
+
+  it("never runs, nor charges, a request whose caller left while it was being admitted", async () => {
+    const { secret } = await newKey("gone-user");
+    let release = () => undefined as void;
+    const read = new Promise<void>(resolve => { release = resolve; });
+    let asked = false;
+    wallet.lookup = async () => {
+      asked = true;
+      await read;
+      return 10_000_000;
+    };
+    const { connect } = await import("node:net");
+    const body = JSON.stringify(ask);
+    const socket = connect(Number(new URL(base).port), "127.0.0.1");
+    await new Promise(resolve => socket.once("connect", resolve));
+    socket.write(`POST /v1/messages HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nx-api-key: ${secret}\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`);
+    await vi.waitFor(() => expect(asked).toBe(true));
+    socket.destroy();
+    // Its slot is given back as soon as the caller is gone.
+    await vi.waitFor(() => expect(reservedFor("gone-user").requests).toBe(0));
+    release();
+    await new Promise(resolve => setTimeout(resolve, 150));
+    expect(upstream.calls).toEqual([]);
+    expect(wallet.records).toEqual([]);
+    await settled("gone-user");
+  });
+
+  it("keeps a finished request's hold until its charge is written", async () => {
+    const { secret } = await newKey("slow-charge-user");
+    wallet.balances.set("slow-charge-user", 30_000);
+    let written = () => undefined as void;
+    wallet.writing = new Promise<void>(resolve => { written = resolve; });
+    upstream.bridge = () => stream(counted({ input_tokens: 1_000 }, 9_000));
+    await (await call("/v1/messages", secret, { ...ask, max_tokens: 10_000, stream: true })).text();
+    // The reply is done and its slot free; its charge is not written yet, so its hold stays.
+    await vi.waitFor(() => expect(reservedFor("slow-charge-user")).toEqual({ reservedMicros: 20_004, reservedTokens: 10_006, requests: 0 }));
+    const next = await call("/v1/messages", secret, { ...ask, max_tokens: 10_000, stream: true });
+    expect(next.status).toBe(402);
+    expect(upstream.calls).toHaveLength(1);
+    written();
+    await settled("slow-charge-user");
+    expect(wallet.balances.get("slow-charge-user")).toBe(30_000 - 18_400);
+  });
+
+  it("charges Anthropic replies with their cache tokens, whole and streamed, at the discount they were admitted at", async () => {
+    const { key, secret } = await newKey("cache-user");
+    upstream.bridge = () => stream(counted({ input_tokens: 100, cache_read_input_tokens: 50_000, cache_creation_input_tokens: 2_000 }, 500));
+    // 100 x $4 + 50,000 x $0.20 + 2,000 x $5 + 500 x $20 per million = $0.0304 at list.
+    expect((await call("/v1/messages", secret, ask)).status).toBe(200);
+    await vi.waitFor(() => expect(wallet.records).toEqual([row("cache-user", key.id, "claude-opus-5-5", [100, 500, 50_000, 2_000], 30_400, 3_040, 90)]));
+    billing.discount = { ...billing.discount, percent: 0 };
+    await (await call("/v1/messages", secret, { ...ask, stream: true })).text();
+    await vi.waitFor(() => expect(wallet.records.at(-1)).toEqual(row("cache-user", key.id, "claude-opus-5-5", [100, 500, 50_000, 2_000], 30_400, 30_400, 0)));
+    expect(wallet.balances.get("cache-user")).toBe(10_000_000 - 3_040 - 30_400);
+    // A fully cached prompt (no uncached input) is billed as it was counted, not as an estimate.
+    upstream.bridge = () => stream(counted({ input_tokens: 0, cache_read_input_tokens: 8_000 }, 10));
+    await (await call("/v1/messages", secret, ask)).text();
+    await vi.waitFor(() => expect(wallet.records.at(-1)).toMatchObject({ usage: { inputTokens: 0, outputTokens: 10, cacheReadTokens: 8_000, cacheWriteTokens: 0 }, listMicros: 1_800 }));
+  });
+
+  it("charges an OpenAI-format reply's cached prompt tokens at the cache-read rate", async () => {
+    const { key, secret } = await newKey("cached-chat-user");
+    upstream.bridge = () => new Response([
+      { id: "c2", object: "chat.completion.chunk", created: 1, model: "gpt-5.4", choices: [{ index: 0, delta: { content: "Hi" }, finish_reason: "stop" }] },
+      { id: "c2", object: "chat.completion.chunk", created: 1, model: "gpt-5.4", choices: [], usage: { prompt_tokens: 20_000, completion_tokens: 1_250, total_tokens: 21_250, prompt_tokens_details: { cached_tokens: 12_000 } } },
+    ].map(entry => `data: ${JSON.stringify(entry)}\n\n`).join("") + "data: [DONE]\n\n", { status: 200, headers: { "content-type": "text/event-stream" } });
+    expect((await call("/v1/chat/completions", secret, { model: "openai-gpt-5.4", messages: [{ role: "user", content: "Hi" }] })).status).toBe(200);
+    // 8,000 x $2.50 + 12,000 x $0.25 + 1,250 x $15 per million = $0.04175 at list.
+    await vi.waitFor(() => expect(wallet.records).toEqual([row("cached-chat-user", key.id, "openai-gpt-5.4", [8_000, 1_250, 12_000, 0], 41_750, 4_175, 90)]));
+  });
+
+  it("never charges the operator, nor checks its balance, but records its usage at list price for its charts", async () => {
+    const { key, secret } = await newKey("operator", undefined, "admin");
+    expect((await call("/v1/messages", secret, ask)).status).toBe(200);
+    await vi.waitFor(() => expect(wallet.records).toEqual([row("operator", key.id, "claude-opus-5-5", [20_000, 1_250], 105_000, 0, 0)]));
+    expect(apiBalanceMicros).not.toHaveBeenCalledWith("operator");
+    expect(wallet.balances.get("operator")).toBe(10_000_000);
+    await settled("operator");
+  });
+
+  it("never runs a model without a price for a paying key; the operator's key runs it at no cost", async () => {
+    const { API_PRICES } = await import("../shared/billing");
+    const price = API_PRICES["glm-5.3"];
+    delete API_PRICES["glm-5.3"];
+    try {
+      const { secret } = await newKey("unpriced-user");
+      const refused = await call("/v1/chat/completions", secret, { model: "glm-5.3", messages: [{ role: "user", content: "Hi" }] });
+      expect(refused.status).toBe(403);
+      const reason = (await refused.json()).error.message as string;
+      expect(reason).toMatch(/^This key cannot use glm-5\.3\. It can use: claude-opus-5-5, /);
+      expect(reason.split("It can use:")[1]).not.toContain("glm-5.3");
+      const listed = await (await realFetch(`${base}/v1/models`, { headers: { "x-api-key": secret } })).json();
+      expect(listed.data.map((model: { id: string }) => model.id)).not.toContain("glm-5.3");
+      expect((await realFetch(`${base}/v1/models/glm-5.3`, { headers: { "x-api-key": secret } })).status).toBe(404);
+      expect(upstream.calls).toEqual([]);
+
+      const { key, secret: operator } = await newKey("unpriced-operator", undefined, "admin");
+      upstream.bridge = () => new Response(`data: ${JSON.stringify({ id: "c3", object: "chat.completion.chunk", created: 1, model: "glm-5.3", choices: [], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } })}\n\ndata: [DONE]\n\n`, { status: 200, headers: { "content-type": "text/event-stream" } });
+      expect((await call("/v1/chat/completions", operator, { model: "glm-5.3", messages: [{ role: "user", content: "Hi" }] })).status).toBe(200);
+      await vi.waitFor(() => expect(wallet.records).toEqual([row("unpriced-operator", key.id, "glm-5.3", [10, 5], 0, 0, 0)]));
+    } finally {
+      API_PRICES["glm-5.3"] = price;
+    }
+  });
+
+  it("logs a charge that fails without failing the reply, and gives the hold back", async () => {
+    const { secret } = await newKey("failing-user");
+    wallet.failCharges = true;
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const response = await call("/v1/messages", secret, ask);
+      expect(response.status).toBe(200);
+      expect((await response.json()).content).toEqual([{ type: "text", text: "Hello!" }]);
+      await vi.waitFor(() => expect(JSON.stringify(error.mock.calls)).toContain("[Curialy Gateway] charge failed (account failing-user, claude-opus-5-5, 10500 micro-dollars)"));
+      expect(JSON.stringify(error.mock.calls)).not.toContain("example.com");
+      await settled("failing-user");
+    } finally {
+      error.mockRestore();
+    }
   });
 });

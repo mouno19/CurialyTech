@@ -7,6 +7,7 @@ export const NAV_LINKS = [
   { href: "#workspace", label: "Workspace" },
   { href: "#use-cases", label: "Use cases" },
   { href: "#principles", label: "Principles" },
+  { href: "#pricing", label: "Pricing" },
 ];
 
 export const COMPOSER_EXAMPLES = [
@@ -162,7 +163,8 @@ export const TERMINAL_LINES: { tone: "cmd" | "out" | "ok" | "err" | "agent"; tex
 export const PRINCIPLES = [
   { value: "1:1", label: "workspace per task, with its own folder and command log" },
   { value: "0", label: "repositories made public without your explicit confirmation" },
-  { value: "5 h", label: "until your free credits refill: sign in with GitHub, no card needed" },
+  // No refill time here: the window is the operator's setting (the pricing section shows the live one).
+  { value: "$0", label: "to start: sign in with GitHub, no card needed" },
   { value: "Every", label: "step of every run on the record: plan, commands, files, results" },
 ];
 

@@ -1,15 +1,32 @@
 import { randomBytes } from "node:crypto";
+import { DEFAULT_PLANS, isPlanId, type PlanConfig, type PlanId } from "@shared/billing";
 import { DEFAULT_CREDIT_SETTINGS, MIN_CREDITS_TO_START, type CreditBalance, type CreditSettings } from "@shared/credits";
+import { getBillingSettings, knownPlans } from "./billing/settings";
 import { db, query } from "./db/pg";
 
 // Credits: each account gets an allowance per window (default 60 every 5 hours). A window opens with
 // the first credit spent after the previous one ended. Bonus credits (promo codes, grants) are spent
-// after the window's and never expire. Admins are not charged. Every change is a credit_events row.
+// after the window's and never expire. A plan (30 days, paid in crypto) raises the allowance while it
+// lasts. Admins are not charged. Every change is a credit_events row.
 
-/** free_allowance_withheld: the account starts without the window allowance (see auth-github.ts); an own allowance still applies. */
+/**
+ * free_allowance_withheld: the account starts without the window allowance (see auth-github.ts); an own allowance still applies.
+ * plan_*: the plan bought or given, until when, and its allowance as it was when it started.
+ */
 export type UserCredits = {
   id: string; role: string; credit_allowance: number | null; bonus_credits: string; window_started_at: Date | null; window_used: string; free_allowance_withheld?: boolean;
+  plan_id?: string | null; plan_expires_at?: Date | null; plan_credits_per_window?: number | null;
 };
+
+/** In a 'plan' event's detail, what follows this is the operator's note (left out of the account's own history). */
+export const PLAN_NOTE_MARK = " · note: ";
+
+/** The account's plan while it lasts, named as the billing settings name it now; null when it has none or it has ended. */
+export function activePlan(row: Pick<UserCredits, "plan_id" | "plan_expires_at" | "plan_credits_per_window">, plans: Record<PlanId, PlanConfig> = knownPlans(), now = Date.now()): CreditBalance["plan"] {
+  if (!isPlanId(row.plan_id) || !row.plan_expires_at || row.plan_expires_at.getTime() <= now) return null;
+  const config = plans[row.plan_id] ?? DEFAULT_PLANS[row.plan_id];
+  return { id: row.plan_id, name: config.name, expiresAt: row.plan_expires_at.toISOString(), creditsPerWindow: row.plan_credits_per_window ?? config.creditsPerWindow };
+}
 
 export class CreditError extends Error {
   constructor(message: string, readonly code: "no_credits" | "invalid_code" | "code_used" | "busy", readonly status = 402, readonly balance?: CreditBalance) {
@@ -43,8 +60,11 @@ export async function saveSettings(patch: Partial<CreditSettings>, by: string) {
 
 // ---- Balance ----
 
-export function balanceOf(row: UserCredits, settings: CreditSettings, now = Date.now()): CreditBalance {
-  const allowance = row.credit_allowance ?? (row.free_allowance_withheld ? 0 : settings.creditsPerWindow);
+export function balanceOf(row: UserCredits, settings: CreditSettings, now = Date.now(), plans: Record<PlanId, PlanConfig> = knownPlans()): CreditBalance {
+  const own = row.credit_allowance ?? (row.free_allowance_withheld ? 0 : settings.creditsPerWindow);
+  const plan = activePlan(row, plans, now);
+  // A plan raises the allowance, never lowers it; a withheld free allowance doesn't reduce a paid plan.
+  const allowance = plan ? Math.max(plan.creditsPerWindow, own) : own;
   const bonus = Number(row.bonus_credits);
   const windowMs = settings.windowHours * 3_600_000;
   // Without an allowance there is no window, and so never a refill time.
@@ -56,16 +76,17 @@ export function balanceOf(row: UserCredits, settings: CreditSettings, now = Date
     allowance, used: round(used), remaining: round(remaining), bonus: round(bonus), available: round(remaining + bonus),
     resetsAt: open ? new Date(row.window_started_at!.getTime() + windowMs).toISOString() : null,
     windowHours: settings.windowHours,
+    plan,
   };
 }
 
 const round = (value: number) => Math.round(value * 100) / 100;
-const COLUMNS = "id, role, credit_allowance, bonus_credits, window_started_at, window_used, free_allowance_withheld";
+const COLUMNS = "id, role, credit_allowance, bonus_credits, window_started_at, window_used, free_allowance_withheld, plan_id, plan_expires_at, plan_credits_per_window";
 
 export async function getBalance(userId: string): Promise<CreditBalance> {
-  const [{ rows }, settings] = await Promise.all([query<UserCredits>(`SELECT ${COLUMNS} FROM curialy.users WHERE id = $1`, [userId]), getSettings()]);
+  const [{ rows }, settings, billing] = await Promise.all([query<UserCredits>(`SELECT ${COLUMNS} FROM curialy.users WHERE id = $1`, [userId]), getSettings(), getBillingSettings()]);
   if (!rows[0]) throw new CreditError("Account not found.", "invalid_code", 404);
-  return balanceOf(rows[0], settings);
+  return balanceOf(rows[0], settings, Date.now(), billing.plans);
 }
 
 /** Refuse to start a run without credits; admins always can. */
@@ -77,10 +98,12 @@ export async function assertCanStart(userId: string) {
 
 /** In words that read right in any time zone (the client shows the clock time itself). */
 export function outOfCreditsMessage(balance: CreditBalance) {
-  if (!balance.resetsAt) return "Your account has no credits right now. Redeem a promo code to continue.";
+  // What adds credits for this account: a plan, a higher plan, or (on the highest) a promo code.
+  const more = balance.plan?.id === "max" ? "a promo code" : balance.plan ? "a higher plan or a promo code" : "a plan or a promo code";
+  if (!balance.resetsAt) return `Your account has no credits right now. ${balance.plan?.id === "max" ? "Redeem a promo code" : balance.plan ? "Get a higher plan or redeem a promo code" : "Get a plan or redeem a promo code"} to continue.`;
   const minutes = Math.max(1, Math.ceil((Date.parse(balance.resetsAt) - Date.now()) / 60_000));
   const wait = minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h${minutes % 60 ? ` ${minutes % 60} min` : ""}`;
-  return `You've used this window's credits. They refill in ${wait}; a promo code adds more now.`;
+  return `You've used this window's credits. They refill in ${wait}; ${more} adds more now.`;
 }
 
 /**
@@ -228,10 +251,13 @@ export async function redeemPromoCode(userId: string, rawCode: string) {
     // One message for unknown codes and codes meant for someone else: a code's existence is not revealed.
     if (!promo || (promo.forUser && promo.forUser.id !== userId)) throw new CreditError("That code isn't valid.", "invalid_code", 400);
     // A code for anyone is free credit for every account someone opens: not for an account that
-    // started without the free allowance (unless the operator gave it one). Said like an unknown code.
+    // started without the free allowance (unless the operator gave it one, or it has a plan). Said like an unknown code.
     if (!promo.forUser) {
-      const { rows: [account] } = await client.query<{ free_allowance_withheld: boolean; credit_allowance: number | null }>("SELECT free_allowance_withheld, credit_allowance FROM curialy.users WHERE id = $1", [userId]);
-      if (account?.free_allowance_withheld && !account.credit_allowance) throw new CreditError("That code isn't valid.", "invalid_code", 400);
+      const { rows: [account] } = await client.query<{ free_allowance_withheld: boolean; credit_allowance: number | null; plan_id: string | null; plan_expires_at: Date | null; plan_credits_per_window: number | null }>(
+        "SELECT free_allowance_withheld, credit_allowance, plan_id, plan_expires_at, plan_credits_per_window FROM curialy.users WHERE id = $1",
+        [userId],
+      );
+      if (account?.free_allowance_withheld && !account.credit_allowance && !activePlan(account)) throw new CreditError("That code isn't valid.", "invalid_code", 400);
     }
     if (promo.state === "disabled" || promo.state === "expired") throw new CreditError("That code has expired.", "invalid_code", 400);
     if (promo.state === "used_up") throw new CreditError("That code has already been used.", "code_used", 409);
@@ -252,7 +278,7 @@ export async function redeemPromoCode(userId: string, rawCode: string) {
 
 /**
  * Recent credit activity for an account (admin view and the account's own history). The account's
- * own view leaves out the operator's notes on grants and adjustments.
+ * own view leaves out the operator's notes on grants, adjustments and plans.
  */
 export async function creditHistory(userId: string, limit = 50, opts: { forAccount?: boolean } = {}) {
   const { rows } = await query<{ kind: string; amount: string; detail: string | null; session_id: string | null; created_at: Date }>(
@@ -260,5 +286,6 @@ export async function creditHistory(userId: string, limit = 50, opts: { forAccou
     [userId, limit],
   );
   const hidden = (kind: string) => opts.forAccount && (kind === "grant" || kind === "adjust");
-  return rows.map(row => ({ kind: row.kind, amount: Number(row.amount), detail: hidden(row.kind) ? null : row.detail, taskId: row.session_id, at: row.created_at.toISOString() }));
+  const detail = (kind: string, text: string | null) => (hidden(kind) ? null : opts.forAccount && kind === "plan" && text ? text.split(PLAN_NOTE_MARK)[0] : text);
+  return rows.map(row => ({ kind: row.kind, amount: Number(row.amount), detail: detail(row.kind, row.detail), taskId: row.session_id, at: row.created_at.toISOString() }));
 }

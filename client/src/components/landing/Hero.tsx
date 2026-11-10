@@ -43,7 +43,7 @@ export function Hero({ signedIn, seed }: { signedIn: boolean; seed?: ComposerSee
             </a>
           </div>
           <p className="lp-hero-fine lp-enter" style={enter(0.32)}>
-            Free to start: credits every 5 hours · Sign in with GitHub · Its own sandbox for every task · Branches and pull requests
+            Free to start · Sign in with GitHub · Its own sandbox for every task · Branches and pull requests
           </p>
         </div>
 

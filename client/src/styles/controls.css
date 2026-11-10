@@ -426,7 +426,8 @@ input[type="checkbox"], input[type="radio"] { width: 16px; height: 16px; margin:
 .notice-title { display: block; font-weight: 600; }
 .notice-body > .notice-title + * { margin-top: 2px; }
 .notice-actions { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: auto; align-self: center; }
-@media (max-width: 639.98px) { .notice { flex-wrap: wrap; } .notice-actions { margin-left: 26px; align-self: auto; } }
+/* Phones: the icon keeps the body beside it (the row less the 16px icon and 10px gap); actions go below. */
+@media (max-width: 639.98px) { .notice { flex-wrap: wrap; } .notice-body { flex-basis: calc(100% - 26px); } .notice-actions { margin-left: 26px; align-self: auto; } }
 
 /* ---------- State notices (loading / empty / unavailable / error / info) ---------- */
 .state-notice { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; min-width: 0; padding: 40px 24px; text-align: center; color: var(--text-2); }

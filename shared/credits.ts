@@ -50,6 +50,8 @@ export type CreditBalance = {
   /** When the current window ends and the allowance refills (null: no window open, the full allowance is ready). */
   resetsAt: string | null;
   windowHours: number;
+  /** The account's active plan (its allowance is the larger of the plan's and its own), or null. */
+  plan: { id: "pro" | "max"; name: string; expiresAt: string; creditsPerWindow: number } | null;
 };
 
 /**
@@ -68,4 +70,8 @@ export function voiceCredits(usage: { seconds?: number; characters?: number; exp
 /** A run can start with at least this many credits available. */
 export const MIN_CREDITS_TO_START = 1;
 
-export const formatCredits = (value: number) => (Number.isInteger(value) ? String(value) : value.toFixed(value < 10 ? 1 : 0));
+/** "6,000", "43.5", "4,741" (one decimal only under 10). */
+export const formatCredits = (value: number) => {
+  const digits = Number.isInteger(value) || value >= 10 ? 0 : 1;
+  return value.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+};

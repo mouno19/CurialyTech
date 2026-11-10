@@ -1,83 +1,191 @@
-import { useCallback, useEffect, useId, useState, type FormEvent } from "react";
-import { Ban, Check, Coins, Copy, Gift, RotateCcw, Search, Settings2, ShieldCheck, Ticket, Users } from "lucide-react";
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useSearch } from "wouter";
+import { Ban, Check, Coins, Copy, Gift, RotateCcw, Search, Settings2, ShieldCheck, Ticket, TriangleAlert, Users, Wallet } from "lucide-react";
 import { toast } from "sonner";
+import type { AdminBillingOverview, AdminPaymentOrder, BillingSettings } from "@shared/billing";
 import { formatCredits } from "@shared/credits";
+import { shortDayText } from "@/components/billing/format";
 import { AppShell } from "@/components/shell/AppShell";
 import { Button } from "@/components/common/Button";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
+import { cx } from "@/components/common/cx";
 import { Dialog } from "@/components/common/Dialog";
 import { StateNotice } from "@/components/common/StateNotice";
+import { useOverflowEdges } from "@/components/common/useOverflowEdges";
+import { useAnnouncer } from "@/components/task/useAnnouncer";
 import { adminApi, errorMessage, relativeTime, type AdminOverview, type AdminUser, type CreditEvent, type PromoCode } from "@/lib/api";
 import { clockText } from "@/lib/account";
+import { adminBillingApi } from "@/lib/billing";
+import { AccountBillingCell, AccountBillingDialog } from "./admin/AccountBilling";
+import { OrderDialog } from "./admin/OrderDialog";
+import { PaymentsPanel, type OrderChange } from "./admin/PaymentsPanel";
+import { WalletBalances } from "./admin/WalletBalances";
+import { PlansPanel } from "./admin/PlansPanel";
+import { ADMIN_TABS, adminHref, compactUsd, readAdminLocation, type AdminTab, type OrderFilter } from "./admin/payments";
 
-type Tab = "accounts" | "codes" | "settings";
-
-/** The operator's dashboard: accounts and their credits, promo codes, and the free allowance. */
+/**
+ * The operator's dashboard: accounts with their credits, plans and API balances, payments (the
+ * review queue first), promo codes, plans and pricing, and the free allowance. The address keeps
+ * the tab and the open order (/admin?tab=payments&order=CUR-…: payment alerts link there).
+ */
 export default function Admin() {
-  const [tab, setTab] = useState<Tab>("accounts");
+  const search = useSearch();
+  const [tab, setTab] = useState<AdminTab>(() => readAdminLocation(window.location.search).tab ?? "accounts");
+  // One order dialog for the page: a payments row, an account's billing and the address all open it.
+  const [orderCode, setOrderCode] = useState<string | null>(() => readAdminLocation(window.location.search).order);
+  const [paymentsFilter, setPaymentsFilter] = useState<OrderFilter>("all");
   const [overview, setOverview] = useState<AdminOverview | null>(null);
+  const [billing, setBilling] = useState<AdminBillingOverview | null>(null);
+  const [billingError, setBillingError] = useState<string | null>(null);
+  const [orderChange, setOrderChange] = useState<OrderChange | null>(null);
   const [codeFor, setCodeFor] = useState<AdminUser | null>(null);
+  const { announce, region } = useAnnouncer();
+  const tabsRef = useRef<HTMLDivElement>(null);
+  useOverflowEdges(tabsRef);
   const loadOverview = useCallback(() => void adminApi.overview().then(setOverview, () => undefined), []);
+  const loadBilling = useCallback(() => void adminBillingApi.overview().then(
+    next => { setBilling(next); setBillingError(null); },
+    error => setBillingError(errorMessage(error, "Couldn't load payments.")),
+  ), []);
   useEffect(() => loadOverview(), [loadOverview]);
+  useEffect(() => loadBilling(), [loadBilling]);
+
+  // The address decides when it changes: /admin?tab=…&order=… opens that tab and order (also while
+  // the page is open), plain /admin (the sidebar link) the first tab. The page's own writes below
+  // always match its state, so following them changes nothing.
+  useEffect(() => {
+    const next = readAdminLocation(search);
+    setTab(next.tab ?? "accounts");
+    setOrderCode(next.order);
+  }, [search]);
+  // The address follows the tab and the open order (replaced, so Back leaves the page as before).
+  useEffect(() => {
+    const href = adminHref(tab, orderCode);
+    if (`${window.location.pathname}${window.location.search}` !== href) window.history.replaceState(window.history.state, "", href);
+  }, [tab, orderCode]);
+
+  // Tabs move with the arrow keys, Home and End; only the selected one is in the Tab order.
+  const onTabKey = (event: KeyboardEvent<HTMLDivElement>) => {
+    const index = ADMIN_TABS.findIndex(item => item.id === tab);
+    const last = ADMIN_TABS.length - 1;
+    const to = event.key === "ArrowRight" ? (index === last ? 0 : index + 1)
+      : event.key === "ArrowLeft" ? (index <= 0 ? last : index - 1)
+        : event.key === "Home" ? 0 : event.key === "End" ? last : null;
+    if (to === null) return;
+    event.preventDefault();
+    setTab(ADMIN_TABS[to].id);
+    document.getElementById(`admin-tab-${ADMIN_TABS[to].id}`)?.focus();
+  };
+
+  const orderChanged = useCallback((order: AdminPaymentOrder) => {
+    setOrderChange({ order, at: Date.now() });
+    loadBilling();
+  }, [loadBilling]);
+  const review = billing?.counts.review ?? 0;
+  const settings = billing?.settings ?? null;
 
   return (
     <AppShell title="Admin">
       <div className="page">
         <div className="page-wide">
+          {region}
           <header className="page-head">
             <div>
               <span className="eyebrow">Operator</span>
               <h2 className="page-title">Admin</h2>
-              <p className="page-sub">Everyone who signs in gets the free allowance below. Give an account more with a promo code (or add credits directly), and stop an account that misuses the agent.</p>
+              <p className="page-sub">Everyone who signs in gets the free allowance below. Give an account more with a promo code (or add credits directly), stop an account that misuses the agent, and decide on the payments the on-chain check couldn't match.</p>
             </div>
           </header>
 
-          <div className="dash-stats admin-stats" aria-label="Today">
+          <div className="dash-stats admin-stats" role="group" aria-label="Overview">
             <Stat icon={Users} label="Accounts" value={overview?.users} hint={overview ? `${overview.newToday} new today` : undefined} />
             <Stat icon={ShieldCheck} label="Active today" value={overview?.activeToday} />
             <Stat icon={RotateCcw} label="Runs now" value={overview?.activeRuns} />
             <Stat icon={Coins} label="Credits used today" value={overview ? formatCredits(overview.creditsUsedToday) : undefined} />
+            <Stat
+              icon={TriangleAlert} label="In review" tone={review > 0 ? "warning" : undefined}
+              value={billing ? review : billingError ? "–" : undefined}
+              hint={billing ? (review === 0 ? "Nothing waiting" : review === 1 ? "A payment waits for you" : "Payments wait for you") : billingError ? "Couldn't load payments" : undefined}
+              onSelect={() => { setPaymentsFilter("attention"); setTab("payments"); }}
+            />
+            <Stat
+              icon={Wallet} label="Revenue, 30 days"
+              value={billing ? compactUsd(billing.revenue.last30dUsd) : billingError ? "–" : undefined}
+              hint={billing ? `${compactUsd(billing.revenue.last7dUsd)} in 7 days · ${compactUsd(billing.revenue.totalUsd)} in all` : undefined}
+            />
             <Stat icon={Ticket} label="Active codes" value={overview?.activePromoCodes} />
             <Stat icon={Settings2} label="Free allowance" value={overview ? formatCredits(overview.settings.creditsPerWindow) : undefined} hint={overview ? `every ${overview.settings.windowHours} h` : undefined} />
           </div>
 
-          <div className="segmented admin-tabs" role="tablist" aria-label="Admin sections">
-            {(["accounts", "codes", "settings"] as const).map(id => (
-              <button key={id} type="button" role="tab" id={`admin-tab-${id}`} aria-selected={tab === id} aria-controls={`admin-panel-${id}`} onClick={() => setTab(id)}>
-                {id === "accounts" ? "Accounts" : id === "codes" ? "Promo codes" : "Settings"}
-              </button>
-            ))}
+          <div className="pg-filter-scroll admin-tabs-scroll" ref={tabsRef}>
+            <div className="segmented admin-tabs" role="tablist" aria-label="Admin sections" onKeyDown={onTabKey}>
+              {ADMIN_TABS.map(item => (
+                <button
+                  key={item.id} type="button" role="tab" id={`admin-tab-${item.id}`} aria-selected={tab === item.id} aria-controls={`admin-panel-${item.id}`}
+                  tabIndex={tab === item.id ? 0 : -1} onClick={() => setTab(item.id)}
+                >
+                  {item.label}
+                  {item.id === "payments" && review > 0 && <><span className="pg-count" aria-hidden="true">{review}</span><span className="sr-only">, {review} in review</span></>}
+                </button>
+              ))}
+            </div>
           </div>
 
           <section id={`admin-panel-${tab}`} role="tabpanel" aria-labelledby={`admin-tab-${tab}`} className="admin-panel">
-            {tab === "accounts" && <AccountsPanel onChanged={loadOverview} onCodeFor={user => { setCodeFor(user); setTab("codes"); }} />}
+            {tab === "accounts" && (
+              <AccountsPanel
+                settings={settings} orderChange={orderChange} onOpenOrder={setOrderCode} onChanged={loadOverview} onBillingChanged={loadBilling}
+                onCodeFor={user => { setCodeFor(user); setTab("codes"); }}
+              />
+            )}
+            {tab === "payments" && (
+              <>
+                <WalletBalances />
+                <PaymentsPanel counts={billing?.counts ?? null} filter={paymentsFilter} onFilter={setPaymentsFilter} onOpen={setOrderCode} orderChange={orderChange} announce={announce} onRefresh={loadBilling} />
+              </>
+            )}
             {tab === "codes" && <CodesPanel forUser={codeFor} clearForUser={() => setCodeFor(null)} onChanged={loadOverview} />}
+            {tab === "plans" && <PlansPanel billing={billing} billingError={billingError} free={overview?.settings ?? null} onSaved={loadBilling} />}
             {tab === "settings" && <SettingsPanel onSaved={loadOverview} />}
           </section>
         </div>
       </div>
+      {orderCode && <OrderDialog key={orderCode} code={orderCode} settings={settings} onClose={() => setOrderCode(null)} onChanged={orderChanged} announce={announce} />}
     </AppShell>
   );
 }
 
-function Stat({ icon: Icon, label, value, hint }: { icon: typeof Users; label: string; value: number | string | undefined; hint?: string }) {
-  return (
-    <div className="dash-stat" data-static="">
+/** One number in the ledger at the top; with onSelect it is a button (In review opens the review queue). */
+function Stat({ icon: Icon, label, value, hint, tone, onSelect }: { icon: typeof Users; label: string; value: number | string | undefined; hint?: string; tone?: "warning"; onSelect?: () => void }) {
+  const body = (
+    <>
       <span className="dash-stat-label"><Icon size={15} aria-hidden="true" />{label}</span>
       {value === undefined ? <span className="skeleton dash-stat-skeleton" aria-hidden="true" /> : <span className="dash-stat-value">{value}</span>}
       {hint && <span className="dash-stat-hint">{hint}</span>}
-    </div>
+    </>
   );
+  if (onSelect) return <button type="button" className={cx("dash-stat", "admin-stat-button", tone && "admin-stat-alert")} data-tone={tone} onClick={onSelect}>{body}</button>;
+  return <div className="dash-stat" data-static="">{body}</div>;
 }
 
 // ---- Accounts ----
 
-function AccountsPanel({ onChanged, onCodeFor }: { onChanged: () => void; onCodeFor: (user: AdminUser) => void }) {
+function AccountsPanel({ settings, orderChange, onOpenOrder, onChanged, onBillingChanged, onCodeFor }: {
+  /** The billing settings (plans), for the Billing dialog. */
+  settings: BillingSettings | null;
+  orderChange: OrderChange | null;
+  onOpenOrder: (code: string) => void;
+  onChanged: () => void;
+  /** A plan or an API balance changed (the billing overview reloads). */
+  onBillingChanged: () => void;
+  onCodeFor: (user: AdminUser) => void;
+}) {
   const [query, setQuery] = useState("");
   const [users, setUsers] = useState<AdminUser[] | null>(null);
   const [more, setMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<AdminUser | null>(null);
+  const [billingFor, setBillingFor] = useState<AdminUser | null>(null);
   const [banning, setBanning] = useState<AdminUser | null>(null);
   const load = useCallback(async (q: string) => {
     setError(null);
@@ -114,7 +222,7 @@ function AccountsPanel({ onChanged, onCodeFor }: { onChanged: () => void; onCode
         <div className="table-wrap">
           <table className="data-table admin-table">
             <thead>
-              <tr><th scope="col">Account</th><th scope="col">Credits now</th><th scope="col">Used</th><th scope="col">Last seen</th><th scope="col"><span className="sr-only">Actions</span></th></tr>
+              <tr><th scope="col">Account</th><th scope="col">Credits now</th><th scope="col">Plan · API</th><th scope="col">Used</th><th scope="col">Last seen</th><th scope="col"><span className="sr-only">Actions</span></th></tr>
             </thead>
             <tbody>
               {users.map(user => (
@@ -132,15 +240,21 @@ function AccountsPanel({ onChanged, onCodeFor }: { onChanged: () => void; onCode
                     {user.credits.unlimited ? "not charged" : (
                       <>
                         {formatCredits(user.credits.available)}
-                        <span className="admin-sub">{formatCredits(user.credits.remaining)}/{formatCredits(user.credits.allowance)}{user.customAllowance !== null ? " (custom)" : ""}{user.credits.bonus ? ` + ${formatCredits(user.credits.bonus)} bonus` : ""}</span>
+                        <span className="admin-sub">
+                          {formatCredits(user.credits.remaining)}/{formatCredits(user.credits.allowance)}
+                          {user.credits.plan && user.credits.allowance === user.credits.plan.creditsPerWindow ? " (plan)" : user.customAllowance !== null ? " (custom)" : ""}
+                          {user.credits.bonus ? ` + ${formatCredits(user.credits.bonus)} bonus` : ""}
+                        </span>
                       </>
                     )}
                   </td>
+                  <td><AccountBillingCell user={user} /></td>
                   <td className="num">{formatCredits(user.creditsUsedTotal)}<span className="admin-sub">{user.tasks} task{user.tasks === 1 ? "" : "s"}{user.activeRuns ? ` · ${user.activeRuns} running` : ""}</span></td>
                   <td className="num">{user.lastSeenAt ? relativeTime(user.lastSeenAt) : "never"}</td>
                   <td>
                     <div className="admin-actions">
                       <Button size="sm" icon={Coins} onClick={() => setSelected(user)}>Credits</Button>
+                      <Button size="sm" variant="ghost" icon={Wallet} onClick={() => setBillingFor(user)}>Billing</Button>
                       {user.role !== "admin" && <Button size="sm" variant="ghost" icon={Gift} onClick={() => onCodeFor(user)}>Code</Button>}
                       {user.role !== "admin" && <Button size="sm" variant="ghost" icon={user.banned ? Check : Ban} onClick={() => setBanning(user)}>{user.banned ? "Unban" : "Ban"}</Button>}
                     </div>
@@ -153,6 +267,12 @@ function AccountsPanel({ onChanged, onCodeFor }: { onChanged: () => void; onCode
         </div>
       )}
       {selected && <CreditsDialog user={selected} onClose={() => setSelected(null)} onChanged={changed} />}
+      {billingFor && (
+        <AccountBillingDialog
+          user={billingFor} settings={settings} orderChange={orderChange} onOpenOrder={onOpenOrder} onClose={() => setBillingFor(null)}
+          onChanged={() => { changed(); onBillingChanged(); }}
+        />
+      )}
       <ConfirmDialog
         open={Boolean(banning)}
         onOpenChange={open => { if (!open) setBanning(null); }}
@@ -172,6 +292,8 @@ function AccountsPanel({ onChanged, onCodeFor }: { onChanged: () => void; onCode
     </div>
   );
 }
+
+const CREDIT_KIND: Record<CreditEvent["kind"], string> = { usage: "Used", promo: "Promo code", grant: "Added by the operator", adjust: "Allowance", plan: "Plan" };
 
 function CreditsDialog({ user, onClose, onChanged }: { user: AdminUser; onClose: () => void; onChanged: () => void }) {
   const [amount, setAmount] = useState("");
@@ -238,7 +360,7 @@ function CreditsDialog({ user, onClose, onChanged }: { user: AdminUser; onClose:
   };
 
   return (
-    <Dialog open onOpenChange={open => { if (!open) onClose(); }} size="md" title={`Credits · ${name}`} description={credits.unlimited ? "The operator's account is not charged." : `${formatCredits(credits.available)} available now: ${formatCredits(credits.remaining)} of ${formatCredits(credits.allowance)} in this window${credits.resetsAt ? ` (refills at ${clockText(credits.resetsAt)})` : ""}, plus ${formatCredits(credits.bonus)} bonus.`}>
+    <Dialog open onOpenChange={open => { if (!open) onClose(); }} size="md" title={`Credits · ${name}`} description={credits.unlimited ? "The operator's account is not charged." : `${formatCredits(credits.available)} available now: ${formatCredits(credits.remaining)} of ${formatCredits(credits.allowance)} in this window${credits.resetsAt ? ` (refills at ${clockText(credits.resetsAt)})` : ""}, plus ${formatCredits(credits.bonus)} bonus.${credits.plan ? ` On ${credits.plan.name} until ${shortDayText(credits.plan.expiresAt)}.` : ""}`}>
       <form className="admin-form" onSubmit={grant} noValidate>
         <h4 className="admin-form-title">Add bonus credits</h4>
         <p className="field-hint">Bonus credits are spent after the window's and never expire.</p>
@@ -256,7 +378,7 @@ function CreditsDialog({ user, onClose, onChanged }: { user: AdminUser; onClose:
       </form>
       <div className="admin-form">
         <h4 className="admin-form-title">Allowance per window</h4>
-        <p className="field-hint">Leave empty for the default. Takes effect from the next charge.</p>
+        <p className="field-hint">Leave empty for the default. Takes effect from the next charge. While a plan runs, the larger of the two applies.</p>
         <div className="admin-form-row">
           <div className="field">
             <label className="field-label" htmlFor={`${amountId}-allowance`}>Credits every window</label>
@@ -271,7 +393,7 @@ function CreditsDialog({ user, onClose, onChanged }: { user: AdminUser; onClose:
       {!credits.unlimited && (
         <div className="admin-form">
           <h4 className="admin-form-title">Free allowance</h4>
-          <p className="field-hint">{withheld ? "This account doesn't get the free allowance. " : "This account gets the free allowance. "}{user.freeAllowance?.note ?? ""}{user.customAllowance !== null ? " Its own allowance applies either way." : ""}</p>
+          <p className="field-hint">{withheld ? "This account doesn't get the free allowance. " : "This account gets the free allowance. "}{user.freeAllowance?.note ?? ""}{user.customAllowance !== null ? " Its own allowance applies either way." : ""}{credits.plan ? " Its plan applies either way." : ""}</p>
           <div className="admin-actions">
             <Button busy={busy === "free"} disabled={busy !== null && busy !== "free"} onClick={() => void saveFreeAllowance(!withheld)}>{withheld ? "Give the free allowance" : "Remove the free allowance"}</Button>
           </div>
@@ -284,7 +406,7 @@ function CreditsDialog({ user, onClose, onChanged }: { user: AdminUser; onClose:
           {history.slice(0, 30).map((event, index) => (
             <li key={`${event.at}-${index}`}>
               <span className="num" data-sign={event.amount < 0 ? "minus" : "plus"}>{event.amount > 0 ? "+" : ""}{formatCredits(event.amount)}</span>
-              <span>{event.kind === "usage" ? "Used" : event.kind === "promo" ? "Promo code" : event.kind === "grant" ? "Added by the operator" : "Allowance"}{event.detail ? ` · ${event.detail}` : ""}</span>
+              <span>{CREDIT_KIND[event.kind]}{event.detail ? ` · ${event.detail}` : ""}</span>
               <span className="admin-sub">{relativeTime(event.at)}</span>
             </li>
           ))}

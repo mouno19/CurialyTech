@@ -1,7 +1,9 @@
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
+import { microsToUsd } from "@shared/billing";
 import { ACTIVE_STATUSES } from "@shared/taskStatus";
 import { accountOf, forgetUser, rateLimited, requireAdmin, requireUser } from "./auth";
+import { getBillingSettings } from "./billing/settings";
 import {
   balanceOf, createPromoCode, creditHistory, CreditError, disablePromoCode, getBalance, getSettings, grant, listPromoCodes, redeemPromoCode,
   saveSettings, setAllowance, setFreeAllowance, type UserCredits,
@@ -53,7 +55,7 @@ export function accountRouter() {
 
 type AccountRow = UserCredits & {
   login: string | null; display_name: string; avatar_url: string | null; email: string | null; created_at: Date; last_seen_at: Date | null;
-  banned_at: Date | null; tasks: string; active: string; used_total: string | null; same_network: string | null; removed_by_operator: boolean;
+  banned_at: Date | null; tasks: string; active: string; used_total: string | null; same_network: string | null; removed_by_operator: boolean; api_balance_micros: string;
 };
 
 /**
@@ -95,10 +97,10 @@ export function adminRouter() {
     const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
     const offset = Math.max(0, Number(req.query.offset) || 0);
     const like = `%${q.replace(/[\\%_]/g, char => `\\${char}`)}%`;
-    const [{ rows }, settings] = await Promise.all([
+    const [{ rows }, settings, billing] = await Promise.all([
       query<AccountRow>(
         `SELECT u.id, u.role, u.credit_allowance, u.bonus_credits, u.window_started_at, u.window_used, u.free_allowance_withheld, u.login, u.display_name, u.avatar_url, u.email,
-                u.created_at, u.last_seen_at, u.banned_at,
+                u.created_at, u.last_seen_at, u.banned_at, u.plan_id, u.plan_expires_at, u.plan_credits_per_window, u.api_balance_micros,
                 (SELECT count(*) FROM curialy.users o WHERE u.signup_network IS NOT NULL AND o.signup_network = u.signup_network AND o.id <> u.id) AS same_network,
                 ((SELECT e.detail FROM curialy.credit_events e WHERE e.user_id = u.id AND e.kind = 'adjust' AND e.detail IN ('free allowance removed', 'free allowance given') ORDER BY e.created_at DESC LIMIT 1) = 'free allowance removed') IS TRUE AS removed_by_operator,
                 (SELECT count(*) FROM curialy.chat_sessions s WHERE s.user_id = u.id) AS tasks,
@@ -110,14 +112,20 @@ export function adminRouter() {
         [q, like, limit + 1, ACTIVE_STATUSES, offset],
       ),
       getSettings(),
+      getBillingSettings(),
     ]);
+    const now = Date.now();
     res.json({
-      users: rows.slice(0, limit).map(row => ({
-        id: row.id, role: row.role, login: row.login, name: row.display_name, avatarUrl: row.avatar_url, email: row.email,
-        createdAt: row.created_at.toISOString(), lastSeenAt: row.last_seen_at?.toISOString() ?? null, banned: Boolean(row.banned_at),
-        tasks: Number(row.tasks), activeRuns: Number(row.active), creditsUsedTotal: Math.round(Number(row.used_total ?? 0) * 100) / 100,
-        customAllowance: row.credit_allowance, credits: balanceOf(row, settings), freeAllowance: freeAllowanceInfo(row),
-      })),
+      users: rows.slice(0, limit).map(row => {
+        const credits = balanceOf(row, settings, now, billing.plans);
+        return {
+          id: row.id, role: row.role, login: row.login, name: row.display_name, avatarUrl: row.avatar_url, email: row.email,
+          createdAt: row.created_at.toISOString(), lastSeenAt: row.last_seen_at?.toISOString() ?? null, banned: Boolean(row.banned_at),
+          tasks: Number(row.tasks), activeRuns: Number(row.active), creditsUsedTotal: Math.round(Number(row.used_total ?? 0) * 100) / 100,
+          customAllowance: row.credit_allowance, credits, freeAllowance: freeAllowanceInfo(row),
+          plan: credits.plan, apiBalanceUsd: microsToUsd(Number(row.api_balance_micros ?? 0)),
+        };
+      }),
       more: rows.length > limit,
     });
   }));

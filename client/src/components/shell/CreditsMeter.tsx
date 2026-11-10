@@ -1,9 +1,11 @@
 import { useId, useState, type FormEvent } from "react";
+import { Link } from "wouter";
 import { Coins, Gift, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { formatCredits, type CreditBalance } from "@shared/credits";
 import { accountApi, errorMessage } from "@/lib/api";
 import { clockText, refreshAccount, untilText, useAccount } from "@/lib/account";
+import { shortDayText } from "@/components/billing/format";
 import { Button } from "@/components/common/Button";
 import { Dialog } from "@/components/common/Dialog";
 import { Tip } from "@/components/common/Tooltip";
@@ -18,10 +20,19 @@ export function refillLine(credits: CreditBalance) {
   // Without an allowance nothing refills: the account's credits are its own (promo codes, grants).
   if (credits.unlimited || credits.allowance === 0) return null;
   if (!credits.resetsAt) return `${formatCredits(credits.allowance)} every ${credits.windowHours} h`;
+  // A plan that ends first won't be there for the refill: say when it ends instead.
+  if (credits.plan && Date.parse(credits.plan.expiresAt) < Date.parse(credits.resetsAt)) return `${credits.plan.name} ends at ${clockText(credits.plan.expiresAt)}, before this window refills`;
   return `Refills to ${formatCredits(credits.allowance)} at ${clockText(credits.resetsAt)}`;
 }
 
-/** The sidebar's credits: what's left, when it refills, and a way to redeem a promo code. */
+/** "Pro until 9 Dec", or null without an active plan. */
+export function planLine(credits: CreditBalance, now = Date.now()) {
+  const plan = credits.plan;
+  if (!plan || !(Date.parse(plan.expiresAt) > now)) return null;
+  return `${plan.name} until ${shortDayText(plan.expiresAt)}`;
+}
+
+/** The sidebar's credits: what's left, the plan, when it refills, and a way to redeem a promo code or get more. */
 export function CreditsMeter({ rail }: { rail: boolean }) {
   const { info } = useAccount();
   const [open, setOpen] = useState(false);
@@ -29,11 +40,14 @@ export function CreditsMeter({ rail }: { rail: boolean }) {
   const { credits } = info;
   const share = credits.unlimited ? 1 : credits.allowance === 0 ? (credits.available > 0 ? 1 : 0) : Math.min(1, credits.remaining / credits.allowance);
   const low = !credits.unlimited && credits.available < 5;
+  const plan = credits.unlimited ? null : planLine(credits);
+  const summary = plan ? `${creditsLine(credits)} · ${plan}` : creditsLine(credits);
   const button = (
-    <button type="button" className="nav-item credits-meter" data-low={low || undefined} onClick={() => setOpen(true)} aria-label={rail ? `${creditsLine(credits)}. Open credits` : undefined}>
+    <button type="button" className="nav-item credits-meter" data-low={low || undefined} onClick={() => setOpen(true)} aria-label={rail ? `${summary}. Open credits` : undefined}>
       <Coins size={17} aria-hidden="true" />
       <span className="nav-text credits-text">
         <span className="credits-left">{creditsLine(credits)}</span>
+        {plan && <span className="credits-plan">{plan}</span>}
         {!credits.unlimited && (
           <span className="credits-bar" aria-hidden="true"><span style={{ width: `${Math.round(share * 100)}%` }} /></span>
         )}
@@ -42,7 +56,7 @@ export function CreditsMeter({ rail }: { rail: boolean }) {
   );
   return (
     <>
-      {rail ? <Tip content={creditsLine(credits)} side="right">{button}</Tip> : button}
+      {rail ? <Tip content={summary} side="right">{button}</Tip> : button}
       <CreditsDialog open={open} onOpenChange={setOpen} credits={credits} />
     </>
   );
@@ -69,12 +83,16 @@ export function CreditsDialog({ open, onOpenChange, credits }: { open: boolean; 
       setBusy(false);
     }
   };
+  const plan = credits.unlimited ? null : planLine(credits);
   return (
     <Dialog open={open} onOpenChange={onOpenChange} size="sm" title="Credits" description={
       credits.unlimited ? "The operator's account is not charged."
         : credits.allowance === 0 ? "Credits on this account come from promo codes. They don't expire."
-          : `This account gets ${formatCredits(credits.allowance)} credits every ${credits.windowHours} hours; a window starts with the first credit you spend.`
-    }>
+          : `${plan ? `With ${plan}, this` : "This"} account gets ${formatCredits(credits.allowance)} credits every ${credits.windowHours} hours; a window starts with the first credit you spend.`
+    } footer={credits.unlimited ? undefined : (
+      // A plan adds credits to every window; the page also has the API balance and past orders.
+      <Link href="/billing" className={plan ? "btn" : "btn primary"} onClick={() => onOpenChange(false)}>{plan ? "Plans & Billing" : "Get more credits"}</Link>
+    )}>
       {!credits.unlimited && credits.allowance === 0 && (
         <dl className="credits-facts">
           <div><dt>Credits</dt><dd>{formatCredits(credits.bonus)}</dd></div>
@@ -82,6 +100,7 @@ export function CreditsDialog({ open, onOpenChange, credits }: { open: boolean; 
       )}
       {!credits.unlimited && credits.allowance > 0 && (
         <dl className="credits-facts">
+          <div><dt>Plan</dt><dd>{plan ?? "Free"}</dd></div>
           <div><dt>This window</dt><dd>{formatCredits(credits.remaining)} of {formatCredits(credits.allowance)} left</dd></div>
           <div><dt>Bonus credits</dt><dd>{formatCredits(credits.bonus)}</dd></div>
           <div><dt>Refill</dt><dd>{credits.resetsAt ? `${clockText(credits.resetsAt)} (${untilText(credits.resetsAt)})` : "Your full allowance is ready"}</dd></div>
