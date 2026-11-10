@@ -119,3 +119,6 @@ client/public/__manus__/version.json
 dist-prev/
 dist-next/
 dist-failed/
+
+# The model bridge's account pool holds tokens (deploy/snowflake-proxy/pool.example.json shows its shape).
+pool.json

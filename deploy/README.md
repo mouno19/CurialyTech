@@ -9,7 +9,7 @@ only on the server, owned by root with mode 600.
 | Piece | Where | Notes |
 |---|---|---|
 | App | `curialyai.service` ([unit](systemd/curialyai.service)) | `node dist/index.js` on `127.0.0.1:3000`, user `ubuntu`, `MemoryMax=400M`, env `/etc/curialyai.env`. |
-| Model bridge | `snowflake-proxy.service` ([unit](systemd/snowflake-proxy.service), [source](snowflake-proxy/proxy.js)) | `127.0.0.1:8082`. The only holder of the Snowflake PAT for Cortex REST (env `/etc/snowflake-proxy.env`). Installed at `~/snowflake-proxy/proxy.js`. |
+| Model bridge | `snowflake-proxy.service` ([unit](systemd/snowflake-proxy.service), [source](snowflake-proxy/proxy.js)) | `127.0.0.1:8082`. The only holder of the Snowflake PATs for Cortex REST: a pool of accounts in `~/snowflake-proxy/pool.json` (shape: [pool.example.json](snowflake-proxy/pool.example.json); never committed), else `/etc/snowflake-proxy.env`. On a 401/403 it moves to the next account and retries the request. Installed at `~/snowflake-proxy/proxy.js`. |
 | Web | nginx ([site](nginx/curialyai.conf)) | TLS by certbot, proxies everything (including SSE) to :3000. |
 | Sandbox | user `curialy-agent`, `/srv/curialy-workspaces`, iptables chain `CURIALY_SANDBOX` | Set up by [setup-sandbox.sh](sandbox/setup-sandbox.sh). |
 | Data | Tiger Cloud Postgres, schema `curialy` | Tasks, events, conversations, team state, workspace snapshots, file metadata, GitHub connection (token AES-256-GCM encrypted). Migrations run at start-up (`server/db/pg.ts`). |
@@ -81,7 +81,7 @@ are used for failover and delegation only.
 2. Snowflake: run [snowflake/setup.sql](snowflake/setup.sql) as ACCOUNTADMIN and create a PAT for the service user.
 3. Tiger Cloud: create a service and put its connection string in `TIGER_DATABASE_URL` (tables are created on first start).
 4. Secrets: copy [env/curialyai.env.example](env/curialyai.env.example) to `/etc/curialyai.env` and [env/snowflake-proxy.env.example](env/snowflake-proxy.env.example) to `/etc/snowflake-proxy.env`, fill them in, then `chmod 600` both (root-owned). Set the admin password with `sudo node scripts/set-admin-password.mjs` (prompts; writes the hash and a session secret).
-5. Bridge: `mkdir -p ~/snowflake-proxy && cp deploy/snowflake-proxy/proxy.js ~/snowflake-proxy/`.
+5. Bridge: `mkdir -p ~/snowflake-proxy && cp deploy/snowflake-proxy/proxy.js ~/snowflake-proxy/`; for several accounts, write `~/snowflake-proxy/pool.json` from [pool.example.json](snowflake-proxy/pool.example.json) (`chmod 600`).
 6. Services: copy `deploy/systemd/*` to `/etc/systemd/system/` (including the `snowflake-proxy.service.d/` drop-in), then `sudo systemctl daemon-reload && sudo systemctl enable --now snowflake-proxy`.
 7. Sandbox: `sudo deploy/sandbox/setup-sandbox.sh`.
 8. Build and start: `deploy/deploy.sh` (or `npm run build && sudo systemctl enable --now curialyai`).

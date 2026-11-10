@@ -1,0 +1,7 @@
+{
+  "currentIndex": 0,
+  "accounts": [
+    { "id": 0, "account": "ab12345", "host": "ab12345.ap-southeast-7.aws.snowflakecomputing.com", "pat": "<programmatic access token>" },
+    { "id": 1, "account": "cd67890", "host": "cd67890.ap-southeast-7.aws.snowflakecomputing.com", "pat": "<programmatic access token>" }
+  ]
+}
