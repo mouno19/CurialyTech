@@ -7,6 +7,7 @@ import { parseXPostId } from "@shared/credits";
 const store = vi.hoisted(() => ({
   user: null as null | Record<string, unknown>,
   events: [] as unknown[][],
+  ledger: [] as unknown[][],
   failUnique: false,
   followers: [] as string[],
   /** Followers answers keep a next page, so the check falls through to the account's own following list. */
@@ -44,6 +45,16 @@ vi.mock("./db/pg", () => {
       store.events.push(values);
       return { rows: [] };
     }
+    if (text.startsWith("UPDATE curialy.users SET api_balance_micros")) {
+      if (!store.user?.x_followed_at || !store.user?.x_posted_at || store.user?.x_api_granted_at) return { rows: [], rowCount: 0 };
+      const balance = String(Number(store.user.api_balance_micros ?? 0) + Number(values[1]));
+      store.user = { ...store.user, api_balance_micros: balance, x_api_granted_at: new Date() };
+      return { rows: [{ api_balance_micros: balance }], rowCount: 1 };
+    }
+    if (text.startsWith("INSERT INTO curialy.api_ledger")) {
+      store.ledger.push(values);
+      return { rows: [] };
+    }
     return { rows: [], rowCount: 0 };
   };
   return { query: vi.fn(run) };
@@ -55,12 +66,13 @@ const { resetBillingSettings } = await import("./billing/settings");
 
 const row = (patch: Record<string, unknown> = {}) => ({
   id: "u1", role: "user", credit_allowance: null, bonus_credits: "0", window_started_at: null, window_used: "0", free_allowance_withheld: false,
-  plan_id: null, plan_expires_at: null, plan_credits_per_window: null, x_user_id: null, x_username: null, x_linked_at: null, x_followed_at: null, x_posted_at: null, x_post_id: null, ...patch,
+  plan_id: null, plan_expires_at: null, plan_credits_per_window: null, api_balance_micros: "0", x_user_id: null, x_username: null, x_linked_at: null, x_followed_at: null, x_posted_at: null, x_post_id: null, x_api_granted_at: null, ...patch,
 });
 
 beforeEach(() => {
   store.user = row();
   store.events.length = 0;
+  store.ledger.length = 0;
   store.failUnique = false;
   store.followers = ["42"];
   store.moreFollowers = false;
@@ -132,6 +144,7 @@ describe("claims", () => {
     store.user = linked();
     const result = await rewards.claimFollow("u1");
     expect(result.credits).toBe(240);
+    expect(result.apiUsd).toBe(0);
     expect(result.state.follow.claimedAt).not.toBeNull();
     expect(result.balance.bonus).toBe(240);
     expect(store.events[0]?.[1]).toBe(240);
@@ -148,6 +161,7 @@ describe("claims", () => {
     store.user = linked();
     const result = await rewards.claimPost("u1", "https://x.com/Ada/status/1847920000000000099");
     expect(result.credits).toBe(300);
+    expect(result.apiUsd).toBe(0);
     expect(result.state.post.postUrl).toBe("https://x.com/Ada/status/1847920000000000099");
     expect(result.balance.bonus).toBe(300);
     await expect(rewards.claimPost("u1", "https://x.com/Ada/status/1847920000000000099")).rejects.toMatchObject({ code: "already_claimed" });
@@ -169,5 +183,20 @@ describe("claims", () => {
     await expect(rewards.claimPost("u1", "not a url")).rejects.toMatchObject({ status: 400 });
     store.user = row();
     await expect(rewards.claimPost("u1", "https://x.com/Ada/status/1847920000000000099")).rejects.toMatchObject({ code: "not_linked" });
+  });
+
+  it("adds $20 to the Developer API balance once both rewards are claimed, and not before", async () => {
+    store.user = linked();
+    expect((await rewards.claimFollow("u1")).apiUsd).toBe(0);
+    expect(store.ledger).toEqual([]);
+    const posted = await rewards.claimPost("u1", "https://x.com/Ada/status/1847920000000000099");
+    expect(posted.apiUsd).toBe(20);
+    expect(posted.state.api.grantedAt).not.toBeNull();
+    expect(store.user).toMatchObject({ api_balance_micros: "20000000" });
+    expect(store.ledger).toEqual([["u1", 20_000_000, "20000000", "Developer API credit for following and posting on X"]]);
+    store.user = linked({ x_posted_at: new Date(), x_api_granted_at: new Date(), api_balance_micros: "20000000" });
+    store.ledger.length = 0;
+    expect((await rewards.claimFollow("u1")).apiUsd).toBe(0);
+    expect(store.ledger).toEqual([]);
   });
 });

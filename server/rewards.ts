@@ -1,3 +1,4 @@
+import { usdToMicros } from "@shared/billing";
 import { normalizeXHandle, parseXPostId, type CreditSettings, type RewardsState } from "@shared/credits";
 import { activeBoost, CreditError, getBalance, getSettings } from "./credits";
 import { query } from "./db/pg";
@@ -125,8 +126,8 @@ export function suggestedPost(handle: string) {
 
 // ---- The account's state ----
 
-type XRow = { x_user_id: string | null; x_username: string | null; x_linked_at: Date | null; x_followed_at: Date | null; x_posted_at: Date | null; x_post_id: string | null; free_allowance_withheld: boolean };
-const X_COLUMNS = "x_user_id, x_username, x_linked_at, x_followed_at, x_posted_at, x_post_id, free_allowance_withheld";
+type XRow = { x_user_id: string | null; x_username: string | null; x_linked_at: Date | null; x_followed_at: Date | null; x_posted_at: Date | null; x_post_id: string | null; x_api_granted_at: Date | null; free_allowance_withheld: boolean };
+const X_COLUMNS = "x_user_id, x_username, x_linked_at, x_followed_at, x_posted_at, x_post_id, x_api_granted_at, free_allowance_withheld";
 
 async function xRow(userId: string): Promise<XRow> {
   const { rows } = await query<XRow>(`SELECT ${X_COLUMNS} FROM curialy.users WHERE id = $1`, [userId]);
@@ -150,6 +151,7 @@ export function rewardsStateOf(row: XRow, settings: CreditSettings, now = Date.n
     x: row.x_user_id && row.x_username ? { username: row.x_username, linkedAt: (row.x_linked_at ?? new Date(0)).toISOString(), locked: Boolean(row.x_followed_at || row.x_posted_at) } : null,
     follow: { credits: rewards.followCredits, claimedAt: row.x_followed_at?.toISOString() ?? null },
     post: { credits: rewards.postCredits, claimedAt: row.x_posted_at?.toISOString() ?? null, postUrl: row.x_post_id && row.x_username ? `https://x.com/${row.x_username}/status/${row.x_post_id}` : null },
+    api: { usd: rewards.apiUsd, grantedAt: row.x_api_granted_at?.toISOString() ?? null },
     boost: { offered, active: activeBoost(row, settings, now) !== null, creditsPerWindow: rewards.boost.creditsPerWindow, windowHours: rewards.boost.windowHours, endsAt: rewards.boost.endsAt },
     suggestedPost: suggestedPost(rewards.followHandle),
   };
@@ -192,7 +194,7 @@ export async function unlinkX(userId: string): Promise<RewardsState> {
   return rewardsState(userId);
 }
 
-/** Admin: forget everything X about an account (link, claims, post), ending its boost. Credits already given stay (remove them with a grant). */
+/** Admin: forget everything X about an account (link, claims, post), ending its boost. Credits already given stay, including the Developer API dollars, which are not paid again. */
 export async function resetXRewards(userId: string, by: string) {
   const { rowCount } = await query("UPDATE curialy.users SET x_user_id = NULL, x_username = NULL, x_linked_at = NULL, x_followed_at = NULL, x_posted_at = NULL, x_post_id = NULL WHERE id = $1", [userId]);
   if (!rowCount) throw new CreditError("Account not found.", "invalid_code", 404);
@@ -215,7 +217,8 @@ export async function claimFollow(userId: string) {
   const { rowCount } = await query("UPDATE curialy.users SET x_followed_at = now(), bonus_credits = bonus_credits + $2 WHERE id = $1 AND x_followed_at IS NULL", [userId, credits]);
   if (!rowCount) throw new CreditError("This reward was already claimed.", "already_claimed", 409);
   await query("INSERT INTO curialy.credit_events (user_id, kind, amount, detail) VALUES ($1, 'reward', $2, $3)", [userId, credits, `followed @${handle} on X`]);
-  return { credits, state: await rewardsState(userId), balance: await getBalance(userId) };
+  const apiUsd = await grantApiReward(userId, settings.rewards.apiUsd);
+  return { credits, apiUsd, state: await rewardsState(userId), balance: await getBalance(userId) };
 }
 
 /** The post reward: a post by the linked X account that names the site. Once per account, and a post pays once. */
@@ -241,5 +244,28 @@ export async function claimPost(userId: string, input: string) {
   }
   if (!rowCount) throw new CreditError("This reward was already claimed.", "already_claimed", 409);
   await query("INSERT INTO curialy.credit_events (user_id, kind, amount, detail) VALUES ($1, 'reward', $2, $3)", [userId, credits, `posted about Curialy on X (post ${postId})`]);
-  return { credits, state: await rewardsState(userId), balance: await getBalance(userId) };
+  const apiUsd = await grantApiReward(userId, settings.rewards.apiUsd);
+  return { credits, apiUsd, state: await rewardsState(userId), balance: await getBalance(userId) };
+}
+
+/**
+ * $20 (the setting) on the Developer API balance, once, when both rewards are already claimed.
+ * The column makes two claims at the same moment pay it once.
+ */
+async function grantApiReward(userId: string, usd: number): Promise<number> {
+  if (!(usd > 0)) return 0;
+  const micros = usdToMicros(usd);
+  const { rows } = await query<{ api_balance_micros: string }>(
+    `UPDATE curialy.users SET api_balance_micros = api_balance_micros + $2, x_api_granted_at = now()
+       WHERE id = $1 AND x_followed_at IS NOT NULL AND x_posted_at IS NOT NULL AND x_api_granted_at IS NULL
+       RETURNING api_balance_micros::text AS api_balance_micros`,
+    [userId, micros],
+  );
+  const balance = rows[0]?.api_balance_micros;
+  if (balance === undefined) return 0;
+  await query(
+    "INSERT INTO curialy.api_ledger (user_id, kind, amount_micros, balance_after_micros, note) VALUES ($1, 'grant', $2, $3, $4)",
+    [userId, micros, balance, "Developer API credit for following and posting on X"],
+  );
+  return usd;
 }

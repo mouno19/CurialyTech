@@ -87,7 +87,11 @@ export function freeTierLines(free: FreeTier, formatDate: (iso: string) => strin
   if (creditsPerWindow > 0 && welcome > 0) lines.push(`${creditCount(welcome)} more to start`);
   if (rewards.followCredits > 0) lines.push(`+${creditCount(rewards.followCredits)} for following @${rewards.followHandle} on X`);
   if (rewards.postCredits > 0) lines.push(`+${creditCount(rewards.postCredits)} for a post about Curialy`);
-  if (rewards.boost) lines.push(`Both done: ${creditCount(rewards.boost.creditsPerWindow)} credits every ${rewards.boost.windowHours} hours · ${offerEnd(rewards.boost.endsAt, formatDate)}`);
+  const both: string[] = [];
+  if (rewards.apiUsd > 0) both.push(`${formatPrice(rewards.apiUsd)} on the Developer API`);
+  if (rewards.boost) both.push(`${creditCount(rewards.boost.creditsPerWindow)} credits every ${rewards.boost.windowHours} hours · ${offerEnd(rewards.boost.endsAt, formatDate)}`);
+  if (both.length === 1) lines.push(`Both done: ${both[0]}`);
+  if (both.length === 2) lines.push(`Both done: ${both[0]}, and ${both[1]}`);
   return { headline, lines };
 }
 

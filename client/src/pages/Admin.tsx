@@ -588,6 +588,7 @@ function SettingsPanel({ onSaved }: { onSaved: () => void }) {
   const [followHandle, setFollowHandle] = useState("");
   const [followCredits, setFollowCredits] = useState("");
   const [postCredits, setPostCredits] = useState("");
+  const [apiUsd, setApiUsd] = useState("");
   const [boostOn, setBoostOn] = useState(true);
   const [boostCredits, setBoostCredits] = useState("");
   const [boostHours, setBoostHours] = useState("");
@@ -605,6 +606,7 @@ function SettingsPanel({ onSaved }: { onSaved: () => void }) {
       setFollowHandle(settings.rewards.followHandle);
       setFollowCredits(String(settings.rewards.followCredits));
       setPostCredits(String(settings.rewards.postCredits));
+      setApiUsd(String(settings.rewards.apiUsd));
       setBoostOn(settings.rewards.boost.enabled);
       setBoostCredits(String(settings.rewards.boost.creditsPerWindow));
       setBoostHours(String(settings.rewards.boost.windowHours));
@@ -620,7 +622,7 @@ function SettingsPanel({ onSaved }: { onSaved: () => void }) {
       await adminApi.saveSettings({
         creditsPerWindow: Number(perWindow), windowHours: Number(hours), signupsOpen: signups, welcomeCredits: Number(welcome),
         rewards: {
-          followHandle, followCredits: Number(followCredits), postCredits: Number(postCredits),
+          followHandle, followCredits: Number(followCredits), postCredits: Number(postCredits), apiUsd: Number(apiUsd),
           boost: { enabled: boostOn, creditsPerWindow: Number(boostCredits), windowHours: Number(boostHours), endsAt: boostEnds ? fromLocalInput(boostEnds) : null },
         },
       });
@@ -651,7 +653,7 @@ function SettingsPanel({ onSaved }: { onSaved: () => void }) {
         </div>
       </div>
       <h4 className="admin-form-title">Earned on X</h4>
-      <p className="field-hint">Each is claimed once per account, after this server has checked it on X. Both claimed: the boost's allowance refills on its own window until the offer ends (empty: until you turn it off).</p>
+      <p className="field-hint">Each is claimed once per account, after this server has checked it on X. Both claimed: the Developer API balance gets the dollars below, once, and the boost's allowance refills on its own window until the offer ends (empty: until you turn it off).</p>
       <div className="admin-form-row">
         <div className="field">
           <label className="field-label" htmlFor={`${id}-handle`}>Account to follow</label>
@@ -664,6 +666,10 @@ function SettingsPanel({ onSaved }: { onSaved: () => void }) {
         <div className="field">
           <label className="field-label" htmlFor={`${id}-post`}>Credits for a post</label>
           <input id={`${id}-post`} className="input" type="number" inputMode="numeric" min={0} step="1" value={postCredits} disabled={!loaded} onChange={event => setPostCredits(event.target.value)} />
+        </div>
+        <div className="field">
+          <label className="field-label" htmlFor={`${id}-api`}>Developer API dollars for both</label>
+          <input id={`${id}-api`} className="input" type="number" inputMode="numeric" min={0} step="1" value={apiUsd} disabled={!loaded} onChange={event => setApiUsd(event.target.value)} />
         </div>
       </div>
       <div className="admin-form-row">

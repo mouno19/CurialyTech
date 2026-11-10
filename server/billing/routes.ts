@@ -64,7 +64,7 @@ export function freeTier(credits: CreditSettings, now = Date.now()): FreeTier {
   return {
     welcomeCredits: credits.welcomeCredits, creditsPerWindow: credits.creditsPerWindow, windowHours: credits.windowHours,
     rewards: {
-      followHandle: rewards.followHandle, followCredits: rewards.followCredits, postCredits: rewards.postCredits,
+      followHandle: rewards.followHandle, followCredits: rewards.followCredits, postCredits: rewards.postCredits, apiUsd: rewards.apiUsd,
       boost: offered ? { creditsPerWindow: rewards.boost.creditsPerWindow, windowHours: rewards.boost.windowHours, endsAt: rewards.boost.endsAt } : null,
     },
   };

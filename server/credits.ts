@@ -80,6 +80,7 @@ export async function saveSettings(patch: CreditSettingsPatch, by: string) {
   wholeCredits(next.welcomeCredits, "Welcome credits");
   wholeCredits(next.rewards.followCredits, "The follow reward");
   wholeCredits(next.rewards.postCredits, "The post reward");
+  if (!Number.isInteger(next.rewards.apiUsd) || next.rewards.apiUsd < 0 || next.rewards.apiUsd > 10_000) throw invalid("The Developer API reward must be a whole number of dollars from 0 to 10000.");
   wholeCredits(next.rewards.boost.creditsPerWindow, "The boost's credits per window");
   if (!(next.windowHours >= 1 && next.windowHours <= 168)) throw invalid("A window lasts from 1 to 168 hours.");
   if (!(next.rewards.boost.windowHours >= 1 && next.rewards.boost.windowHours <= 168)) throw invalid("The boost's window lasts from 1 to 168 hours.");

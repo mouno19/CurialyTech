@@ -209,7 +209,7 @@ export default function Billing() {
             )}
           </section>
 
-          {credits?.welcome && <EarnCredits />}
+          {credits?.welcome && <EarnCredits onApiCredit={() => wallet.reload()} />}
 
           <section className="bill-section" aria-labelledby="bill-plans-title">
             <div className="bill-section-head">

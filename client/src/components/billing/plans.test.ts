@@ -55,14 +55,14 @@ describe("prices and the offer", () => {
   it("says what a free account gets: once, then on X, then the boost while it is offered", () => {
     const free: FreeTier = {
       welcomeCredits: 60, creditsPerWindow: 0, windowHours: 5,
-      rewards: { followHandle: "Yumiko_web3", followCredits: 240, postCredits: 300, boost: { creditsPerWindow: 300, windowHours: 8, endsAt: null } },
+      rewards: { followHandle: "Yumiko_web3", followCredits: 240, postCredits: 300, apiUsd: 20, boost: { creditsPerWindow: 300, windowHours: 8, endsAt: null } },
     };
     const date = (iso: string) => iso;
     expect(freeTierLines(free, date)).toEqual({
       headline: "60 credits to start",
-      lines: ["+240 for following @Yumiko_web3 on X", "+300 for a post about Curialy", "Both done: 300 credits every 8 hours · limited time"],
+      lines: ["+240 for following @Yumiko_web3 on X", "+300 for a post about Curialy", "Both done: $20 on the Developer API, and 300 credits every 8 hours · limited time"],
     });
-    expect(freeTierLines({ ...free, creditsPerWindow: 600, welcomeCredits: 0, rewards: { ...free.rewards, boost: null } }, date)).toEqual({ headline: "600 credits every 5 hours", lines: ["+240 for following @Yumiko_web3 on X", "+300 for a post about Curialy"] });
+    expect(freeTierLines({ ...free, creditsPerWindow: 600, welcomeCredits: 0, rewards: { ...free.rewards, apiUsd: 0, boost: null } }, date)).toEqual({ headline: "600 credits every 5 hours", lines: ["+240 for following @Yumiko_web3 on X", "+300 for a post about Curialy"] });
   });
 
   it("compares a plan with the free allowance", () => {
