@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { coinOn } from "@shared/billing";
-import { rpcEndpoints, TRANSFER_TOPIC, verifyPayment, type PaymentToVerify } from "./chains";
+import { incomingPayments, resetIncomingCursors, rpcEndpoints, TRANSFER_TOPIC, verifyPayment, type PaymentToVerify } from "./chains";
 
 // The on-chain check, over JSON-RPC fixtures shaped like real node answers: only the coin's own
 // token contracts count, only transfers to the wallet, only the exact amount, only a successful
@@ -334,5 +334,51 @@ describe("endpoints", () => {
     expect(new Set(calls.map(call => call.url)).size).toBe(3);
     expect(warn).toHaveBeenCalledTimes(3);
     expect(JSON.stringify(warn.mock.calls)).not.toMatch(/publicnode|drpc|merkle|https?:/);
+  });
+});
+
+describe("incoming transfers", () => {
+  const amount = 2_003_700_000_000_000_000n;
+
+  beforeEach(() => {
+    resetIncomingCursors();
+  });
+
+  it("reads a token transfer to the wallet and ignores a look-alike contract", async () => {
+    let logged = false;
+    fallback = (method, params) => {
+      if (method === "eth_blockNumber") return hex(BLOCK);
+      if (method === "eth_getLogs") {
+        expect(params[0].topics[0]).toBe(TRANSFER_TOPIC);
+        expect(params[0].topics[2]).toBe(topic(WALLET));
+        expect(params[0].address).toContain(token("bnb", "USDT"));
+        if (logged) return [];
+        logged = true;
+        return [
+          { address: token("bnb", "USDT"), topics: [TRANSFER_TOPIC, topic(PAYER), topic(WALLET)], data: word(amount), transactionHash: HASH, blockNumber: hex(BLOCK), removed: false },
+          { address: "0x55d398326f99059ff775485246999027b3197956", topics: [TRANSFER_TOPIC, topic(PAYER), topic(WALLET)], data: word(amount), transactionHash: `0x${"22".repeat(32)}`, blockNumber: hex(BLOCK) },
+        ];
+      }
+      if (method === "eth_getBlockByNumber") return { timestamp: hex(Math.floor(BLOCK_TIME / 1000)), transactions: [] };
+      throw new Error(`unexpected method ${method}`);
+    };
+    const since = new Date(Date.now() - 60_000);
+    expect(await incomingPayments("bnb", WALLET, since, ["USDT"])).toEqual([{ txHash: HASH, coin: "USDT", units: amount, blockTime: new Date(BLOCK_TIME) }]);
+  });
+
+  it("reads a direct native transfer and does not re-read those blocks", async () => {
+    let first: string | null = null;
+    fallback = (method, params) => {
+      if (method === "eth_blockNumber") return hex(BLOCK);
+      if (method === "eth_getBlockByNumber" && params[1] === true) {
+        first ??= params[0];
+        const payment = params[0] === first ? [{ hash: HASH, to: WALLET.toLowerCase(), value: hex(1_000_000_000_000_000n) }, { hash: `0x${"11".repeat(32)}`, to: OTHER, value: hex(1n) }] : [];
+        return { timestamp: hex(Math.floor(BLOCK_TIME / 1000)), transactions: payment };
+      }
+      throw new Error(`unexpected method ${method}`);
+    };
+    const since = new Date(Date.now() - 1000);
+    expect(await incomingPayments("bnb", WALLET, since, ["BNB"])).toEqual([{ txHash: HASH, coin: "BNB", units: 1_000_000_000_000_000n, blockTime: new Date(BLOCK_TIME) }]);
+    expect(await incomingPayments("bnb", WALLET, since, ["BNB"])).toEqual([]);
   });
 });

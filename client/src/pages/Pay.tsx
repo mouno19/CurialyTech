@@ -24,7 +24,7 @@ import {
 } from "@/components/billing/orderState";
 
 // The payment page for one order (the CurialyTeam flow): pick a network and a coin, send the exact
-// amount to the wallet shown, paste the transaction hash, and watch the server check it on-chain.
+// amount to the wallet shown. The server finds the transfer on the network; pasting the hash still works.
 // Responses are sequenced so an older one never overwrites a newer one; one action runs at a time;
 // actions wait while the order on screen is out of date. Polling: every 5 s while the network is
 // checked, every 20 s while a payment is awaited, every 30 s while the operator reviews it, never
@@ -53,7 +53,7 @@ function subline(order: PaymentOrder, view: PayView): string {
   const where = networkInfo(order.network)?.label ?? "the network";
   switch (view) {
     case "choose": return "Pick the network and the coin you'll pay with. The wallet and the exact amount come next.";
-    case "pay": return `Send exactly ${order.expectedAmount} ${order.coin} on ${where}, then paste the transaction hash below.`;
+    case "pay": return `Send exactly ${order.expectedAmount} ${order.coin} on ${where}. The payment is found on the network by itself; pasting the transaction hash is optional.`;
     case "pending": return `Your transaction is being looked for on ${where}. This page updates by itself.`;
     case "confirming": return `Your transaction is on ${where} and is being confirmed.`;
     case "completed": return "The payment is applied to your account.";
@@ -399,7 +399,7 @@ function PayPage({ code }: { code: string | null }) {
         <>
           <PaymentDetails order={order} onCopied={announce} />
           <section className="pay-submit" aria-labelledby="pay-submit-title">
-            <h3 id="pay-submit-title" className="pay-step-title">Then paste the transaction hash</h3>
+            <h3 id="pay-submit-title" className="pay-step-title">Paste the transaction hash if you have it</h3>
             {hashForm(false)}
           </section>
         </>
@@ -518,8 +518,8 @@ function PayPage({ code }: { code: string | null }) {
           <p className="pay-text">Don't send a payment for this order now.</p>
           {hashOpen && lateUntil !== null && (
             <section className="pay-late" aria-labelledby="pay-late-title">
-              <h3 id="pay-late-title" className="pay-step-title">Already sent it? Paste the transaction hash</h3>
-              <p className="field-hint">If you sent exactly {order.expectedAmount} {order.coin} on {where}, it's checked like any other payment; one made after the window closed may go to the operator's review. This stays open until {fullText(new Date(lateUntil).toISOString())}.</p>
+              <h3 id="pay-late-title" className="pay-step-title">Already sent it?</h3>
+              <p className="field-hint">A payment of exactly {order.expectedAmount} {order.coin} on {where} is still looked for on the network, and you can paste its hash here. One made after the window closed may go to the operator's review. This stays open until {fullText(new Date(lateUntil).toISOString())}.</p>
               {hashForm(true)}
             </section>
           )}
