@@ -210,6 +210,28 @@ export async function run(sql: string, values: any[] = []): Promise<{ rows: Row[
     });
     return result([], 1);
   }
+  if (text.startsWith("SELECT network, coin, min(quoted_at) AS oldest FROM curialy.payment_orders")) {
+    const cutoff = now.getTime() - values[0] * 3_600_000;
+    const waiting = fake.orders.filter(row => row.tx_hash === null && row.expected_units !== null && row.quoted_at && row.network
+      && ["awaiting_payment", "expired"].includes(row.status) && row.expires_at.getTime() > cutoff);
+    const groups = new Map<string, Row>();
+    for (const row of waiting) {
+      const key = `${row.network}:${row.coin}`;
+      const current = groups.get(key);
+      if (!current || row.quoted_at < current.oldest) groups.set(key, { network: row.network, coin: row.coin, oldest: row.quoted_at });
+    }
+    return result([...groups.values()]);
+  }
+  if (text.startsWith("SELECT id, coin, expected_units::text AS units, quoted_at, expires_at FROM curialy.payment_orders")) {
+    const [network, hours] = values;
+    const cutoff = now.getTime() - hours * 3_600_000;
+    return result(fake.orders.filter(row => row.network === network && row.tx_hash === null && row.expected_units !== null && row.quoted_at
+      && ["awaiting_payment", "expired"].includes(row.status) && row.expires_at.getTime() > cutoff)
+      .map(row => ({ id: row.id, coin: row.coin, units: String(row.expected_units), quoted_at: row.quoted_at, expires_at: row.expires_at })));
+  }
+  if (text.startsWith("SELECT id FROM curialy.payment_orders WHERE network = $1 AND tx_hash = $2 LIMIT 1")) {
+    return result(fake.orders.filter(row => row.network === values[0] && row.tx_hash === values[1]).slice(0, 1).map(row => ({ id: row.id })));
+  }
   if (text.startsWith("SELECT id FROM curialy.payment_orders WHERE status IN ('pending', 'confirming') AND next_check_at <= now()")) {
     const due = fake.orders.filter(row => ["pending", "confirming"].includes(row.status) && row.next_check_at && row.next_check_at <= now).sort((a, b) => a.next_check_at - b.next_check_at);
     return result(due.slice(0, values[0]).map(row => ({ id: row.id })));

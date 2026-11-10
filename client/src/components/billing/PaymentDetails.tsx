@@ -80,7 +80,7 @@ export function PaymentDetails({ order, onCopied }: { order: PaymentOrder; onCop
           <li>Pick {coin} on {network.label}{stable ? ` (${entry.standard})` : ""}.</li>
           <li>Paste the address above and check its first and last 6 characters.</li>
           <li>Send exactly <strong className="mono">{amount} {coin}</strong>.</li>
-          <li>Copy the transaction hash and paste it below.</li>
+          <li>The payment is found on the network by itself, usually within a minute. You can also paste the transaction hash below.</li>
         </ol>
       </section>
 

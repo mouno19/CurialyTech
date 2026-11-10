@@ -279,19 +279,174 @@ async function checkSolana(url: string, input: PaymentToVerify, info: NetworkInf
   const keys = tx.transaction.message.accountKeys.map(key => (typeof key === "string" ? { pubkey: key, signer: false } : key));
   const from = keys.find(key => key.signer)?.pubkey ?? keys[0]?.pubkey ?? null;
   if (tx.meta.err !== null && tx.meta.err !== undefined) return { state: "mismatch", reason: FAILED, from, blockTime };
-  let received = 0n;
-  if (coin.kind === "native") {
-    const index = keys.findIndex(key => key.pubkey === input.wallet);
-    if (index >= 0) received = BigInt(tx.meta.postBalances[index] ?? 0) - BigInt(tx.meta.preBalances[index] ?? 0);
-  } else {
-    // The wallet's token accounts for the coin's mints: what each holds after, less what it held before
-    // (nothing, when the transaction opened the account).
-    const mints = new Set(coin.tokens);
-    for (const post of tx.meta.postTokenBalances ?? []) {
-      if (post.owner !== input.wallet || !mints.has(post.mint)) continue;
-      const pre = (tx.meta.preTokenBalances ?? []).find(entry => entry.accountIndex === post.accountIndex);
-      received += BigInt(post.uiTokenAmount.amount) - BigInt(pre?.uiTokenAmount.amount ?? "0");
+  const received = solanaReceived(tx, input.wallet, coin);
+  return judge(input, info, coin, { received, from, blockTime, confirmations: finalized ? 1 : 0, required: info.confirmations });
+}
+
+// ---- Incoming payments (no hash from the payer) ----
+
+/** A transfer into the receiving wallet, read from the chain without anyone pasting a hash. */
+export type InboundPayment = { txHash: string; coin: CoinId; units: bigint; blockTime: Date };
+
+/** Rough seconds per block, only to choose how far back a scan looks. */
+const BLOCK_SECONDS: Record<NetworkId, number> = { ethereum: 12, bnb: 3, polygon: 2, solana: 1 };
+/** How many blocks one scan reads (a few hours on the faster chains; older payments still match when the payer pastes the hash). */
+const MAX_LOG_BLOCKS = 6_000;
+const LOG_CHUNK = 2_000;
+/** Native-coin blocks read per scan, so a tick stays short while a restart catches up over later scans. */
+const NATIVE_BLOCKS = 25;
+
+const hexBlock = (height: number) => `0x${height.toString(16)}`;
+const padAddress = (address: string) => `0x${address.slice(2).toLowerCase().padStart(64, "0")}`;
+
+type EvmIncomingLog = { address?: string; topics?: string[]; data?: string; transactionHash?: string; blockNumber?: string; removed?: boolean };
+type EvmIncomingBlock = { timestamp?: string; transactions?: { hash?: string; to?: string | null; value?: string }[] };
+
+/** Where the next native-coin scan starts, per network and wallet. A restart scans the open orders' window again. */
+const nativeCursor = new Map<string, number>();
+
+/** Tests start from a chain the process has never scanned. */
+export function resetIncomingCursors() {
+  nativeCursor.clear();
+}
+
+/**
+ * Transfers of the named coins into `wallet` since `since`, from the first endpoint that answers
+ * (null when every endpoint failed). Token transfers come from their logs; a network's own coin
+ * comes from recent blocks, a few at a time; Solana comes from the wallet's signatures. The same
+ * rules as a pasted hash decide what counts: the coin's own contract, a direct native transfer,
+ * and a successful transaction.
+ */
+export async function incomingPayments(network: NetworkId, wallet: string, since: Date, coins: CoinId[]): Promise<InboundPayment[] | null> {
+  const info = networkInfo(network);
+  if (!info || !coins.length) return [];
+  const endpoints = rpcEndpoints(network);
+  for (const [index, url] of endpoints.entries()) {
+    try {
+      return info.family === "evm" ? await incomingEvm(url, info, wallet, since, coins) : await incomingSolana(url, info, wallet, since, coins);
+    } catch (error) {
+      console.warn(`[Curialy Billing] ${info.label} incoming read, endpoint ${index + 1} of ${endpoints.length}, failed (${describe(error)}).`);
     }
   }
-  return judge(input, info, coin, { received, from, blockTime, confirmations: finalized ? 1 : 0, required: info.confirmations });
+  return null;
+}
+
+async function incomingEvm(url: string, info: NetworkInfo, wallet: string, since: Date, coins: CoinId[]): Promise<InboundPayment[]> {
+  const latest = Number(BigInt(await rpc<string>(url, "eth_blockNumber", [])));
+  if (!Number.isSafeInteger(latest)) throw new RpcError("eth_blockNumber: impossible height");
+  const seconds = Math.max(0, Date.now() - since.getTime()) / 1000;
+  const span = Math.min(MAX_LOG_BLOCKS, Math.ceil(seconds / BLOCK_SECONDS[info.id]) + 40);
+  const fromBlock = Math.max(0, latest - span);
+  const wanted = new Set(coins);
+  const found: InboundPayment[] = [];
+  const stables = info.coins.filter(coin => coin.kind === "stablecoin" && wanted.has(coin.coin) && coin.tokens.length);
+  if (stables.length) {
+    const byToken = new Map(stables.flatMap(coin => coin.tokens.map(token => [token.toLowerCase(), coin.coin] as const)));
+    const logs: EvmIncomingLog[] = [];
+    for (let start = fromBlock; start <= latest; start += LOG_CHUNK) {
+      const end = Math.min(latest, start + LOG_CHUNK - 1);
+      const batch = await rpc<EvmIncomingLog[] | null>(url, "eth_getLogs", [{
+        fromBlock: hexBlock(start), toBlock: hexBlock(end), address: stables.flatMap(coin => coin.tokens),
+        topics: [TRANSFER_TOPIC, null, padAddress(wallet)],
+      }]);
+      logs.push(...(batch ?? []));
+    }
+    const grouped = new Map<string, { coin: CoinId; units: bigint; block: number }>();
+    for (const log of logs) {
+      if (log.removed || !log.transactionHash || !log.blockNumber) continue;
+      const coin = byToken.get(String(log.address ?? "").toLowerCase());
+      const topics = (log.topics ?? []).map(topic => String(topic).toLowerCase());
+      if (!coin || topics.length !== 3 || topics[0] !== TRANSFER_TOPIC || topics[2] !== padAddress(wallet)) continue;
+      const key = `${log.transactionHash.toLowerCase()}:${coin}`;
+      const units = BigInt(log.data && log.data !== "0x" ? log.data : 0);
+      const block = Number(BigInt(log.blockNumber));
+      const current = grouped.get(key);
+      if (current) current.units += units;
+      else grouped.set(key, { coin, units, block });
+    }
+    const times = new Map<number, Date>();
+    await Promise.all([...new Set([...grouped.values()].map(entry => entry.block))].map(async block => {
+      const body = await rpc<EvmIncomingBlock | null>(url, "eth_getBlockByNumber", [hexBlock(block), false]);
+      if (!body?.timestamp) throw new RpcError("eth_getBlockByNumber: no timestamp");
+      const time = new Date(Number(BigInt(body.timestamp)) * 1000);
+      if (!Number.isFinite(time.getTime())) throw new RpcError("eth_getBlockByNumber: impossible block");
+      times.set(block, time);
+    }));
+    for (const [key, entry] of grouped) {
+      const blockTime = times.get(entry.block);
+      if (!blockTime || entry.units <= 0n) continue;
+      found.push({ txHash: key.slice(0, key.lastIndexOf(":")), coin: entry.coin, units: entry.units, blockTime });
+    }
+  }
+  const native = info.coins.find(coin => coin.kind === "native" && wanted.has(coin.coin));
+  if (native) {
+    const cursorKey = `${info.id}:${wallet.toLowerCase()}`;
+    let next = nativeCursor.get(cursorKey) ?? fromBlock;
+    if (next < fromBlock || next > latest + 1) next = fromBlock;
+    // Already caught up: wait for later blocks. Scanning backwards again would re-read the window every tick.
+    if (next <= latest) {
+      const end = Math.min(latest, next + NATIVE_BLOCKS - 1);
+      const to = wallet.toLowerCase();
+      const heights = Array.from({ length: end - next + 1 }, (_, index) => next + index);
+      const blocks = await Promise.all(heights.map(height => rpc<EvmIncomingBlock | null>(url, "eth_getBlockByNumber", [hexBlock(height), true])));
+      for (const block of blocks) {
+        if (!block?.timestamp) continue;
+        const blockTime = new Date(Number(BigInt(block.timestamp)) * 1000);
+        if (!Number.isFinite(blockTime.getTime())) continue;
+        for (const tx of block.transactions ?? []) {
+          if (!tx.hash || (tx.to ?? "").toLowerCase() !== to) continue;
+          const units = BigInt(tx.value && tx.value !== "0x" ? tx.value : 0);
+          if (units > 0n) found.push({ txHash: tx.hash.toLowerCase(), coin: native.coin, units, blockTime });
+        }
+      }
+      nativeCursor.set(cursorKey, end + 1);
+    }
+  }
+  return found;
+}
+
+async function incomingSolana(url: string, info: NetworkInfo, wallet: string, since: Date, coins: CoinId[]): Promise<InboundPayment[]> {
+  const signatures = await rpc<{ signature: string; blockTime: number | null; err: unknown }[] | null>(url, "getSignaturesForAddress", [wallet, { limit: 40, commitment: "confirmed" }]);
+  const sinceSeconds = Math.floor(since.getTime() / 1000);
+  const offered = info.coins.filter(coin => coins.includes(coin.coin));
+  const found: InboundPayment[] = [];
+  for (const entry of signatures ?? []) {
+    if (entry.err || entry.blockTime === null || entry.blockTime < sinceSeconds) continue;
+    let tx: SolanaTx | null | "unsupported";
+    try {
+      tx = await rpc<SolanaTx | null>(url, "getTransaction", [entry.signature, { encoding: "jsonParsed", commitment: "confirmed", maxSupportedTransactionVersion: SOLANA_TX_VERSION }]);
+    } catch (error) {
+      if (error instanceof RpcError && error.code === UNSUPPORTED_VERSION) continue;
+      throw error;
+    }
+    if (!tx?.meta || (tx.meta.err !== null && tx.meta.err !== undefined)) continue;
+    const blockTime = new Date((tx.blockTime ?? entry.blockTime) * 1000);
+    if (!Number.isFinite(blockTime.getTime())) continue;
+    for (const coin of offered) {
+      const units = solanaReceived(tx, wallet, coin);
+      if (units > 0n) found.push({ txHash: entry.signature, coin: coin.coin, units, blockTime });
+    }
+  }
+  return found;
+}
+
+/** What one Solana transaction added to the wallet, in the coin's base units (negative when it left). */
+function solanaReceived(tx: SolanaTx, wallet: string, coin: CoinOnNetwork): bigint {
+  if (!tx.meta) return 0n;
+  if (coin.kind === "native") {
+    const keys = tx.transaction.message.accountKeys.map(key => (typeof key === "string" ? key : key.pubkey));
+    const index = keys.indexOf(wallet);
+    if (index < 0) return 0n;
+    return BigInt(tx.meta.postBalances[index] ?? 0) - BigInt(tx.meta.preBalances[index] ?? 0);
+  }
+  // The wallet's token accounts for the coin's mints: what each holds after, less what it held before
+  // (nothing, when the transaction opened the account).
+  const mints = new Set(coin.tokens);
+  let received = 0n;
+  for (const post of tx.meta.postTokenBalances ?? []) {
+    if (post.owner !== wallet || !mints.has(post.mint)) continue;
+    const pre = (tx.meta.preTokenBalances ?? []).find(entry => entry.accountIndex === post.accountIndex);
+    received += BigInt(post.uiTokenAmount.amount) - BigInt(pre?.uiTokenAmount.amount ?? "0");
+  }
+  return received;
 }

@@ -8,7 +8,7 @@ import {
 } from "@shared/billing";
 import { activePlan, PLAN_NOTE_MARK } from "../credits";
 import { db, query } from "../db/pg";
-import { formatUnits, verifyPayment, walletHoldings, type ChainCheck, type PaymentToVerify } from "./chains";
+import { formatUnits, incomingPayments, verifyPayment, walletHoldings, type ChainCheck, type InboundPayment, type PaymentToVerify } from "./chains";
 import { alertsConfigured, notifyOrder } from "./notify";
 import { quoteUsd, type NativeCoin } from "./prices";
 import { BillingError, getBillingSettings, offeredNetworks, walletConfig, walletFor } from "./settings";
@@ -468,6 +468,111 @@ export async function submitHash(userId: string, code: string, rawHash: unknown)
   });
   if (changed) void runCheck(order.id).catch(error => console.error(`[Curialy Billing] Check of ${order.code} failed:`, error instanceof Error ? error.message : error));
   return customerView(order.id);
+}
+
+// ---- Payments found without a hash ----
+
+export type InboxOrder = { id: string; coin: CoinId; units: bigint; quotedAt: Date; expiresAt: Date };
+
+/**
+ * Which open order each incoming transfer pays. The amount, the coin and the order's window have to
+ * agree, and one transfer pays one order: two orders that want the same amount are left for the
+ * hash (or the operator) instead of guessing.
+ */
+export function matchInbox(orders: InboxOrder[], transfers: InboundPayment[], now = Date.now()): { id: string; txHash: string }[] {
+  const lateUntil = LATE_SUBMIT_HOURS * 3_600_000;
+  const open = orders.filter(order => now <= order.expiresAt.getTime() + lateUntil);
+  const claims: { id: string; txHash: string }[] = [];
+  const usedOrders = new Set<string>();
+  const usedHashes = new Set<string>();
+  for (const transfer of transfers) {
+    if (usedHashes.has(transfer.txHash)) continue;
+    const hits = open.filter(order => !usedOrders.has(order.id) && order.coin === transfer.coin && order.units === transfer.units
+      && transfer.blockTime.getTime() >= order.quotedAt.getTime() - BEFORE_MARGIN_MS
+      && transfer.blockTime.getTime() <= order.expiresAt.getTime() + AFTER_MARGIN_MS);
+    if (hits.length !== 1) continue;
+    usedOrders.add(hits[0].id);
+    usedHashes.add(transfer.txHash);
+    claims.push({ id: hits[0].id, txHash: transfer.txHash });
+  }
+  return claims;
+}
+
+/** Starts the on-chain check for a payment the inbox found. The row lock repeats the match, so a hash pasted in the meantime stays. */
+async function attachFound(id: string, hash: string, blockTime: Date): Promise<boolean> {
+  const changed = await transaction(async client => {
+    const row = await lockOrder(client, id);
+    if (!row || row.tx_hash || !row.network || !row.coin || !row.expected_units || !row.quoted_at) return false;
+    if (row.status !== "awaiting_payment" && row.status !== "expired") return false;
+    if (Date.now() > row.expires_at.getTime() + LATE_SUBMIT_HOURS * 3_600_000) return false;
+    if (blockTime.getTime() < row.quoted_at.getTime() - BEFORE_MARGIN_MS || blockTime.getTime() > row.expires_at.getTime() + AFTER_MARGIN_MS) return false;
+    const { rows: taken } = await client.query<{ id: string }>("SELECT id FROM curialy.payment_orders WHERE network = $1 AND tx_hash = $2 LIMIT 1", [row.network, hash]);
+    if (taken.length) return false;
+    try {
+      await client.query(
+        `UPDATE curialy.payment_orders SET tx_hash = $2, status = 'pending', status_detail = $3, submitted_at = coalesce(submitted_at, now()), check_count = 0, next_check_at = now(),
+           confirmations = NULL, required_confirmations = NULL, tx_from = NULL, tx_block_time = NULL, received_units = NULL, chain_verified_at = NULL, updated_at = now()
+         WHERE id = $1`,
+        [row.id, hash, "Payment found on the network. Checking it."],
+      );
+    } catch (error) {
+      if (isUniqueViolation(error)) return false;
+      throw error;
+    }
+    await addEvent(client, row.id, row.status, "pending", { actor: "system", actorId: null }, "Payment found on the network, so checking it.");
+    return true;
+  });
+  if (!changed) return false;
+  await runCheck(id).catch(error => console.error(`[Curialy Billing] Check of a found payment failed:`, error instanceof Error ? error.message : error));
+  return true;
+}
+
+/**
+ * Reads the receiving wallets for transfers that match an order still waiting (including one whose
+ * window closed within the late period) and starts the same check a pasted hash would. Nothing is
+ * credited here: the check does that, and it asks the chain about the transaction again.
+ */
+export async function watchInboxes(): Promise<number> {
+  const { rows: groups } = await query<{ network: NetworkId; coin: CoinId; oldest: Date }>(
+    `SELECT network, coin, min(quoted_at) AS oldest FROM curialy.payment_orders
+       WHERE tx_hash IS NULL AND expected_units IS NOT NULL AND quoted_at IS NOT NULL AND network IS NOT NULL
+         AND status IN ('awaiting_payment', 'expired') AND expires_at > now() - make_interval(hours => $1)
+       GROUP BY network, coin`,
+    [LATE_SUBMIT_HOURS],
+  );
+  const byNetwork = new Map<NetworkId, { coin: CoinId; oldest: Date }[]>();
+  for (const row of groups) {
+    const list = byNetwork.get(row.network) ?? [];
+    list.push(row);
+    byNetwork.set(row.network, list);
+  }
+  let attached = 0;
+  for (const [networkId, group] of byNetwork) {
+    const info = networkInfo(networkId);
+    const wallet = info ? walletFor(info) : null;
+    if (!info || !wallet) continue;
+    const since = new Date(Math.min(...group.map(entry => new Date(entry.oldest).getTime())) - BEFORE_MARGIN_MS);
+    let transfers: InboundPayment[] | null = null;
+    try {
+      transfers = await incomingPayments(networkId, wallet, since, [...new Set(group.map(entry => entry.coin))]);
+    } catch (error) {
+      console.error(`[Curialy Billing] Incoming payments on ${info.label}:`, error instanceof Error ? error.message : error);
+      continue;
+    }
+    if (!transfers?.length) continue;
+    const { rows } = await query<{ id: string; coin: CoinId; units: string; quoted_at: Date; expires_at: Date }>(
+      `SELECT id, coin, expected_units::text AS units, quoted_at, expires_at FROM curialy.payment_orders
+         WHERE network = $1 AND tx_hash IS NULL AND expected_units IS NOT NULL AND quoted_at IS NOT NULL
+           AND status IN ('awaiting_payment', 'expired') AND expires_at > now() - make_interval(hours => $2)`,
+      [networkId, LATE_SUBMIT_HOURS],
+    );
+    const waiting = rows.map(row => ({ id: row.id, coin: row.coin, units: BigInt(row.units), quotedAt: new Date(row.quoted_at), expiresAt: new Date(row.expires_at) }));
+    for (const claim of matchInbox(waiting, transfers)) {
+      const transfer = transfers.find(entry => entry.txHash === claim.txHash);
+      if (transfer && await attachFound(claim.id, claim.txHash, transfer.blockTime)) attached++;
+    }
+  }
+  return attached;
 }
 
 // ---- Checking on-chain ----

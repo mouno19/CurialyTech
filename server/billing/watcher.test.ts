@@ -7,7 +7,7 @@ import { addOrder, addUser, fake, resetFake } from "./fake-db";
 // asking the network, that a stale answer changes nothing, and that ticks never overlap.
 
 vi.mock("../db/pg", async () => (await import("./fake-db")).pgModule());
-const chain = vi.hoisted(() => ({ results: [] as any[], calls: [] as any[], onCall: null as null | (() => void | Promise<void>) }));
+const chain = vi.hoisted(() => ({ results: [] as any[], calls: [] as any[], inbox: [] as any[][], onCall: null as null | (() => void | Promise<void>) }));
 vi.mock("./chains", async importOriginal => ({
   ...(await importOriginal<typeof import("./chains")>()),
   verifyPayment: vi.fn(async (input: unknown) => {
@@ -15,6 +15,7 @@ vi.mock("./chains", async importOriginal => ({
     await chain.onCall?.();
     return chain.results.shift() ?? { state: "not_found" };
   }),
+  incomingPayments: vi.fn(async () => chain.inbox.shift() ?? []),
 }));
 vi.mock("./prices", () => ({ quoteUsd: vi.fn(async () => 3000) }));
 const alerts = vi.hoisted(() => [] as { code: string; why: string; status: string }[]);
@@ -37,6 +38,7 @@ beforeEach(() => {
   resetBillingSettings();
   chain.results.length = 0;
   chain.calls.length = 0;
+  chain.inbox.length = 0;
   chain.onCall = null;
   alerts.length = 0;
   addUser({ id: "u1", login: "ada" });
@@ -212,6 +214,44 @@ describe("checking", () => {
     await watcher.checkDuePayments();
     expect(order).toMatchObject({ status: "review", status_detail: "This transaction arrived after the payment window closed.", tx_from: "0xlate", received_units: "2003700000000000000", tx_block_time: blockTime });
     expect(alerts.map(alert => alert.why)).toEqual(["review"]);
+  });
+});
+
+describe("incoming payments", () => {
+  const units = 2_003_700_000_000_000_000n;
+  const waiting = () => addOrder({
+    user_id: "u1", network: "bnb", coin: "USDT", pay_address: EVM, expected_amount: "2.0037", expected_units: units.toString(),
+    quoted_at: new Date(Date.now() - 5 * MINUTE), status: "awaiting_payment", tx_hash: null,
+  });
+
+  it("matches one transfer to one order, and leaves a shared or out-of-window amount alone", () => {
+    const now = Date.now();
+    const order = { id: "a", coin: "USDT" as const, units: 10n, quotedAt: new Date(now - MINUTE), expiresAt: new Date(now + 10 * MINUTE) };
+    const transfer = { txHash: HASH, coin: "USDT" as const, units: 10n, blockTime: new Date(now) };
+    expect(orders.matchInbox([order], [transfer], now)).toEqual([{ id: "a", txHash: HASH }]);
+    expect(orders.matchInbox([order, { ...order, id: "b" }], [transfer], now)).toEqual([]);
+    expect(orders.matchInbox([order], [{ ...transfer, units: 11n }], now)).toEqual([]);
+    expect(orders.matchInbox([order], [{ ...transfer, blockTime: new Date(now - 10 * MINUTE) }], now)).toEqual([]);
+    expect(orders.matchInbox([{ ...order, expiresAt: new Date(now - 25 * 3_600_000) }], [transfer], now)).toEqual([]);
+  });
+
+  it("finds a payment on the wallet and applies it without a pasted hash", async () => {
+    const order = waiting();
+    chain.inbox.push([{ txHash: HASH, coin: "USDT", units, blockTime: new Date() }]);
+    chain.results.push(found("confirmed", 20), found("confirmed", 20));
+    expect(await orders.watchInboxes()).toBe(1);
+    expect(order).toMatchObject({ status: "completed", tx_hash: HASH, applied_detail: { planId: "pro", effect: "start" } });
+    expect(fake.users.get("u1")!.plan_id).toBe("pro");
+    expect(fake.events.some(event => event.actor === "system" && event.note === "Payment found on the network, so checking it.")).toBe(true);
+  });
+
+  it("leaves a transaction another order already holds", async () => {
+    addOrder({ user_id: "u2", network: "bnb", coin: "USDT", tx_hash: HASH, status: "pending", expected_units: "1", quoted_at: new Date() });
+    const order = waiting();
+    chain.inbox.push([{ txHash: HASH, coin: "USDT", units, blockTime: new Date() }]);
+    expect(await orders.watchInboxes()).toBe(0);
+    expect(order).toMatchObject({ status: "awaiting_payment", tx_hash: null });
+    expect(fake.users.get("u1")!.plan_id).toBeNull();
   });
 });
 

@@ -1,14 +1,17 @@
 import { query } from "../db/pg";
-import { expireOrders, runCheck } from "./orders";
+import { expireOrders, runCheck, watchInboxes } from "./orders";
 import { walletConfig } from "./settings";
 
 // The payment watcher: every few seconds it checks the submitted transactions that are due (one
-// tick at a time, never overlapping), and every minute it expires orders nobody paid. Each order's
-// own schedule (10, 20, 40, then 60 seconds; faster while confirming) lives on its row, so a restart
+// tick at a time, never overlapping), every 20 seconds it reads the receiving wallets for a payment
+// nobody pasted a hash for, and every minute it expires orders nobody paid. Each order's own
+// schedule (10, 20, 40, then 60 seconds; faster while confirming) lives on its row, so a restart
 // picks up where the last process left off.
 
 const TICK_MS = 5_000;
 const SWEEP_MS = 60_000;
+/** How often the receiving wallets are read for a payment nobody pasted a hash for. */
+const INBOX_MS = 20_000;
 /** Orders checked per tick, and at once (each check asks one network endpoint a few questions). */
 const BATCH = 10;
 const AT_ONCE = 4;
@@ -39,11 +42,17 @@ export function startPaymentWatcher() {
   let stopped = false;
   let failures = 0;
   let pausedUntil = 0;
+  let inboxAt = 0;
   const tick = async () => {
     if (busy || stopped || Date.now() < pausedUntil) return;
     busy = true;
     try {
       await checkDuePayments();
+      if (Date.now() - inboxAt >= INBOX_MS) {
+        inboxAt = Date.now();
+        // A chain read failing leaves the pasted-hash checks running.
+        await watchInboxes().catch(error => console.error("[Curialy Billing] Incoming payments:", message(error)));
+      }
       failures = 0;
     } catch (error) {
       // The database is unreachable: back off (10 s, 20 s, ... up to a minute) instead of failing every tick.
