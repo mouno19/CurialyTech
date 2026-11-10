@@ -71,8 +71,9 @@ are used for failover and delegation only.
 
 - Payers pick a network and coin (USDT, USDC or the network's own coin on Ethereum, BNB Chain, Polygon, Solana), send an exact, unique amount to `PAY_EVM_ADDRESS` / `PAY_SOLANA_ADDRESS` and paste the transaction hash. The watcher (`server/billing/watcher.ts`) checks it on public RPCs (`PAY_RPC_*` first): the coin's own token contract, the exact amount, success, confirmations, the order's window, and a second provider's agreement. A match applies the order (a plan, or API balance); anything else waits in Admin → Payments with the reason. No private key is used or stored anywhere.
 - An unset or invalid wallet turns its networks off (logged once). Native coins are priced from four public sources at issue time and locked for 30 minutes. Telegram alerts need `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ADMIN_CHAT_ID` (send-only).
-- Plans, the offer and automatic application are settings (Admin → Plans & pricing, `app_settings` key `billing`); an order keeps the terms it was sold with. Migration 12 holds the tables.
-- Live check after a deploy: `node ~/curialy-tools/payments/billing-live.mjs` (a temporary account, a real but unrelated transaction, operator approval, a paid API call; cleans up after itself).
+- Plans, the offer and automatic application are settings (Admin → Plans & pricing, `app_settings` key `billing`); an order keeps the terms it was sold with. Migrations 12 and 13 hold the tables.
+- A plan can be paid for 1 to 6 months in one order, at the per-month price of the day it is ordered. An account's plan never runs more than 6 months past today, counting its unpaid orders (`MAX_PLAN_MONTHS` and `prepayableMonths` in `shared/billing.ts`); the server refuses an order past that with 409 `prepay_limit`.
+- Live check after a deploy: `node ~/curialy-tools/payments/billing-live.mjs` (a temporary account, a real but unrelated transaction, operator approval, paying ahead, a paid API call; cleans up after itself).
 
 ## Rebuilding the host from scratch
 
