@@ -496,6 +496,20 @@ const MIGRATIONS: { id: number; sql: string }[] = [
       SELECT id, 'grant', 20000000, api_balance_micros, 'Developer API credit for following and posting on X' FROM granted;
     `,
   },
+  {
+    id: 16,
+    sql: `
+      -- What the next task on a repository should already know (server/agent/memory.ts): how to run
+      -- its checks, what not to edit, decisions already made. One note per account and repository.
+      CREATE TABLE IF NOT EXISTS curialy.project_notes (
+        user_id uuid NOT NULL REFERENCES curialy.users(id) ON DELETE CASCADE,
+        repo text NOT NULL,
+        note jsonb NOT NULL,
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (user_id, repo)
+      );
+    `,
+  },
 ];
 
 export async function migrate() {

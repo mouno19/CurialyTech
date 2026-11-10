@@ -18,6 +18,7 @@ import { executeTool, isVerificationCommand, shellQuote, toolsFor, type ToolOutc
 import { materializeWorkspace, snapshotWorkspace, withWorkspaceLock } from "./workspaces";
 import { aiComplete, loadMediaBytes } from "../media/snowflake";
 import { getConnection } from "../services/github";
+import { loadProjectMemory } from "./memory";
 import { linkedRepo } from "./repos";
 import { brandText, ENGINE_ALIAS } from "@shared/brand";
 import { browserConfigured, closeLiveBrowser } from "./browser";
@@ -158,6 +159,7 @@ How to work:
 3. Implement with edit_file for targeted changes to existing files and write_file for new files. Keep changes minimal and coherent.
 4. Verify with run_command: typecheck (e.g. npx tsc --noEmit), lint, and unit tests (npx vitest run, python3 -m pytest -q). When you create a new project, include a package.json "check"/"test" script or pytest tests so verification is possible.
 5. If a check fails, read the error output, locate the exact file and line, apply a targeted fix, and re-run the failing command. Repeat until it passes.
+Project memory: when a repository is linked, notes from earlier tasks on it may be included below (how to run its checks, what not to edit, decisions already made). Follow them. When you learn something the next task on that repository should know, call remember_project with only that part. Keep each part short. Never save secrets, tokens, or details that matter only for this task.
 6. Finish with a concise summary for the user. Lead with the result: what you built or changed and whether it works. List only the source files you changed or the deliverables you produced. Report each check in one line (e.g. "npm run build passed", "12 tests passed", "typecheck failed in src/a.ts:14"), plus key warnings and any preview or pull request links. Never paste build, install or test logs, bundle file listings, hashed asset names or source maps into the answer; they are already in the run log.
 
 When building or editing front-end web applications:
@@ -229,6 +231,11 @@ export type RunContext = {
   operator: boolean;
   /** Per-run context appended after the static system prompt (kept separate so the base prompt caches). */
   context: string;
+  /**
+   * Project memory for the linked repository. Shared by reference with team members, so a save or a
+   * clone during the run is what the next turn reads.
+   */
+  memory?: { text: string };
   /** Design brief for interface work (null otherwise), and its text for this context's role (a further system block). */
   design?: DesignBrief | null;
   designText?: string;
@@ -982,6 +989,20 @@ export function latestRequest(conversation: Record<string, unknown>[]) {
   return { text: "", image: false };
 }
 
+/** System blocks after the static prompt: GitHub context, the repository's project memory, the design brief. */
+function extraSystem(ctx: RunContext) {
+  return [ctx.context, ctx.memory?.text, ctx.designText].filter((text): text is string => Boolean(text));
+}
+
+/** Load the linked repository's project memory into the shared slot. Announce only when a saved note arrives. */
+async function applyProjectMemory(ctx: RunContext, announce: boolean) {
+  const memory = await loadProjectMemory(ctx.taskId);
+  if (!ctx.memory) ctx.memory = { text: "" };
+  const changed = memory.text !== ctx.memory.text;
+  ctx.memory.text = memory.text;
+  if (announce && changed && memory.saved && memory.repo) ctx.emit({ type: "notice", level: "info", message: `Using the project memory saved for ${memory.repo}.` });
+}
+
 async function githubContext(taskId: string) {
   const owner = await taskOwner(taskId);
   const connection = owner ? await getConnection(owner).catch(() => null) : null;
@@ -1053,6 +1074,7 @@ async function executeRun(handle: RunHandle, conversation: Record<string, unknow
       taskId,
       operator: handle.operator,
       context: gh.context,
+      memory: { text: "" },
       github: gh.github,
       runId: handle.runId.slice(0, 8),
       runToken: handle.runId,
@@ -1148,6 +1170,7 @@ async function executeRun(handle: RunHandle, conversation: Record<string, unknow
     } else if (opts.cloneRepo) {
       throw new Error("Connect GitHub to work on a repository.");
     }
+    await applyProjectMemory(runCtx, true);
     const request = latestRequest(conversation);
     // On the operator's own tasks, asking for a deploy in the message is the go-ahead the Deploy
     // action gives (other accounts never get the tool). Previews still run once, plus one retry.
@@ -1399,7 +1422,7 @@ async function streamTurn(ctx: RunContext, conversation: Anthropic.MessageParam[
   const stream = client.messages.stream({
     model: wireModel(ctx.spec, effort),
     max_tokens: turnOpts.maxTokens,
-    system: [{ type: "text", text: ctx.system ?? (ctx.mode === "agent" ? AGENT_SYSTEM : CHAT_SYSTEM) }, ...[ctx.context, ctx.designText].filter((text): text is string => Boolean(text)).map(text => ({ type: "text" as const, text }))],
+    system: [{ type: "text", text: ctx.system ?? (ctx.mode === "agent" ? AGENT_SYSTEM : CHAT_SYSTEM) }, ...extraSystem(ctx).map(text => ({ type: "text" as const, text }))],
     messages,
     ...(tools.length ? { tools } : {}),
     ...reasoning(ctx, effort),
@@ -1834,7 +1857,7 @@ function openAITools(tools: Anthropic.Tool[]) {
 async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unknown>[]) {
   const coding = ctx.mode === "agent";
   const tools = openAITools(toolsFor({ coding, web: ctx.webSearch, eager: false, github: ctx.github, operator: ctx.operator }));
-  const system = () => ({ role: "system", content: [coding ? AGENT_SYSTEM : CHAT_SYSTEM, ctx.context, ctx.designText].filter(Boolean).join("\n\n") });
+  const system = () => ({ role: "system", content: [coding ? AGENT_SYSTEM : CHAT_SYSTEM, ...extraSystem(ctx)].filter(Boolean).join("\n\n") });
   let healIteration = 0;
   let lastText = "";
   // A reply the output limit cut off, until the turns that continue it end it: the parts make one answer.
@@ -2182,7 +2205,10 @@ async function trackedTool(ctx: RunContext, callId: string, name: string, input:
     ctx.manifest = workspaceManifest(ctx.root);
     // Shared with every team member: the cloned project is the baseline, not this run's design work.
     if (ctx.designState) ctx.designState.startPrint = uiFingerprint(ctx.root, ctx.designState.printCache);
+    // The clone links the repository: the next turn reads its project memory.
+    await applyProjectMemory(ctx, true);
   }
+  if (name === "remember_project" && outcome.ok) await applyProjectMemory(ctx, false);
   // Only a visual test that reached the page counts (an error page's audit is not the agent's page).
   if (name === "test_preview_visual" && outcome.ok && outcome.audit !== undefined && ctx.designState) {
     ctx.designState.checkedPrint = uiFingerprint(ctx.root, ctx.designState.printCache);

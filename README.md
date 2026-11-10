@@ -25,6 +25,9 @@ previews.
   (`transcribe_audio`), speech files (`generate_speech`) and reading answers aloud run on Deepgram;
   ElevenLabs is used only for expressive speech on the operator's tasks, within a budget reserve.
   Free accounts pay credits for voice (`shared/credits.ts` VOICE_RATES).
+- Project memory (`server/agent/memory.ts`): a linked repository keeps a short note for that account
+  (how to run its checks, what not to edit, decisions already made). Every later task on that
+  repository starts with the note. The agent updates it with `remember_project`.
 - Design intelligence (`server/agent/design/`): interface work gets a design brief retrieved from a
   design knowledge base for that kind of interface, and `test_preview_visual` returns desktop and
   phone screenshots with a design audit measured in the page (contrast, focus, targets, reflow,
