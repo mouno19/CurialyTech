@@ -171,11 +171,13 @@
 /* <main id="main">: a column; each screen decides where it scrolls (.page scrolls, a split workspace fills). */
 .app-content { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: auto; outline: none; }
 .page {
+  /* Named so a sticky bar at the bottom can sit below it (sticky boxes keep inside the scroller's padding). */
+  --page-pad-bottom: max(64px, calc(env(safe-area-inset-bottom) + 32px));
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
-  padding: 28px max(var(--gutter), env(safe-area-inset-right)) max(64px, calc(env(safe-area-inset-bottom) + 32px)) max(var(--gutter), env(safe-area-inset-left));
+  padding: 28px max(var(--gutter), env(safe-area-inset-right)) var(--page-pad-bottom) max(var(--gutter), env(safe-area-inset-left));
   container: page / inline-size;
 }
 @media (max-width: 639.98px) { .page { padding-top: 18px; } }

@@ -115,6 +115,8 @@ export function mockScreenshot(width = 160, height = 100) {
 }
 const SCREENSHOT_PNG = mockScreenshot(320, 200);
 const SHOT_DATA_URL = `data:image/png;base64,${mockScreenshot(120, 75).toString("base64")}`;
+/** What a vault image answers with while storage works (any stored image id). */
+const VAULT_PNG = mockScreenshot(240, 150);
 
 const AVATAR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96"><rect width="96" height="96" rx="48" fill="#3a372f"/><text x="48" y="60" font-family="sans-serif" font-size="38" fill="#f3efe6" text-anchor="middle">M</text></svg>`;
 
@@ -920,6 +922,27 @@ export function createFixtures({ now = Date.now(), deployUrls = "vendor" } = {})
     { id: mid(38), filename: "team-photo-offsite.jpg", mimeType: "image/jpeg", sizeBytes: 3_904_112, kind: "upload", sessionId: null, createdAt: ago(9 * 24 * 60), state: "stored" },
     { id: mid(39), filename: "release-checklist.pdf", mimeType: "application/pdf", sizeBytes: 94_220, kind: "upload", sessionId: null, createdAt: ago(14 * 24 * 60), state: "missing" },
   ];
+  // What each signed-in account's vault holds (the list, the totals, the limit, storage health).
+  const storageOk = { ok: true, state: "ok", kind: null, retryAfter: 0, detail: "File storage is ready." };
+  const kindCount = (files, kind) => files.filter(file => file.kind === kind).length;
+  const vaults = {
+    operator: {
+      files: media, more: false, storage,
+      summary: { total: media.length, byKind: { upload: kindCount(media, "upload"), screenshot: kindCount(media, "screenshot"), artifact: kindCount(media, "artifact") }, usedBytes: media.filter(file => file.state !== "missing").reduce((sum, file) => sum + file.sizeBytes, 0), usedFiles: media.filter(file => file.state !== "missing").length },
+      quota: { unlimited: true, reason: "operator", plan: null, maxBytes: null, maxFiles: null },
+    },
+    free: {
+      files: media, more: true, storage: storageOk,
+      summary: { total: 594, byKind: { upload: 6, screenshot: 2, artifact: 586 }, usedBytes: 23_698_514, usedFiles: 594 },
+      quota: { unlimited: true, reason: "plan", plan: "Pro", maxBytes: null, maxFiles: null },
+    },
+    newcomer: {
+      files: media.slice(0, 8), more: true, storage: storageOk,
+      summary: { total: 512, byKind: { upload: 40, screenshot: 120, artifact: 352 }, usedBytes: 61_440_000, usedFiles: 512 },
+      quota: { unlimited: false, reason: null, plan: null, maxBytes: 250 * 1024 * 1024, maxFiles: 500 },
+    },
+  };
+  const vaultOf = () => vaults[state.account] ?? vaults.operator;
   const mediaIds = new Set([...media.map(file => file.id), ...[...tasks.values()].flatMap(task => task.events.filter(event => event.type === "artifacts").flatMap(event => event.files.map(file => file.mediaId)).filter(Boolean))]);
   const legacyDeployments = [...tasks.values()].flatMap(task => task.deployments.map(view => ({
     id: view.id, sessionId: task.row.id, status: view.state === "live" ? "live" : "deleted", url: view.url, repo: view.target.repo, serviceId: `svc-${view.id.slice(0, 8)}`,
@@ -962,7 +985,11 @@ export function createFixtures({ now = Date.now(), deployUrls = "vendor" } = {})
     ["GET", "/api/auth/github/start", () => ({ contentType: "text/html; charset=utf-8", body: htmlPage("GitHub sign-in (fixture)", "<h1>GitHub sign-in</h1><p>The UI check does not leave the fixture world.</p>") })],
 
     ["GET", "/api/agent/models", () => ({ json: { models } })],
-    ["GET", "/api/agent/health", ({ query }) => ({ json: { providers: query.get("deep") === "1" ? providers.map(probe => (probe.id === "gemini" ? { ...probe, latencyMs: 1840, detail: "Live completion OK (6 tokens)" } : probe)) : providers, activeTasks: stats.active } })],
+    // The vault probe follows the signed-in account's storage (down for the operator, working elsewhere).
+    ["GET", "/api/agent/health", ({ query }) => {
+      const listed = providers.map(probe => (probe.id === "vault" && vaultOf().storage.ok ? { ...probe, ok: true, detail: "File storage is ready." } : probe));
+      return { json: { providers: query.get("deep") === "1" ? listed.map(probe => (probe.id === "gemini" ? { ...probe, latencyMs: 1840, detail: "Live completion OK (6 tokens)" } : probe)) : listed, activeTasks: stats.active } };
+    }],
     ["GET", "/api/agent/keys", () => ({ json: { keys } })],
     ["GET", "/api/agent/stats", () => ({ json: stats })],
 
@@ -1041,14 +1068,42 @@ export function createFixtures({ now = Date.now(), deployUrls = "vendor" } = {})
     ["GET", "/api/agent/deployments", () => ({ json: { deployments: legacyDeployments, configured: { ok: true } } })],
     ["DELETE", "/api/agent/deployments/:id", () => ({ json: { deleted: true } })],
 
-    // Media: storage is down. GET/HEAD of a file answer 503 (with Retry-After), never 500.
-    ["GET", "/api/agent/media", () => ({ json: { files: media, stage: { ok: false, detail: storage.detail }, storage } })],
-    ["POST", "/api/agent/media", () => storageDown({ error: "File storage is temporarily unavailable. You can still send your message without attachments." })],
-    ["GET", "/api/agent/media/health", () => ({ headers: { "cache-control": "no-store" }, json: storage })],
-    ["HEAD", "/api/agent/media/:id", ({ params }) => (mediaIds.has(params.id) ? { status: 503, retryAfter: 30, expected: true } : { status: 404 })],
-    ["GET", "/api/agent/media/:id/text", ({ params }) => (mediaIds.has(params.id) ? storageDown() : { status: 404, json: { error: "Not found.", code: "media_not_found" } })],
-    ["GET", "/api/agent/media/:id", ({ params }) => (mediaIds.has(params.id) ? storageDown() : { status: 404, json: { error: "Not found.", code: "media_not_found" } })],
-    ["DELETE", "/api/agent/media/:id", ({ params }) => (mediaIds.has(params.id) ? storageDown({ error: "File storage is temporarily unavailable, so nothing was deleted." }) : { status: 404, json: { error: "Not found.", code: "media_not_found" } })],
+    // Media: the operator's storage is down (GET/HEAD of a file answer 503 with Retry-After, never 500).
+    // The other accounts' storage works: "free" is on Pro (unlimited, 594 files, more pages), "newcomer"
+    // has a full free vault (512 of 500 files).
+    ["GET", "/api/agent/media", ({ query }) => {
+      const vault = vaultOf();
+      const kind = query.get("kind") || null;
+      const q = (query.get("q") || "").toLowerCase();
+      const files = vault.files.filter(file => (!kind || file.kind === kind) && (!q || file.filename.toLowerCase().includes(q)));
+      const paged = Boolean(query.get("cursor"));
+      const more = vault.more && !q && !paged;
+      const matching = q ? files.length : kind ? vault.summary.byKind[kind] : vault.summary.total;
+      return { json: { files: paged ? [] : files, nextCursor: more && files.length ? `1762000000000000_${files[files.length - 1].id}` : null, matching, summary: vault.summary, quota: vault.quota, stage: { ok: vault.storage.ok, detail: vault.storage.detail }, storage: vault.storage } };
+    }],
+    ["GET", "/api/agent/media/ids", ({ query }) => {
+      const vault = vaultOf();
+      const kind = query.get("kind") || null;
+      const ids = vault.files.filter(file => !kind || file.kind === kind).map(file => file.id);
+      return { json: { ids, total: ids.length } };
+    }],
+    ["POST", "/api/agent/media/delete", ({ body }) => {
+      const ids = Array.isArray(body?.ids) ? body.ids : [];
+      if (state.account === "operator") return storageDown({ error: "File storage isn't available right now, so nothing was deleted.", deleted: [], kept: [], notFound: [], failed: ids.map(id => ({ id, code: "storage_unavailable", error: "File storage is temporarily unavailable." })), skipped: [] });
+      return { json: { deleted: ids, kept: [], notFound: [], failed: [], skipped: [] } };
+    }],
+    // Uploads: the operator's are refused (storage down); elsewhere the third upload of a check is too large.
+    ["POST", "/api/agent/media", () => {
+      if (state.account === "operator") return storageDown({ error: "File storage is temporarily unavailable. You can still send your message without attachments." });
+      state.uploads = (state.uploads ?? 0) + 1;
+      if (state.uploads === 3) return { status: 413, expected: true, json: { error: "Files are limited to 25 MB.", code: "too_large" } };
+      return { status: 201, json: { file: { id: mid(60 + state.uploads), filename: `upload-${state.uploads}.png`, mimeType: "image/png", sizeBytes: 48_204, kind: "upload" } } };
+    }],
+    ["GET", "/api/agent/media/health", () => ({ headers: { "cache-control": "no-store" }, json: vaultOf().storage })],
+    ["HEAD", "/api/agent/media/:id", ({ params }) => (!mediaIds.has(params.id) ? { status: 404 } : vaultOf().storage.ok ? { status: 200 } : { status: 503, retryAfter: 30, expected: true })],
+    ["GET", "/api/agent/media/:id/text", ({ params }) => (mediaIds.has(params.id) ? (vaultOf().storage.ok ? { json: { filename: "notes.md", content: "# Notes", truncated: false, bytes: 7 } } : storageDown()) : { status: 404, json: { error: "Not found.", code: "media_not_found" } })],
+    ["GET", "/api/agent/media/:id", ({ params }) => (mediaIds.has(params.id) ? (vaultOf().storage.ok ? { contentType: "image/png", headers: { "cache-control": "private, max-age=31536000, immutable" }, body: VAULT_PNG } : storageDown()) : { status: 404, json: { error: "Not found.", code: "media_not_found" } })],
+    ["DELETE", "/api/agent/media/:id", ({ params }) => (!mediaIds.has(params.id) ? { status: 404, json: { error: "Not found.", code: "media_not_found" } } : vaultOf().storage.ok ? { json: { deleted: true, kept: false } } : storageDown({ error: "File storage is temporarily unavailable, so nothing was deleted." }))],
 
     // The signed-in account's own GitHub connection (the operator's unless a check signs in as another).
     ["GET", "/api/agent/github", () => ({ json: githubOf() })],
@@ -1150,6 +1205,7 @@ export function createFixtures({ now = Date.now(), deployUrls = "vendor" } = {})
     reset() {
       state.signedIn = true;
       state.account = "operator";
+      state.uploads = 0;
       // Orders' countdowns and deadlines are relative to the check that is starting.
       billing.refresh(Date.now());
     },

@@ -16,7 +16,7 @@ import { PaymentStatusChip } from "@/components/billing/PaymentStatusChip";
 import { TopUpForm } from "@/components/billing/TopUpForm";
 import { creditCount, dayText, microsText, shortDayText, spendableCredits, spendableMicrosText } from "@/components/billing/format";
 import { shownStatus } from "@/components/billing/orderState";
-import { daysLeftText, formatPrice, freeMultiple, monthsText, offerBadge, offerSentence, ownAllowance, planAction, planConfigs, planState } from "@/components/billing/plans";
+import { daysLeftText, formatPrice, freeMultiple, monthsText, offerBadge, offerSentence, ownAllowance, planAction, planConfigs, planState, vaultText } from "@/components/billing/plans";
 
 // Plans & Billing: the account's plan and credits, the 30-day plans, the Developer API balance and
 // its top-ups, credit use over time, the account's orders, and what a payment can be made with.
@@ -387,7 +387,10 @@ function PlanCards({ catalog, current, planKnown, planFailed, own, freeHere, cre
         </div>
         <p className="bill-plan-price"><span className="bill-plan-amount">$0</span></p>
         <p className="bill-plan-term">no payment</p>
-        <p className="bill-plan-credits">{creditCount(free)} credits every {windowHours} hours</p>
+        <p className="bill-plan-credits">
+          {creditCount(free)} credits every {windowHours} hours
+          <span className="bill-plan-multiple">{vaultText(false)}</span>
+        </p>
         <p className="field-hint">{freeHere === "not_included" ? "Not included on this account." : "A window starts with the first credit you spend."}</p>
       </li>
       {catalog.plans.map(offer => {
@@ -442,6 +445,7 @@ function PlanCards({ catalog, current, planKnown, planFailed, own, freeHere, cre
             <p className="bill-plan-credits">
               {creditCount(offer.creditsPerWindow)} credits every {windowHours} hours
               {multiple && <span className="bill-plan-multiple">{multiple}× the free allowance</span>}
+              <span className="bill-plan-multiple">{vaultText(true)}</span>
             </p>
             {/* What the button does comes first, so the buttons line up at the foot of every card. */}
             {!planKnown ? (

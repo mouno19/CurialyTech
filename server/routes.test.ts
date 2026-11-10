@@ -19,7 +19,7 @@ const media = vi.hoisted(() => ({
   getMedia: vi.fn(), listMedia: vi.fn(async () => []), markMediaMissing: vi.fn(async () => undefined), mediaStatus: vi.fn(), openStoredObject: vi.fn(),
   storeMedia: vi.fn(), assertStorageAvailable: vi.fn(), deleteMedia: vi.fn(), aiComplete: vi.fn(), fetchMediaBytes: vi.fn(),
   isElsewhere: vi.fn((row: { stage_account?: string | null }) => row.stage_account !== "acct-now"), storageConfig: vi.fn(() => ({ ok: true, missing: [] as string[] })),
-  openMedia: vi.fn(),
+  openMedia: vi.fn(), countMedia: vi.fn(), mediaIds: vi.fn(), ownedMedia: vi.fn(),
 }));
 const publish = vi.hoisted(() => ({ createRepo: vi.fn(), pushProjectToRepo: vi.fn(), createPullRequest: vi.fn(), deployPreview: vi.fn(), commitAndPush: vi.fn(), branchHead: vi.fn(), githubApi: vi.fn() }));
 const github = vi.hoisted(() => ({ getConnection: vi.fn() }));
@@ -277,6 +277,167 @@ describe("DELETE /media/:id", () => {
     media.deleteMedia.mockResolvedValueOnce("removed");
     const deleted = await fetch(`${base}/media/${ID}`, { method: "DELETE" });
     expect(await deleted.json()).toEqual({ deleted: true, kept: false });
+  });
+});
+
+// ---- The Media Vault: pages, limits, many files at once ----
+
+const fileId = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const OTHER = { "x-test-account": "other" };
+/** The vault read (media/vault.ts): what the account keeps, and its plan. */
+const vaultRow = (patch: Record<string, unknown> = {}) => ({ total: "3", upload: "1", screenshot: "1", artifact: "1", used_files: "3", used_bytes: "300", plan_id: null, plan_expires_at: null, plan_credits_per_window: null, ...patch });
+const answerVault = (row: Record<string, unknown>) => {
+  db.handler = call => (call.text.includes("LEFT JOIN curialy.file_metadata") ? { rows: [row], rowCount: 1 } : { rows: [], rowCount: 0 });
+};
+const uploadForm = () => {
+  const form = new FormData();
+  form.append("file", new Blob(["hello"], { type: "text/plain" }), "a.txt");
+  return form;
+};
+
+describe("GET /media", () => {
+  it("pages newest first: passes the filter and cursor on, and hands out the next cursor only when there is more", async () => {
+    answerVault(vaultRow({ total: "594", artifact: "588", used_files: "594" }));
+    const rows = [1, 2, 3].map(n => ({ id: fileId(n), filename: `f${n}.png`, kind: "artifact", state: "stored", createdAtUs: `17630000000000${n}` }));
+    media.listMedia.mockResolvedValue(rows);
+    const response = await fetch(`${base}/media?kind=artifact&limit=2&cursor=1763000000000009_${fileId(9)}`);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(media.listMedia).toHaveBeenCalledWith("admin", { limit: 3, filter: { kind: "artifact", q: undefined }, after: { createdAtUs: "1763000000000009", id: fileId(9) } });
+    expect(body.files.map((file: { id: string }) => file.id)).toEqual([fileId(1), fileId(2)]);
+    expect(body.files[0]).not.toHaveProperty("createdAtUs");
+    expect(body.nextCursor).toBe(`176300000000002_${fileId(2)}`);
+    expect(body.matching).toBe(588);
+    expect(body.summary).toEqual({ total: 594, byKind: { upload: 1, screenshot: 1, artifact: 588 }, usedBytes: 300, usedFiles: 594 });
+    expect(body.quota).toEqual({ unlimited: true, reason: "operator", plan: null, maxBytes: null, maxFiles: null });
+
+    media.listMedia.mockResolvedValue(rows.slice(0, 2));
+    media.countMedia.mockResolvedValue(2);
+    const searched = await (await fetch(`${base}/media?q=${encodeURIComponent("my photo")}&limit=2`)).json();
+    expect(media.countMedia).toHaveBeenCalledWith("admin", { kind: undefined, q: "my photo" });
+    expect(searched).toMatchObject({ nextCursor: null, matching: 2 });
+  });
+
+  it("refuses a made-up cursor or kind instead of guessing", async () => {
+    expect((await fetch(`${base}/media?cursor=${encodeURIComponent("1'; DROP TABLE x")}`)).status).toBe(400);
+    expect((await fetch(`${base}/media?kind=secrets`)).status).toBe(400);
+    expect(media.listMedia).not.toHaveBeenCalled();
+  });
+
+  it("names a free account's limit, and lifts it while a plan lasts", async () => {
+    answerVault(vaultRow());
+    expect((await (await fetch(`${base}/media`, { headers: OTHER })).json()).quota).toEqual({ unlimited: false, reason: null, plan: null, maxBytes: 250 * 1024 * 1024, maxFiles: 500 });
+    answerVault(vaultRow({ plan_id: "pro", plan_expires_at: new Date(Date.now() + 86_400_000), plan_credits_per_window: 6000 }));
+    expect((await (await fetch(`${base}/media`, { headers: OTHER })).json()).quota).toEqual({ unlimited: true, reason: "plan", plan: "Pro", maxBytes: null, maxFiles: null });
+    // An ended plan is no plan.
+    answerVault(vaultRow({ plan_id: "pro", plan_expires_at: new Date(Date.now() - 1000) }));
+    expect((await (await fetch(`${base}/media`, { headers: OTHER })).json()).quota.unlimited).toBe(false);
+  });
+});
+
+describe("GET /media/ids", () => {
+  it("lists every file the filter matches for this account, newest first, up to the select-all limit", async () => {
+    media.mediaIds.mockResolvedValue({ ids: [fileId(1), fileId(2)], total: 2 });
+    const response = await fetch(`${base}/media/ids?kind=screenshot&q=shot`, { headers: OTHER });
+    expect(await response.json()).toEqual({ ids: [fileId(1), fileId(2)], total: 2 });
+    expect(media.mediaIds).toHaveBeenCalledWith("user-b", { kind: "screenshot", q: "shot" }, 20_000);
+    expect(media.getMedia).not.toHaveBeenCalled(); // never taken for a file id
+  });
+});
+
+describe("POST /media/delete", () => {
+  const post = (ids: unknown, headers: Record<string, string> = OTHER) => fetch(`${base}/media/delete`, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify({ ids }) });
+
+  it("deletes only the account's own files, and says what happened to each one", async () => {
+    // fileId(3) is someone else's: ownedMedia leaves it out, so it is never touched.
+    media.ownedMedia.mockImplementation(async (_user: string, ids: string[]) => ids.filter(id => id !== fileId(3)).map(id => mediaRow({ id, user_id: "user-b" })));
+    media.deleteMedia.mockImplementation(async (row: { id: string }) => (row.id === fileId(2) ? "kept" : "removed"));
+    const response = await post([fileId(1), fileId(2), fileId(3), fileId(1).toUpperCase()]);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ deleted: [fileId(1)], kept: [fileId(2)], notFound: [fileId(3)], failed: [], skipped: [] });
+    expect(media.ownedMedia).toHaveBeenCalledWith("user-b", [fileId(1), fileId(2), fileId(3)]);
+    expect(media.deleteMedia.mock.calls.map(([row]) => (row as { id: string }).id).sort()).toEqual([fileId(1), fileId(2)]);
+  });
+
+  it("answers 503 when storage is down and nothing could go, and lists a partial result otherwise", async () => {
+    media.ownedMedia.mockImplementation(async (_user: string, ids: string[]) => ids.map(id => mediaRow({ id, user_id: "user-b" })));
+    media.deleteMedia.mockRejectedValue(new StorageError("unreachable", 12));
+    const down = await post([fileId(1), fileId(2)]);
+    expect(down.status).toBe(503);
+    expect(down.headers.get("retry-after")).toBe("12");
+    const body = await down.json();
+    expect(body).toMatchObject({ code: "storage_unavailable", deleted: [], retryAfter: 12 });
+    expect(body.failed).toHaveLength(2);
+    expect(JSON.stringify(body)).not.toMatch(INTERNALS);
+
+    media.deleteMedia.mockImplementation(async (row: { id: string }) => {
+      if (row.id === fileId(2)) throw new StorageError("unreachable", 12);
+      return "removed";
+    });
+    const partial = await post([fileId(1), fileId(2)]);
+    expect(partial.status).toBe(200);
+    expect(await partial.json()).toMatchObject({ deleted: [fileId(1)], failed: [{ id: fileId(2), code: "storage_unavailable" }], retryAfter: 12 });
+  });
+
+  it("starts no file after its time is up, and names the rest so the client sends them again", async () => {
+    const { deleteFiles } = await import("./media/vault");
+    media.ownedMedia.mockImplementation(async (_user: string, ids: string[]) => ids.map(id => mediaRow({ id, user_id: "user-b" })));
+    media.deleteMedia.mockImplementation(async () => { await new Promise(resolve => setTimeout(resolve, 15)); return "removed"; });
+    const result = await deleteFiles("user-b", [fileId(1), fileId(2), fileId(3)], { concurrency: 1, budgetMs: 5 });
+    expect(result.deleted).toEqual([fileId(1)]);
+    expect(result.skipped).toEqual([fileId(2), fileId(3)]);
+    expect(media.deleteMedia).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses an empty, oversized or malformed list before touching anything", async () => {
+    expect((await post([])).status).toBe(400);
+    expect((await post(Array.from({ length: 101 }, (_, n) => fileId(n)))).status).toBe(400);
+    expect((await post(["../etc/passwd"])).status).toBe(400);
+    expect((await post("everything")).status).toBe(400);
+    expect(media.ownedMedia).not.toHaveBeenCalled();
+    expect(media.deleteMedia).not.toHaveBeenCalled();
+  });
+});
+
+describe("the vault limit on uploads", () => {
+  beforeEach(() => {
+    media.storeMedia.mockImplementation(async (input: { filename: string; mimeType: string; buffer: Buffer }) => ({ id: ID, filename: input.filename, mimeType: input.mimeType, sizeBytes: input.buffer.length, kind: "upload", stagePath: "upload/x/a.txt" }));
+  });
+
+  it("refuses a free account at 500 files, pointing to a plan; an active plan stores it anyway", async () => {
+    answerVault(vaultRow({ total: "594", used_files: "594" }));
+    const full = await fetch(`${base}/media`, { method: "POST", headers: OTHER, body: uploadForm() });
+    expect(full.status).toBe(413);
+    expect(await full.json()).toMatchObject({ code: "quota", error: expect.stringContaining("get a plan for unlimited storage") });
+    expect(media.storeMedia).not.toHaveBeenCalled();
+
+    answerVault(vaultRow({ total: "594", used_files: "594", used_bytes: String(900 * 1024 * 1024), plan_id: "max", plan_expires_at: new Date(Date.now() + 86_400_000) }));
+    const paid = await fetch(`${base}/media`, { method: "POST", headers: OTHER, body: uploadForm() });
+    expect(paid.status).toBe(201);
+    expect(media.storeMedia).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-b", kind: "upload" }));
+  });
+
+  it("never reads the operator's vault to decide", async () => {
+    expect((await fetch(`${base}/media`, { method: "POST", body: uploadForm() })).status).toBe(201);
+    expect(db.calls.some(call => call.text.includes("LEFT JOIN curialy.file_metadata"))).toBe(false);
+  });
+
+  it("holds an account to two uploads at a time, even when they all arrive at once", async () => {
+    // The vault read waits until released, so the first two uploads stay in flight.
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    db.handler = call => (call.text.includes("LEFT JOIN curialy.file_metadata") ? gate.then(() => ({ rows: [vaultRow()], rowCount: 1 })) : { rows: [], rowCount: 0 });
+    const uploads = [1, 2, 3].map(() => fetch(`${base}/media`, { method: "POST", headers: OTHER, body: uploadForm() }));
+    const third = await Promise.race(uploads.map(async (pending, index) => ({ index, response: await pending })));
+    expect(third.response.status).toBe(429);
+    expect(third.response.headers.get("retry-after")).toBe("2");
+    expect(await third.response.json()).toMatchObject({ code: "busy", retryAfter: 2 });
+    release();
+    const statuses = (await Promise.all(uploads)).map(response => response.status).sort();
+    expect(statuses).toEqual([201, 201, 429]);
+    // The slots are free again once those answered.
+    answerVault(vaultRow());
+    expect((await fetch(`${base}/media`, { method: "POST", headers: OTHER, body: uploadForm() })).status).toBe(201);
   });
 });
 

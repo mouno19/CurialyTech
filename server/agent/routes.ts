@@ -8,7 +8,9 @@ import { Router, type NextFunction, type Request, type Response } from "express"
 import { z } from "zod";
 import { MODELS, type AgentEvent, type AgentEventBody } from "@shared/agent";
 import { isActiveStatus, isFinalStatus } from "@shared/taskStatus";
-import { deleteMedia, getMedia, isElsewhere, listMedia, markMediaMissing, mediaStatus, mediaUsage, openMedia, storageConfig, storeMedia, assertStorageAvailable } from "../media/snowflake";
+import { countMedia, deleteMedia, getMedia, isElsewhere, listMedia, markMediaMissing, mediaIds, mediaStatus, openMedia, storageConfig, storeMedia, assertStorageAvailable, type MediaCursor } from "../media/snowflake";
+import { deleteFiles, vaultFullError, vaultState } from "../media/vault";
+import { DELETE_BATCH, MAX_SELECT_IDS, MAX_UPLOAD_BYTES, MEDIA_KINDS, UPLOADS_AT_ONCE, vaultFull, type MediaKind } from "@shared/media";
 import { accountOf, rateLimited, requireAdmin } from "../auth";
 import { charge, getBalance, outOfCreditsMessage } from "../credits";
 import { speakStandard, transcribe, voiceConfigured, VoiceError } from "../voice/engines";
@@ -103,10 +105,19 @@ export async function githubReposHandler(req: Request, res: Response) {
 }
 
 // Uploads are held in memory and streamed straight to the file store; they never touch the VPS disk.
-// Free accounts get a bounded vault (the operator's is unbounded).
-const MEDIA_QUOTA_BYTES = 250 * 1024 * 1024;
-const MEDIA_QUOTA_FILES = 500;
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 1 } });
+// Free accounts get a bounded vault; the operator's and a plan's are unbounded (media/vault.ts).
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } });
+
+/** The vault list's filter and page (?kind=&q=&cursor=&limit=); the cursor is the server's own. */
+const mediaListQuery = z.object({
+  kind: z.enum(MEDIA_KINDS as [MediaKind, ...MediaKind[]]).optional(),
+  q: z.string().trim().max(120).optional(),
+  cursor: z.string().regex(/^\d{1,17}_[0-9a-f-]{36}$/i, "That page link isn't valid; reload the list.").optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+});
+const cursorOf = (row: { createdAtUs: string; id: string }) => `${row.createdAtUs}_${row.id}`;
+const parseCursor = (value: string): MediaCursor => ({ createdAtUs: value.slice(0, value.indexOf("_")), id: value.slice(value.indexOf("_") + 1).toLowerCase() });
+const mediaDeleteBody = z.object({ ids: z.array(z.string().regex(UUID, "Name files by their id.")).min(1, "Choose at least one file.").max(DELETE_BATCH, `Delete up to ${DELETE_BATCH} files at a time.`) });
 
 function sendStorageError(res: Response, error: StorageError) {
   if (error.kind === "object_missing") return res.status(410).json({ error: error.message, code: "media_gone" });
@@ -616,9 +627,59 @@ export function agentRouter() {
 
   // ---- Media (file storage) ----
 
+  // A page of the account's files (newest first, 200 by default), with what the whole vault holds and
+  // its limit. nextCursor continues the same filter; matching counts every file the filter matches.
   router.get("/media", handle(async (req, res) => {
-    const storage = await mediaStatus();
-    res.json({ files: await listMedia(accountOf(req).id), stage: { ok: storage.ok, detail: storage.detail }, storage });
+    const user = accountOf(req);
+    const params = mediaListQuery.parse(req.query);
+    const filter = { kind: params.kind, q: params.q || undefined };
+    const limit = params.limit ?? 200;
+    const [storage, rows, vault, found] = await Promise.all([
+      mediaStatus(),
+      listMedia(user.id, { limit: limit + 1, filter, after: params.cursor ? parseCursor(params.cursor) : undefined }),
+      vaultState(user),
+      filter.q ? countMedia(user.id, filter) : null,
+    ]);
+    const page = rows.slice(0, limit);
+    const files = page.map(({ createdAtUs: _cursor, ...file }) => file);
+    const matching = found ?? (filter.kind ? vault.summary.byKind[filter.kind] : vault.summary.total);
+    res.setHeader("Cache-Control", "no-store");
+    res.json({
+      files, nextCursor: rows.length > limit ? cursorOf(page[page.length - 1]) : null, matching,
+      summary: vault.summary, quota: vault.quota, stage: { ok: storage.ok, detail: storage.detail }, storage,
+    });
+  }));
+
+  /** Every file the filter matches, by id (newest first, up to MAX_SELECT_IDS): "select all" and "delete all". */
+  router.get("/media/ids", handle(async (req, res) => {
+    const { kind, q } = mediaListQuery.parse(req.query);
+    res.setHeader("Cache-Control", "no-store");
+    res.json(await mediaIds(accountOf(req).id, { kind, q: q || undefined }, MAX_SELECT_IDS));
+  }));
+
+  // Delete up to DELETE_BATCH of the account's own files: each one's outcome. 503 only when storage is
+  // down and so nothing at all could be deleted; one batch per account at a time.
+  const deleting = new Set<string>();
+  router.post("/media/delete", handle(async (req, res) => {
+    const user = accountOf(req);
+    const { ids } = mediaDeleteBody.parse(req.body ?? {});
+    if (deleting.has(user.id)) {
+      res.setHeader("Retry-After", "2");
+      return res.status(429).json({ error: "Your other files are still being deleted.", code: "busy", retryAfter: 2 });
+    }
+    deleting.add(user.id);
+    try {
+      const result = await deleteFiles(user.id, ids);
+      const nothing = !result.deleted.length && !result.kept.length;
+      if (nothing && result.failed.length && result.failed.every(failure => failure.code === "storage_unavailable")) {
+        const retryAfter = Math.max(5, result.retryAfter ?? 30);
+        res.setHeader("Retry-After", String(retryAfter));
+        return res.status(503).json({ error: "File storage isn't available right now, so nothing was deleted.", code: "storage_unavailable", ...result, retryAfter });
+      }
+      res.json(result);
+    } finally {
+      deleting.delete(user.id);
+    }
   }));
 
   /** Storage health from memory; ?probe=1 runs one real check (rate-limited server-side). */
@@ -648,24 +709,29 @@ export function agentRouter() {
     next(error);
   });
 
-  // Free accounts: refuse before 25 MB is buffered in memory (quota from the declared size), and at
-  // most two uploads at a time each.
+  // Accounts other than the operator: at most UPLOADS_AT_ONCE uploads in memory each (the slot is
+  // taken before anything is awaited, so a burst can't pass it), and a free vault is refused before
+  // 25 MB is buffered (from the declared size). A plan's vault has no limit.
   const uploading = new Map<string, number>();
   const uploadQuota = (req: Request, res: Response, next: NextFunction) => {
     const user = accountOf(req);
     if (user.role === "admin") return next();
-    if ((uploading.get(user.id) ?? 0) >= 2) return res.status(429).json({ error: "Wait for your other uploads to finish.", code: "busy" });
-    void mediaUsage(user.id).then(usage => {
-      const declared = Number(req.headers["content-length"]) || 0;
-      if (usage.bytes + declared > MEDIA_QUOTA_BYTES + 64 * 1024 || usage.files >= MEDIA_QUOTA_FILES) {
-        return res.status(413).json({ error: `Your Media Vault is full (${Math.round(MEDIA_QUOTA_BYTES / 1024 / 1024)} MB or ${MEDIA_QUOTA_FILES} files). Delete files you no longer need, then try again.`, code: "quota" });
-      }
-      uploading.set(user.id, (uploading.get(user.id) ?? 0) + 1);
-      res.on("close", () => {
-        const left = (uploading.get(user.id) ?? 1) - 1;
-        if (left > 0) uploading.set(user.id, left);
-        else uploading.delete(user.id);
-      });
+    const held = uploading.get(user.id) ?? 0;
+    if (held >= UPLOADS_AT_ONCE) {
+      res.setHeader("Retry-After", "2");
+      return res.status(429).json({ error: "Wait for your other uploads to finish.", code: "busy", retryAfter: 2 });
+    }
+    uploading.set(user.id, held + 1);
+    let released = false;
+    res.on("close", () => {
+      if (released) return;
+      released = true;
+      const left = (uploading.get(user.id) ?? 1) - 1;
+      if (left > 0) uploading.set(user.id, left);
+      else uploading.delete(user.id);
+    });
+    void vaultState(user).then(({ summary, quota }) => {
+      if (vaultFull(summary, quota, Number(req.headers["content-length"]) || 0, 64 * 1024)) return res.status(413).json(vaultFullError(quota));
       next();
     }, next);
   };
@@ -674,10 +740,9 @@ export function agentRouter() {
     if (!req.file) return res.status(400).json({ error: "Attach a file up to 25 MB." });
     const user = accountOf(req);
     if (user.role !== "admin") {
-      const usage = await mediaUsage(user.id);
-      if (usage.bytes + req.file.size > MEDIA_QUOTA_BYTES || usage.files >= MEDIA_QUOTA_FILES) {
-        return res.status(413).json({ error: `Your Media Vault is full (${Math.round(MEDIA_QUOTA_BYTES / 1024 / 1024)} MB or ${MEDIA_QUOTA_FILES} files). Delete files you no longer need, then try again.`, code: "quota" });
-      }
+      // Again with the real size, now that it's known (another upload may have finished meanwhile).
+      const { summary, quota } = await vaultState(user);
+      if (vaultFull(summary, quota, req.file.size)) return res.status(413).json(vaultFullError(quota));
     }
     const stored = await storeMedia({ buffer: req.file.buffer, filename: path.basename(req.file.originalname), mimeType: req.file.mimetype || "application/octet-stream", kind: "upload", userId: user.id });
     res.status(201).json({ file: { id: stored.id, filename: stored.filename, mimeType: stored.mimeType, sizeBytes: stored.sizeBytes, kind: stored.kind } });

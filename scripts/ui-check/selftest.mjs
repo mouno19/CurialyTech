@@ -313,7 +313,10 @@ export async function selfTest(config) {
     ["POST", `/api/agent/tasks/${liveId}/browser/${sessionId}/reconnect`, 200, {}],
     ["GET", `/api/agent/tasks/${TASK.interrupted}/browser/${endedSession}?fresh=1`, 200, null, body => body.status === "ended" && body.viewer === null],
     ["POST", `/api/agent/tasks/${TASK.interrupted}/browser/${endedSession}/reconnect`, 410, {}],
-    ["GET", "/api/agent/media", 200, null, body => body.files.length >= 10 && body.storage.ok === false && body.storage.retryAfter === 30],
+    ["GET", "/api/agent/media", 200, null, body => body.files.length >= 10 && body.storage.ok === false && body.storage.retryAfter === 30 && body.quota.reason === "operator" && body.nextCursor === null && body.matching === body.summary.total],
+    ["GET", "/api/agent/media?kind=upload", 200, null, body => body.files.every(file => file.kind === "upload") && body.matching === body.summary.byKind.upload],
+    ["GET", "/api/agent/media/ids", 200, null, body => body.ids.length === body.total && body.total >= 10],
+    ["POST", "/api/agent/media/delete", 503, { ids: [media] }, body => body.code === "storage_unavailable" && body.failed.length === 1 && body.deleted.length === 0],
     ["POST", "/api/agent/media", 503, null, body => body.code === "storage_unavailable"],
     ["GET", "/api/agent/media/health", 200, null, body => body.state === "unavailable"],
     ["GET", "/api/agent/media/health?probe=1", 200],
@@ -350,7 +353,7 @@ export async function selfTest(config) {
   // ---- Billing fixtures vs shared/billing.ts ----
   const sb = section("billing");
   {
-    const ORDER_KEYS = ["code", "kind", "planId", "title", "listUsd", "discountPercent", "priceUsd", "creditUsd", "network", "coin", "payAddress", "expectedAmount", "quoteUsdPrice", "txHash", "receivedAmount", "status", "statusDetail", "confirmations", "requiredConfirmations", "createdAt", "quotedAt", "expiresAt", "submitUntil", "submittedAt", "completedAt", "applied", "explorerUrl", "events"];
+    const ORDER_KEYS = ["code", "kind", "planId", "planDays", "planCreditsPerWindow", "planMonths", "title", "listUsd", "discountPercent", "priceUsd", "creditUsd", "network", "coin", "payAddress", "expectedAmount", "quoteUsdPrice", "txHash", "receivedAmount", "status", "statusDetail", "confirmations", "requiredConfirmations", "createdAt", "quotedAt", "expiresAt", "submitUntil", "submittedAt", "completedAt", "applied", "explorerUrl", "events"];
     const ADMIN_KEYS = [...ORDER_KEYS, "user", "adminNote", "txFrom", "txBlockTime", "checkCount", "lastCheckedAt", "chainVerifiedAt"];
     const TOTAL_KEYS = ["requests", "inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "costMicros", "listMicros"];
     const PAY_STATUSES = ["awaiting_payment", "pending", "confirming", "review", "completed", "rejected", "expired"];

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import snowflake from "snowflake-sdk";
+import type { MediaKind } from "@shared/media";
 import { query } from "../db/pg";
 import { classifyStorageError, logStorageError, publicStorageMessage, redact, StorageBreaker, StorageError, type StorageFailure } from "./storage-errors";
 
@@ -232,25 +233,68 @@ export async function markMediaMissing(id: string) {
   await query("UPDATE curialy.file_metadata SET state = 'missing', missing_at = now() WHERE id = $1 AND state <> 'missing'", [id]);
 }
 
-/** An account's files, newest first. */
-export async function listMedia(userId: string, limit = 200) {
+/** Which of an account's files: one kind, and a name containing `q` (as stored: see safeName). */
+export type MediaFilter = { kind?: MediaKind; q?: string };
+/** A place in the newest-first order: a row's created_at in microseconds (exact), then its id. */
+export type MediaCursor = { createdAtUs: string; id: string };
+
+/** The WHERE clause for an account's files matching `filter`, adding its parameters to `values`. */
+function matching(userId: string, filter: MediaFilter, values: unknown[]) {
+  const where = [`user_id = $${values.push(userId)}`];
+  if (filter.kind) where.push(`kind = $${values.push(filter.kind)}`);
+  // Names are stored with anything but letters, digits, ".", "-" and "_" turned into "_". In the
+  // search every other character (a space, "_", LIKE's own "%" and "\") matches any one character,
+  // so "my photo" finds my_photo.png and my-photo.png alike.
+  const needle = filter.q?.trim().replace(/[^a-zA-Z0-9.-]/g, "_");
+  if (needle) where.push(`filename ILIKE $${values.push(`%${needle}%`)}`);
+  return where.join(" AND ");
+}
+
+/**
+ * An account's files, newest first: `limit` of them matching `filter`, after `after` when paging.
+ * Each row carries its cursor (the place to continue after it).
+ */
+export async function listMedia(userId: string, options: { limit?: number; filter?: MediaFilter; after?: MediaCursor } = {}) {
   // "elsewhere": recorded in another storage account, or known (this process) not to be here.
-  const { rows } = await query(
+  const values: unknown[] = [mediaAccount(), Array.from(notHere)];
+  let where = matching(userId, options.filter ?? {}, values);
+  if (options.after) where += ` AND (created_at, id) < (timestamptz 'epoch' + $${values.push(options.after.createdAtUs)}::bigint * interval '1 microsecond', $${values.push(options.after.id)}::uuid)`;
+  const { rows } = await query<{ id: string; createdAtUs: string } & Record<string, unknown>>(
     `SELECT id, filename, mime_type AS "mimeType", size_bytes AS "sizeBytes", kind, session_id AS "sessionId", created_at AS "createdAt",
-            CASE WHEN state = 'stored' AND $2::text IS NOT NULL AND ((stage_account IS NOT NULL AND stage_account <> $2) OR (stage_account IS NULL AND id = ANY($3::uuid[])))
-                 THEN 'elsewhere' ELSE state END AS state
-     FROM curialy.file_metadata WHERE user_id = $4 ORDER BY created_at DESC LIMIT $1`,
-    [limit, mediaAccount(), Array.from(notHere), userId],
+            CASE WHEN state = 'stored' AND $1::text IS NOT NULL AND ((stage_account IS NOT NULL AND stage_account <> $1) OR (stage_account IS NULL AND id = ANY($2::uuid[])))
+                 THEN 'elsewhere' ELSE state END AS state,
+            (extract(epoch FROM created_at) * 1000000)::bigint::text AS "createdAtUs"
+     FROM curialy.file_metadata WHERE ${where} ORDER BY created_at DESC, id DESC LIMIT $${values.push(options.limit ?? 200)}`,
+    values,
   );
   return rows;
 }
 
-/** What an account stores (files not known to be gone), for its storage quota. */
-export async function mediaUsage(userId: string) {
-  const { rows } = await query<{ files: string; bytes: string }>(
-    "SELECT count(*) AS files, COALESCE(sum(size_bytes), 0) AS bytes FROM curialy.file_metadata WHERE user_id = $1 AND state <> 'missing'", [userId],
+/** How many of an account's files match `filter`. */
+export async function countMedia(userId: string, filter: MediaFilter) {
+  const values: unknown[] = [];
+  const { rows } = await query<{ n: string }>(`SELECT count(*) AS n FROM curialy.file_metadata WHERE ${matching(userId, filter, values)}`, values);
+  return Number(rows[0]?.n ?? 0);
+}
+
+/** The ids of an account's files matching `filter` (newest first, at most `max`), and how many match in all. */
+export async function mediaIds(userId: string, filter: MediaFilter, max: number) {
+  const values: unknown[] = [];
+  const where = matching(userId, filter, values);
+  const { rows } = await query<{ id: string; total: string }>(
+    `SELECT id, count(*) OVER () AS total FROM curialy.file_metadata WHERE ${where} ORDER BY created_at DESC, id DESC LIMIT $${values.push(max)}`, values,
   );
-  return { files: Number(rows[0].files), bytes: Number(rows[0].bytes) };
+  return { ids: rows.map(row => row.id), total: Number(rows[0]?.total ?? 0) };
+}
+
+/** The account's own files among `ids` (others' and unknown ids are left out). */
+export async function ownedMedia(userId: string, ids: string[]): Promise<MediaRow[]> {
+  if (!ids.length) return [];
+  const { rows } = await query<MediaRow>(
+    "SELECT id, filename, mime_type, size_bytes, kind, stage_path, created_at, session_id, source_path, state, stage_account, user_id FROM curialy.file_metadata WHERE id = ANY($1::uuid[]) AND user_id = $2",
+    [ids, userId],
+  );
+  return rows;
 }
 
 // Presigned URLs for immutable objects are reused until shortly before they expire (memory only).
@@ -362,9 +406,10 @@ async function readCapped(response: Response) {
  * goes, the stored copy stays there), or false when there is no such file. Refused (StorageError)
  * while storage is unavailable, so a record is never dropped while its object here remains.
  */
-export async function deleteMedia(id: string): Promise<"removed" | "kept" | false> {
-  const media = await getMedia(id);
+export async function deleteMedia(target: string | MediaRow): Promise<"removed" | "kept" | false> {
+  const media = typeof target === "string" ? await getMedia(target) : target;
   if (!media) return false;
+  const id = media.id;
   let kept = false;
   if (media.state !== "missing") {
     // Always remove from this stage (a no-op when the path is not here), so a file whose account was

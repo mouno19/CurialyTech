@@ -1,3 +1,4 @@
+import { FREE_VAULT_BYTES, FREE_VAULT_FILES } from "@shared/media";
 import { formatUsd, planAfterPurchase, planForMonths, type BillingCatalog, type PlanConfig, type PlanEffect, type PlanId, type PlanOffer, type PlanState } from "@shared/billing";
 
 // Plans as the billing page and the homepage say them: prices, the offer, how a plan compares
@@ -18,6 +19,9 @@ export function daysText(days: number) {
 
 /** "1 month", "3 months" */
 export const monthsText = (months: number) => `${months} ${months === 1 ? "month" : "months"}`;
+
+/** What a card's Media Vault holds: a plan's has no limit; a free account's has the free vault's. */
+export const vaultText = (paid: boolean) => (paid ? "Unlimited Media Vault storage" : `Media Vault: ${Math.round(FREE_VAULT_BYTES / 1024 / 1024)} MB or ${FREE_VAULT_FILES} files`);
 
 /** "29 days left", "1 day left", "Less than a day left". */
 export function daysLeftText(iso: string, now = Date.now()) {

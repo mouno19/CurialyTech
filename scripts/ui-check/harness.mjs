@@ -89,10 +89,22 @@ export function buildPlan(fx, { viewports = VIEWPORTS, only = null } = {}) {
     { id: "credits-dialog", path: "/billing", account: "free", action: "credits-dialog" },
     { id: "credits-dialog-newcomer", path: "/billing", account: "newcomer", action: "credits-dialog" },
   ] : [];
+  // The Media Vault while storage works: on Pro (unlimited, more pages) and a full free vault; choosing
+  // many files, deleting the chosen ones or all of them, and several uploads at once (one refused).
+  // Stored images load here, so more of the vault's requests are expected than with storage down.
+  const vault = [
+    { id: "media-pro", path: "/media", account: "free", mediaLimit: 14 },
+    { id: "media-full", path: "/media", account: "newcomer", mediaLimit: 14 },
+    { id: "media-select", path: "/media", account: "free", action: "media-select", mediaLimit: 14 },
+    { id: "media-delete-selected", path: "/media", account: "free", action: "media-delete-selected", mediaLimit: 14 },
+    { id: "media-delete-all", path: "/media", account: "free", action: "media-delete-all", mediaLimit: 14 },
+    { id: "media-uploads", path: "/media", account: "free", action: "media-uploads", mediaLimit: 14 },
+  ];
   const checks = [];
   for (const viewport of viewports) {
     const phone = viewport.width <= PHONE_MAX;
     for (const page of pages) checks.push({ ...page, viewport, phone });
+    for (const page of vault) checks.push({ ...page, viewport, phone });
     checks.push({ id: "dashboard-model-menu", path: "/", viewport, phone, action: "model-menu" });
     if (phone) for (const scenario of fx.scenarios) checks.push({ id: `task-${scenario.key}-inspector`, path: `/tasks/${scenario.id}`, scenario: scenario.key, live: scenario.live, task: true, viewport, phone, action: "inspector" });
     for (const page of billing) checks.push({ ...page, viewport, phone });

@@ -5,7 +5,7 @@ import { MAX_PLAN_MONTHS, type BillingCatalog } from "@shared/billing";
 import { billingApi } from "@/lib/billing";
 import { Reveal } from "@/components/common/Reveal";
 import { creditCount, shortDayText } from "@/components/billing/format";
-import { formatPrice, freeMultiple, listText, offerEnd, offerText } from "@/components/billing/plans";
+import { formatPrice, freeMultiple, listText, offerEnd, offerText, vaultText } from "@/components/billing/plans";
 import { scrollToAnchor, SectionLabel } from "./primitives";
 
 /** The coins a payment can use, stablecoins first, each once (USDT and USDC are on every network). */
@@ -85,7 +85,10 @@ export function Pricing({ signedIn }: { signedIn: boolean }) {
                   <h3 className="lp-plan-name">Free</h3>
                   <p className="lp-plan-price"><span className="lp-plan-amount">$0</span></p>
                   <p className="lp-plan-term">no card needed</p>
-                  <p className="lp-plan-credits">{creditCount(priced.free.creditsPerWindow)} credits every {priced.free.windowHours} hours</p>
+                  <p className="lp-plan-credits">
+                    {creditCount(priced.free.creditsPerWindow)} credits every {priced.free.windowHours} hours
+                    <span>{vaultText(false)}</span>
+                  </p>
                 </div>
               </Reveal>
               {priced.plans.map((plan, index) => {
@@ -103,6 +106,7 @@ export function Pricing({ signedIn }: { signedIn: boolean }) {
                       <p className="lp-plan-credits">
                         {creditCount(plan.creditsPerWindow)} credits every {priced.free.windowHours} hours
                         {multiple && <span>{multiple}× the free allowance</span>}
+                        <span>{vaultText(true)}</span>
                       </p>
                     </div>
                   </Reveal>

@@ -2,7 +2,9 @@ import type { AgentTaskSummary, CreateTaskRequest, ModelSpec, QueuedMessage, Sta
 import type { ApiKeyInfo } from "@shared/gateway";
 import type { CreditBalance, CreditSettings } from "@shared/credits";
 import type { DeploymentState } from "@shared/taskStatus";
+import { UPLOADS_AT_ONCE, type MediaDeleteResult, type MediaKind, type VaultQuota, type VaultSummary } from "@shared/media";
 import { markStorageUnavailable } from "./mediaHealth";
+import { limiter, whileBusy } from "./uploads";
 
 /** A failed API call: the server's message (safe to show), HTTP status, and the machine-readable bits. */
 export class ApiError extends Error {
@@ -34,8 +36,23 @@ function fallbackMessage(status: number) {
   if (status === 502 || status === 503 || status === 504) return "The server is unavailable right now. Try again in a moment.";
   if (status === 404) return "Not found.";
   if (status === 401) return "Your session has ended. Sign in again.";
+  if (status === 413) return "That's too large to send.";
+  if (status === 429) return "Too many requests at once. Try again in a moment.";
   return `Request failed (${status}).`;
 }
+
+/** The ApiError for a failed answer, with its side effects (signed out, storage down) applied. */
+function failure(status: number, data: unknown, retryAfterHeader: string | null, path: string) {
+  if (status === 401 && !path.startsWith("/api/auth")) window.dispatchEvent(new Event("curialy:unauthorized"));
+  const body = (data && typeof data === "object" ? data : {}) as { error?: unknown; code?: unknown; retryAfter?: unknown };
+  const code = typeof body.code === "string" ? body.code : undefined;
+  const retryAfter = typeof body.retryAfter === "number" ? body.retryAfter : parseRetryAfter(retryAfterHeader);
+  const message = typeof body.error === "string" && body.error ? body.error : fallbackMessage(status);
+  if (status === 503 && code === "storage_unavailable") markStorageUnavailable(retryAfter);
+  return new ApiError(message, status, code, retryAfter, data);
+}
+
+const unreachable = () => new ApiError("Can't reach the server. Check your connection and try again.", 0, "network");
 
 export async function api<T>(path: string, init?: RequestInit & { json?: unknown }): Promise<T> {
   const { json, ...rest } = init ?? {};
@@ -49,20 +66,50 @@ export async function api<T>(path: string, init?: RequestInit & { json?: unknown
     });
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") throw error;
-    throw new ApiError("Can't reach the server. Check your connection and try again.", 0, "network");
+    throw unreachable();
   }
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    if (response.status === 401 && !path.startsWith("/api/auth")) window.dispatchEvent(new Event("curialy:unauthorized"));
-    const body = (data && typeof data === "object" ? data : {}) as { error?: unknown; code?: unknown; retryAfter?: unknown };
-    const code = typeof body.code === "string" ? body.code : undefined;
-    const retryAfter = typeof body.retryAfter === "number" ? body.retryAfter : parseRetryAfter(response.headers.get("retry-after"));
-    const message = typeof body.error === "string" && body.error ? body.error : fallbackMessage(response.status);
-    if (response.status === 503 && code === "storage_unavailable") markStorageUnavailable(retryAfter);
-    throw new ApiError(message, response.status, code, retryAfter, data);
-  }
+  if (!response.ok) throw failure(response.status, data, response.headers.get("retry-after"), path);
   return data as T;
 }
+
+/** What an upload reports while it runs: it left the queue, bytes sent, waiting for the account's other uploads. */
+export type UploadOptions = { signal?: AbortSignal; onStart?: () => void; onProgress?: (sent: number, total: number) => void; onWait?: () => void };
+
+/** One file to the vault over XHR (fetch can't report upload progress), failing as api() does. */
+function sendFile(file: File, opts: UploadOptions) {
+  return new Promise<UploadedFile>((resolve, reject) => {
+    if (opts.signal?.aborted) return reject(new DOMException("Cancelled", "AbortError"));
+    const path = "/api/agent/media";
+    const xhr = new XMLHttpRequest();
+    const abort = () => xhr.abort();
+    xhr.open("POST", path);
+    xhr.upload.onprogress = event => opts.onProgress?.(event.loaded, event.lengthComputable ? event.total : file.size);
+    xhr.onload = () => {
+      opts.signal?.removeEventListener("abort", abort);
+      let data: unknown = {};
+      try {
+        data = JSON.parse(xhr.responseText || "{}");
+      } catch {
+        data = {};
+      }
+      if (xhr.status >= 200 && xhr.status < 300 && (data as { file?: UploadedFile }).file) resolve((data as { file: UploadedFile }).file);
+      else reject(failure(xhr.status, data, xhr.getResponseHeader("retry-after"), path));
+    };
+    xhr.onerror = () => { opts.signal?.removeEventListener("abort", abort); reject(unreachable()); };
+    xhr.onabort = () => reject(new DOMException("Cancelled", "AbortError"));
+    opts.signal?.addEventListener("abort", abort, { once: true });
+    const form = new FormData();
+    form.append("file", file);
+    xhr.send(form);
+  });
+}
+
+/** How long a 429 "busy" asked to wait (ms); null for any other failure. */
+export const busyWait = (error: unknown) => (error instanceof ApiError && error.status === 429 && error.code === "busy" ? (error.retryAfter ?? 2) * 1000 : null);
+
+// This tab's uploads share the account's in-flight allowance; other tabs show up as "busy".
+const uploadSlots = limiter(UPLOADS_AT_ONCE);
 
 // ---- Types (shapes from /home/ubuntu/curialy-tools/CONTRACT.md) ----
 
@@ -74,7 +121,9 @@ export type UploadedFile = { id: string; filename: string; mimeType: string; siz
 /** elsewhere: stored in an earlier storage account the server no longer reads (never fetched). */
 export type MediaFile = UploadedFile & { kind: string; sessionId: string | null; createdAt: string; state: "stored" | "missing" | "elsewhere" };
 export type MediaHealth = { ok: boolean; state: "ok" | "unavailable" | "not_configured"; kind: string | null; retryAfter: number; detail: string };
-export type MediaList = { files: MediaFile[]; stage: { ok: boolean; detail: string }; storage: MediaHealth };
+/** A page of the vault: nextCursor continues it; matching counts every file the filter matches. */
+export type MediaList = { files: MediaFile[]; nextCursor: string | null; matching: number; summary: VaultSummary; quota: VaultQuota; stage: { ok: boolean; detail: string }; storage: MediaHealth };
+export type MediaQuery = { kind?: MediaKind; q?: string };
 export type GitHubRepo = { id: number; name: string; full_name: string; private: boolean; default_branch: string; description: string | null; updated_at: string; language: string | null };
 export type GitHubStatus = { configured: boolean; connected: boolean; login: string | null; name: string | null; avatarUrl: string | null; scopes: string[]; missingScopes: string[]; connectedAt: string | null };
 /** completedWithIssues: completed runs whose outcome had problems (failing checks, review not approved, publish failed). */
@@ -141,6 +190,11 @@ export type ExportRequest = { repoName?: string; visibility?: "private" | "publi
 export type ExportResult = { repo: string; url: string; commitUrl: string; files: number; created: boolean; nothingToPush?: boolean; branch?: string };
 
 const enc = encodeURIComponent;
+/** "?a=1&b=2" from the defined, non-empty values (or ""). */
+const searchOf = (params: Record<string, string | number | undefined>) => {
+  const pairs = Object.entries(params).filter(([, value]) => value !== undefined && value !== "").map(([key, value]) => `${enc(key)}=${enc(String(value))}`);
+  return pairs.length ? `?${pairs.join("&")}` : "";
+};
 
 /** HEAD a stored file without touching storage: 200 | 404 | 410 | 503, or 0 when the server is unreachable. */
 async function mediaHead(id: string): Promise<number> {
@@ -189,14 +243,21 @@ export const agentApi = {
   rawFileUrl: (id: string, path: string) => `/api/agent/tasks/${enc(id)}/file?raw=1&path=${enc(path)}`,
   downloadUrl: (id: string, path: string) => `/api/agent/tasks/${enc(id)}/file?download=1&path=${enc(path)}`,
 
-  /** 503 storage_unavailable is checked before the upload; 413 too_large. */
-  upload: async (file: File) => {
-    const form = new FormData();
-    form.append("file", file);
-    const data = await api<{ file: UploadedFile }>("/api/agent/media", { method: "POST", body: form });
-    return data.file;
-  },
-  media: () => api<MediaList>("/api/agent/media"),
+  /**
+   * 503 storage_unavailable is checked before the upload; 413 too_large or quota (a full free vault).
+   * Runs UPLOADS_AT_ONCE at a time in this tab, and waits out "busy" (the account's other uploads).
+   */
+  upload: (file: File, opts: UploadOptions = {}) => uploadSlots(async () => {
+    if (opts.signal?.aborted) throw new DOMException("Cancelled", "AbortError");
+    opts.onStart?.();
+    return whileBusy(() => sendFile(file, opts), busyWait, { signal: opts.signal, onWait: opts.onWait });
+  }),
+  media: (query: MediaQuery & { cursor?: string | null; limit?: number } = {}) =>
+    api<MediaList>(`/api/agent/media${searchOf({ kind: query.kind, q: query.q?.trim(), cursor: query.cursor ?? undefined, limit: query.limit })}`, { cache: "no-store" }),
+  /** Every file the filter matches, newest first (at most MAX_SELECT_IDS; total counts them all). */
+  mediaIds: (query: MediaQuery = {}) => api<{ ids: string[]; total: number }>(`/api/agent/media/ids${searchOf({ kind: query.kind, q: query.q?.trim() })}`, { cache: "no-store" }),
+  /** Up to DELETE_BATCH files; 503 (with the same body) when storage is down and nothing was deleted. */
+  removeMediaMany: (ids: string[]) => api<MediaDeleteResult>("/api/agent/media/delete", { method: "POST", json: { ids } }),
   /** probe=true runs one real (rate-limited) storage check; otherwise answered from memory. */
   mediaHealth: (probe = false) => api<MediaHealth>(`/api/agent/media/health${probe ? "?probe=1" : ""}`, { cache: "no-store" }),
   mediaHead,
@@ -337,6 +398,7 @@ export function formatTokens(value: number) {
 }
 
 export function formatBytes(value: number) {
+  if (Math.abs(value) >= 1024 * 1024 * 1024) return `${(value / 1024 / 1024 / 1024).toFixed(1)} GB`;
   if (Math.abs(value) >= 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
   if (Math.abs(value) >= 1024) return `${(value / 1024).toFixed(1)} KB`;
   return `${value} B`;

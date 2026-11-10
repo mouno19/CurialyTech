@@ -240,6 +240,31 @@ async function act(page, check, record) {
       // Accounts tab: the Billing dialog of the account on Pro.
       await page.locator("tr", { hasText: "ada-lovelace" }).first().getByRole("button", { name: "Billing" }).click({ timeout: 6000 });
       await page.getByRole("dialog").getByText("API balance history").first().waitFor({ state: "visible", timeout: 6000 });
+    } else if (check.action === "media-select" || check.action === "media-delete-selected") {
+      // Choose the first two files (the first row at every width): one, then Shift+click the next.
+      await page.locator(".pg-toolbar").getByRole("button", { name: "Select", exact: true }).first().click({ timeout: 6000 });
+      const boxes = page.locator("input.vault-check");
+      await boxes.nth(0).click({ timeout: 5000 });
+      await boxes.nth(1).click({ timeout: 5000, modifiers: ["Shift"] });
+      await page.locator(".vault-selbar-count", { hasText: "2 selected" }).first().waitFor({ state: "visible", timeout: 5000 });
+      if (check.action === "media-delete-selected") {
+        await page.locator(".vault-selbar").getByRole("button", { name: /^Delete 2$/ }).first().click({ timeout: 5000 });
+        await page.getByRole("alertdialog", { name: "Delete 2 files?" }).first().waitFor({ state: "visible", timeout: 5000 });
+      }
+    } else if (check.action === "media-delete-all") {
+      await page.getByRole("button", { name: /More actions/ }).first().click({ timeout: 6000 });
+      await page.getByRole("menuitem", { name: /^Delete all files/ }).first().click({ timeout: 5000 });
+      await page.getByRole("alertdialog", { name: /^Delete all 594 files\?$/ }).first().waitFor({ state: "visible", timeout: 5000 });
+    } else if (check.action === "media-uploads") {
+      // Four files picked at once: two upload at a time, the third is refused, and the list says so.
+      const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
+      await page.locator("input[type=\"file\"][multiple]").first().setInputFiles([
+        { name: "landing-hero-final.png", mimeType: "image/png", buffer: png },
+        { name: "pricing-table-mobile.png", mimeType: "image/png", buffer: png },
+        { name: "raw-scan-from-the-print-shop-archive.tiff", mimeType: "image/tiff", buffer: png },
+        { name: "brand-notes.md", mimeType: "text/markdown", buffer: Buffer.from("# Brand notes\n") },
+      ], { timeout: 6000 });
+      await page.locator(".vault-uploads-title", { hasText: "3 files uploaded, 1 not" }).first().waitFor({ state: "visible", timeout: 10_000 });
     } else if (check.action === "credits-dialog") {
       // The sidebar's credits meter (in the navigation drawer below 1024px).
       const meter = page.locator(".sidebar .credits-meter").first();
@@ -501,7 +526,7 @@ async function live(config) {
         }
       }
       record.ms = Date.now() - t0;
-      records.push(judge(record, config));
+      records.push(judge(record, check.mediaLimit ? { ...config, mediaLimit: check.mediaLimit } : config));
       const label = `[${String(check.n).padStart(String(plan.length).length)}/${plan.length}] ${check.key}`;
       log(`${label.padEnd(58)} ${record.ok ? "ok  " : `FAIL ${record.failures.join(", ")}`}${record.warnings.length ? `  (warn: ${record.warnings.join(", ")})` : ""}  ${(record.ms / 1000).toFixed(1)} s`);
       writeReport();

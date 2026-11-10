@@ -267,6 +267,30 @@ describe("media storage (snowflake.ts)", () => {
     expect(sf.placement({ id: "c", stage_account: "ab12345.ap-southeast-7.aws" })).toBe("here");
   });
 
+  it("lists an account's files a page at a time: any character a name can't hold matches one, the cursor exact", async () => {
+    const sf = await load();
+    const { query } = await import("./db/pg");
+    const calls = vi.mocked(query);
+    calls.mockClear();
+    await sf.listMedia("user-1", { limit: 51, filter: { kind: "artifact", q: " my photo_%\\ " }, after: { createdAtUs: "1763000000123456", id: "00000000-0000-4000-8000-000000000001" } });
+    const [text, values] = calls.mock.calls[0] as unknown as [string, unknown[]];
+    // A space, "_", "%" and "\" each match any one character (names keep only letters, digits, ".", "-" and "_").
+    expect(values).toEqual(["test-snowflake_account", [], "user-1", "artifact", "%my_photo___%", "1763000000123456", "00000000-0000-4000-8000-000000000001", 51]);
+    expect(text).toContain("user_id = $3 AND kind = $4 AND filename ILIKE $5 AND (created_at, id) < (timestamptz 'epoch' + $6::bigint * interval '1 microsecond', $7::uuid)");
+    expect(text).toMatch(/ORDER BY created_at DESC, id DESC LIMIT \$8$/);
+
+    calls.mockClear();
+    calls.mockResolvedValueOnce({ rows: [{ id: "b", total: "7" }, { id: "a", total: "7" }], rowCount: 2 } as never);
+    expect(await sf.mediaIds("user-1", {}, 2)).toEqual({ ids: ["b", "a"], total: 7 });
+    expect(calls.mock.calls[0][1]).toEqual(["user-1", 2]);
+    // Only the account's own rows, and nothing asked for no ids.
+    calls.mockClear();
+    expect(await sf.ownedMedia("user-1", [])).toEqual([]);
+    expect(calls).not.toHaveBeenCalled();
+    await sf.ownedMedia("user-1", ["a"]);
+    expect(String(calls.mock.calls[0][0])).toContain("WHERE id = ANY($1::uuid[]) AND user_id = $2");
+  });
+
   it("deletes a file held in another account: clears this stage too, and reports the other copy as kept", async () => {
     const sf = await load();
     const { query } = await import("./db/pg");
