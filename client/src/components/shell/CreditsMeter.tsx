@@ -76,7 +76,7 @@ export function CreditsDialog({ open, onOpenChange, credits }: { open: boolean; 
       const result = await accountApi.redeem(code);
       await refreshAccount();
       setCode("");
-      toast.success(`${formatCredits(result.credits)} credits added.`, { description: credits.allowance > 0 ? "They're spent after this window's credits and don't expire." : "They don't expire." });
+      toast.success(`${formatCredits(result.credits)} credits added.`, { description: credits.allowance > 0 ? "They're spent after this window's credits and don't expire." : "They don't expire or refill." });
     } catch (redeemError) {
       setError(errorMessage(redeemError, "That code didn't work."));
     } finally {
@@ -87,11 +87,11 @@ export function CreditsDialog({ open, onOpenChange, credits }: { open: boolean; 
   return (
     <Dialog open={open} onOpenChange={onOpenChange} size="sm" title="Credits" description={
       credits.unlimited ? "The operator's account is not charged."
-        : credits.allowance === 0 ? "Credits on this account come from promo codes. They don't expire."
-          : `${plan ? `With ${plan}, this` : "This"} account gets ${formatCredits(credits.allowance)} credits every ${credits.windowHours} hours; a window starts with the first credit you spend.`
-    } footer={credits.unlimited ? undefined : (
-      // A plan adds credits to every window; the page also has the API balance and past orders.
-      <Link href="/billing" className={plan ? "btn" : "btn primary"} onClick={() => onOpenChange(false)}>{plan ? "Plans & Billing" : "Get more credits"}</Link>
+        : credits.allowance === 0 ? "Credits on this account come from the welcome credits, X and promo codes. They don't refill."
+          : `${plan ? `With ${plan}, this` : credits.boost ? "With the X boost, this" : "This"} account gets ${formatCredits(credits.allowance)} credits every ${credits.windowHours} hours; a window starts with the first credit you spend.`
+    }       footer={credits.unlimited ? undefined : (
+      // A plan adds credits to every window; the page also has the X rewards, the API balance and past orders.
+      <Link href={credits.canEarn ? "/billing#rewards" : "/billing"} className={plan ? "btn" : "btn primary"} onClick={() => onOpenChange(false)}>{plan ? "Plans & Billing" : credits.canEarn ? "Earn credits on X" : "Get more credits"}</Link>
     )}>
       {!credits.unlimited && credits.allowance === 0 && (
         <dl className="credits-facts">
@@ -100,7 +100,7 @@ export function CreditsDialog({ open, onOpenChange, credits }: { open: boolean; 
       )}
       {!credits.unlimited && credits.allowance > 0 && (
         <dl className="credits-facts">
-          <div><dt>Plan</dt><dd>{plan ?? "Free"}</dd></div>
+          <div><dt>Plan</dt><dd>{plan ?? (credits.boost ? "Free · X boost" : "Free")}</dd></div>
           <div><dt>This window</dt><dd>{formatCredits(credits.remaining)} of {formatCredits(credits.allowance)} left</dd></div>
           <div><dt>Bonus credits</dt><dd>{formatCredits(credits.bonus)}</dd></div>
           <div><dt>Refill</dt><dd>{credits.resetsAt ? `${clockText(credits.resetsAt)} (${untilText(credits.resetsAt)})` : "Your full allowance is ready"}</dd></div>

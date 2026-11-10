@@ -4,8 +4,9 @@ import { BASE_OUTPUT_TOKENS, MODELS, outputLimit } from "@shared/agent";
 import {
   API_PRICES, API_TOPUP, COIN_INFO, discountedPrices, discountedUsd, discountPercent, MAX_DISCOUNT_PERCENT, MAX_PLAN_MONTHS, modelLimits, NON_STREAMING_MAX_TOKENS,
   PAYMENT_STATUS, PLAN_IDS, USAGE_RANGES, type AdminAccountBilling, type AdminBillingOverview, type ApiModelPrice, type BillingAccount, type BillingCatalog,
-  type NetworkInfo, type PaymentStatus, type PublicNetwork, type UsageRange,
+  type FreeTier, type NetworkInfo, type PaymentStatus, type PublicNetwork, type UsageRange,
 } from "@shared/billing";
+import type { CreditSettings } from "@shared/credits";
 import { GATEWAY_MODELS, type GatewayModel } from "@shared/gateway";
 import { accountOf, rateLimited, requireAdmin, requireUser } from "../auth";
 import { getSettings as getCreditSettings } from "../credits";
@@ -56,6 +57,19 @@ function modelPrice(model: GatewayModel, percent: number): ApiModelPrice {
   };
 }
 
+/** The free tier as the catalog says it: the boost only while it is offered. */
+export function freeTier(credits: CreditSettings, now = Date.now()): FreeTier {
+  const { rewards } = credits;
+  const offered = rewards.boost.enabled && rewards.boost.creditsPerWindow > 0 && (!rewards.boost.endsAt || Date.parse(rewards.boost.endsAt) > now);
+  return {
+    welcomeCredits: credits.welcomeCredits, creditsPerWindow: credits.creditsPerWindow, windowHours: credits.windowHours,
+    rewards: {
+      followHandle: rewards.followHandle, followCredits: rewards.followCredits, postCredits: rewards.postCredits,
+      boost: offered ? { creditsPerWindow: rewards.boost.creditsPerWindow, windowHours: rewards.boost.windowHours, endsAt: rewards.boost.endsAt } : null,
+    },
+  };
+}
+
 export async function billingCatalog(): Promise<BillingCatalog> {
   const [settings, credits] = await Promise.all([getBillingSettings(), getCreditSettings()]);
   const plansPercent = discountPercent(settings.discount, "plans");
@@ -67,7 +81,7 @@ export async function billingCatalog(): Promise<BillingCatalog> {
       return { id, name: plan.name, listUsd: plan.priceUsd, priceUsd: discountedUsd(plan.priceUsd, plansPercent), discountPercent: plansPercent, creditsPerWindow: plan.creditsPerWindow, days: plan.days };
     }),
     discount: { plansPercent, apiPercent, endsAt: plansPercent || apiPercent ? settings.discount.endsAt : null },
-    free: { creditsPerWindow: credits.creditsPerWindow, windowHours: credits.windowHours },
+    free: freeTier(credits),
     apiTopup: { minUsd: API_TOPUP.minUsd, maxUsd: API_TOPUP.maxUsd, presets: [...API_TOPUP.presets] },
     paymentsOpen: settings.paymentsOpen && networks.length > 0,
     networks: networks.map(publicNetwork),

@@ -94,7 +94,7 @@ export default function Dashboard() {
         setCreditsOpen(true);
         const balance = (error.data as { credits?: CreditBalance } | undefined)?.credits;
         // Extending a plan adds days, not credits: on the top plan only a promo code adds any before the refill.
-        const more = balance?.plan?.id === "max" ? "a promo code adds credits now" : balance?.plan ? "a higher plan or a promo code adds credits now" : "a plan or a promo code adds credits now";
+        const more = balance?.plan?.id === "max" ? "a promo code adds credits now" : balance?.plan ? "a higher plan or a promo code adds credits now" : balance?.canEarn ? "the X rewards, a plan or a promo code add credits now" : "a plan or a promo code adds credits now";
         throw new Error(balance?.resetsAt
           ? `You're out of credits until ${clockText(balance.resetsAt)} (${untilText(balance.resetsAt)}). Your task stays here; ${more}.`
           : `Your account has no credits right now. Your task stays here; ${more}.`);
@@ -145,7 +145,7 @@ export default function Dashboard() {
                 <p className="dash-credits">
                   <button type="button" className="ink-link" onClick={() => setCreditsOpen(true)}>{creditsLine(account.credits)}</button>
                   <span className="dash-credits-refill">{refillLine(account.credits)}</span>
-                  {account.credits.available < MIN_CREDITS_TO_START && <Link href="/billing" className="ink-link dash-credits-more">Get more credits</Link>}
+                  {account.credits.available < MIN_CREDITS_TO_START && <Link href={account.credits.canEarn ? "/billing#rewards" : "/billing"} className="ink-link dash-credits-more">{account.credits.canEarn ? "Earn credits on X" : "Get more credits"}</Link>}
                 </p>
               )}
             </aside>

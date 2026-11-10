@@ -1,6 +1,6 @@
 import type { AgentTaskSummary, CreateTaskRequest, ModelSpec, QueuedMessage, StatusReason, TaskQueue, TaskStatus } from "@shared/agent";
 import type { ApiKeyInfo } from "@shared/gateway";
-import type { CreditBalance, CreditSettings } from "@shared/credits";
+import type { CreditBalance, CreditSettings, RewardsState } from "@shared/credits";
 import type { DeploymentState } from "@shared/taskStatus";
 import { UPLOADS_AT_ONCE, type MediaDeleteResult, type MediaKind, type VaultQuota, type VaultSummary } from "@shared/media";
 import { markStorageUnavailable } from "./mediaHealth";
@@ -310,8 +310,11 @@ export const authApi = {
 // ---- Accounts, credits and the operator's dashboard ----
 
 export type Account = { id: string; role: "admin" | "user"; login: string | null; displayName: string; avatarUrl: string | null; email: string | null };
-/** plan: a plan started, was extended or ended (amount 0; the detail says which and until when). */
-export type CreditEvent = { kind: "usage" | "grant" | "promo" | "adjust" | "plan"; amount: number; detail: string | null; taskId: string | null; at: string };
+/**
+ * plan: a plan started, was extended or ended (amount 0; the detail says which and until when).
+ * welcome: the credits a new account starts with; reward: credits earned on X.
+ */
+export type CreditEvent = { kind: "usage" | "grant" | "promo" | "adjust" | "plan" | "welcome" | "reward"; amount: number; detail: string | null; taskId: string | null; at: string };
 export type AccountInfo = { user: Account; credits: CreditBalance; github: { configured: boolean; connected: boolean; login: string | null }; voice?: { available: boolean } };
 
 /** A binary response (audio) with the same error handling as api(). */
@@ -349,10 +352,19 @@ export const developerApi = {
   revoke: (id: string) => api<{ key: ApiKeyInfo }>(`/api/keys/${encodeURIComponent(id)}`, { method: "DELETE" }),
 };
 
+/** A claimed X reward: what it paid, the rewards afterwards and the balance. */
+export type RewardClaimed = { credits: number; state: RewardsState; balance: CreditBalance };
+
 export const accountApi = {
   get: () => api<AccountInfo>("/api/account"),
   credits: () => api<{ credits: CreditBalance; history: CreditEvent[] }>("/api/account/credits"),
   redeem: (code: string) => api<{ credits: number; balance: CreditBalance }>("/api/account/redeem", { method: "POST", json: { code } }),
+  /** The X rewards: 409 codes not_linked, already_claimed, not_following, post_invalid, x_taken, locked; 503 unavailable/busy when X can't be asked. */
+  rewards: () => api<{ rewards: RewardsState }>("/api/account/rewards", { cache: "no-store" }),
+  linkX: (username: string) => api<{ rewards: RewardsState }>("/api/account/rewards/x", { method: "POST", json: { username } }),
+  unlinkX: () => api<{ rewards: RewardsState }>("/api/account/rewards/x", { method: "DELETE" }),
+  claimFollow: () => api<RewardClaimed>("/api/account/rewards/follow", { method: "POST", json: {} }),
+  claimPost: (url: string) => api<RewardClaimed>("/api/account/rewards/post", { method: "POST", json: { url } }),
 };
 
 export type AdminUser = {
@@ -363,6 +375,8 @@ export type AdminUser = {
   /** The active plan (null: none, or it has ended), and the Developer API balance in US dollars. */
   plan: { id: "pro" | "max"; name: string; expiresAt: string; creditsPerWindow: number } | null;
   apiBalanceUsd: number;
+  /** The X account linked for rewards and which rewards it claimed (null: none linked). */
+  x?: { username: string; followed: boolean; posted: boolean } | null;
 };
 export type PromoCode = {
   id: string; code: string; credits: number; forUser: { id: string; login: string | null } | null; maxRedemptions: number | null; redemptions: number;
@@ -378,13 +392,18 @@ export const adminApi = {
   allowance: (id: string, allowance: number | null) => api<{ credits: CreditBalance }>(`/api/admin/users/${id}/allowance`, { method: "PUT", json: { allowance } }),
   freeAllowance: (id: string, withheld: boolean) => api<{ credits: CreditBalance }>(`/api/admin/users/${id}/free-allowance`, { method: "PUT", json: { withheld } }),
   ban: (id: string, banned: boolean) => api<{ banned: boolean }>(`/api/admin/users/${id}/ban`, { method: "POST", json: { banned } }),
+  /** Forget an account's X link and claims (its credits stay). */
+  resetX: (id: string) => api<{ credits: CreditBalance; history: CreditEvent[] }>(`/api/admin/users/${id}/x/reset`, { method: "POST", json: {} }),
   promoCodes: () => api<{ codes: PromoCode[] }>("/api/admin/promo-codes"),
   createPromoCode: (input: { code?: string; credits: number; forUserId?: string | null; maxRedemptions?: number | null; expiresAt?: string | null; note?: string }) =>
     api<{ code: PromoCode }>("/api/admin/promo-codes", { method: "POST", json: input }),
   disablePromoCode: (id: string) => api<{ codes: PromoCode[] }>(`/api/admin/promo-codes/${id}/disable`, { method: "POST", json: {} }),
   settings: () => api<{ settings: CreditSettings }>("/api/admin/settings"),
-  saveSettings: (patch: Partial<CreditSettings>) => api<{ settings: CreditSettings }>("/api/admin/settings", { method: "PUT", json: patch }),
+  saveSettings: (patch: CreditSettingsPatch) => api<{ settings: CreditSettings }>("/api/admin/settings", { method: "PUT", json: patch }),
 };
+
+/** A change to the credit settings: the rewards and the boost merge field by field on the server. */
+export type CreditSettingsPatch = Partial<Omit<CreditSettings, "rewards">> & { rewards?: Partial<Omit<CreditSettings["rewards"], "boost">> & { boost?: Partial<CreditSettings["rewards"]["boost"]> } };
 
 /** The message to show for any thrown value. */
 export function errorMessage(error: unknown, fallback = "Something went wrong.") {

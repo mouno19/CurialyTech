@@ -8,14 +8,16 @@ import {
   balanceOf, createPromoCode, creditHistory, CreditError, disablePromoCode, getBalance, getSettings, grant, listPromoCodes, redeemPromoCode,
   saveSettings, setAllowance, setFreeAllowance, type UserCredits,
 } from "./credits";
+import { claimFollow, claimPost, linkX, resetXRewards, rewardsState, unlinkX } from "./rewards";
 import { FREE_ACCOUNTS_PER_NETWORK } from "./signup-network";
 import { query } from "./db/pg";
 import { requestCancel } from "./agent/runner";
 import { getConnection, oauthConfigured } from "./services/github";
 import { voiceConfigured } from "./voice/engines";
 
-// /api/account: the signed-in account (credits, promo codes). /api/admin: the operator's dashboard
-// (accounts, credits, promo codes, settings). Every admin route requires the operator role.
+// /api/account: the signed-in account (credits, promo codes, the X rewards). /api/admin: the
+// operator's dashboard (accounts, credits, promo codes, settings). Every admin route requires the
+// operator role.
 
 const handle = (fn: (req: Request, res: Response) => Promise<unknown>) => (req: Request, res: Response, _next: NextFunction) => {
   fn(req, res).catch(error => {
@@ -50,12 +52,40 @@ export function accountRouter() {
     res.json(await redeemPromoCode(user.id, code));
   }));
 
+  // The X rewards: link an X account, then claim following and posting. Every check is a call to X,
+  // so each is capped per account (a new follow or post is visible within a minute).
+  const xBusy = (res: Response) => res.status(429).json({ error: "Too many checks in a row. Wait a few minutes, then try again.", code: "busy" });
+  router.get("/rewards", handle(async (req, res) => res.json({ rewards: await rewardsState(accountOf(req).id) })));
+
+  router.post("/rewards/x", handle(async (req, res) => {
+    const user = accountOf(req);
+    if (rateLimited(`x-link:${user.id}`, 8)) return xBusy(res);
+    const { username } = z.object({ username: z.string().trim().min(1, "Enter your X username.").max(100) }).parse(req.body ?? {});
+    res.json({ rewards: await linkX(user.id, username) });
+  }));
+
+  router.delete("/rewards/x", handle(async (req, res) => res.json({ rewards: await unlinkX(accountOf(req).id) })));
+
+  router.post("/rewards/follow", handle(async (req, res) => {
+    const user = accountOf(req);
+    if (rateLimited(`x-follow:${user.id}`, 8)) return xBusy(res);
+    res.json(await claimFollow(user.id));
+  }));
+
+  router.post("/rewards/post", handle(async (req, res) => {
+    const user = accountOf(req);
+    if (rateLimited(`x-post:${user.id}`, 8)) return xBusy(res);
+    const { url } = z.object({ url: z.string().trim().min(1, "Paste the address of your post.").max(500) }).parse(req.body ?? {});
+    res.json(await claimPost(user.id, url));
+  }));
+
   return router;
 }
 
 type AccountRow = UserCredits & {
   login: string | null; display_name: string; avatar_url: string | null; email: string | null; created_at: Date; last_seen_at: Date | null;
   banned_at: Date | null; tasks: string; active: string; used_total: string | null; same_network: string | null; removed_by_operator: boolean; api_balance_micros: string;
+  x_username: string | null;
 };
 
 /**
@@ -101,6 +131,7 @@ export function adminRouter() {
       query<AccountRow>(
         `SELECT u.id, u.role, u.credit_allowance, u.bonus_credits, u.window_started_at, u.window_used, u.free_allowance_withheld, u.login, u.display_name, u.avatar_url, u.email,
                 u.created_at, u.last_seen_at, u.banned_at, u.plan_id, u.plan_expires_at, u.plan_credits_per_window, u.api_balance_micros,
+                u.x_username, u.x_followed_at, u.x_posted_at,
                 (SELECT count(*) FROM curialy.users o WHERE u.signup_network IS NOT NULL AND o.signup_network = u.signup_network AND o.id <> u.id) AS same_network,
                 ((SELECT e.detail FROM curialy.credit_events e WHERE e.user_id = u.id AND e.kind = 'adjust' AND e.detail IN ('free allowance removed', 'free allowance given') ORDER BY e.created_at DESC LIMIT 1) = 'free allowance removed') IS TRUE AS removed_by_operator,
                 (SELECT count(*) FROM curialy.chat_sessions s WHERE s.user_id = u.id) AS tasks,
@@ -124,6 +155,7 @@ export function adminRouter() {
           tasks: Number(row.tasks), activeRuns: Number(row.active), creditsUsedTotal: Math.round(Number(row.used_total ?? 0) * 100) / 100,
           customAllowance: row.credit_allowance, credits, freeAllowance: freeAllowanceInfo(row),
           plan: credits.plan, apiBalanceUsd: microsToUsd(Number(row.api_balance_micros ?? 0)),
+          x: row.x_username ? { username: row.x_username, followed: Boolean(row.x_followed_at), posted: Boolean(row.x_posted_at) } : null,
         };
       }),
       more: rows.length > limit,
@@ -151,6 +183,13 @@ export function adminRouter() {
     const id = uuid.parse(req.params.id);
     const { allowance } = z.object({ allowance: z.number().int().nullable() }).parse(req.body ?? {});
     res.json({ credits: await setAllowance(id, allowance, accountOf(req).id) });
+  }));
+
+  // Undo an account's X link and claims (after a false claim, or so the rightful owner can link the handle). Credits given stay: remove them above.
+  router.post("/users/:id/x/reset", handle(async (req, res) => {
+    const id = uuid.parse(req.params.id);
+    await resetXRewards(id, accountOf(req).id);
+    res.json({ credits: await getBalance(id), history: await creditHistory(id, 100) });
   }));
 
   // A ban signs the account out everywhere (its sessions are revoked) and stops new sign-ins.
@@ -198,7 +237,19 @@ export function adminRouter() {
       creditsPerWindow: z.number().int().optional(),
       windowHours: z.number().optional(),
       signupsOpen: z.boolean().optional(),
-    }).parse(req.body ?? {});
+      welcomeCredits: z.number().int().optional(),
+      rewards: z.object({
+        followHandle: z.string().trim().max(100).optional(),
+        followCredits: z.number().int().optional(),
+        postCredits: z.number().int().optional(),
+        boost: z.object({
+          enabled: z.boolean().optional(),
+          creditsPerWindow: z.number().int().optional(),
+          windowHours: z.number().optional(),
+          endsAt: z.string().datetime({ offset: true, message: "The boost's end must be a date and time." }).nullable().optional(),
+        }).strict().optional(),
+      }).strict().optional(),
+    }).strict().parse(req.body ?? {});
     res.json({ settings: await saveSettings(patch, accountOf(req).id) });
   }));
 

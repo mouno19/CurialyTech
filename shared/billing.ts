@@ -501,12 +501,23 @@ export type ApiModelPrice = {
 export type PublicCoin = { coin: CoinId; kind: CoinKind; standard: string; label: string; logo: string; tokens: string[] };
 export type PublicNetwork = { id: NetworkId; label: string; family: "evm" | "solana"; confirmations: number; wait: string; logo: string; explorerName: string; coins: PublicCoin[] };
 
+/**
+ * What a free account gets: welcome credits once, the refilling allowance (0: none), what following
+ * and posting on X earn, and the launch boost while it is offered (null once it has ended or is off).
+ */
+export type FreeTier = {
+  welcomeCredits: number;
+  creditsPerWindow: number;
+  windowHours: number;
+  rewards: { followHandle: string; followCredits: number; postCredits: number; boost: { creditsPerWindow: number; windowHours: number; endsAt: string | null } | null };
+};
+
 /** GET /api/billing/catalog (no sign-in needed: the homepage shows it). */
 export type BillingCatalog = {
   plans: PlanOffer[];
   /** The offer as it applies right now (percent 0 when it is off or has ended). */
   discount: { plansPercent: number; apiPercent: number; endsAt: string | null };
-  free: { creditsPerWindow: number; windowHours: number };
+  free: FreeTier;
   apiTopup: { minUsd: number; maxUsd: number; presets: number[] };
   /** Payments can be made right now (the operator can pause new orders; a server without wallets has none). */
   paymentsOpen: boolean;

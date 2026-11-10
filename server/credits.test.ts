@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { creditsFor, modelWeight } from "@shared/credits";
+import { creditsFor, DEFAULT_CREDIT_SETTINGS, modelWeight } from "@shared/credits";
 
 // Credits: the balance a window shows, the order a charge spends in (window, then bonus), plans
 // (their allowance while they last), and the checks that refuse bad promo codes and settings before
@@ -44,7 +44,8 @@ const { resetBillingSettings } = await import("./billing/settings");
 
 const HOUR = 3_600_000;
 const user = (patch: Record<string, unknown> = {}) => ({ id: "u1", role: "user", credit_allowance: null, bonus_credits: "0", window_started_at: null, window_used: "0", ...patch });
-const settings = { creditsPerWindow: 60, windowHours: 5, signupsOpen: true };
+// The refilling allowance these tests describe; the defaults (welcome credits, no window) are merged over it when the database is read.
+const settings = { ...DEFAULT_CREDIT_SETTINGS, creditsPerWindow: 60, windowHours: 5, signupsOpen: true };
 
 beforeEach(() => {
   store.promo = null;
@@ -54,7 +55,9 @@ beforeEach(() => {
   store.settings = null;
   store.billing = null;
   store.history = [];
+  store.settings = { creditsPerWindow: 60, windowHours: 5, signupsOpen: true };
   resetBillingSettings();
+  credits.resetCreditSettings();
 });
 
 describe("balance", () => {
@@ -109,6 +112,20 @@ describe("plans", () => {
     expect(credits.balanceOf(withheld, settings, now).resetsAt).not.toBeNull();
   });
 
+  it("add the boost's allowance on its own window once both X rewards are claimed, and drop it when the offer ends", () => {
+    const now = Date.now();
+    const both = user({ x_followed_at: new Date(now - HOUR), x_posted_at: new Date(now - HOUR), window_started_at: new Date(now - HOUR), window_used: "40" });
+    const boosted = { ...DEFAULT_CREDIT_SETTINGS, creditsPerWindow: 0 };
+    const balance = credits.balanceOf(both, boosted, now);
+    expect(balance).toMatchObject({ allowance: 300, windowHours: 8, used: 40, remaining: 260, canEarn: false, welcome: true, boost: { creditsPerWindow: 300, windowHours: 8, endsAt: null } });
+    expect(Date.parse(balance.resetsAt!)).toBe(now + 7 * HOUR);
+    // One reward isn't enough, and a plan above the boost keeps the plan's window.
+    expect(credits.balanceOf(user({ x_followed_at: new Date() }), boosted, now)).toMatchObject({ allowance: 0, boost: null, canEarn: true });
+    expect(credits.balanceOf({ ...both, plan_id: "pro", plan_expires_at: new Date(now + 10 * 86_400_000), plan_credits_per_window: 6000 }, boosted, now)).toMatchObject({ allowance: 6000, windowHours: 5, boost: { creditsPerWindow: 300 } });
+    const ended = { ...boosted, rewards: { ...boosted.rewards, boost: { ...boosted.rewards.boost, endsAt: new Date(now - 1000).toISOString() } } };
+    expect(credits.balanceOf(both, ended, now)).toMatchObject({ allowance: 0, boost: null, resetsAt: null });
+  });
+
   it("are ignored once ended, and admins stay unlimited", () => {
     const now = Date.now();
     expect(credits.balanceOf(pro({ plan_expires_at: new Date(now - 1000) }), settings, now)).toMatchObject({ allowance: 60, plan: null });
@@ -131,7 +148,7 @@ describe("plans", () => {
     store.user = pro({ bonus_credits: "5" });
     expect(await credits.charge("u1", 100, "t1", "turn")).toMatchObject({ used: 100, remaining: 5900, bonus: 5 });
     const empty = credits.balanceOf(user({ window_started_at: new Date(), window_used: "60" }), settings);
-    expect(credits.outOfCreditsMessage(empty)).toMatch(/^You've used this window's credits\. They refill in 5 h; a plan or a promo code adds more now\.$/);
+    expect(credits.outOfCreditsMessage(empty)).toMatch(/^You've used this window's credits\. They refill in 5 h; the X rewards, a plan or a promo code add more now\.$/);
   });
 
   it("let an account without the free allowance redeem a code for anyone while one lasts", async () => {
@@ -224,6 +241,9 @@ describe("validation before anything is written", () => {
   it("refuses settings outside their range", async () => {
     await expect(credits.saveSettings({ creditsPerWindow: -1 }, "admin")).rejects.toMatchObject({ status: 400 });
     await expect(credits.saveSettings({ windowHours: 0 }, "admin")).rejects.toMatchObject({ status: 400 });
+    await expect(credits.saveSettings({ welcomeCredits: -1 }, "admin")).rejects.toMatchObject({ status: 400 });
+    await expect(credits.saveSettings({ rewards: { followHandle: "not a name" } }, "admin")).rejects.toMatchObject({ status: 400 });
+    await expect(credits.saveSettings({ rewards: { boost: { windowHours: 0 } } }, "admin")).rejects.toMatchObject({ status: 400 });
   });
 });
 

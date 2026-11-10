@@ -4,8 +4,9 @@ import * as Switch from "@radix-ui/react-switch";
 import { BadgePercent, Clock, RotateCcw, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { discountPercent, formatPerMillion, PAYMENT_NETWORKS, PLAN_IDS, PLAN_RANK, type AdminBillingOverview, type BillingSettings, type PlanId } from "@shared/billing";
+import type { CreditSettings } from "@shared/credits";
 import { creditCount, fullText, shortDayText } from "@/components/billing/format";
-import { formatPrice, freeMultiple, listText, offerBadge, offerSentence } from "@/components/billing/plans";
+import { formatPrice, freeMultiple, freeTierLines, listText, offerBadge, offerSentence } from "@/components/billing/plans";
 import { Button } from "@/components/common/Button";
 import { StateNotice } from "@/components/common/StateNotice";
 import { errorMessage } from "@/lib/api";
@@ -33,8 +34,8 @@ export function PlansPanel({ billing, billingError, free, onSaved }: {
   /** The overview: the receiving wallets and whether alerts are set up. */
   billing: AdminBillingOverview | null;
   billingError: string | null;
-  /** The free allowance, for the preview. */
-  free: { creditsPerWindow: number; windowHours: number } | null;
+  /** The free credits, for the preview (the credit settings). */
+  free: CreditSettings | null;
   onSaved: () => void;
 }) {
   const [saved, setSaved] = useState<BillingSettings | null>(null);
@@ -287,7 +288,7 @@ function Wallets({ billing, error }: { billing: AdminBillingOverview | null; err
 }
 
 /** Prices as the homepage and Plans & Billing would show them with these settings (the catalog's own sums). */
-function Preview({ settings, billing, free, partial }: { settings: BillingSettings; billing: AdminBillingOverview | null; free: { creditsPerWindow: number; windowHours: number } | null; partial: boolean }) {
+function Preview({ settings, billing, free, partial }: { settings: BillingSettings; billing: AdminBillingOverview | null; free: CreditSettings | null; partial: boolean }) {
   const { offers, discount } = catalogPreview(settings);
   const badge = offerBadge(discount, shortDayText);
   const every = free ? `every ${free.windowHours} hours` : "per window";
@@ -314,7 +315,12 @@ function Preview({ settings, billing, free, partial }: { settings: BillingSettin
           <li className="admin-preview-plan">
             <span className="admin-preview-name">Free</span>
             <span className="admin-preview-price"><span className="admin-preview-amount">$0</span></span>
-            <span className="admin-preview-meta">{creditCount(free.creditsPerWindow)} credits {every}</span>
+            <span className="admin-preview-meta">
+              {freeTierLines({
+                welcomeCredits: free.welcomeCredits, creditsPerWindow: free.creditsPerWindow, windowHours: free.windowHours,
+                rewards: { ...free.rewards, boost: free.rewards.boost.enabled && free.rewards.boost.creditsPerWindow > 0 ? free.rewards.boost : null },
+              }, shortDayText).headline}
+            </span>
           </li>
         )}
         {offers.map(offer => {

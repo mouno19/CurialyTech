@@ -78,7 +78,8 @@ export async function accountForGitHub(profile: GitHubProfile, address?: string 
     forgetUser(rows[0].id);
     return { id: rows[0].id };
   }
-  if (!(await getSettings()).signupsOpen) return { refused: "closed" };
+  const settings = await getSettings();
+  if (!settings.signupsOpen) return { refused: "closed" };
   const network = signupNetwork(address);
   if (!network) console.warn("[auth] sign-up from a non-public address: no network recorded");
   const hash = network ? networkHash(network) : null;
@@ -92,12 +93,18 @@ export async function accountForGitHub(profile: GitHubProfile, address?: string 
       const { rows: [counted] } = await client.query<{ n: number }>("SELECT count(*)::int AS n FROM curialy.users WHERE signup_network = $1", [hash]);
       withheld = counted.n >= FREE_ACCOUNTS_PER_NETWORK;
     }
-    const { rows: created } = await client.query<{ id: string }>(
+    // xmax = 0 on a row this statement inserted (not one the conflict clause updated).
+    const { rows: created } = await client.query<{ id: string; inserted: boolean }>(
       `INSERT INTO curialy.users (handle, display_name, role, github_id, login, avatar_url, email, signup_network, free_allowance_withheld)
        VALUES ($1, $2, 'user', $3, $4, $5, $6, $7, $8)
-       ON CONFLICT (github_id) WHERE github_id IS NOT NULL DO UPDATE SET login = EXCLUDED.login RETURNING id`,
+       ON CONFLICT (github_id) WHERE github_id IS NOT NULL DO UPDATE SET login = EXCLUDED.login RETURNING id, (xmax = 0) AS inserted`,
       [`gh:${profile.id}`, displayName, profile.id, profile.login, profile.avatarUrl, profile.email, hash, withheld],
     );
+    // The welcome credits: once, with the account, and not for an account that starts without the free credits.
+    if (created[0].inserted && !withheld && settings.welcomeCredits > 0) {
+      await client.query("UPDATE curialy.users SET bonus_credits = bonus_credits + $2 WHERE id = $1", [created[0].id, settings.welcomeCredits]);
+      await client.query("INSERT INTO curialy.credit_events (user_id, kind, amount, detail) VALUES ($1, 'welcome', $2, 'welcome credits')", [created[0].id, settings.welcomeCredits]);
+    }
     await client.query("COMMIT");
     return { id: created[0].id };
   } catch (error) {

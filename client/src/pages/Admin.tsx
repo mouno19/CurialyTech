@@ -22,6 +22,7 @@ import { PaymentsPanel, type OrderChange } from "./admin/PaymentsPanel";
 import { WalletBalances } from "./admin/WalletBalances";
 import { PlansPanel } from "./admin/PlansPanel";
 import { ADMIN_TABS, adminHref, compactUsd, readAdminLocation, type AdminTab, type OrderFilter } from "./admin/payments";
+import { fromLocalInput, toLocalInput } from "./admin/pricing";
 
 /**
  * The operator's dashboard: accounts with their credits, plans and API balances, payments (the
@@ -93,7 +94,7 @@ export default function Admin() {
             <div>
               <span className="eyebrow">Operator</span>
               <h2 className="page-title">Admin</h2>
-              <p className="page-sub">Everyone who signs in gets the free allowance below. Give an account more with a promo code (or add credits directly), stop an account that misuses the agent, and decide on the payments the on-chain check couldn't match.</p>
+              <p className="page-sub">A new account starts with welcome credits, once. Following and posting on X earn more, and both together open a refilling window while that offer lasts. Give an account more with a promo code, stop one that misuses the agent, and decide on the payments the on-chain check couldn't match.</p>
             </div>
           </header>
 
@@ -114,7 +115,7 @@ export default function Admin() {
               hint={billing ? `${compactUsd(billing.revenue.last7dUsd)} in 7 days · ${compactUsd(billing.revenue.totalUsd)} in all` : undefined}
             />
             <Stat icon={Ticket} label="Active codes" value={overview?.activePromoCodes} />
-            <Stat icon={Settings2} label="Free allowance" value={overview ? formatCredits(overview.settings.creditsPerWindow) : undefined} hint={overview ? `every ${overview.settings.windowHours} h` : undefined} />
+            <Stat icon={Settings2} label="Welcome credits" value={overview ? formatCredits(overview.settings.welcomeCredits) : undefined} hint={overview ? (overview.settings.creditsPerWindow > 0 ? `plus ${formatCredits(overview.settings.creditsPerWindow)} every ${overview.settings.windowHours} h` : "once, no refill") : undefined} />
           </div>
 
           <div className="pg-filter-scroll admin-tabs-scroll" ref={tabsRef}>
@@ -231,7 +232,7 @@ function AccountsPanel({ settings, orderChange, onOpenOrder, onChanged, onBillin
                     <div className="admin-account">
                       {user.avatarUrl ? <img src={user.avatarUrl} alt="" width={28} height={28} /> : <span className="admin-avatar" aria-hidden="true">{(user.login ?? user.name).slice(0, 1).toUpperCase()}</span>}
                       <span className="admin-account-text">
-                        <span className="admin-account-name">{user.login ?? user.name}{user.role === "admin" && <span className="badge admin-role">operator</span>}{user.banned && <span className="badge admin-banned">banned</span>}{user.freeAllowance?.withheld && <span className="badge admin-banned" title={user.freeAllowance.note ?? undefined}>no free allowance</span>}</span>
+                        <span className="admin-account-name">{user.login ?? user.name}{user.role === "admin" && <span className="badge admin-role">operator</span>}{user.banned && <span className="badge admin-banned">banned</span>}{user.freeAllowance?.withheld && <span className="badge admin-banned" title={user.freeAllowance.note ?? undefined}>no free credits</span>}{user.x && <span className="badge" title={user.x.followed && user.x.posted ? "Following and posted" : user.x.followed ? "Following claimed" : user.x.posted ? "Post claimed" : "Linked, nothing claimed"}>@{user.x.username}</span>}</span>
                         <span className="admin-account-meta">{user.name !== user.login ? `${user.name} · ` : ""}joined {relativeTime(user.createdAt)}</span>
                       </span>
                     </div>
@@ -293,13 +294,13 @@ function AccountsPanel({ settings, orderChange, onOpenOrder, onChanged, onBillin
   );
 }
 
-const CREDIT_KIND: Record<CreditEvent["kind"], string> = { usage: "Used", promo: "Promo code", grant: "Added by the operator", adjust: "Allowance", plan: "Plan" };
+const CREDIT_KIND: Record<CreditEvent["kind"], string> = { usage: "Used", promo: "Promo code", grant: "Added by the operator", adjust: "Allowance", plan: "Plan", welcome: "Welcome credits", reward: "Earned on X" };
 
 function CreditsDialog({ user, onClose, onChanged }: { user: AdminUser; onClose: () => void; onChanged: () => void }) {
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [allowance, setAllowance] = useState(user.customAllowance === null ? "" : String(user.customAllowance));
-  const [busy, setBusy] = useState<"grant" | "allowance" | "free" | null>(null);
+  const [busy, setBusy] = useState<"grant" | "allowance" | "free" | "x" | null>(null);
   const [withheld, setWithheld] = useState(Boolean(user.freeAllowance?.withheld));
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<CreditEvent[] | null>(null);
@@ -390,12 +391,35 @@ function CreditsDialog({ user, onClose, onChanged }: { user: AdminUser; onClose:
           {user.customAllowance !== null && <Button variant="ghost" disabled={busy !== null} onClick={() => { setAllowance(""); void saveAllowance(null); }}>Use the default</Button>}
         </div>
       </div>
+      {user.x && (
+        <div className="admin-form">
+          <h4 className="admin-form-title">X rewards</h4>
+          <p className="field-hint">Linked as @{user.x.username}. {user.x.followed ? "Follow claimed. " : "Follow not claimed. "}{user.x.posted ? "Post claimed." : "Post not claimed."} Resetting forgets the link and both claims, so the boost ends; credits already given stay.</p>
+          <div className="admin-actions">
+            <Button busy={busy === "x"} disabled={busy !== null && busy !== "x"} onClick={() => void (async () => {
+              setBusy("x");
+              setError(null);
+              try {
+                const result = await adminApi.resetX(user.id);
+                setCredits(result.credits);
+                setHistory(result.history);
+                toast.success(`X rewards reset for ${name}.`);
+                onChanged();
+              } catch (resetError) {
+                setError(errorMessage(resetError));
+              } finally {
+                setBusy(null);
+              }
+            })()}>Reset X rewards</Button>
+          </div>
+        </div>
+      )}
       {!credits.unlimited && (
         <div className="admin-form">
-          <h4 className="admin-form-title">Free allowance</h4>
-          <p className="field-hint">{withheld ? "This account doesn't get the free allowance. " : "This account gets the free allowance. "}{user.freeAllowance?.note ?? ""}{user.customAllowance !== null ? " Its own allowance applies either way." : ""}{credits.plan ? " Its plan applies either way." : ""}</p>
+          <h4 className="admin-form-title">Free credits</h4>
+          <p className="field-hint">{withheld ? "This account doesn't get the welcome credits or the X rewards. " : "This account gets the welcome credits and can earn the X rewards. "}{user.freeAllowance?.note ?? ""}{user.customAllowance !== null ? " Its own allowance applies either way." : ""}{credits.plan ? " Its plan applies either way." : ""}</p>
           <div className="admin-actions">
-            <Button busy={busy === "free"} disabled={busy !== null && busy !== "free"} onClick={() => void saveFreeAllowance(!withheld)}>{withheld ? "Give the free allowance" : "Remove the free allowance"}</Button>
+            <Button busy={busy === "free"} disabled={busy !== null && busy !== "free"} onClick={() => void saveFreeAllowance(!withheld)}>{withheld ? "Give the free credits" : "Remove the free credits"}</Button>
           </div>
         </div>
       )}
@@ -560,6 +584,14 @@ function SettingsPanel({ onSaved }: { onSaved: () => void }) {
   const [perWindow, setPerWindow] = useState("");
   const [hours, setHours] = useState("");
   const [signups, setSignups] = useState(true);
+  const [welcome, setWelcome] = useState("");
+  const [followHandle, setFollowHandle] = useState("");
+  const [followCredits, setFollowCredits] = useState("");
+  const [postCredits, setPostCredits] = useState("");
+  const [boostOn, setBoostOn] = useState(true);
+  const [boostCredits, setBoostCredits] = useState("");
+  const [boostHours, setBoostHours] = useState("");
+  const [boostEnds, setBoostEnds] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -569,6 +601,14 @@ function SettingsPanel({ onSaved }: { onSaved: () => void }) {
       setPerWindow(String(settings.creditsPerWindow));
       setHours(String(settings.windowHours));
       setSignups(settings.signupsOpen);
+      setWelcome(String(settings.welcomeCredits));
+      setFollowHandle(settings.rewards.followHandle);
+      setFollowCredits(String(settings.rewards.followCredits));
+      setPostCredits(String(settings.rewards.postCredits));
+      setBoostOn(settings.rewards.boost.enabled);
+      setBoostCredits(String(settings.rewards.boost.creditsPerWindow));
+      setBoostHours(String(settings.rewards.boost.windowHours));
+      setBoostEnds(toLocalInput(settings.rewards.boost.endsAt));
       setLoaded(true);
     }, loadError => setError(errorMessage(loadError, "Couldn't load the settings.")));
   }, []);
@@ -577,7 +617,13 @@ function SettingsPanel({ onSaved }: { onSaved: () => void }) {
     setBusy(true);
     setError(null);
     try {
-      await adminApi.saveSettings({ creditsPerWindow: Number(perWindow), windowHours: Number(hours), signupsOpen: signups });
+      await adminApi.saveSettings({
+        creditsPerWindow: Number(perWindow), windowHours: Number(hours), signupsOpen: signups, welcomeCredits: Number(welcome),
+        rewards: {
+          followHandle, followCredits: Number(followCredits), postCredits: Number(postCredits),
+          boost: { enabled: boostOn, creditsPerWindow: Number(boostCredits), windowHours: Number(boostHours), endsAt: boostEnds ? fromLocalInput(boostEnds) : null },
+        },
+      });
       toast.success("Settings saved.");
       onSaved();
     } catch (saveError) {
@@ -588,9 +634,13 @@ function SettingsPanel({ onSaved }: { onSaved: () => void }) {
   };
   return (
     <form className="card admin-card admin-form" onSubmit={save} noValidate>
-      <div className="card-head"><h3>Free allowance</h3></div>
-      <p className="field-hint">Every account gets this many credits per window; a window starts with the first credit spent after the last one ended. Accounts with their own allowance keep it. One credit is 25,000 tokens on a standard model (output counts four times): a short task takes a few credits, a long build tens.</p>
+      <div className="card-head"><h3>Free credits</h3></div>
+      <p className="field-hint">A new account gets the welcome credits once; they never refill. Credits per window, when above zero, is a refilling allowance for every account (a window starts with the first credit spent). Accounts with their own allowance, a plan or the X boost keep whichever is higher. One credit is 25,000 tokens on a standard model (output counts four times).</p>
       <div className="admin-form-row">
+        <div className="field">
+          <label className="field-label" htmlFor={`${id}-welcome`}>Welcome credits</label>
+          <input id={`${id}-welcome`} className="input" type="number" inputMode="numeric" min={0} step="1" value={welcome} disabled={!loaded} onChange={event => setWelcome(event.target.value)} />
+        </div>
         <div className="field">
           <label className="field-label" htmlFor={`${id}-credits`}>Credits per window</label>
           <input id={`${id}-credits`} className="input" type="number" inputMode="numeric" min={0} step="1" value={perWindow} disabled={!loaded} onChange={event => setPerWindow(event.target.value)} />
@@ -600,6 +650,40 @@ function SettingsPanel({ onSaved }: { onSaved: () => void }) {
           <input id={`${id}-hours`} className="input" type="number" inputMode="decimal" min={1} max={168} step="1" value={hours} disabled={!loaded} onChange={event => setHours(event.target.value)} />
         </div>
       </div>
+      <h4 className="admin-form-title">Earned on X</h4>
+      <p className="field-hint">Each is claimed once per account, after this server has checked it on X. Both claimed: the boost's allowance refills on its own window until the offer ends (empty: until you turn it off).</p>
+      <div className="admin-form-row">
+        <div className="field">
+          <label className="field-label" htmlFor={`${id}-handle`}>Account to follow</label>
+          <input id={`${id}-handle`} className="input" value={followHandle} maxLength={100} disabled={!loaded} spellCheck={false} autoComplete="off" onChange={event => setFollowHandle(event.target.value)} />
+        </div>
+        <div className="field">
+          <label className="field-label" htmlFor={`${id}-follow`}>Credits for following</label>
+          <input id={`${id}-follow`} className="input" type="number" inputMode="numeric" min={0} step="1" value={followCredits} disabled={!loaded} onChange={event => setFollowCredits(event.target.value)} />
+        </div>
+        <div className="field">
+          <label className="field-label" htmlFor={`${id}-post`}>Credits for a post</label>
+          <input id={`${id}-post`} className="input" type="number" inputMode="numeric" min={0} step="1" value={postCredits} disabled={!loaded} onChange={event => setPostCredits(event.target.value)} />
+        </div>
+      </div>
+      <div className="admin-form-row">
+        <div className="field">
+          <label className="field-label" htmlFor={`${id}-boost`}>Boost, credits per window</label>
+          <input id={`${id}-boost`} className="input" type="number" inputMode="numeric" min={0} step="1" value={boostCredits} disabled={!loaded} onChange={event => setBoostCredits(event.target.value)} />
+        </div>
+        <div className="field">
+          <label className="field-label" htmlFor={`${id}-boost-hours`}>Boost window (hours)</label>
+          <input id={`${id}-boost-hours`} className="input" type="number" inputMode="decimal" min={1} max={168} step="1" value={boostHours} disabled={!loaded} onChange={event => setBoostHours(event.target.value)} />
+        </div>
+        <div className="field">
+          <label className="field-label" htmlFor={`${id}-boost-ends`}>Boost ends (optional)</label>
+          <input id={`${id}-boost-ends`} className="input" type="datetime-local" value={boostEnds} disabled={!loaded} onChange={event => setBoostEnds(event.target.value)} />
+        </div>
+      </div>
+      <label className="admin-check">
+        <input type="checkbox" checked={boostOn} disabled={!loaded} onChange={event => setBoostOn(event.target.checked)} />
+        <span>The boost is on <span className="field-hint">(when off, nobody refills from it, including accounts that already earned both)</span></span>
+      </label>
       <label className="admin-check">
         <input type="checkbox" checked={signups} disabled={!loaded} onChange={event => setSignups(event.target.checked)} />
         <span>New accounts can sign up <span className="field-hint">(when off, only accounts that already exist can sign in)</span></span>

@@ -5,7 +5,7 @@ import { MAX_PLAN_MONTHS, type BillingCatalog } from "@shared/billing";
 import { billingApi } from "@/lib/billing";
 import { Reveal } from "@/components/common/Reveal";
 import { creditCount, shortDayText } from "@/components/billing/format";
-import { formatPrice, freeMultiple, listText, offerEnd, offerText, vaultText } from "@/components/billing/plans";
+import { formatPrice, freeMultiple, freeTierLines, listText, offerEnd, offerText, vaultText } from "@/components/billing/plans";
 import { scrollToAnchor, SectionLabel } from "./primitives";
 
 /** The coins a payment can use, stablecoins first, each once (USDT and USDC are on every network). */
@@ -85,10 +85,7 @@ export function Pricing({ signedIn }: { signedIn: boolean }) {
                   <h3 className="lp-plan-name">Free</h3>
                   <p className="lp-plan-price"><span className="lp-plan-amount">$0</span></p>
                   <p className="lp-plan-term">no card needed</p>
-                  <p className="lp-plan-credits">
-                    {creditCount(priced.free.creditsPerWindow)} credits every {priced.free.windowHours} hours
-                    <span>{vaultText(false)}</span>
-                  </p>
+                  <FreeCredits free={priced.free} />
                 </div>
               </Reveal>
               {priced.plans.map((plan, index) => {
@@ -147,6 +144,18 @@ function offerPill(catalog: BillingCatalog) {
   const offer = offerText(catalog.discount);
   if (!offer) return null;
   return <p className="lp-pill-note lp-offer"><span className="lp-dot" aria-hidden="true" />{offer} · {offerEnd(catalog.discount.endsAt, shortDayText)}</p>;
+}
+
+/** The Free card: welcome credits once, what X adds, and the boost while it is offered. */
+function FreeCredits({ free }: { free: BillingCatalog["free"] }) {
+  const lines = freeTierLines(free, shortDayText);
+  return (
+    <p className="lp-plan-credits">
+      {lines.headline}
+      {lines.lines.map(line => <span key={line}>{line}</span>)}
+      <span>{vaultText(false)}</span>
+    </p>
+  );
 }
 
 function Coins({ catalog }: { catalog: BillingCatalog }) {
