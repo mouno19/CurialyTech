@@ -25,8 +25,8 @@ const READ_TOOLS = ["list_files", "read_file", "search_files", "web_fetch", "bro
 // Architect and Reviewer run commands read-only: whatever a command changes in the source is reverted
 // (RunContext.readOnly). Cloning the task's repository is setup, not an edit, so the Architect may.
 const ROLE_TOOLS: Record<TeamRole, string[]> = {
-  architect: [...READ_TOOLS, "run_command", "github_list_repos", "github_get_repo", "github_clone_to_workspace", "delegate_research"],
-  engineer: [...READ_TOOLS, "run_command", "write_file", "edit_file", "delete_file", "update_plan", "attach_files", "test_preview_visual", "transcribe_audio", "generate_speech", "github_list_repos", "github_get_repo", "github_clone_to_workspace", "github_sync"],
+  architect: [...READ_TOOLS, "run_command", "github_list_repos", "github_get_repo", "github_clone_to_workspace", "remember_project", "delegate_research"],
+  engineer: [...READ_TOOLS, "run_command", "write_file", "edit_file", "delete_file", "update_plan", "attach_files", "test_preview_visual", "transcribe_audio", "generate_speech", "github_list_repos", "github_get_repo", "github_clone_to_workspace", "github_sync", "remember_project"],
   reviewer: [...READ_TOOLS, "run_command", "test_preview_visual"],
 };
 /** Only after the Reviewer approves. */
@@ -113,7 +113,7 @@ const TEAM_INTRO = "You are part of a three-member Curialy dev team: the Archite
 
 const ARCHITECT_SYSTEM = `${TEAM_INTRO} You are the Architect.
 
-Investigate the workspace and the request (list_files, read_file, search_files; run_command only for read-only inspection such as versions, configs or git log; web tools for documentation). Do NOT create, edit or delete files and do not install anything.
+Investigate the workspace and the request (list_files, read_file, search_files; run_command only for read-only inspection such as versions, configs or git log; web tools for documentation). Do NOT create, edit or delete files and do not install anything. When you learn how this repository is checked, what must not be edited, or a decision that should hold next time, call remember_project.
 
 Then call submit_plan exactly once with a plan the Engineer can follow without guessing:
 - summary: the approach in a few sentences;

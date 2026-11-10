@@ -16,6 +16,7 @@ import { StorageError } from "../media/storage-errors";
 /** Largest screenshot kept inline in the event log while file storage is unavailable (base64 chars). */
 const INLINE_SCREENSHOT_LIMIT = 400 * 1024;
 import { createPullRequest, describeGitHubError, getConnection, githubApi, GitHubError, listRepos, repoDetails, resolveRepo, throwIfAborted } from "../services/github";
+import { renderProjectMemory, saveProjectMemory } from "./memory";
 import { taskOwner } from "./store";
 import { cloneIntoWorkspace, commitAndPush, linkedRepo, syncWithRemote } from "./repos";
 import { brandText } from "@shared/brand";
@@ -145,6 +146,11 @@ const schemas = {
   github_commit_and_push: z.object({ message: z.string().min(3).max(5000), branch: z.string().max(200).optional() }),
   github_sync: z.object({}).passthrough(),
   github_create_pr: z.object({ title: z.string().min(3).max(256), body: z.string().max(60000).default(""), head: z.string().max(200).optional(), base: z.string().max(200).optional(), draft: z.boolean().default(false) }),
+  remember_project: z.object({
+    tests: z.string().max(800, "Keep each part under 800 characters.").optional(),
+    avoid: z.string().max(800, "Keep each part under 800 characters.").optional(),
+    decisions: z.string().max(800, "Keep each part under 800 characters.").optional(),
+  }).refine(value => value.tests !== undefined || value.avoid !== undefined || value.decisions !== undefined, { message: "Pass tests, avoid, or decisions." }),
   deploy_preview: z.object({
     kind: z.enum(["static", "node"]),
     build_command: z.string().max(500).default(""),
@@ -280,6 +286,19 @@ const DEPLOY_TOOL: ToolDef = {
   input_schema: { type: "object", properties: { kind: { type: "string", enum: ["static", "node"] }, build_command: { type: "string" }, publish_path: { type: "string" }, start_command: { type: "string" } }, required: ["kind"] },
 };
 
+const REMEMBER_TOOL: ToolDef = {
+  name: "remember_project",
+  description: "Save what the next task on this repository should already know. tests: how to run its checks. avoid: folders or files not to edit, and why. decisions: choices already made that should stay. Pass only the parts that changed; an empty string clears that part. Keep each part short. Never save secrets, tokens, or details that matter only for this task. The repository must already be cloned into the task.",
+  input_schema: {
+    type: "object",
+    properties: {
+      tests: { type: "string", description: "How to run this repository's checks" },
+      avoid: { type: "string", description: "Folders or files not to edit, and why" },
+      decisions: { type: "string", description: "Choices already made that should stay" },
+    },
+  },
+};
+
 const GITHUB_TOOLS: ToolDef[] = [
   {
     name: "github_list_repos",
@@ -322,7 +341,7 @@ export function toolsFor(opts: { coding: boolean; web: boolean; eager: boolean; 
 function toolList(opts: { coding: boolean; web: boolean; github?: boolean }): ToolDef[] {
   const tools: ToolDef[] = [];
   if (opts.coding) tools.push(...CODING_TOOLS, ATTACH_TOOL);
-  if (opts.github) tools.push(...(opts.coding ? GITHUB_TOOLS : GITHUB_TOOLS.slice(0, 2)));
+  if (opts.github) tools.push(...(opts.coding ? GITHUB_TOOLS : GITHUB_TOOLS.slice(0, 2)), REMEMBER_TOOL);
   if (opts.coding && deployConfigured().ok) tools.push(DEPLOY_TOOL);
   if ((opts.web || opts.coding) && browserConfigured()) tools.push(BROWSE_TOOL, ...BROWSER_TOOLS);
   if (opts.coding && PROVIDER_ENV.browserbaseKey && PROVIDER_ENV.browserbaseProject) tools.push(VISUAL_TOOL);
@@ -364,6 +383,16 @@ export async function executeTool(name: string, rawInput: unknown, ctx: ToolCont
 
 async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOutcome> {
   switch (name) {
+    case "remember_project": {
+      try {
+        const { repo, memory } = await saveProjectMemory(ctx.sessionId, input as z.infer<typeof schemas.remember_project>);
+        const rendered = renderProjectMemory(repo, memory);
+        return { ok: true, content: rendered.saved ? `Saved.\n\n${rendered.text}` : `Cleared the project memory for ${repo}.`, summary: rendered.saved ? `Saved project memory for ${repo}` : "Cleared project memory" };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not save the project memory.";
+        return { ok: false, content: message, summary: message.startsWith("Clone a repository") ? "No repository" : "Could not save" };
+      }
+    }
     case "update_plan": {
       const steps = (input as z.infer<typeof schemas.update_plan>).steps;
       ctx.onPlan(steps);
