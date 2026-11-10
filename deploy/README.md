@@ -64,8 +64,15 @@ are used for failover and delegation only.
 - `https://curialy.tech/v1` (also `/api/v1`): `POST /messages` (Anthropic), `POST /chat/completions` (OpenAI, translated to Messages in `server/gateway/openai.ts`), `GET /models`. Keys go in `x-api-key` or `Authorization: Bearer`. Models: `shared/gateway.ts` (`claude-opus-5-5`, `claude-sonnet-4-5`), limited per key.
 - Requests go to the bridge (`CORTEX_BRIDGE_URL`) and, when it refuses, to the relay's copy of the same model; after a refusal the bridge is skipped for 2 minutes.
 - Nothing upstream reaches the caller. No upstream header is copied (only content type, `x-curialy-request-id` and CORS are set). Upstream 401/403/5xx become a 503 `curialy_api_error`, and only the caller's own request errors (400/413/422) pass on, scrubbed with `brandText`. Stream error events are masked too, and log lines read `[Curialy Gateway] Upstream error: core|relay …`, scrubbed the same way.
-- Usage is charged to the key's account in credits at the agent's rates (cache reads a tenth, cache writes a quarter more), and the operator's account is not charged. Free accounts: at most 3 requests in flight and `max_tokens` up to 16384, refused with 402 when out of credits.
+- Usage is charged to the key's account's USD API balance (`users.api_balance_micros`) at each model's list price in `shared/billing.ts` `API_PRICES`, less the API offer; the operator's account is not charged (its usage is recorded at no cost). While a request runs, the most it can cost is held. Non-operator accounts: at most 3 requests in flight, `max_tokens` up to the route's limit when streaming (16,384 without), refused with 402 `insufficient_balance` when the balance can't cover the request.
 - nginx: the `location ~ ^/(api/)?v1/` block turns off response buffering and allows 10-minute reads.
+
+## Payments, plans and the paid API (`server/billing`, pages `/billing`, `/pay/:code`, Admin → Payments)
+
+- Payers pick a network and coin (USDT, USDC or the network's own coin on Ethereum, BNB Chain, Polygon, Solana), send an exact, unique amount to `PAY_EVM_ADDRESS` / `PAY_SOLANA_ADDRESS` and paste the transaction hash. The watcher (`server/billing/watcher.ts`) checks it on public RPCs (`PAY_RPC_*` first): the coin's own token contract, the exact amount, success, confirmations, the order's window, and a second provider's agreement. A match applies the order (a plan, or API balance); anything else waits in Admin → Payments with the reason. No private key is used or stored anywhere.
+- An unset or invalid wallet turns its networks off (logged once). Native coins are priced from four public sources at issue time and locked for 30 minutes. Telegram alerts need `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ADMIN_CHAT_ID` (send-only).
+- Plans, the offer and automatic application are settings (Admin → Plans & pricing, `app_settings` key `billing`); an order keeps the terms it was sold with. Migration 12 holds the tables.
+- Live check after a deploy: `node ~/curialy-tools/payments/billing-live.mjs` (a temporary account, a real but unrelated transaction, operator approval, a paid API call; cleans up after itself).
 
 ## Rebuilding the host from scratch
 
