@@ -265,6 +265,19 @@ async function act(page, check, record) {
         { name: "brand-notes.md", mimeType: "text/markdown", buffer: Buffer.from("# Brand notes\n") },
       ], { timeout: 6000 });
       await page.locator(".vault-uploads-title", { hasText: "3 files uploaded, 1 not" }).first().waitFor({ state: "visible", timeout: 10_000 });
+    } else if (check.action === "theme-menu") {
+      // The sidebar's Theme item (in the navigation drawer below 1024px), opened, not changed.
+      const item = page.locator(".sidebar .nav-item", { hasText: "Theme" }).first();
+      if (await item.isVisible().catch(() => false)) await item.click({ timeout: 6000 });
+      else {
+        await page.getByRole("button", { name: "Open navigation" }).first().click({ timeout: 6000 });
+        await page.locator(".nav-drawer .nav-item", { hasText: "Theme" }).first().click({ timeout: 5000 });
+      }
+      await page.getByRole("menuitemradio", { name: /^System/ }).first().waitFor({ state: "visible", timeout: 5000 });
+    } else if (check.action === "home-theme-menu") {
+      // The homepage's theme button (beside the menu button below 1024px).
+      await page.locator(".lp-nav-theme:visible").first().click({ timeout: 6000 });
+      await page.getByRole("menuitemradio", { name: /^Dark/ }).first().waitFor({ state: "visible", timeout: 5000 });
     } else if (check.action === "credits-dialog") {
       // The sidebar's credits meter (in the navigation drawer below 1024px).
       const meter = page.locator(".sidebar .credits-meter").first();
@@ -367,7 +380,8 @@ async function runCheck(page, driver, check, record, ctx) {
     await page.setViewportSize(check.viewport);
     viewport.current = check.viewport;
   }
-  await page.emulateMedia({ reducedMotion: "no-preference" });
+  // The device's color scheme: the site follows it unless a theme was chosen (and none is stored here).
+  await page.emulateMedia({ reducedMotion: "no-preference", colorScheme: check.scheme ?? "light" });
   // A blank same-origin page clears localStorage/sessionStorage: every check starts like a first visit.
   driver.state.record = null;
   await page.goto(`${ORIGIN}/__ui-check/blank`, { waitUntil: "load", timeout: 15_000 });
@@ -397,7 +411,7 @@ async function runCheck(page, driver, check, record, ctx) {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await sleep(250);
   record.motion = await page.evaluate(() => window.__uiCheck.motion());
-  if (check.action === "model-menu") {
+  if (["model-menu", "theme-menu", "home-theme-menu"].includes(check.action)) {
     // An open menu keeps Tab inside it by design (arrow keys move focus there); the walk is meaningless.
     record.notes.focus = "skipped: a menu is open, and Tab does not move focus inside a menu";
   } else {

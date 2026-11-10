@@ -89,6 +89,7 @@
 /* Toggles in the footer (Pause animations): pressed reads like a selected item. */
 .nav-item[aria-disabled="true"]:hover, .nav-item[data-muted]:hover { background: none; color: var(--text-3); }
 .nav-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.nav-end { flex: none; font: 500 11px/1 var(--font-mono); color: var(--text-3); }
 .nav-badge { flex: none; margin-left: auto; min-width: 20px; height: 18px; padding: 0 6px; border-radius: var(--r-pill); background: var(--ink); color: var(--paper); font: 500 10.5px/18px var(--font-mono); font-variant-numeric: tabular-nums; text-align: center; }
 .nav-avatar { flex: none; width: 18px; height: 18px; border-radius: 50%; object-fit: cover; }
 
@@ -213,9 +214,12 @@
 .login { position: relative; }
 .login-mark { display: inline-flex; --m-dur: 1100ms; }
 .lp-login-rise { --rise-y: 22px; animation: rise var(--dur-hero) var(--ease-out) 160ms backwards; }
-.login-home { position: absolute; top: max(20px, env(safe-area-inset-top)); left: max(20px, env(safe-area-inset-left)); z-index: 1; display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px 0 12px; border: 1px solid var(--rule); border-radius: var(--r-pill); background: rgb(243 239 230 / 0.8); color: var(--ink-soft); font-size: 13px; text-decoration: none; transition: color var(--dur-2) var(--ease-out), border-color var(--dur-2) var(--ease-out); }
+.login-home { position: absolute; top: max(20px, env(safe-area-inset-top)); left: max(20px, env(safe-area-inset-left)); z-index: 1; display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px 0 12px; border: 1px solid var(--rule); border-radius: var(--r-pill); background: rgb(var(--paper-rgb) / 0.8); color: var(--ink-soft); font-size: 13px; text-decoration: none; transition: color var(--dur-2) var(--ease-out), border-color var(--dur-2) var(--ease-out); }
 .login-home:hover { border-color: var(--ink); color: var(--ink); }
 .login-home:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.login-theme { position: absolute; top: max(20px, env(safe-area-inset-top)); right: max(20px, env(safe-area-inset-right)); z-index: 1; display: inline-grid; place-items: center; width: 40px; height: 40px; border: 1px solid var(--rule); border-radius: 50%; background: rgb(var(--paper-rgb) / 0.8); color: var(--ink-soft); cursor: pointer; transition: border-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out); }
+.login-theme:hover, .login-theme[data-state="open"] { border-color: var(--ink); color: var(--ink); }
+.login-theme:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 @media (max-width: 639.98px) { .login-card { padding: 22px 18px; box-shadow: var(--shadow-ink-sm); } }
 
 /* ---------- Crash screen (components/ErrorBoundary.tsx) ---------- */

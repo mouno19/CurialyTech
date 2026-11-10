@@ -229,7 +229,80 @@ export function installProbes() {
     // LAYOUT-5: which pane a phone task page opened on.
     const pane = document.querySelector(".pane-switch [role=\"tab\"][aria-selected=\"true\"]");
     out.selectedPane = pane ? cut(pane.textContent, 30) : null;
+    out.contrast = contrastIssues();
+    out.theme = document.documentElement.getAttribute("data-theme");
     return out;
+  }
+
+  // Text contrast (WCAG 2.x): every visible text's color, made solid over the background colors
+  // behind it, against 4.5:1 (3:1 for large text). Colors are read back through a 1x1 canvas, so
+  // color-mix() and oklab values come out as plain sRGB. Background images are not measured: text
+  // over a photo is skipped, decorative gradients (dot grids, grain) are looked through.
+  let swatch = null;
+  const rgbaCache = new Map();
+  const rgba = value => {
+    if (!rgbaCache.has(value)) {
+      swatch ??= document.createElement("canvas").getContext("2d", { willReadFrequently: true });
+      swatch.clearRect(0, 0, 1, 1);
+      swatch.fillStyle = "rgba(0, 0, 0, 0)";
+      swatch.fillStyle = value;
+      swatch.fillRect(0, 0, 1, 1);
+      const [r, g, b, a] = swatch.getImageData(0, 0, 1, 1).data;
+      rgbaCache.set(value, { r, g, b, a: a / 255 });
+    }
+    return rgbaCache.get(value);
+  };
+  const over = (top, bottom) => ({ r: top.r * top.a + bottom.r * (1 - top.a), g: top.g * top.a + bottom.g * (1 - top.a), b: top.b * top.a + bottom.b * (1 - top.a), a: 1 });
+  const luminance = c => {
+    const [r, g, b] = [c.r, c.g, c.b].map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const hexOf = c => `#${[c.r, c.g, c.b].map(v => Math.round(v).toString(16).padStart(2, "0")).join("")}`;
+  /** The solid color behind el, or null when a photo is (or nothing opaque is) behind it. */
+  const backdrop = el => {
+    const layers = [];
+    for (let node = el; node; node = node.parentElement) {
+      const style = getComputedStyle(node);
+      if (/url\(/.test(style.backgroundImage)) return null;
+      const color = rgba(style.backgroundColor);
+      if (color.a > 0) layers.push(color);
+      if (color.a >= 0.999) break;
+    }
+    const base = layers.length && layers[layers.length - 1].a >= 0.999 ? layers.pop() : null;
+    if (!base) return null;
+    return layers.reverse().reduce((under, layer) => over(layer, under), base);
+  };
+  function contrastIssues() {
+    const issues = [];
+    const seen = new Set();
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node && issues.length < 30; node = walker.nextNode()) {
+      const text = node.textContent.trim();
+      const el = node.parentElement;
+      if (!text || !el || seen.has(el)) continue;
+      seen.add(el);
+      // Not seen (screen-reader only, hidden, decorative) or exempt (inactive controls, the logotype).
+      if (el.closest("svg, [aria-hidden=\"true\"], [inert], .sr-only, script, style, noscript, .wordmark")) continue;
+      if (el.closest(":disabled, [aria-disabled=\"true\"], [data-disabled]")) continue;
+      if (!visible(el)) continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 2 || rect.height <= 2) continue;
+      const style = getComputedStyle(el);
+      let opacity = 1;
+      for (let up = el; up; up = up.parentElement) opacity *= Number(getComputedStyle(up).opacity) || 0;
+      if (opacity < 0.05) continue;
+      const under = backdrop(el);
+      if (!under) continue;
+      const ink = rgba(style.color);
+      const fg = over({ ...ink, a: ink.a * opacity }, under);
+      const [light, dark] = [luminance(fg), luminance(under)].sort((x, y) => y - x);
+      const ratio = (light + 0.05) / (dark + 0.05);
+      const size = parseFloat(style.fontSize);
+      const large = size >= 24 || (size >= 18.66 && Number(style.fontWeight) >= 700);
+      const need = large ? 3 : 4.5;
+      if (ratio < need - 0.005) issues.push({ el: describe(el), text: cut(text, 40), ratio: Math.round(ratio * 100) / 100, need, fg: hexOf(fg), bg: hexOf(under) });
+    }
+    return issues;
   }
 
   // Focus: one snapshot per Tab press, compared with the unfocused styles at the end.

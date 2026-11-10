@@ -37,6 +37,8 @@ export const WARNINGS = {
   titleWidth: "topbar title under 96px (phones, LAYOUT-5)",
   pane: "phone task page did not open on Conversation (LAYOUT-5)",
   stackedIcons: "icon stacked above its label (LAYOUT-1)",
+  contrast: "text under its contrast target (4.5:1, 3:1 large; WCAG 2.x)",
+  theme: "the page did not take the color scheme the check asked for",
   composer: "composer Run wrapped below the tools or composer overflows (LAYOUT-2)",
   menu: "model menu outside the viewport, over the top bar, or Auto hidden (LAYOUT-3)",
   headings: "page does not have exactly one visible h1",
@@ -111,6 +113,19 @@ export function buildPlan(fx, { viewports = VIEWPORTS, only = null } = {}) {
     // Below 1024px the homepage's sections (Pricing among them) are in the menu sheet.
     if (billing.length && viewport.width < 1024) checks.push({ id: "home-menu", path: "/", signedOut: true, viewport, phone, action: "home-menu" });
   }
+  // The dark theme (the device asks for it: the page follows): every kind of page once wide and once
+  // on a phone, and the theme menu itself (opened, never changed: a check never stores a theme).
+  const DARK = new Set(["dashboard", "tasks", "task-completed", "task-running", "sandbox", "media", "media-pro", "media-full", "media-select", "media-delete-all",
+    "integrations", "skills", "keys", "admin", "login", "home", "not-found", "billing", "pay-usdt", "pay-review", "developer", "admin-payments", "admin-order", "credits-dialog"]);
+  const darkPages = [...pages, ...vault, ...billing].filter(page => DARK.has(page.id));
+  const darkViewports = [viewports.find(viewport => viewport.width >= 1440) ?? viewports[0], viewports.find(viewport => viewport.width > 360 && viewport.width <= PHONE_MAX) ?? viewports[viewports.length - 1]];
+  for (const viewport of darkViewports.filter(Boolean)) {
+    const phone = viewport.width <= PHONE_MAX;
+    for (const page of darkPages) checks.push({ ...page, id: `${page.id}-dark`, scheme: "dark", viewport, phone });
+    checks.push({ id: "theme-menu", path: "/", viewport, phone, action: "theme-menu" });
+    checks.push({ id: "theme-menu-dark", path: "/", viewport, phone, action: "theme-menu", scheme: "dark" });
+    checks.push({ id: "home-theme-menu-dark", path: "/", signedOut: true, viewport, phone, action: "home-theme-menu", scheme: "dark" });
+  }
   const wide = viewports.find(viewport => viewport.width >= 1024);
   const interrupted = fx.scenarios.find(scenario => scenario.key === "interrupted");
   if (wide && interrupted) checks.push({ id: "task-interrupted-raw-log", path: `/tasks/${interrupted.id}`, scenario: "interrupted", task: true, viewport: wide, phone: false, action: "raw-log" });
@@ -133,7 +148,7 @@ export function buildPlan(fx, { viewports = VIEWPORTS, only = null } = {}) {
 
 export function newRecord(check) {
   return {
-    n: check.n, key: check.key, id: check.id, path: check.path, viewport: vp(check.viewport), action: check.action ?? null,
+    n: check.n, key: check.key, id: check.id, path: check.path, viewport: vp(check.viewport), action: check.action ?? null, scheme: check.scheme ?? "light",
     ok: false, failures: [], warnings: [], issues: {}, notes: {}, screenshot: null, ms: 0, error: null,
     requests: [], console: [], pageErrors: [], network: [], unknownApi: [], dialogs: [], fontFailures: [],
     expectedUrls: new Set(), expectedStatuses: new Set(), facts: null, focus: null, motion: null, menu: null, actionError: null, ready: [],
@@ -180,6 +195,8 @@ export function judge(record, { mediaLimit = 6, touchMin = 40 } = {}) {
     if (facts.clipped.length) warn("clipped", facts.clipped.slice(0, 10));
     if (facts.touch.length) warn("touch", { min: touchMin, count: facts.touch.length, smallest: [...facts.touch].sort((a, b) => Math.min(a.w, a.h) - Math.min(b.w, b.h)).slice(0, 12) });
     if (facts.stackedIcons.length) warn("stackedIcons", facts.stackedIcons.slice(0, 10));
+    if (facts.contrast?.length) fail("contrast", facts.contrast.slice(0, 20));
+    if (record.scheme && facts.theme && facts.theme !== record.scheme) fail("theme", { asked: record.scheme, page: facts.theme });
     if (facts.composer && (facts.composer.sendBelowTools || facts.composer.overflowPx > 1)) warn("composer", facts.composer);
     if (facts.h1.length !== 1) warn("headings", facts.h1);
     const untitled = facts.frames.filter(frame => !frame.titled);

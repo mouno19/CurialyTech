@@ -5,6 +5,7 @@ import { GitHubMark } from "@/components/common/GitHubMark";
 import { Wordmark } from "@/components/brand/Logo";
 import { Button } from "@/components/common/Button";
 import { IconButton } from "@/components/common/IconButton";
+import { ThemeMenu, useThemeOption } from "@/components/common/ThemeMenu";
 import { authApi, errorMessage } from "@/lib/api";
 
 /** Why GitHub sent the visitor back without a session (the callback's ?signin= value). */
@@ -18,6 +19,18 @@ const SIGNIN_ERRORS: Record<string, string> = {
 };
 
 /** Where to land after signing in: the address that asked for it (a shared task link), else the dashboard. */
+/** The theme picker, across from the way home (it applies before signing in too). */
+function LoginTheme() {
+  const option = useThemeOption();
+  return (
+    <ThemeMenu>
+      <button type="button" className="login-theme m-nudge" aria-label={`Theme: ${option.label}`}>
+        <option.icon size={16} aria-hidden="true" />
+      </button>
+    </ThemeMenu>
+  );
+}
+
 function nextPath() {
   const { pathname, search } = window.location;
   if (pathname === "/login" || pathname === "/welcome") return "/";
@@ -57,6 +70,7 @@ export default function Login({ configured, github, signupsOpen, onSignedIn }: {
   return (
     <main className="login grid-paper grain">
       <Link href="/" className="login-home m-nudge"><ArrowLeft size={15} aria-hidden="true" />Curialy home</Link>
+      <LoginTheme />
       <div className="login-column">
         <span className="login-mark m-settle"><Wordmark size="lg" /></span>
         <div className="card login-card lp-login-rise">

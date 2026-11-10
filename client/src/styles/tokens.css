@@ -1,5 +1,9 @@
 /* Curialy design tokens. Brand values first, semantic roles on top: components use the semantic
    names (--text, --surface, --success-fg...) so a palette change never touches component CSS.
+   Two themes: light (:root) and dark (:root[data-theme="dark"], below), set on <html> by
+   lib/theme.ts and, before the first paint, by the script in index.html. In the dark theme the brand
+   values are re-mapped (paper is the page, ink the text), so CSS that names them directly follows.
+   For a see-through mix of ink or paper write rgb(var(--ink-rgb) / 0.4), never rgb(20 19 15 / 0.4).
    Contrast ratios (WCAG 2.x) are against --paper unless noted. Breakpoints cannot be custom
    properties inside @media, so use the literals: phone < 640px, tablet 640-1023px,
    desktop >= 1024px, wide >= 1440px (same values in client/src/lib/breakpoints.ts). */
@@ -25,6 +29,8 @@
   --vermilion-deep: #d93a10; /* text >= 24px (19px bold), icons, selected/progress indicators (4.01:1) */
   --vermilion-ink: #b8300c;  /* small vermilion text and links (5.28:1, 4.74 on paper-deep). Paper on it: 5.28 */
   --vermilion-wash: #fbe3d9; /* vermilion-ink on it: 4.93 */
+  --vermilion-press: #9c280a; /* primary button while pressed */
+  --on-vermilion: #14130f;   /* text on vermilion fills, in both themes (5.53:1 here, 6.0 dark) */
 
   /* Brand: moss, ochre, brick */
   --moss: #4f7a3a;           /* icons, dots, fills (4.38:1: not small text) */
@@ -35,6 +41,13 @@
   --ochre-wash: #f3e3bf;
   --brick-ink: #a32a0a;      /* danger text, icons, solid fill (6.33:1; 5.56 on brick-wash; paper on it 6.33) */
   --brick-wash: #f6dcd2;
+  --brick-press: #861f05;    /* solid danger button on hover */
+
+  /* Channels for see-through mixes that follow the theme: rgb(var(--ink-rgb) / 0.4) */
+  --ink-rgb: 20 19 15;
+  --paper-rgb: 243 239 230;
+  --shadow-rgb: 20 19 15;
+  --skeleton-shine: #f2ede3; /* the light passing over a loading placeholder */
 
   /* Ink panels: terminals, code, diffs, toasts */
   --panel: #1b1a15;
@@ -197,6 +210,74 @@
   --mono: var(--font-mono);
   --sans: var(--font-sans);
 }
+
+/* Dark theme: the same roles on an ink page. Every text role meets its contrast target on every
+   surface it sits on (~/curialy-tools/dark/contrast.mjs; ratios against --paper unless noted).
+   Surfaces lighten as they rise, and the "deep" one (hovers, wells, chips) is the lightest: on a
+   dark page a hover has to lift, not sink. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --paper: #13120f;          /* page background */
+  --paper-deep: #2b2922;     /* hovers, wells, chips, user bubbles */
+  --card: #1a1915;           /* cards and panels */
+  --composer: #22201b;       /* raised: composer, menus, dialogs, fields */
+
+  --ink: #ece6d8;            /* 15.1:1 (11.7 on paper-deep) */
+  --ink-soft: #c8c1b0;       /* 10.5:1 */
+  --graphite: #9d9786;       /* 6.43:1 paper, 6.03 card, 5.58 composer */
+  --graphite-deep: #aaa493;  /* 5.85:1 on paper-deep */
+  --rule: #2e2c25;           /* decorative dividers */
+  --rule-strong: #77715f;    /* control outlines (3.34:1 on composer) */
+
+  --vermilion: #ff5a2e;      /* fills and sparks; text on it is --on-vermilion (5.98:1) */
+  --vermilion-deep: #ff6a3d; /* large text, icons, indicators (6.58:1) */
+  --vermilion-ink: #ff8a63;  /* small vermilion text and links (8.09:1; paper on it 8.09) */
+  --vermilion-wash: #3a1c11; /* vermilion-ink on it: 6.70 */
+  --vermilion-press: #e8714c;
+
+  --moss: #7cae63;           /* 7.22:1 */
+  --moss-ink: #9bd17b;       /* 10.5:1; 8.73 on moss-wash */
+  --moss-wash: #1c2716;
+  --ochre: #d39b2f;          /* 7.58:1 */
+  --ochre-ink: #e8c06a;      /* 10.9:1; 8.96 on ochre-wash */
+  --ochre-wash: #2d2310;
+  --brick-ink: #ff8a6b;      /* 8.12:1; 6.84 on brick-wash; paper on it 8.12 */
+  --brick-wash: #391a12;
+  --brick-press: #e8735a;
+
+  /* Ink panels (terminals, code, diffs, toasts) stay dark: a step lighter than the page, bodies darker. */
+  --panel: #1c1b16;
+  --panel-2: #23211b;
+  --panel-3: #0e0d0b;
+
+  --ink-rgb: 236 230 216;
+  --paper-rgb: 19 18 15;
+  --shadow-rgb: 0 0 0;
+  --skeleton-shine: #36332b;
+
+  --hover: rgb(236 230 216 / 0.06);
+  --press: rgb(236 230 216 / 0.1);
+  --selected: rgb(236 230 216 / 0.09);  /* ink-soft 7.9:1, graphite-deep 5.7 on it (over card) */
+  --scrim: rgb(0 0 0 / 0.62);
+
+  --success-border: #3f5a31;
+  --warning-border: #5f4a1c;
+  --danger-border: #6e3424;
+  --progress-border: #4d4940;
+
+  --shadow-hair: 0 1px 0 rgb(0 0 0 / 0.3);
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.45), 0 1px 0 rgb(0 0 0 / 0.25);
+  --shadow-pop: 0 2px 6px rgb(0 0 0 / 0.45), 0 18px 48px -18px rgb(0 0 0 / 0.8);
+  /* The printed offset stays a shadow (darker than the page), not a second outline in light ink. */
+  --shadow-ink-sm: 4px 4px 0 #050504;
+  --shadow-ink: 6px 6px 0 #050504;
+  --shadow-ink-lg: 8px 8px 0 #050504;
+  --shadow-sheet: 0 0 60px -20px rgb(0 0 0 / 0.85);
+}
+
+/* While the theme changes, colors switch at once instead of each control fading at its own pace. */
+:root[data-theme-switching] *, :root[data-theme-switching] *::before, :root[data-theme-switching] *::after { transition: none !important; }
 
 @media (max-width: 639.98px) {
   :root { --gutter: 16px; --topbar-h: 52px; }

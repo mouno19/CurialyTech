@@ -180,6 +180,8 @@ fieldset.pay-step > legend { margin-bottom: 10px; padding: 0; }
 .pay-option[data-state="checked"] { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
 .pay-option:disabled { opacity: 0.55; }
 .pay-option-logo { flex: none; width: 28px; height: 28px; }
+/* Some badges are near black (Solana's): a faint ring keeps them off the dark page. */
+:root[data-theme="dark"] :is(.pay-option-logo, .lp-pricing-logos > img) { border-radius: 50%; box-shadow: 0 0 0 1px rgb(var(--ink-rgb) / 0.22); }
 .pay-option-body { display: flex; flex: 1 1 auto; flex-direction: column; gap: 2px; min-width: 0; }
 .pay-option-title { font-size: 14px; font-weight: 600; }
 .pay-option-name { font-weight: 400; color: var(--text-2); }

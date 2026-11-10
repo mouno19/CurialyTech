@@ -40,16 +40,16 @@ a.btn[aria-disabled="true"] { pointer-events: none; }
 /* Primary: ink fill, paper text (16.2:1); hover vermilion-ink (paper on it 5.28:1). */
 .btn.primary { background: var(--ink); border-color: var(--ink); color: var(--paper); }
 .btn.primary:hover:not(:disabled):not([aria-disabled="true"]) { background: var(--vermilion-ink); border-color: var(--vermilion-ink); }
-.btn.primary:active:not(:disabled):not([aria-disabled="true"]) { background: #9c280a; border-color: #9c280a; }
-/* Accent (Run): vermilion fill with ink text (5.53:1), never paper text on vermilion (2.93:1). */
-.btn.accent { background: var(--vermilion); border-color: var(--vermilion); color: var(--ink); }
+.btn.primary:active:not(:disabled):not([aria-disabled="true"]) { background: var(--vermilion-press); border-color: var(--vermilion-press); }
+/* Accent (Run): vermilion fill with dark ink text in both themes (5.53:1 light, 5.98 dark), never paper text on vermilion (2.93:1). */
+.btn.accent { background: var(--vermilion); border-color: var(--vermilion); color: var(--on-vermilion); }
 .btn.accent:hover:not(:disabled):not([aria-disabled="true"]) { background: var(--vermilion-ink); border-color: var(--vermilion-ink); color: var(--paper); }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--text-2); }
 .btn.ghost:hover:not(:disabled):not([aria-disabled="true"]) { background: var(--hover); border-color: transparent; color: var(--text); }
 .btn.danger { background: var(--danger-bg); border-color: var(--danger-border); color: var(--danger-fg); }
 .btn.danger:hover:not(:disabled):not([aria-disabled="true"]) { background: var(--brick-ink); border-color: var(--brick-ink); color: var(--paper); }
 .btn.danger.solid { background: var(--brick-ink); border-color: var(--brick-ink); color: var(--paper); }
-.btn.danger.solid:hover:not(:disabled):not([aria-disabled="true"]) { background: #861f05; border-color: #861f05; }
+.btn.danger.solid:hover:not(:disabled):not([aria-disabled="true"]) { background: var(--brick-press); border-color: var(--brick-press); }
 .btn.sm { height: 28px; padding: 0 10px; gap: 6px; font-size: 12.5px; }
 .btn.lg { height: 42px; padding: 0 18px; gap: 8px; font-size: 14px; }
 /* After the sizes: a link-styled button never takes button height or padding. */
@@ -310,7 +310,7 @@ input[type="checkbox"], input[type="radio"] { width: 16px; height: 16px; margin:
   font-weight: 500;
   line-height: 1.4;
   overflow-wrap: anywhere;
-  box-shadow: 0 8px 20px -8px rgb(20 19 15 / 0.45);
+  box-shadow: 0 8px 20px -8px rgb(var(--shadow-rgb) / 0.45);
   animation: fade-in var(--dur-1) var(--ease-out);
 }
 .tooltip-arrow { fill: var(--ink); }
@@ -445,7 +445,7 @@ input[type="checkbox"], input[type="radio"] { width: 16px; height: 16px; margin:
 .state-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 6px; }
 
 /* ---------- Skeleton, spinner, loading mark ---------- */
-.skeleton { display: block; border-radius: var(--r-xs); background: linear-gradient(100deg, var(--paper-deep) 30%, #f2ede3 50%, var(--paper-deep) 70%) 0 0 / 300% 100%; animation: shimmer 1.6s linear infinite; }
+.skeleton { display: block; border-radius: var(--r-xs); background: linear-gradient(100deg, var(--paper-deep) 30%, var(--skeleton-shine) 50%, var(--paper-deep) 70%) 0 0 / 300% 100%; animation: shimmer 1.6s linear infinite; }
 .skeleton-text { height: 0.85em; margin: 0.35em 0; border-radius: 4px; }
 .skeleton-block { height: 120px; border-radius: var(--r-md); }
 @media (prefers-reduced-motion: reduce) { .skeleton { animation: none; background: var(--paper-deep); } }

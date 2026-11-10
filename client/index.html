@@ -10,7 +10,19 @@
     <title>Curialy</title>
     <meta name="description" content="Curialy: an autonomous agent workspace that plans, builds, tests and ships in its own sandbox." />
     <meta name="theme-color" content="#f3efe6" />
-    <meta name="color-scheme" content="light" />
+    <meta name="color-scheme" content="light dark" />
+    <script>
+      // The theme before the first paint (lib/theme.ts takes over from here; keep the two in step):
+      // the choice kept in this browser, else the device's.
+      (function () {
+        var choice = null;
+        try { choice = window.localStorage.getItem("curialy:theme"); } catch (error) {}
+        var dark = choice === "dark" || (choice !== "light" && !!window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute("content", dark ? "#13120f" : "#f3efe6");
+      })();
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

@@ -30,7 +30,7 @@
   font-variant-numeric: tabular-nums;
   transition: background-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
 }
-.segmented > :is([data-state="on"], [aria-checked="true"]) > .pg-count { background: rgb(243 239 230 / 0.18); color: var(--paper); }
+.segmented > :is([data-state="on"], [aria-checked="true"]) > .pg-count { background: rgb(var(--paper-rgb) / 0.18); color: var(--paper); }
 .pg-search { flex: 1 1 240px; max-width: 360px; margin-left: auto; }
 .pg-search > input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
 @media (max-width: 639.98px) { .pg-search { max-width: none; margin-left: 0; } }
@@ -624,7 +624,8 @@ input[type="checkbox"].vault-check { position: absolute; top: 4px; left: 4px; z-
 .admin-search > .lucide { position: absolute; left: 11px; color: var(--text-3); pointer-events: none; }
 .admin-search .input { padding-left: 34px; }
 .admin-table td { vertical-align: top; }
-.admin-table tr[data-banned] td { opacity: 0.6; }
+/* A banned account's row reads like the others (its controls still work); the "banned" badge marks it. */
+.admin-table tr[data-banned] td { background: rgb(var(--ink-rgb) / 0.025); }
 .admin-account { display: flex; align-items: center; gap: 10px; min-width: 200px; }
 .admin-account img, .admin-avatar { flex: none; width: 28px; height: 28px; border-radius: 50%; }
 .admin-avatar { display: inline-flex; align-items: center; justify-content: center; background: var(--paper-deep); color: var(--text-2); font-weight: 600; font-size: 12px; }

@@ -3,11 +3,24 @@ import { Link } from "wouter";
 import { ArrowUpRight, Menu } from "lucide-react";
 import { Wordmark } from "@/components/brand/Logo";
 import { Dialog } from "@/components/common/Dialog";
+import { ThemeMenu, useThemeOption } from "@/components/common/ThemeMenu";
 import { useScrolled } from "@/lib/motion";
 import { NAV_LINKS } from "./content";
 import { scrollToAnchor } from "./primitives";
 
 /** Fixed header: transparent over the hero, a paper surface with a rule once the page scrolls. */
+/** The theme picker's round button (the menu names the choice). */
+function ThemeButton() {
+  const option = useThemeOption();
+  return (
+    <ThemeMenu>
+      <button type="button" className="lp-nav-menu lp-nav-theme" aria-label={`Theme: ${option.label}`}>
+        <option.icon size={18} aria-hidden="true" />
+      </button>
+    </ThemeMenu>
+  );
+}
+
 export function Navbar({ signedIn }: { signedIn: boolean }) {
   const scrolled = useScrolled(12);
   const [menu, setMenu] = useState(false);
@@ -45,6 +58,7 @@ export function Navbar({ signedIn }: { signedIn: boolean }) {
           ))}
         </ul>
         <div className="lp-nav-actions">
+          <ThemeButton />
           {signedIn ? (
             <Link href="/" className="lp-pill m-nudge">Open the workspace <ArrowUpRight size={16} aria-hidden="true" /></Link>
           ) : (
@@ -55,6 +69,7 @@ export function Navbar({ signedIn }: { signedIn: boolean }) {
           )}
         </div>
         <div className="lp-nav-compact">
+          <ThemeButton />
           <button type="button" className="lp-nav-menu" aria-label="Open the menu" aria-haspopup="dialog" aria-expanded={menu} onClick={() => setMenu(true)}>
             <Menu size={20} aria-hidden="true" />
           </button>

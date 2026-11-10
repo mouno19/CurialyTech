@@ -20,6 +20,7 @@ import { IconButton } from "@/components/common/IconButton";
 import { Spinner } from "@/components/common/Spinner";
 import { StateNotice } from "@/components/common/StateNotice";
 import { Tip } from "@/components/common/Tooltip";
+import { ThemeMenu, useThemeOption } from "@/components/common/ThemeMenu";
 
 // Older screens import these from here.
 export { EmptyState } from "@/components/common/StateNotice";
@@ -288,6 +289,7 @@ function SidebarBody({ rail, headEnd, onNavigate }: { rail: boolean; headEnd?: R
         <CreditsMeter rail={rail} />
         <HealthStatus rail={rail} />
         <GitHubAccount rail={rail} />
+        <ThemeItem rail={rail} />
         <HomepageLink rail={rail} />
         <SignOut rail={rail} />
       </div>
@@ -460,6 +462,20 @@ function GitHubAccount({ rail }: { rail: boolean }) {
         Curialy will no longer be able to clone, push to or export to your repositories until you connect again. Your repositories are not changed.
       </ConfirmDialog>
     </>
+  );
+}
+
+/** Light, dark, or the device's theme (the menu says which the device uses now). */
+function ThemeItem({ rail }: { rail: boolean }) {
+  const option = useThemeOption();
+  return (
+    <ThemeMenu side={rail ? "right" : "top"} align="start" tip={rail ? `Theme: ${option.label}` : undefined}>
+      <button type="button" className="nav-item" aria-label={rail ? `Theme: ${option.label}` : undefined}>
+        <option.icon size={17} aria-hidden="true" />
+        <span className="nav-text">Theme</span>
+        {!rail && <span className="nav-end">{option.label}</span>}
+      </button>
+    </ThemeMenu>
   );
 }
 

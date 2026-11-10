@@ -5,6 +5,8 @@ import { createRoot } from "react-dom/client";
 import superjson from "superjson";
 import App from "./App";
 import "./index.css";
+// The theme (light, dark or the device's) and its listeners, before anything renders.
+import "./lib/theme";
 
 const queryClient = new QueryClient();
 

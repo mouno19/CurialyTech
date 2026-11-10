@@ -35,16 +35,16 @@ table { border-collapse: collapse; }
    shrink: icons sit on the text baseline and keep their size in flex rows. */
 .lucide, .github-mark { display: inline-block; vertical-align: -0.125em; flex: none; }
 
-::selection { background: var(--vermilion); color: var(--ink); }
+::selection { background: var(--vermilion); color: var(--on-vermilion); }
 
 /* One focus style everywhere. Never change border-radius or layout on focus. */
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
 /* Scrollbars: thin, warm, transparent track */
-* { scrollbar-width: thin; scrollbar-color: rgb(20 19 15 / 0.24) transparent; }
+* { scrollbar-width: thin; scrollbar-color: rgb(var(--ink-rgb) / 0.24) transparent; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: rgb(20 19 15 / 0.22); border: 3px solid transparent; border-radius: 999px; background-clip: padding-box; }
-::-webkit-scrollbar-thumb:hover { background-color: rgb(20 19 15 / 0.38); }
+::-webkit-scrollbar-thumb { background: rgb(var(--ink-rgb) / 0.22); border: 3px solid transparent; border-radius: 999px; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background-color: rgb(var(--ink-rgb) / 0.38); }
 ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
 .panel-ink, .panel-ink * { scrollbar-color: rgb(243 239 230 / 0.26) transparent; }
 .panel-ink ::-webkit-scrollbar-thumb { background-color: rgb(243 239 230 / 0.22); }
@@ -92,6 +92,8 @@ table { border-collapse: collapse; }
   mix-blend-mode: multiply;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.08 0 0 0 0 0.07 0 0 0 0 0.06 0 0 0 0.09 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
 }
+/* Multiply has nothing to darken on an ink page: the grain lightens a little instead. */
+:root[data-theme="dark"] .grain::after { mix-blend-mode: screen; opacity: 0.06; }
 .rule { border: 0; border-top: 1px solid var(--border); }
 .rule-dashed { border: 0; border-top: 1px dashed var(--border); }
 .spark-dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--vermilion); }

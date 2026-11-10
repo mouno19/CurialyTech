@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 
-/** A token's hex value (a QR image takes colours, not CSS variables); undefined keeps qrcode's black and white. */
-function tokenHex(name: string) {
-  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  return /^#[0-9a-f]{6}$/i.test(value) ? value : undefined;
-}
+/**
+ * Dark modules on a light ground in both themes: many wallet scanners can't read an inverted code,
+ * so the light theme's ink and composer are fixed here, not read from the page.
+ */
+const QR_COLORS = { dark: "#14130f", light: "#fbf9f4" };
 
 /** A QR code of the wallet address alone: it fills in neither the amount nor the network, and says so. */
 export function AddressQr({ address, amount, coin }: { address: string; amount: string; coin: string }) {
@@ -16,7 +16,7 @@ export function AddressQr({ address, amount, coin }: { address: string; amount: 
     setSrc(null);
     setFailed(false);
     // Drawn at twice the size it is shown, for sharp edges on high-density screens.
-    QRCode.toDataURL(address, { width: 352, margin: 3, errorCorrectionLevel: "M", color: { dark: tokenHex("--ink"), light: tokenHex("--composer") } })
+    QRCode.toDataURL(address, { width: 352, margin: 3, errorCorrectionLevel: "M", color: QR_COLORS })
       .then(url => { if (active) setSrc(url); }, () => { if (active) setFailed(true); });
     return () => {
       active = false;
