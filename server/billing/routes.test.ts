@@ -97,7 +97,11 @@ describe("the catalog", () => {
       { id: "pro", name: "Pro", listUsd: 20, priceUsd: 2, discountPercent: 90, creditsPerWindow: 6000, days: 30 },
       { id: "max", name: "Max", listUsd: 80, priceUsd: 8, discountPercent: 90, creditsPerWindow: 30000, days: 30 },
     ]);
-    expect(body).toMatchObject({ discount: { plansPercent: 90, apiPercent: 90, endsAt: null }, free: { creditsPerWindow: 60, windowHours: 5 }, apiTopup: { minUsd: 5, maxUsd: 1000, presets: [5, 10, 25, 50, 100] }, paymentsOpen: true });
+    expect(body).toMatchObject({
+      discount: { plansPercent: 90, apiPercent: 90, endsAt: null },
+      free: { welcomeCredits: 60, creditsPerWindow: 0, windowHours: 5, rewards: { followHandle: "Yumiko_web3", followCredits: 240, postCredits: 300, boost: { creditsPerWindow: 300, windowHours: 8, endsAt: null } } },
+      apiTopup: { minUsd: 5, maxUsd: 1000, presets: [5, 10, 25, 50, 100] }, paymentsOpen: true,
+    });
     expect(body.networks.map((network: { id: string }) => network.id)).toEqual(["ethereum", "bnb", "polygon", "solana"]);
     expect(body.networks[1]).toEqual({
       id: "bnb", label: "BNB Chain", family: "evm", confirmations: 20, wait: "under a minute", logo: "/pay/net-bnb.svg", explorerName: "BscScan",

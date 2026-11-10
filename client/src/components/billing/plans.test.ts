@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PlanOffer } from "@shared/billing";
-import { daysLeftText, daysText, formatPrice, freeMultiple, listText, offerBadge, offerEnd, offerSentence, offerText, ownAllowance, planAction, planConfigs, planState } from "./plans";
+import type { FreeTier } from "@shared/billing";
+import { daysLeftText, daysText, formatPrice, freeMultiple, freeTierLines, listText, offerBadge, offerEnd, offerSentence, offerText, ownAllowance, planAction, planConfigs, planState } from "./plans";
 
 const NOW = Date.parse("2026-11-09T12:00:00Z");
 const DAY = 86_400_000;
@@ -49,6 +50,19 @@ describe("prices and the offer", () => {
     expect(daysLeftText(inDays(29.6), NOW)).toBe("29 days left");
     expect(daysLeftText(inDays(1.2), NOW)).toBe("1 day left");
     expect(daysLeftText(inDays(0.5), NOW)).toBe("Less than a day left");
+  });
+
+  it("says what a free account gets: once, then on X, then the boost while it is offered", () => {
+    const free: FreeTier = {
+      welcomeCredits: 60, creditsPerWindow: 0, windowHours: 5,
+      rewards: { followHandle: "Yumiko_web3", followCredits: 240, postCredits: 300, boost: { creditsPerWindow: 300, windowHours: 8, endsAt: null } },
+    };
+    const date = (iso: string) => iso;
+    expect(freeTierLines(free, date)).toEqual({
+      headline: "60 credits to start",
+      lines: ["+240 for following @Yumiko_web3 on X", "+300 for a post about Curialy", "Both done: 300 credits every 8 hours · limited time"],
+    });
+    expect(freeTierLines({ ...free, creditsPerWindow: 600, welcomeCredits: 0, rewards: { ...free.rewards, boost: null } }, date)).toEqual({ headline: "600 credits every 5 hours", lines: ["+240 for following @Yumiko_web3 on X", "+300 for a post about Curialy"] });
   });
 
   it("compares a plan with the free allowance", () => {

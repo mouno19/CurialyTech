@@ -16,7 +16,8 @@ import { PaymentStatusChip } from "@/components/billing/PaymentStatusChip";
 import { TopUpForm } from "@/components/billing/TopUpForm";
 import { creditCount, dayText, microsText, shortDayText, spendableCredits, spendableMicrosText } from "@/components/billing/format";
 import { shownStatus } from "@/components/billing/orderState";
-import { daysLeftText, formatPrice, freeMultiple, monthsText, offerBadge, offerSentence, ownAllowance, planAction, planConfigs, planState, vaultText } from "@/components/billing/plans";
+import { EarnCredits } from "@/components/billing/EarnCredits";
+import { daysLeftText, formatPrice, freeMultiple, freeTierLines, monthsText, offerBadge, offerSentence, ownAllowance, planAction, planConfigs, planState, vaultText } from "@/components/billing/plans";
 
 // Plans & Billing: the account's plan and credits, the 30-day plans, the Developer API balance and
 // its top-ups, credit use over time, the account's orders, and what a payment can be made with.
@@ -132,11 +133,11 @@ export default function Billing() {
 
   const offer = catalog.data ? offerBadge(catalog.data.discount, shortDayText) : null;
   const operator = Boolean(credits?.unlimited || wallet.data?.operator);
-  const free = catalog.data?.free.creditsPerWindow ?? null;
-  // Without a plan, the account's allowance is its own: the free one, one the operator set, or none.
+  const freeTier = catalog.data?.free ?? null;
+  // Without a plan, the account's allowance is its own: the free one (often none), one the operator set, or the boost.
   const own = ownAllowance(credits, plan);
-  const noAllowance = Boolean(credits && !plan && own === 0);
-  const onFree = Boolean(credits && !plan && own !== null && own > 0 && own === free);
+  const noAllowance = Boolean(credits && !credits.unlimited && !plan && own === 0);
+  const onFree = Boolean(credits?.welcome && !credits.unlimited && !plan && own !== null && own === (freeTier?.creditsPerWindow ?? 0));
 
   return (
     <AppShell title="Plans & Billing">
@@ -168,13 +169,14 @@ export default function Billing() {
                   <div className="bill-fact">
                     <dt>Plan</dt>
                     <dd>
-                      {/* An account without an allowance isn't on the free one: say what it has, nothing more. */}
-                      <span className="bill-fact-value">{plan ? plan.name : noAllowance ? "None" : "Free"}</span>
+                      {/* An account that started without the free credits isn't on the free one: say what it has. */}
+                      <span className="bill-fact-value">{plan ? plan.name : !credits.welcome && !credits.unlimited ? "None" : "Free"}</span>
                       <span className="bill-fact-hint">
                         {plan ? `Until ${dayText(plan.expiresAt)} · ${daysLeftText(plan.expiresAt)}`
                           : credits.unlimited ? "Not charged"
-                            : noAllowance ? "Credits on this account come from plans and promo codes."
-                              : onFree ? "No plan: the free allowance" : "No plan"}
+                            : !credits.welcome ? "Credits on this account come from plans and promo codes."
+                              : credits.boost ? `No plan: ${creditCount(credits.boost.creditsPerWindow)} every ${credits.boost.windowHours} hours while the boost lasts`
+                                : onFree && noAllowance ? "No plan: welcome credits, and more on X" : "No plan"}
                       </span>
                     </dd>
                   </div>
@@ -182,7 +184,8 @@ export default function Billing() {
                     <dt>Credits</dt>
                     <dd>
                       <span className="bill-fact-value">{creditsLeftText(credits)}</span>
-                      {refillText(credits) && <span className="bill-fact-hint">{refillText(credits)}</span>}
+                      {refillText(credits) ? <span className="bill-fact-hint">{refillText(credits)}</span>
+                        : !credits.unlimited && noAllowance && credits.welcome ? <span className="bill-fact-hint">Welcome credits don't refill.</span> : null}
                     </dd>
                   </div>
                   {!credits.unlimited && credits.allowance > 0 && (
@@ -206,6 +209,8 @@ export default function Billing() {
             )}
           </section>
 
+          {credits?.welcome && <EarnCredits />}
+
           <section className="bill-section" aria-labelledby="bill-plans-title">
             <div className="bill-section-head">
               <h2 id="bill-plans-title" className="section-title">Plans</h2>
@@ -218,7 +223,7 @@ export default function Billing() {
                 planKnown={planKnown}
                 planFailed={planError !== null}
                 own={own}
-                freeHere={onFree ? "yours" : noAllowance && catalog.data.free.creditsPerWindow > 0 ? "not_included" : null}
+                freeHere={onFree ? "yours" : credits && !credits.unlimited && !credits.welcome && !plan ? "not_included" : null}
                 creating={creating}
                 prepay={wallet.data?.prepay ?? null}
                 onOrder={orderPlan}
@@ -377,6 +382,7 @@ function PlanCards({ catalog, current, planKnown, planFailed, own, freeHere, cre
   const configs = planConfigs(catalog.plans);
   const state = planState(current);
   const { creditsPerWindow: free, windowHours } = catalog.free;
+  const freeLines = freeTierLines(catalog.free, shortDayText);
   const closed = !catalog.paymentsOpen;
   return (
     <ul className="bill-plans">
@@ -388,10 +394,11 @@ function PlanCards({ catalog, current, planKnown, planFailed, own, freeHere, cre
         <p className="bill-plan-price"><span className="bill-plan-amount">$0</span></p>
         <p className="bill-plan-term">no payment</p>
         <p className="bill-plan-credits">
-          {creditCount(free)} credits every {windowHours} hours
+          {freeLines.headline}
+          {freeLines.lines.map(line => <span key={line} className="bill-plan-multiple">{line}</span>)}
           <span className="bill-plan-multiple">{vaultText(false)}</span>
         </p>
-        <p className="field-hint">{freeHere === "not_included" ? "Not included on this account." : "A window starts with the first credit you spend."}</p>
+        <p className="field-hint">{freeHere === "not_included" ? "Not included on this account." : free > 0 ? "A window starts with the first credit you spend." : "Welcome credits are given once and don't refill."}</p>
       </li>
       {catalog.plans.map(offer => {
         const room = prepay?.[offer.id] ?? MAX_PLAN_MONTHS;

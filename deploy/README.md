@@ -67,6 +67,12 @@ are used for failover and delegation only.
 - Usage is charged to the key's account's USD API balance (`users.api_balance_micros`) at each model's list price in `shared/billing.ts` `API_PRICES`, less the API offer; the operator's account is not charged (its usage is recorded at no cost). While a request runs, the most it can cost is held. Non-operator accounts: at most 3 requests in flight, `max_tokens` up to the route's limit when streaming (16,384 without), refused with 402 `insufficient_balance` when the balance can't cover the request.
 - nginx: the `location ~ ^/(api/)?v1/` block turns off response buffering and allows 10-minute reads.
 
+## Free credits and the X rewards (`server/credits.ts`, `server/rewards.ts`, page `/billing`)
+
+- A new account gets welcome credits once (default 60, Admin → Settings); they are bonus credits and never refill. There is no refilling allowance for everyone unless "credits per window" is set above zero. The first few accounts from one network get them; later ones from the same network start without them (`server/signup-network.ts`).
+- Plans & Billing → Earn credits on X: an account links one X account, then claims following (default @Yumiko_web3, 240) and a public post of its own that names curialy.tech (default 300). Each once. Both claimed, the launch boost refills (default 300 every 8 hours) until the offer is turned off or its end passes; a plan's allowance is used instead when it is higher.
+- Checks use `X_BEARER_TOKEN` (app-only) against `api.x.com`: the user by username, the post by id, and follower pages (the account's own following list only when the follower list is too long to read). The token is never logged. Migration 14 adds the columns and gives existing accounts the welcome credits.
+
 ## Payments, plans and the paid API (`server/billing`, pages `/billing`, `/pay/:code`, Admin → Payments)
 
 - Payers pick a network and coin (USDT, USDC or the network's own coin on Ethereum, BNB Chain, Polygon, Solana), send an exact, unique amount to `PAY_EVM_ADDRESS` / `PAY_SOLANA_ADDRESS` and paste the transaction hash. The watcher (`server/billing/watcher.ts`) checks it on public RPCs (`PAY_RPC_*` first): the coin's own token contract, the exact amount, success, confirmations, the order's window, and a second provider's agreement. A match applies the order (a plan, or API balance); anything else waits in Admin → Payments with the reason. No private key is used or stored anywhere.

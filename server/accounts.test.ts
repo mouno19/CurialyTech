@@ -6,7 +6,7 @@ import type { Request } from "express";
 // the browser afterwards, and how a GitHub identity finds or creates its account.
 
 const SECRET = "test-only-session-secret-0123456789abcdef";
-const db = vi.hoisted(() => ({ users: new Map<string, Record<string, unknown>>(), inserted: [] as unknown[][], signupsOpen: true }));
+const db = vi.hoisted(() => ({ users: new Map<string, Record<string, unknown>>(), inserted: [] as unknown[][], granted: [] as unknown[][], signupsOpen: true }));
 
 vi.mock("./db/pg", () => {
   const run = async (text: string, values: unknown[] = []) => {
@@ -19,7 +19,11 @@ vi.mock("./db/pg", () => {
     if (text.startsWith("INSERT INTO curialy.users")) {
       db.inserted.push(values);
       db.users.set(`new-${db.inserted.length}`, { id: `new-${db.inserted.length}`, github_id: values[2], signup_network: values[6], free_allowance_withheld: values[7] });
-      return { rows: [{ id: "new-user" }] };
+      return { rows: [{ id: "new-user", inserted: true }] };
+    }
+    if (text.startsWith("INSERT INTO curialy.credit_events")) {
+      db.granted.push(values);
+      return { rows: [], rowCount: 1 };
     }
     return { rows: [], rowCount: 1 };
   };
@@ -28,6 +32,7 @@ vi.mock("./db/pg", () => {
 
 const auth = await import("./auth");
 const github = await import("./auth-github");
+const { resetCreditSettings } = await import("./credits");
 
 const key = new TextEncoder().encode(SECRET);
 const token = (claims: { sub: string; ver?: number; aud: string }) =>
@@ -41,8 +46,10 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  resetCreditSettings();
   db.users.clear();
   db.inserted.length = 0;
+  db.granted.length = 0;
   db.signupsOpen = true;
   db.users.set("u1", row({ id: "u1" }));
   db.users.set("operator", row({ id: "operator", role: "admin", login: "mouno19" }));
@@ -80,12 +87,14 @@ describe("where sign-in returns to", () => {
 describe("GitHub identities", () => {
   const profile = { id: 4242, login: "ada", name: "Ada Lovelace", avatarUrl: null, email: "ada@example.com" };
 
-  it("gives the free allowance to the first three accounts from one network, and not to the ones after", async () => {
+  it("gives the free credits to the first three accounts from one network, and not to the ones after", async () => {
     for (const id of [801, 802, 803, 804]) await github.accountForGitHub({ ...profile, id }, "203.0.113.7");
     // The same network, arriving IPv4-mapped; and another network.
     await github.accountForGitHub({ ...profile, id: 805 }, "::ffff:203.0.113.7");
     await github.accountForGitHub({ ...profile, id: 806 }, "198.51.100.20");
     expect(db.inserted.map(values => values[7])).toEqual([false, false, false, true, true, false]);
+    // The welcome credits go with the free credits: four accounts got them (60 each), two started without.
+    expect(db.granted.map(values => values[1])).toEqual([60, 60, 60, 60]);
     // Only a hash is kept, never the address.
     expect(Buffer.isBuffer(db.inserted[0][6])).toBe(true);
     expect(JSON.stringify(db.inserted)).not.toContain("203.0.113.7");

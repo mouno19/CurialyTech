@@ -451,6 +451,36 @@ const MIGRATIONS: { id: number; sql: string }[] = [
       ALTER TABLE curialy.payment_orders ADD COLUMN IF NOT EXISTS plan_months integer;
     `,
   },
+  {
+    id: 14,
+    sql: `
+      -- Credits earned on X (server/rewards.ts): the X account linked to this one (one X account per
+      -- account), when it was found following the operator's account and when its post about the site
+      -- was accepted (each reward once; both: the launch boost applies). A post pays one account.
+      ALTER TABLE curialy.users ADD COLUMN IF NOT EXISTS x_user_id text;
+      ALTER TABLE curialy.users ADD COLUMN IF NOT EXISTS x_username text;
+      ALTER TABLE curialy.users ADD COLUMN IF NOT EXISTS x_linked_at timestamptz;
+      ALTER TABLE curialy.users ADD COLUMN IF NOT EXISTS x_followed_at timestamptz;
+      ALTER TABLE curialy.users ADD COLUMN IF NOT EXISTS x_posted_at timestamptz;
+      ALTER TABLE curialy.users ADD COLUMN IF NOT EXISTS x_post_id text;
+      CREATE UNIQUE INDEX IF NOT EXISTS users_x_user_id_key ON curialy.users (x_user_id) WHERE x_user_id IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS users_x_post_id_key ON curialy.users (x_post_id) WHERE x_post_id IS NOT NULL;
+
+      -- The free credits change shape: welcome credits once (default 60) and the X rewards instead of
+      -- a refilling allowance for everyone. Saved settings keep their other fields.
+      UPDATE curialy.app_settings SET value = value || '{"creditsPerWindow": 0}'::jsonb WHERE key = 'credits';
+      -- Close the free windows already open, so usage counted against the old allowance isn't charged
+      -- to a boost claimed later. A plan's window and an allowance set for one account stay.
+      UPDATE curialy.users SET window_started_at = NULL, window_used = 0
+        WHERE credit_allowance IS NULL AND (plan_expires_at IS NULL OR plan_expires_at <= now());
+      -- Accounts from before start the new system the way a new account does: with the welcome
+      -- credits, unless they had no free allowance. The operator's account is not charged anyway.
+      WITH granted AS (
+        UPDATE curialy.users SET bonus_credits = bonus_credits + 60 WHERE role <> 'admin' AND NOT free_allowance_withheld RETURNING id
+      )
+      INSERT INTO curialy.credit_events (user_id, kind, amount, detail) SELECT id, 'welcome', 60, 'welcome credits' FROM granted;
+    `,
+  },
 ];
 
 export async function migrate() {

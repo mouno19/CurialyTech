@@ -1,21 +1,26 @@
 import { randomBytes } from "node:crypto";
 import { DEFAULT_PLANS, isPlanId, type PlanConfig, type PlanId } from "@shared/billing";
-import { DEFAULT_CREDIT_SETTINGS, MIN_CREDITS_TO_START, type CreditBalance, type CreditSettings } from "@shared/credits";
+import { DEFAULT_CREDIT_SETTINGS, MIN_CREDITS_TO_START, normalizeXHandle, type CreditBalance, type CreditSettings } from "@shared/credits";
 import { getBillingSettings, knownPlans } from "./billing/settings";
 import { db, query } from "./db/pg";
 
-// Credits: each account gets an allowance per window (default 60 every 5 hours). A window opens with
-// the first credit spent after the previous one ended. Bonus credits (promo codes, grants) are spent
-// after the window's and never expire. A plan (30 days, paid in crypto) raises the allowance while it
-// lasts. Admins are not charged. Every change is a credit_events row.
+// Credits: a new account starts with welcome credits (default 60), given once. Bonus credits (the
+// welcome credits, promo codes, grants, X rewards) are spent after the window's and never expire.
+// A refilling allowance per window comes from a plan (30 days, paid in crypto), from an allowance
+// the operator set for the account, from the settings' allowance for everyone (default 0: none),
+// or from the launch boost (server/rewards.ts: both X rewards done, while the offer lasts). The
+// largest applies; a window opens with the first credit spent after the previous one ended. Admins
+// are not charged. Every change is a credit_events row.
 
 /**
- * free_allowance_withheld: the account starts without the window allowance (see auth-github.ts); an own allowance still applies.
+ * free_allowance_withheld: the account started without the free credits (see auth-github.ts); an own allowance still applies.
  * plan_*: the plan bought or given, until when, and its allowance as it was when it started.
+ * x_followed_at, x_posted_at: when each X reward was claimed (both: the launch boost applies while it is offered).
  */
 export type UserCredits = {
   id: string; role: string; credit_allowance: number | null; bonus_credits: string; window_started_at: Date | null; window_used: string; free_allowance_withheld?: boolean;
   plan_id?: string | null; plan_expires_at?: Date | null; plan_credits_per_window?: number | null;
+  x_followed_at?: Date | null; x_posted_at?: Date | null;
 };
 
 /** In a 'plan' event's detail, what follows this is the operator's note (left out of the account's own history). */
@@ -28,8 +33,11 @@ export function activePlan(row: Pick<UserCredits, "plan_id" | "plan_expires_at" 
   return { id: row.plan_id, name: config.name, expiresAt: row.plan_expires_at.toISOString(), creditsPerWindow: row.plan_credits_per_window ?? config.creditsPerWindow };
 }
 
+/** Why a credit operation was refused; `unavailable` and `busy` are temporary. */
+export type CreditErrorCode = "no_credits" | "invalid_code" | "code_used" | "busy" | "unavailable" | "not_linked" | "x_taken" | "not_following" | "post_invalid" | "already_claimed" | "locked";
+
 export class CreditError extends Error {
-  constructor(message: string, readonly code: "no_credits" | "invalid_code" | "code_used" | "busy", readonly status = 402, readonly balance?: CreditBalance) {
+  constructor(message: string, readonly code: CreditErrorCode, readonly status = 402, readonly balance?: CreditBalance) {
     super(message);
   }
 }
@@ -38,18 +46,54 @@ export class CreditError extends Error {
 
 let settingsCache: { at: number; value: CreditSettings } | null = null;
 
+/** A saved row or a patch over the settings: the rewards and the boost merge field by field, so older rows and partial patches keep the rest. */
+export type CreditSettingsPatch = Partial<Omit<CreditSettings, "rewards">> & { rewards?: Partial<Omit<CreditSettings["rewards"], "boost">> & { boost?: Partial<CreditSettings["rewards"]["boost"]> } };
+
+export function mergeSettings(base: CreditSettings, patch: CreditSettingsPatch | null | undefined): CreditSettings {
+  const { rewards, ...plain } = patch ?? {};
+  const { boost, ...reward } = rewards ?? {};
+  return { ...base, ...plain, rewards: { ...base.rewards, ...reward, boost: { ...base.rewards.boost, ...boost } } };
+}
+
 export async function getSettings(): Promise<CreditSettings> {
   if (settingsCache && Date.now() - settingsCache.at < 30_000) return settingsCache.value;
-  const { rows } = await query<{ value: Partial<CreditSettings> }>("SELECT value FROM curialy.app_settings WHERE key = 'credits'");
-  const value = { ...DEFAULT_CREDIT_SETTINGS, ...(rows[0]?.value ?? {}) };
+  const { rows } = await query<{ value: CreditSettingsPatch }>("SELECT value FROM curialy.app_settings WHERE key = 'credits'");
+  const value = mergeSettings(DEFAULT_CREDIT_SETTINGS, rows[0]?.value);
   settingsCache = { at: Date.now(), value };
   return value;
 }
 
-export async function saveSettings(patch: Partial<CreditSettings>, by: string) {
-  const next = { ...(await getSettings()), ...patch };
-  if (!Number.isInteger(next.creditsPerWindow) || next.creditsPerWindow < 0 || next.creditsPerWindow > 100_000) throw new CreditError("Credits per window must be a whole number from 0 to 100000.", "invalid_code", 400);
-  if (!(next.windowHours >= 1 && next.windowHours <= 168)) throw new CreditError("A window lasts from 1 to 168 hours.", "invalid_code", 400);
+/** Tests: forget the cached settings. */
+export function resetCreditSettings() {
+  settingsCache = null;
+}
+
+const invalid = (message: string) => new CreditError(message, "invalid_code", 400);
+const wholeCredits = (value: unknown, what: string) => {
+  if (!Number.isInteger(value) || (value as number) < 0 || (value as number) > 100_000) throw invalid(`${what} must be a whole number from 0 to 100000.`);
+};
+
+export async function saveSettings(patch: CreditSettingsPatch, by: string) {
+  const previous = await getSettings();
+  const next = mergeSettings(previous, patch);
+  wholeCredits(next.creditsPerWindow, "Credits per window");
+  wholeCredits(next.welcomeCredits, "Welcome credits");
+  wholeCredits(next.rewards.followCredits, "The follow reward");
+  wholeCredits(next.rewards.postCredits, "The post reward");
+  wholeCredits(next.rewards.boost.creditsPerWindow, "The boost's credits per window");
+  if (!(next.windowHours >= 1 && next.windowHours <= 168)) throw invalid("A window lasts from 1 to 168 hours.");
+  if (!(next.rewards.boost.windowHours >= 1 && next.rewards.boost.windowHours <= 168)) throw invalid("The boost's window lasts from 1 to 168 hours.");
+  const handle = normalizeXHandle(String(next.rewards.followHandle ?? ""));
+  if (!handle) throw invalid("The X account to follow is a username of 1 to 15 letters, digits or underscores.");
+  next.rewards.followHandle = handle;
+  for (const flag of [next.signupsOpen, next.rewards.boost.enabled]) if (typeof flag !== "boolean") throw invalid("Switches are on or off (true or false).");
+  // Only a new end time must be in the future: a boost that has ended stays as it is when the form sends the settings back.
+  if (next.rewards.boost.endsAt !== null) {
+    const ends = typeof next.rewards.boost.endsAt === "string" ? Date.parse(next.rewards.boost.endsAt) : NaN;
+    const unchanged = previous.rewards.boost.endsAt !== null && ends === Date.parse(previous.rewards.boost.endsAt);
+    if (!unchanged && (!Number.isFinite(ends) || ends <= Date.now())) throw invalid("The boost's end must be a time in the future, or none.");
+    next.rewards.boost.endsAt = new Date(ends).toISOString();
+  }
   await query(
     "INSERT INTO curialy.app_settings (key, value, updated_by, updated_at) VALUES ('credits', $1, $2, now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()",
     [JSON.stringify(next), by],
@@ -60,13 +104,28 @@ export async function saveSettings(patch: Partial<CreditSettings>, by: string) {
 
 // ---- Balance ----
 
+/** The launch boost as it applies to this account right now: both X rewards claimed, and the offer on and not ended. */
+export function activeBoost(row: Pick<UserCredits, "x_followed_at" | "x_posted_at">, settings: CreditSettings, now = Date.now()): CreditBalance["boost"] {
+  const { boost } = settings.rewards;
+  if (!boost.enabled || !(boost.creditsPerWindow > 0) || !row.x_followed_at || !row.x_posted_at) return null;
+  if (boost.endsAt && Date.parse(boost.endsAt) <= now) return null;
+  return { creditsPerWindow: boost.creditsPerWindow, windowHours: boost.windowHours, endsAt: boost.endsAt };
+}
+
 export function balanceOf(row: UserCredits, settings: CreditSettings, now = Date.now(), plans: Record<PlanId, PlanConfig> = knownPlans()): CreditBalance {
   const own = row.credit_allowance ?? (row.free_allowance_withheld ? 0 : settings.creditsPerWindow);
   const plan = activePlan(row, plans, now);
-  // A plan raises the allowance, never lowers it; a withheld free allowance doesn't reduce a paid plan.
-  const allowance = plan ? Math.max(plan.creditsPerWindow, own) : own;
+  const boost = activeBoost(row, settings, now);
+  // A plan or the boost raises the allowance, never lowers it; a withheld free allowance doesn't reduce
+  // a paid plan. The window is the boost's only when the boost alone sets the allowance.
+  let allowance = plan ? Math.max(plan.creditsPerWindow, own) : own;
+  let windowHours = settings.windowHours;
+  if (boost && boost.creditsPerWindow > allowance) {
+    allowance = boost.creditsPerWindow;
+    windowHours = boost.windowHours;
+  }
   const bonus = Number(row.bonus_credits);
-  const windowMs = settings.windowHours * 3_600_000;
+  const windowMs = windowHours * 3_600_000;
   // Without an allowance there is no window, and so never a refill time.
   const open = allowance > 0 && row.window_started_at !== null && now < row.window_started_at.getTime() + windowMs;
   const used = open ? Number(row.window_used) : 0;
@@ -75,13 +134,16 @@ export function balanceOf(row: UserCredits, settings: CreditSettings, now = Date
     unlimited: row.role === "admin",
     allowance, used: round(used), remaining: round(remaining), bonus: round(bonus), available: round(remaining + bonus),
     resetsAt: open ? new Date(row.window_started_at!.getTime() + windowMs).toISOString() : null,
-    windowHours: settings.windowHours,
+    windowHours,
     plan,
+    boost,
+    welcome: !row.free_allowance_withheld,
+    canEarn: !row.free_allowance_withheld && !(row.x_followed_at && row.x_posted_at),
   };
 }
 
 const round = (value: number) => Math.round(value * 100) / 100;
-const COLUMNS = "id, role, credit_allowance, bonus_credits, window_started_at, window_used, free_allowance_withheld, plan_id, plan_expires_at, plan_credits_per_window";
+const COLUMNS = "id, role, credit_allowance, bonus_credits, window_started_at, window_used, free_allowance_withheld, plan_id, plan_expires_at, plan_credits_per_window, x_followed_at, x_posted_at";
 
 export async function getBalance(userId: string): Promise<CreditBalance> {
   const [{ rows }, settings, billing] = await Promise.all([query<UserCredits>(`SELECT ${COLUMNS} FROM curialy.users WHERE id = $1`, [userId]), getSettings(), getBillingSettings()]);
@@ -98,12 +160,16 @@ export async function assertCanStart(userId: string) {
 
 /** In words that read right in any time zone (the client shows the clock time itself). */
 export function outOfCreditsMessage(balance: CreditBalance) {
-  // What adds credits for this account: a plan, a higher plan, or (on the highest) a promo code.
-  const more = balance.plan?.id === "max" ? "a promo code" : balance.plan ? "a higher plan or a promo code" : "a plan or a promo code";
-  if (!balance.resetsAt) return `Your account has no credits right now. ${balance.plan?.id === "max" ? "Redeem a promo code" : balance.plan ? "Get a higher plan or redeem a promo code" : "Get a plan or redeem a promo code"} to continue.`;
+  // What adds credits for this account: the X rewards it hasn't claimed, a plan, a higher plan, or (on the highest) a promo code.
+  const earn = balance.canEarn && !balance.plan;
+  const more = balance.plan?.id === "max" ? "a promo code" : balance.plan ? "a higher plan or a promo code" : earn ? "the X rewards, a plan or a promo code" : "a plan or a promo code";
+  if (!balance.resetsAt) {
+    const action = balance.plan?.id === "max" ? "Redeem a promo code" : balance.plan ? "Get a higher plan or redeem a promo code" : earn ? "Earn credits on X, get a plan or redeem a promo code" : "Get a plan or redeem a promo code";
+    return `Your account has no credits right now. ${action} to continue.`;
+  }
   const minutes = Math.max(1, Math.ceil((Date.parse(balance.resetsAt) - Date.now()) / 60_000));
   const wait = minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h${minutes % 60 ? ` ${minutes % 60} min` : ""}`;
-  return `You've used this window's credits. They refill in ${wait}; ${more} adds more now.`;
+  return `You've used this window's credits. They refill in ${wait}; ${more} ${earn && !balance.plan ? "add" : "adds"} more now.`;
 }
 
 /**

@@ -16,6 +16,20 @@
 .bill-offer span { color: var(--text-2); }
 .bill-note { font-size: 13px; line-height: 1.55; color: var(--text-2); }
 .card > .bill-note { padding: 0 18px 16px; }
+.card-body > .bill-note { padding: 0; }
+
+/* Earn credits on X (EarnCredits.tsx) */
+.earn { display: flex; flex-direction: column; gap: 14px; }
+.earn-steps { display: flex; flex-direction: column; gap: 0; margin: 0; padding: 0; list-style: none; }
+.earn-step { display: flex; flex-direction: column; gap: 8px; padding: 14px 0; border-top: 1px dashed var(--border); }
+.earn-step:first-child { padding-top: 0; border-top: 0; }
+.earn-step-title { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; margin: 0; font-size: 15px; font-weight: 600; }
+.earn-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.earn-row > .input { flex: 1 1 200px; min-width: 0; }
+.earn-linked, .earn-done { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0; font-size: 13.5px; color: var(--text-2); }
+.earn-linked > .lucide, .earn-done > .lucide { flex: none; color: var(--text); }
+.earn-done a { display: inline-flex; align-items: center; gap: 4px; }
+.earn-suggest { margin: 0; padding: 10px 12px; border: 1px dashed var(--border); border-radius: var(--r-md); font-size: 13px; line-height: 1.5; color: var(--text-2); }
 
 .bill-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); margin: 0; }
 .bill-fact { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 14px 18px; }

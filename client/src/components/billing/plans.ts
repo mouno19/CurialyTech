@@ -1,5 +1,6 @@
 import { FREE_VAULT_BYTES, FREE_VAULT_FILES } from "@shared/media";
-import { formatUsd, planAfterPurchase, planForMonths, type BillingCatalog, type PlanConfig, type PlanEffect, type PlanId, type PlanOffer, type PlanState } from "@shared/billing";
+import { formatUsd, planAfterPurchase, planForMonths, type BillingCatalog, type FreeTier, type PlanConfig, type PlanEffect, type PlanId, type PlanOffer, type PlanState } from "@shared/billing";
+import { creditCount } from "./format";
 
 // Plans as the billing page and the homepage say them: prices, the offer, how a plan compares
 // with the free allowance, and what buying one does to the plan an account already has.
@@ -72,6 +73,22 @@ export function ownAllowance(credits: { unlimited: boolean; allowance: number } 
   if (!credits || credits.unlimited) return null;
   if (!plan) return credits.allowance;
   return credits.allowance > plan.creditsPerWindow ? credits.allowance : null;
+}
+
+/**
+ * The Free card, line by line: the headline ("60 credits to start", or the refilling allowance when
+ * the operator gives one) and what the X rewards add, with the boost while it is offered. formatDate
+ * says the boost's end the way offerEnd does.
+ */
+export function freeTierLines(free: FreeTier, formatDate: (iso: string) => string): { headline: string; lines: string[] } {
+  const { welcomeCredits: welcome, creditsPerWindow, windowHours, rewards } = free;
+  const headline = creditsPerWindow > 0 ? `${creditCount(creditsPerWindow)} credits every ${windowHours} hours` : welcome > 0 ? `${creditCount(welcome)} credits to start` : "No credits included";
+  const lines: string[] = [];
+  if (creditsPerWindow > 0 && welcome > 0) lines.push(`${creditCount(welcome)} more to start`);
+  if (rewards.followCredits > 0) lines.push(`+${creditCount(rewards.followCredits)} for following @${rewards.followHandle} on X`);
+  if (rewards.postCredits > 0) lines.push(`+${creditCount(rewards.postCredits)} for a post about Curialy`);
+  if (rewards.boost) lines.push(`Both done: ${creditCount(rewards.boost.creditsPerWindow)} credits every ${rewards.boost.windowHours} hours · ${offerEnd(rewards.boost.endsAt, formatDate)}`);
+  return { headline, lines };
 }
 
 /** How many times the free allowance a plan's allowance is (null when it isn't more). */
