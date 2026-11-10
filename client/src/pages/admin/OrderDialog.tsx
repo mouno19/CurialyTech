@@ -31,6 +31,26 @@ function ChainValue({ value, what, href, explorer, onCopied }: { value: string; 
 
 const FINDING_ICON = { success: Check, warning: TriangleAlert, neutral: null } as const;
 
+const UNDO_TEXT = {
+  removed: "The plan this payment applied was removed.",
+  shortened: "The plan was shortened by the time this payment added.",
+  unchanged: "The account's plan was left as it is, because it no longer matches what this payment applied.",
+  balance: "The API balance this payment added was removed.",
+} as const;
+
+/** The checkbox on reject and disapprove: the reason goes on the payer's page, or stays with operators. */
+function ReasonAudience({ id, tellPayer, onChange }: { id: string; tellPayer: boolean; onChange: (value: boolean) => void }) {
+  return (
+    <div className="field admin-confirm-field">
+      <label className="admin-check" htmlFor={id}>
+        <input id={id} type="checkbox" checked={tellPayer} onChange={event => onChange(event.target.checked)} />
+        <span>Send this reason to the payer</span>
+      </label>
+      <p className="field-hint">They see it on their payment page. Leave this off to keep the reason for operators only; they still see that the payment was turned down.</p>
+    </div>
+  );
+}
+
 /**
  * How often an open order reloads: every 10 s while the network is checked, every 20 s while the
  * payer can still change it (another hash on an order in review, a late one on an expired order).
@@ -60,8 +80,11 @@ export function OrderDialog({ code, settings, onClose, onChanged, announce }: {
   const [actionError, setActionError] = useState<string | null>(null);
   const [approving, setApproving] = useState(false);
   const [rejecting, setRejecting] = useState(false);
+  const [disapproving, setDisapproving] = useState(false);
   const [note, setNote] = useState("");
   const [reason, setReason] = useState("");
+  /** Whether the reason in the reject or disapprove confirmation is shown on the payer's page. */
+  const [tellPayer, setTellPayer] = useState(true);
   // The operator approved it here (rather than the order completing by itself while a confirmation was open).
   const [approvedHere, setApprovedHere] = useState(false);
   // The account's plan, for what approving a plan order gives (undefined: not known yet).
@@ -189,12 +212,22 @@ export function OrderDialog({ code, settings, onClose, onChanged, announce }: {
   };
   const reject = async () => {
     if (!(await unchanged())) return;
-    const { order: next } = await adminBillingApi.reject(code, reason.trim()).catch(refused);
+    const { order: next } = await adminBillingApi.reject(code, reason.trim(), tellPayer).catch(refused);
     show(next);
     onChanged(next);
     setReason("");
     setActionError(null);
     toast.success(`${next.code} rejected.`);
+    focusWhenClosed(statusBox);
+  };
+  const disapprove = async () => {
+    if (!(await unchanged())) return;
+    const { order: next, undo } = await adminBillingApi.disapprove(code, reason.trim(), tellPayer).catch(refused);
+    show(next);
+    onChanged(next);
+    setReason("");
+    setActionError(null);
+    toast.success(`${next.code} disapproved.`, { description: UNDO_TEXT[undo] });
     focusWhenClosed(statusBox);
   };
 
@@ -206,15 +239,17 @@ export function OrderDialog({ code, settings, onClose, onChanged, announce }: {
       <div className="notice-body">This order completed while you had it open, so there is nothing left to decide.</div>
     </div>
   ) : null;
-  const footer = order && !done ? (
+  const footer = !order ? undefined : done ? (
+    <Button variant="danger" icon={CircleX} onClick={() => { setTellPayer(true); openConfirm(setDisapproving); }}>Disapprove</Button>
+  ) : (
     <>
       {order.txHash && order.status !== "rejected" && (
         <Button icon={RefreshCw} busy={checking} onClick={() => void recheck()}>{checking ? "Checking…" : "Check again"}</Button>
       )}
-      {order.status !== "rejected" && <Button variant="danger" icon={CircleX} disabled={checking} onClick={() => openConfirm(setRejecting)}>Reject</Button>}
+      {order.status !== "rejected" && <Button variant="danger" icon={CircleX} disabled={checking} onClick={() => { setTellPayer(true); openConfirm(setRejecting); }}>Reject</Button>}
       <Button variant="primary" icon={Check} disabled={checking} onClick={() => openConfirm(setApproving)}>Approve and apply</Button>
     </>
-  ) : undefined;
+  );
 
   return (
     <Dialog open onOpenChange={next => { if (!next) onClose(); }} size="lg" title={`Order ${code}`} description={order ? `${order.title} · ${accountName(order.user)}` : undefined} footer={footer}>
@@ -248,8 +283,17 @@ export function OrderDialog({ code, settings, onClose, onChanged, announce }: {
             <div className="field admin-confirm-field">
               <label className="field-label" htmlFor={`${id}-reason`}>Reason</label>
               <textarea id={`${id}-reason`} className="textarea" rows={3} value={reason} maxLength={500} required aria-required="true" onChange={event => setReason(event.target.value)} aria-describedby={`${id}-reason-hint`} />
-              <p id={`${id}-reason-hint`} className="field-hint">Required. The payer sees it on their payment page.</p>
+              <p id={`${id}-reason-hint`} className="field-hint">Required.</p>
             </div>
+            <ReasonAudience id={`${id}-tell`} tellPayer={tellPayer} onChange={setTellPayer} />
+          </ConfirmDialog>
+          <ConfirmDialog open={disapproving} onOpenChange={setDisapproving} title={`Disapprove ${order.code}?`} confirmLabel="Disapprove" busyLabel="Disapproving…" tone="danger" confirmDisabled={!reason.trim()} onConfirm={disapprove}>
+            <p>This takes back a payment that was already approved. A plan this order started is removed when it is still the account's plan. A plan it extended is shortened by the days it paid for, when that expiry is still in place. API balance it added is removed, down to zero if some was already spent. A plan changed again after this payment is left as it is.</p>
+            <div className="field admin-confirm-field">
+              <label className="field-label" htmlFor={`${id}-disapprove-reason`}>Reason</label>
+              <textarea id={`${id}-disapprove-reason`} className="textarea" rows={3} value={reason} maxLength={500} required aria-required="true" onChange={event => setReason(event.target.value)} />
+            </div>
+            <ReasonAudience id={`${id}-disapprove-tell`} tellPayer={tellPayer} onChange={setTellPayer} />
           </ConfirmDialog>
         </>
       )}
@@ -308,7 +352,11 @@ function OrderBody({ order, planName, autoVerify, announce, statusBox }: {
       {order.status === "rejected" && (
         <div className="notice" data-tone="danger">
           <CircleX size={16} aria-hidden="true" />
-          <div className="notice-body"><strong className="notice-title">Rejected</strong><p>{order.statusDetail ?? "No reason was given."}</p></div>
+          <div className="notice-body">
+            <strong className="notice-title">Rejected</strong>
+            <p>{order.adminNote && order.adminNote !== order.statusDetail ? order.adminNote : (order.statusDetail ?? "No reason was given.")}</p>
+            {order.adminNote && order.adminNote !== order.statusDetail && order.statusDetail && <p className="field-hint">The payer sees: {order.statusDetail}</p>}
+          </div>
         </div>
       )}
       {order.status === "completed" && (

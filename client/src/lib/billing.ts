@@ -44,7 +44,10 @@ export const adminBillingApi = {
   recheck: (code: string) => api<{ order: AdminPaymentOrder }>(`/api/admin/billing/orders/${enc(code)}/recheck`, { method: "POST", json: {} }),
   /** Completes the order and applies it (plan or API balance), whatever the chain check said. */
   approve: (code: string, note: string) => api<{ order: AdminPaymentOrder }>(`/api/admin/billing/orders/${enc(code)}/approve`, { method: "POST", json: { note } }),
-  reject: (code: string, note: string) => api<{ order: AdminPaymentOrder }>(`/api/admin/billing/orders/${enc(code)}/reject`, { method: "POST", json: { note } }),
+  /** Rejects an order that has not been applied. tellPayer: the reason is what they see on the payment page. */
+  reject: (code: string, note: string, tellPayer = true) => api<{ order: AdminPaymentOrder }>(`/api/admin/billing/orders/${enc(code)}/reject`, { method: "POST", json: { note, tellPayer } }),
+  /** Takes back a completed payment and what it applied, when that is still the account's plan or balance. */
+  disapprove: (code: string, note: string, tellPayer: boolean) => api<{ order: AdminPaymentOrder; undo: "removed" | "shortened" | "unchanged" | "balance" }>(`/api/admin/billing/orders/${enc(code)}/disapprove`, { method: "POST", json: { note, tellPayer } }),
   settings: () => api<{ settings: BillingSettings }>("/api/admin/billing/settings"),
   /** Only the fields that changed: plans and the offer merge field by field on the server. */
   saveSettings: (patch: BillingSettingsPatch) => api<{ settings: BillingSettings }>("/api/admin/billing/settings", { method: "PUT", json: patch }),

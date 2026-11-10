@@ -12,7 +12,7 @@ import { accountOf, rateLimited, requireAdmin, requireUser } from "../auth";
 import { getSettings as getCreditSettings } from "../credits";
 import {
   accountBilling, adjustApiBalance, approveOrder, billingOverview, chooseMethod, createOrder, endPlan, getAdminOrder, getOwnOrder, grantPlan, listAdminOrders, walletBalances,
-  listOwnOrders, planOfAccount, prepayLimits, recheckOrder, rejectOrder, submitHash, type AdminOrderFilter,
+  listOwnOrders, planOfAccount, prepayLimits, recheckOrder, rejectOrder, disapproveOrder, submitHash, type AdminOrderFilter,
 } from "./orders";
 import { apiUsageReport, creditUsageReport } from "./reports";
 import { BillingError, getBillingSettings, offeredNetworks, saveBillingSettings } from "./settings";
@@ -105,7 +105,11 @@ const newOrderSchema = z.discriminatedUnion("kind", [
 ], "Choose a plan or an API top-up.");
 const methodSchema = z.object({ network: z.string("Choose a network.").max(20), coin: z.string("Choose a coin.").max(10) });
 const submitSchema = z.object({ txHash: z.string("Paste the transaction hash.").max(200, "That isn't a transaction hash.") });
-const noteSchema = z.object({ note: z.string().trim().max(500, "Keep the note under 500 characters.").default("") });
+const noteSchema = z.object({
+  note: z.string().trim().max(500, "Keep the note under 500 characters.").default(""),
+  /** When false, the payer sees that the payment was rejected or disapproved, not the reason. */
+  tellPayer: z.boolean().optional(),
+});
 
 const planPatch = z.object({
   name: z.string().trim().min(1, "A plan's name is 1 to 24 characters.").max(24, "A plan's name is 1 to 24 characters.").optional(),
@@ -243,8 +247,13 @@ export function billingAdminRouter() {
   }));
 
   router.post("/orders/:code/reject", handle(async (req, res) => {
-    const { note } = noteSchema.parse(req.body ?? {});
-    res.json({ order: await rejectOrder(req.params.code, accountOf(req).id, note) });
+    const { note, tellPayer } = noteSchema.parse(req.body ?? {});
+    res.json({ order: await rejectOrder(req.params.code, accountOf(req).id, note, tellPayer ?? true) });
+  }));
+
+  router.post("/orders/:code/disapprove", handle(async (req, res) => {
+    const { note, tellPayer } = noteSchema.parse(req.body ?? {});
+    res.json(await disapproveOrder(req.params.code, accountOf(req).id, note, tellPayer ?? true));
   }));
 
   router.get("/settings", handle(async (_req, res) => res.json({ settings: await getBillingSettings() })));
