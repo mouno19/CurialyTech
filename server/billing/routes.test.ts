@@ -259,7 +259,7 @@ describe("the operator's routes", () => {
   it("are for the operator only", async () => {
     const paths: [string, string, unknown?][] = [
       ["/api/admin/billing/overview", "GET"], ["/api/admin/billing/orders", "GET"], ["/api/admin/billing/orders/CUR-00000000", "GET"], ["/api/admin/billing/orders/CUR-00000000/recheck", "POST", {}],
-      ["/api/admin/billing/orders/CUR-00000000/approve", "POST", { note: "" }], ["/api/admin/billing/orders/CUR-00000000/reject", "POST", { note: "x" }], ["/api/admin/billing/settings", "GET"],
+      ["/api/admin/billing/orders/CUR-00000000/approve", "POST", { note: "" }], ["/api/admin/billing/orders/CUR-00000000/reject", "POST", { note: "x" }], ["/api/admin/billing/orders/CUR-00000000/disapprove", "POST", { note: "x" }], ["/api/admin/billing/settings", "GET"],
       ["/api/admin/billing/settings", "PUT", { paymentsOpen: false }], [`/api/admin/billing/users/${ADA}`, "GET"], [`/api/admin/billing/users/${ADA}/plan`, "POST", { planId: "max", days: 30, note: "" }],
       [`/api/admin/billing/users/${ADA}/plan`, "DELETE", { note: "" }], [`/api/admin/billing/users/${ADA}/api-balance`, "POST", { amountUsd: 100, note: "" }],
     ];

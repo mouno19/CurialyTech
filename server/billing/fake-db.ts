@@ -277,7 +277,10 @@ export async function run(sql: string, values: any[] = []): Promise<{ rows: Row[
     return result([], 1);
   }
   if (text.startsWith("UPDATE curialy.payment_orders SET status = 'rejected'")) {
-    Object.assign(byId(values[0])!, { status: "rejected", status_detail: values[1], admin_note: values[1], next_check_at: null, updated_at: now });
+    Object.assign(byId(values[0])!, {
+      status: "rejected", status_detail: values[1], admin_note: values[2] ?? values[1], next_check_at: null, updated_at: now,
+      ...(text.includes("applied_at = NULL") ? { applied_at: null, applied_detail: null, completed_at: null } : {}),
+    });
     return result([], 1);
   }
   if (text.startsWith("WITH expired AS (")) {

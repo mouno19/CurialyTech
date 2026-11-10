@@ -428,6 +428,63 @@ describe("the operator", () => {
     await expectError(orders.rejectOrder("CUR-ZZZZZZZZ", "admin", "no"), 404, "not_found");
   });
 
+  it("can keep a rejection reason off the payer's page", async () => {
+    const order = withDetails({ tx_hash: HASH, status: "review" });
+    const rejected = await orders.rejectOrder(order.code, "admin", "The hash is a known fake.", false);
+    expect(rejected).toMatchObject({ status: "rejected", statusDetail: "This payment was rejected.", adminNote: "The hash is a known fake." });
+    expect((await orders.getOwnOrder("u1", order.code)).statusDetail).toBe("This payment was rejected.");
+  });
+
+  it("disapproves a completed payment, undoes the plan it started, and can apply it again", async () => {
+    const order = withDetails({ tx_hash: HASH, status: "review" });
+    await orders.approveOrder(order.code, "admin", "");
+    expect(fake.users.get("u1")!.plan_id).toBe("pro");
+    await expectError(orders.disapproveOrder(order.code, "admin", "  "), 400, "note_required");
+    const undone = await orders.disapproveOrder(order.code, "admin", "The transaction was not a real payment.");
+    expect(undone.undo).toBe("removed");
+    expect(undone.order).toMatchObject({ status: "rejected", statusDetail: "The transaction was not a real payment.", adminNote: "The transaction was not a real payment.", applied: null });
+    expect(fake.users.get("u1")).toMatchObject({ plan_id: null, plan_expires_at: null, plan_credits_per_window: null });
+    expect((await orders.getOwnOrder("u1", order.code)).statusDetail).toBe("The transaction was not a real payment.");
+    expect(fake.creditEvents.at(-1)?.detail).toContain("removed");
+    // A mistaken disapproval can be approved again: the payment is applied once more.
+    const again = await orders.approveOrder(order.code, "admin", "It was real after all");
+    expect(again.status).toBe("completed");
+    expect(fake.users.get("u1")!.plan_id).toBe("pro");
+  });
+
+  it("shortens a plan this payment extended, and leaves a plan that was changed afterwards", async () => {
+    const first = withDetails({ tx_hash: HASH, status: "review" });
+    await orders.approveOrder(first.code, "admin", "");
+    const second = withDetails({ tx_hash: OTHER_HASH, status: "review", expected_units: "2003800000000000000" });
+    await orders.approveOrder(second.code, "admin", "");
+    const extended = fake.users.get("u1")!.plan_expires_at!.getTime();
+    const shortened = await orders.disapproveOrder(second.code, "admin", "The second payment was fake.");
+    expect(shortened.undo).toBe("shortened");
+    expect(fake.users.get("u1")!.plan_id).toBe("pro");
+    expect(extended - fake.users.get("u1")!.plan_expires_at!.getTime()).toBe(30 * DAY);
+    // A later change to the plan (a different expiry) is not wiped by disapproving the older payment.
+    const later = new Date(Date.now() + 200 * DAY);
+    fake.users.get("u1")!.plan_expires_at = later;
+    const left = await orders.disapproveOrder(first.code, "admin", "This one was fake too.");
+    expect(left.undo).toBe("unchanged");
+    expect(fake.users.get("u1")!.plan_id).toBe("pro");
+    expect(fake.users.get("u1")!.plan_expires_at).toBe(later);
+  });
+
+  it("removes API balance a disapproved top-up added, and not below zero", async () => {
+    const order = withDetails({ kind: "api", plan_id: null, list_usd: "25.00", discount_percent: 0, price_usd: "25.00", credit_usd: "25.00", tx_hash: HASH, status: "review" });
+    await orders.approveOrder(order.code, "admin", "");
+    fake.users.get("u1")!.api_balance_micros = "5000000";
+    const undone = await orders.disapproveOrder(order.code, "admin", "Not a payment for this account.", false);
+    expect(undone.undo).toBe("balance");
+    expect(undone.order.statusDetail).toBe("This payment was disapproved.");
+    expect(undone.order.adminNote).toBe("Not a payment for this account.");
+    expect((await orders.getOwnOrder("u1", order.code)).statusDetail).toBe("This payment was disapproved.");
+    expect(fake.users.get("u1")!.api_balance_micros).toBe("0");
+    expect(fake.ledger.at(-1)).toMatchObject({ kind: "adjust", amount_micros: "-5000000", balance_after_micros: "0", note: `disapproved order ${order.code}` });
+    await expectError(orders.disapproveOrder(order.code, "admin", "again"), 409, "not_completed");
+  });
+
   it("rechecks an order on demand, and not a completed one or one without a hash", async () => {
     const order = withDetails({ tx_hash: HASH, status: "review", status_detail: "We couldn't find this transaction on BNB Chain after 30 minutes. Check the hash and the network.", next_check_at: null });
     chain.results.push({ state: "confirming", confirmations: 3, required: 20, from: "0xabc", receivedUnits: 2_003_700_000_000_000_000n, blockTime: new Date() });

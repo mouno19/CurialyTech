@@ -869,18 +869,103 @@ export async function approveOrder(code: string, adminId: string, note: string) 
   return adminView(row.id);
 }
 
-/** Rejects an order; the note is the reason the payer sees. */
-export async function rejectOrder(code: string, adminId: string, note: string) {
+/** What the payer is told when the operator keeps the real reason off their page. */
+const PAYER_REJECTED = "This payment was rejected.";
+const PAYER_DISAPPROVED = "This payment was disapproved.";
+
+/** Rejects an order that has not been applied. tellPayer: the reason is what they see; otherwise they only see that it was rejected. */
+export async function rejectOrder(code: string, adminId: string, note: string, tellPayer = true) {
   const reason = note.trim();
   if (!reason) throw new BillingError("Say why the order is rejected.", "note_required", 400);
   const row = await adminOrder(code);
   await transaction(async client => {
     const locked = await lockOrder(client, row.id);
-    if (!locked || locked.status === "completed") throw conflict("A completed order can't be rejected.", "order_completed");
-    await client.query("UPDATE curialy.payment_orders SET status = 'rejected', status_detail = $2, admin_note = $2, next_check_at = NULL, updated_at = now() WHERE id = $1", [locked.id, reason]);
+    if (!locked || locked.status === "completed") throw conflict("A completed order can't be rejected. Disapprove it to take back what it applied.", "order_completed");
+    await client.query(
+      "UPDATE curialy.payment_orders SET status = 'rejected', status_detail = $2, admin_note = $3, next_check_at = NULL, updated_at = now() WHERE id = $1",
+      [locked.id, tellPayer ? reason : PAYER_REJECTED, reason],
+    );
     await addEvent(client, locked.id, locked.status, "rejected", { actor: "admin", actorId: adminId }, reason);
   });
   return adminView(row.id);
+}
+
+export type DisapprovalUndo = "removed" | "shortened" | "unchanged" | "balance";
+
+/**
+ * Takes back a completed payment: the order is rejected, and what it applied is undone when that
+ * is still what the account has. tellPayer puts the reason on the payer's page; otherwise they
+ * only see that it was disapproved, and the reason stays on the order for operators.
+ */
+export async function disapproveOrder(code: string, adminId: string, note: string, tellPayer = true): Promise<{ order: AdminPaymentOrder; undo: DisapprovalUndo }> {
+  const reason = note.trim();
+  if (!reason) throw new BillingError("Say why this payment is disapproved.", "note_required", 400);
+  const row = await adminOrder(code);
+  if (row.status !== "completed") throw conflict("Only a completed payment can be disapproved.", "not_completed");
+  const undo = await transaction(async client => {
+    const locked = await lockOrder(client, row.id);
+    if (!locked || locked.status !== "completed") throw conflict("Only a completed payment can be disapproved.", "not_completed");
+    const result = locked.applied_at ? await undoApplied(client, locked, adminId) : "unchanged";
+    await client.query(
+      `UPDATE curialy.payment_orders SET status = 'rejected', status_detail = $2, admin_note = $3, applied_at = NULL, applied_detail = NULL, completed_at = NULL, next_check_at = NULL, updated_at = now() WHERE id = $1`,
+      [locked.id, tellPayer ? reason : PAYER_DISAPPROVED, reason],
+    );
+    await addEvent(client, locked.id, "completed", "rejected", { actor: "admin", actorId: adminId }, reason);
+    return result;
+  });
+  return { order: await adminView(row.id), undo };
+}
+
+/**
+ * Undoes what a completed order applied, when the account still has exactly that. A later plan
+ * (a different expiry or plan) is left alone. An API top-up is removed down to zero.
+ */
+async function undoApplied(client: PoolClient, row: OrderRow, adminId: string): Promise<DisapprovalUndo> {
+  const user = await lockUser(client, row.user_id);
+  const applied = row.applied_detail;
+  if (row.kind === "api") {
+    const added = applied?.apiBalanceAddedUsd != null ? usdToMicros(applied.apiBalanceAddedUsd) : centsOf(row.credit_usd ?? "0") * (MICROS_PER_USD / 100);
+    const before = Number(user.api_balance_micros);
+    const after = Math.max(0, before - added);
+    await client.query("UPDATE curialy.users SET api_balance_micros = $2 WHERE id = $1", [user.id, after]);
+    await client.query(
+      "INSERT INTO curialy.api_ledger (user_id, kind, amount_micros, balance_after_micros, order_id, note, created_by) VALUES ($1, $2, $3, $4, NULL, $5, $6)",
+      [user.id, "adjust", after - before, after, `disapproved order ${row.code}`, adminId],
+    );
+    return "balance";
+  }
+  if (!applied?.planId || !applied.planExpiresAt || !isPlanId(user.plan_id) || !user.plan_expires_at) return "unchanged";
+  const same = user.plan_id === applied.planId && Math.abs(user.plan_expires_at.getTime() - Date.parse(applied.planExpiresAt)) < 2_000;
+  if (!same) return "unchanged";
+  const settings = await getBillingSettings();
+  const bought = isPlanId(row.plan_id) ? row.plan_id : applied.planId;
+  const soldDays = (row.plan_days ?? settings.plans[bought].days) * (row.plan_months ?? 1);
+  // Extending the same plan adds its days. Buying a lower plan while a higher one is active adds
+  // the lower plan's value in the higher plan's days (planAfterPurchase, effect extend_higher).
+  const daily = (id: PlanId) => settings.plans[id].priceUsd / settings.plans[id].days;
+  const soldMs = applied.effect === "extend_higher" ? soldDays * 86_400_000 * daily(bought) / daily(applied.planId) : soldDays * 86_400_000;
+  const clear = async (detail: string) => {
+    await client.query("UPDATE curialy.users SET plan_id = NULL, plan_expires_at = NULL, plan_credits_per_window = NULL WHERE id = $1", [user.id]);
+    await client.query("INSERT INTO curialy.credit_events (user_id, kind, amount, detail, created_by) VALUES ($1, 'plan', 0, $2, $3)", [user.id, detail, adminId]);
+  };
+  if (applied.effect === "start") {
+    await clear(`${settings.plans[applied.planId].name} plan removed: order ${row.code} was disapproved`);
+    return "removed";
+  }
+  const back = new Date(user.plan_expires_at.getTime() - soldMs);
+  if (back.getTime() <= Date.now()) {
+    await clear(`${settings.plans[applied.planId].name} plan removed: order ${row.code} was disapproved`);
+    return "removed";
+  }
+  await client.query(
+    "UPDATE curialy.users SET plan_id = $2, plan_expires_at = $3, plan_credits_per_window = $4 WHERE id = $1",
+    [user.id, user.plan_id, back.toISOString(), user.plan_credits_per_window],
+  );
+  await client.query(
+    "INSERT INTO curialy.credit_events (user_id, kind, amount, detail, created_by) VALUES ($1, 'plan', 0, $2, $3)",
+    [user.id, `${settings.plans[applied.planId].name} plan shortened: order ${row.code} was disapproved`, adminId],
+  );
+  return "shortened";
 }
 
 export async function billingOverview(): Promise<Omit<AdminBillingOverview, "settings">> {
