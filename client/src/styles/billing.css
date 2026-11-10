@@ -311,3 +311,8 @@ fieldset.pay-step > legend { margin-bottom: 10px; padding: 0; }
   .receipt-print .link { color: var(--ink); text-decoration: none; }
   .receipt-print .receipt-hash .lucide { display: none; }
 }
+
+/* Paying ahead: how many months a plan card pays for. */
+.bill-plan-months { margin-top: var(--s-1); }
+.bill-plan-months .select { width: 100%; }
+.bill-plan-months .field-hint { margin-top: var(--s-1); }

@@ -49,7 +49,7 @@ export function addUser(patch: Partial<FakeUser> & { id: string }): FakeUser {
 export function addOrder(patch: Row & { user_id: string }): Row {
   const now = new Date();
   const row: Row = {
-    id: uuid(), code: `CUR-${String(fake.ids).padStart(8, "0")}`, kind: "plan", plan_id: "pro", plan_days: null, plan_credits_per_window: null, list_usd: "20.00", discount_percent: 90, price_usd: "2.00", credit_usd: null,
+    id: uuid(), code: `CUR-${String(fake.ids).padStart(8, "0")}`, kind: "plan", plan_id: "pro", plan_days: null, plan_credits_per_window: null, plan_months: null, list_usd: "20.00", discount_percent: 90, price_usd: "2.00", credit_usd: null,
     network: null, coin: null, pay_address: null, expected_amount: null, expected_units: null, quote_usd_price: null, quoted_at: null, tx_hash: null,
     status: "awaiting_payment", status_detail: null, confirmations: null, required_confirmations: null, tx_from: null, tx_block_time: null, received_units: null,
     chain_verified_at: null, check_count: 0, next_check_at: null, last_checked_at: null, admin_note: null, expires_at: new Date(now.getTime() + 30 * 60_000),
@@ -128,9 +128,9 @@ export async function run(sql: string, values: any[] = []): Promise<{ rows: Row[
 
   // Placing an order
   if (text.startsWith("SELECT id FROM curialy.payment_orders WHERE user_id = $1 AND status = 'awaiting_payment' AND network IS NULL")) {
-    const [userId, kind, planId, list, price, days, credits] = values;
+    const [userId, kind, planId, list, price, days, credits, months] = values;
     const same = newest(fake.orders).find(row => row.user_id === userId && row.status === "awaiting_payment" && row.network === null && row.kind === kind && (row.plan_id ?? null) === (planId ?? null)
-      && Number(row.list_usd) === Number(list) && Number(row.price_usd) === Number(price) && (row.plan_days ?? null) === (days ?? null) && (row.plan_credits_per_window ?? null) === (credits ?? null)
+      && Number(row.list_usd) === Number(list) && Number(row.price_usd) === Number(price) && (row.plan_days ?? null) === (days ?? null) && (row.plan_credits_per_window ?? null) === (credits ?? null) && (row.plan_months ?? null) === (months ?? null)
       && row.created_at.getTime() > now.getTime() - 30 * 60_000 && row.expires_at > now);
     return result(same ? [{ id: same.id }] : []);
   }
@@ -138,9 +138,9 @@ export async function run(sql: string, values: any[] = []): Promise<{ rows: Row[
     return result([{ n: fake.orders.filter(row => row.user_id === values[0] && (["pending", "confirming", "review"].includes(row.status) || (row.status === "awaiting_payment" && row.expires_at > now))).length }]);
   }
   if (text.startsWith("INSERT INTO curialy.payment_orders")) {
-    const [code, user_id, kind, plan_id, list_usd, discount_percent, price_usd, credit_usd, minutes, plan_days, plan_credits_per_window] = values;
+    const [code, user_id, kind, plan_id, list_usd, discount_percent, price_usd, credit_usd, minutes, plan_days, plan_credits_per_window, plan_months] = values;
     if (fake.orders.some(row => row.code === code)) return result([], 0);
-    const row = addOrder({ code, user_id, kind, plan_id, plan_days, plan_credits_per_window, list_usd, discount_percent, price_usd, credit_usd, expires_at: new Date(now.getTime() + minutes * 60_000), created_at: now, updated_at: now });
+    const row = addOrder({ code, user_id, kind, plan_id, plan_days, plan_credits_per_window, plan_months, list_usd, discount_percent, price_usd, credit_usd, expires_at: new Date(now.getTime() + minutes * 60_000), created_at: now, updated_at: now });
     return result([{ id: row.id }]);
   }
   if (text.startsWith("INSERT INTO curialy.payment_events")) {
@@ -158,6 +158,12 @@ export async function run(sql: string, values: any[] = []): Promise<{ rows: Row[
     const [id, network, coin, pay_address, expected_amount, expected_units, quote_usd_price, minutes] = values;
     Object.assign(byId(id)!, { network, coin, pay_address, expected_amount, expected_units, quote_usd_price, quoted_at: now, expires_at: new Date(now.getTime() + minutes * 60_000), updated_at: now });
     return result([], 1);
+  }
+
+  // Paying ahead: an account's open plan orders.
+  if (text.startsWith("SELECT plan_id, plan_days, list_usd FROM curialy.payment_orders WHERE user_id = $1 AND kind = 'plan'")) {
+    const open = fake.orders.filter(row => row.user_id === values[0] && row.kind === "plan" && row.plan_id && (["pending", "confirming", "review"].includes(row.status) || (row.status === "awaiting_payment" && row.expires_at > now)));
+    return result([...open].sort((a, b) => a.created_at.getTime() - b.created_at.getTime()).map(row => ({ plan_id: row.plan_id, plan_days: row.plan_days, list_usd: row.list_usd })));
   }
 
   // Hashes and checks

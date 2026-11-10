@@ -25,6 +25,10 @@ describe("planAction", () => {
     const ended = planState({ id: "max", expiresAt: inDays(-1) }, NOW);
     expect(ended).toBeNull();
     expect(planAction(ended, pro, plans, NOW).label).toBe("Get Pro");
+    // Paying ahead: the whole purchase, at the same value per day.
+    expect(planAction(null, pro, plans, NOW, 3)).toMatchObject({ effect: "start", label: "Get Pro for 3 months", hint: "90 days from when the payment is applied." });
+    expect(planAction({ planId: "pro", expiresAt: inDays(10) }, pro, plans, NOW, 2)).toMatchObject({ effect: "extend", label: "Extend Pro for 2 months", hint: "Adds 60 days to the end of your plan." });
+    expect(planAction({ planId: "max", expiresAt: inDays(5) }, pro, plans, NOW, 2)).toMatchObject({ effect: "extend_higher", label: "Adds 15 days to Max" });
     expect(planState({ id: "max", expiresAt: inDays(1) }, NOW)).toEqual({ planId: "max", expiresAt: inDays(1) });
   });
 

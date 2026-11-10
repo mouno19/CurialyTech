@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { ArrowRight } from "lucide-react";
-import type { BillingCatalog } from "@shared/billing";
+import { MAX_PLAN_MONTHS, type BillingCatalog } from "@shared/billing";
 import { billingApi } from "@/lib/billing";
 import { Reveal } from "@/components/common/Reveal";
 import { creditCount, shortDayText } from "@/components/billing/format";
@@ -99,7 +99,7 @@ export function Pricing({ signedIn }: { signedIn: boolean }) {
                         {discounted && <s className="lp-plan-list"><span className="sr-only">List price </span>{formatPrice(plan.listUsd)}</s>}
                         <span className="lp-plan-amount"><span className="sr-only">{discounted ? "Now " : ""}</span>{formatPrice(plan.priceUsd)}</span>
                       </p>
-                      <p className="lp-plan-term">for {plan.days} days, paid once</p>
+                      <p className="lp-plan-term">for {plan.days} days, paid once · up to {MAX_PLAN_MONTHS} months ahead</p>
                       <p className="lp-plan-credits">
                         {creditCount(plan.creditsPerWindow)} credits every {priced.free.windowHours} hours
                         {multiple && <span>{multiple}× the free allowance</span>}
@@ -134,7 +134,7 @@ function lede(catalog: BillingCatalog) {
   const term = lengths.length === 1 ? `${lengths[0]} days` : "a set number of days";
   const names = listText(catalog.plans.map(plan => plan.name), "and");
   return catalog.paymentsOpen
-    ? `${names} raise your credits for ${term}, paid once in crypto: nothing renews.`
+    ? `${names} raise your credits for ${term}, paid once in crypto: nothing renews. Pay for up to ${MAX_PLAN_MONTHS} months ahead at the same price.`
     : `${names} raise your credits for ${term}, paid once in crypto. New payments are paused right now.`;
 }
 

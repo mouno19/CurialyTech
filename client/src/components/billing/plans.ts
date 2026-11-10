@@ -1,4 +1,4 @@
-import { formatUsd, planAfterPurchase, type BillingCatalog, type PlanConfig, type PlanEffect, type PlanId, type PlanOffer, type PlanState } from "@shared/billing";
+import { formatUsd, planAfterPurchase, planForMonths, type BillingCatalog, type PlanConfig, type PlanEffect, type PlanId, type PlanOffer, type PlanState } from "@shared/billing";
 
 // Plans as the billing page and the homepage say them: prices, the offer, how a plan compares
 // with the free allowance, and what buying one does to the plan an account already has.
@@ -15,6 +15,9 @@ export function daysText(days: number) {
   const rounded = Math.round(days * 10) / 10;
   return `${rounded} ${rounded === 1 ? "day" : "days"}`;
 }
+
+/** "1 month", "3 months" */
+export const monthsText = (months: number) => `${months} ${months === 1 ? "month" : "months"}`;
 
 /** "29 days left", "1 day left", "Less than a day left". */
 export function daysLeftText(iso: string, now = Date.now()) {
@@ -39,16 +42,18 @@ export function planConfigs(offers: PlanOffer[]): Record<PlanId, PlanConfig> | n
 
 export type PlanAction = { effect: PlanEffect; label: string; hint: string };
 
-/** A plan's button: what buying it does to the account's current plan, in words. */
-export function planAction(current: PlanState, offer: PlanOffer, plans: Record<PlanId, PlanConfig>, now = Date.now()): PlanAction {
-  const next = planAfterPurchase(current, offer.id, plans, now);
+/** A plan's button: what buying it (for `months` periods) does to the account's current plan, in words. */
+export function planAction(current: PlanState, offer: PlanOffer, plans: Record<PlanId, PlanConfig>, now = Date.now(), months = 1): PlanAction {
+  const next = planAfterPurchase(current, offer.id, planForMonths(plans, offer.id, months), now);
   const active = current ? plans[current.planId].name : "";
-  if (next.effect === "start") return { effect: next.effect, label: `Get ${offer.name}`, hint: `${daysText(offer.days)} from when the payment is applied.` };
-  if (next.effect === "extend") return { effect: next.effect, label: `Extend ${offer.name}`, hint: `Adds ${daysText(offer.days)} to the end of your plan.` };
+  const days = offer.days * months;
+  const span = months > 1 ? ` for ${monthsText(months)}` : "";
+  if (next.effect === "start") return { effect: next.effect, label: `Get ${offer.name}${span}`, hint: `${daysText(days)} from when the payment is applied.` };
+  if (next.effect === "extend") return { effect: next.effect, label: `Extend ${offer.name}${span}`, hint: `Adds ${daysText(days)} to the end of your plan.` };
   if (next.effect === "upgrade") {
     // What the days left on the lower plan are worth on this one (as of now; the exact figure is set when the payment is applied).
-    const carried = (Date.parse(next.expiresAt) - now - offer.days * DAY_MS) / DAY_MS;
-    return { effect: next.effect, label: `Upgrade to ${offer.name}`, hint: `Starts when the payment is applied, with about ${daysText(carried)} more for the time left on ${active}.` };
+    const carried = (Date.parse(next.expiresAt) - now - days * DAY_MS) / DAY_MS;
+    return { effect: next.effect, label: `Upgrade to ${offer.name}${span}`, hint: `Starts when the payment is applied, with about ${daysText(carried)} more for the time left on ${active}.` };
   }
   // A lower plan while a higher one is active: its value extends the higher plan.
   const added = (Date.parse(next.expiresAt) - (current ? Date.parse(current.expiresAt) : now)) / DAY_MS;

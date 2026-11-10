@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
 import * as ToggleGroup from "@radix-ui/react-toggle-group";
 import { ArrowRight, BadgePercent, RotateCcw, TriangleAlert } from "lucide-react";
-import { formatUsd, networkInfo, type BillingCatalog, type CreditUsageReport, type PlanId, type UsageRange } from "@shared/billing";
+import { discountedUsd, formatUsd, MAX_PLAN_MONTHS, networkInfo, type BillingCatalog, type CreditUsageReport, type PlanId, type UsageRange } from "@shared/billing";
 import type { CreditBalance } from "@shared/credits";
 import { billingApi } from "@/lib/billing";
 import { errorMessage } from "@/lib/api";
@@ -16,7 +16,7 @@ import { PaymentStatusChip } from "@/components/billing/PaymentStatusChip";
 import { TopUpForm } from "@/components/billing/TopUpForm";
 import { creditCount, dayText, microsText, shortDayText, spendableCredits, spendableMicrosText } from "@/components/billing/format";
 import { shownStatus } from "@/components/billing/orderState";
-import { daysLeftText, formatPrice, freeMultiple, offerBadge, offerSentence, ownAllowance, planAction, planConfigs, planState } from "@/components/billing/plans";
+import { daysLeftText, formatPrice, freeMultiple, monthsText, offerBadge, offerSentence, ownAllowance, planAction, planConfigs, planState } from "@/components/billing/plans";
 
 // Plans & Billing: the account's plan and credits, the 30-day plans, the Developer API balance and
 // its top-ups, credit use over time, the account's orders, and what a payment can be made with.
@@ -113,14 +113,14 @@ export default function Billing() {
     wallet.reload();
   };
 
-  const orderPlan = async (planId: PlanId, name: string) => {
+  const orderPlan = async (planId: PlanId, name: string, months: number) => {
     if (creatingRef.current || !catalog.data?.paymentsOpen || !planKnown) return;
     creatingRef.current = true;
     setCreating(planId);
     setOrderError(null);
     announce(`Starting the ${name} order…`);
     try {
-      const { order } = await billingApi.createOrder({ kind: "plan", planId });
+      const { order } = await billingApi.createOrder({ kind: "plan", planId, months });
       if (alive.current) navigate(`/pay/${encodeURIComponent(order.code)}`);
     } catch (error) {
       if (alive.current) setOrderError(errorMessage(error, "Couldn't start the order. Try again."));
@@ -220,6 +220,7 @@ export default function Billing() {
                 own={own}
                 freeHere={onFree ? "yours" : noAllowance && catalog.data.free.creditsPerWindow > 0 ? "not_included" : null}
                 creating={creating}
+                prepay={wallet.data?.prepay ?? null}
                 onOrder={orderPlan}
               />
             ) : catalog.error ? (
@@ -359,7 +360,7 @@ export default function Billing() {
  * free allowance ("yours"), or has no allowance at all ("not_included"), so the Free card says which.
  * own: the account's own allowance where the page can see it; a plan at or under it adds nothing.
  */
-function PlanCards({ catalog, current, planKnown, planFailed, own, freeHere, creating, onOrder }: {
+function PlanCards({ catalog, current, planKnown, planFailed, own, freeHere, creating, prepay, onOrder }: {
   catalog: BillingCatalog;
   current: { id: PlanId; name: string; expiresAt: string } | null;
   planKnown: boolean;
@@ -367,8 +368,12 @@ function PlanCards({ catalog, current, planKnown, planFailed, own, freeHere, cre
   own: number | null;
   freeHere: "yours" | "not_included" | null;
   creating: PlanId | null;
-  onOrder: (planId: PlanId, name: string) => void;
+  /** The most months of each plan the account can pay for now (the server's limit; all of them until it loads). */
+  prepay: Record<PlanId, number> | null;
+  onOrder: (planId: PlanId, name: string, months: number) => void;
 }) {
+  // How many months each card is set to pay for (kept within what the account may still prepay).
+  const [chosen, setChosen] = useState<Record<PlanId, number>>({ pro: 1, max: 1 });
   const configs = planConfigs(catalog.plans);
   const state = planState(current);
   const { creditsPerWindow: free, windowHours } = catalog.free;
@@ -386,7 +391,13 @@ function PlanCards({ catalog, current, planKnown, planFailed, own, freeHere, cre
         <p className="field-hint">{freeHere === "not_included" ? "Not included on this account." : "A window starts with the first credit you spend."}</p>
       </li>
       {catalog.plans.map(offer => {
-        const action = configs ? planAction(state, offer, configs) : null;
+        const room = prepay?.[offer.id] ?? MAX_PLAN_MONTHS;
+        const months = Math.max(1, Math.min(chosen[offer.id] ?? 1, room || 1));
+        const action = configs ? planAction(state, offer, configs, Date.now(), months) : null;
+        // Each month at today's price and today's offer, rounded as the server rounds the order.
+        const listTotal = offer.listUsd * months;
+        const priceTotal = discountedUsd(listTotal, offer.discountPercent);
+        const monthsId = `bill-plan-${offer.id}-months`;
         const mine = current?.id === offer.id;
         const discounted = offer.discountPercent > 0 && offer.listUsd > offer.priceUsd;
         const multiple = freeMultiple(offer.creditsPerWindow, free);
@@ -400,11 +411,34 @@ function PlanCards({ catalog, current, planKnown, planFailed, own, freeHere, cre
               {mine && current && <span className="chip">Your plan · until {shortDayText(current.expiresAt)}</span>}
             </div>
             <p className="bill-plan-price">
-              {discounted && <s className="bill-plan-list"><span className="sr-only">List price </span>{formatPrice(offer.listUsd)}</s>}
-              <span className="bill-plan-amount"><span className="sr-only">{discounted ? "Now " : ""}</span>{formatPrice(offer.priceUsd)}</span>
+              {discounted && <s className="bill-plan-list"><span className="sr-only">List price </span>{formatPrice(listTotal)}</s>}
+              <span className="bill-plan-amount"><span className="sr-only">{discounted ? "Now " : ""}</span>{formatPrice(priceTotal)}</span>
               {discounted && <span className="chip">{offer.discountPercent}% off</span>}
             </p>
-            <p className="bill-plan-term">for {offer.days} days, paid once</p>
+            <p className="bill-plan-term">
+              {months > 1 ? `for ${monthsText(months)} (${offer.days * months} days), ${formatPrice(offer.priceUsd)} a month, paid once` : `for ${offer.days} days, paid once`}
+            </p>
+            <div className="field bill-plan-months">
+              <label className="field-label" htmlFor={monthsId}>Pay for</label>
+              <select
+                id={monthsId}
+                className="select"
+                value={months}
+                disabled={room === 0 || creating !== null}
+                onChange={event => setChosen(previous => ({ ...previous, [offer.id]: Number(event.target.value) }))}
+              >
+                {Array.from({ length: MAX_PLAN_MONTHS }, (_, index) => index + 1).map(count => (
+                  <option key={count} value={count} disabled={count > room}>
+                    {monthsText(count)} · {formatPrice(discountedUsd(offer.listUsd * count, offer.discountPercent))}
+                  </option>
+                ))}
+              </select>
+              <p className="field-hint">
+                {room === 0 ? `Your plan is already paid ${MAX_PLAN_MONTHS} months ahead, counting orders not paid yet.`
+                  : room < MAX_PLAN_MONTHS ? `Up to ${monthsText(room)} more now: a plan runs at most ${MAX_PLAN_MONTHS} months ahead.`
+                    : `Pay up to ${MAX_PLAN_MONTHS} months ahead at today's price.`}
+              </p>
+            </div>
             <p className="bill-plan-credits">
               {creditCount(offer.creditsPerWindow)} credits every {windowHours} hours
               {multiple && <span className="bill-plan-multiple">{multiple}× the free allowance</span>}
@@ -426,11 +460,11 @@ function PlanCards({ catalog, current, planKnown, planFailed, own, freeHere, cre
                   variant={covered ? "secondary" : "primary"}
                   block
                   busy={creating === offer.id}
-                  disabled={creating !== null && creating !== offer.id}
+                  disabled={(creating !== null && creating !== offer.id) || room === 0}
                   aria-disabled={closed || undefined}
                   aria-describedby={hintId}
                   title={closed ? "Payments are paused right now" : undefined}
-                  onClick={() => onOrder(offer.id, offer.name)}
+                  onClick={() => onOrder(offer.id, offer.name, months)}
                 >
                   {creating === offer.id ? "Starting…" : action.label}
                 </Button>

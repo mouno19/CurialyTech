@@ -158,7 +158,7 @@ describe("the catalog", () => {
 describe("the account", () => {
   it("needs a sign-in, and shows the plan, the API wallet and whether it is the operator", async () => {
     expect((await call("/api/billing/account")).status).toBe(401);
-    expect((await call("/api/billing/account", { user: ADA })).body).toEqual({ plan: null, apiWallet: wallet, operator: false });
+    expect((await call("/api/billing/account", { user: ADA })).body).toEqual({ plan: null, apiWallet: wallet, operator: false, prepay: { pro: 6, max: 6 } });
     Object.assign(fake.users.get(ADA)!, { plan_id: "max", plan_expires_at: new Date("2099-01-01T00:00:00Z"), plan_credits_per_window: 25_000 });
     expect((await call("/api/billing/account", { user: ADA })).body.plan).toEqual({ id: "max", name: "Max", expiresAt: "2099-01-01T00:00:00.000Z", creditsPerWindow: 25_000 });
     expect((await call("/api/billing/account", { user: OPERATOR, role: "admin" })).body.operator).toBe(true);
@@ -180,7 +180,7 @@ describe("orders", () => {
   });
 
   it("refuse a malformed request", async () => {
-    for (const body of [{}, { kind: "gift" }, { kind: "plan", planId: "ultra" }, { kind: "api", amountUsd: 4 }, { kind: "api", amountUsd: 1001 }, { kind: "api", amountUsd: 5.5 }, { kind: "api", amountUsd: "10" }]) {
+    for (const body of [{}, { kind: "gift" }, { kind: "plan", planId: "ultra" }, { kind: "api", amountUsd: 4 }, { kind: "api", amountUsd: 1001 }, { kind: "api", amountUsd: 5.5 }, { kind: "api", amountUsd: "10" }, { kind: "plan", planId: "pro", months: 7 }, { kind: "plan", planId: "pro", months: 0 }, { kind: "plan", planId: "pro", months: 2.5 }]) {
       const response = await order(ADA, body);
       expect(response.status, JSON.stringify(body)).toBe(400);
       expect(response.body.code).toBe("invalid_request");

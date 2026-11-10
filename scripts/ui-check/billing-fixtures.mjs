@@ -204,7 +204,7 @@ function buildWorld(now, { state, users }) {
     const view = {
       code, kind: plan ? "plan" : "api", planId: plan,
       // The plan's terms as sold, frozen on the order (the server sends both, or null for a top-up).
-      planDays: offer ? offer.days : null, planCreditsPerWindow: offer ? offer.creditsPerWindow : null,
+      planDays: offer ? offer.days : null, planCreditsPerWindow: offer ? offer.creditsPerWindow : null, planMonths: offer ? 1 : null,
       title: offer ? `${offer.name} · ${offer.days} days` : `API balance · $${topUp}`,
       listUsd: offer ? offer.listUsd : topUp, discountPercent: offer ? offer.discountPercent : 0, priceUsd: offer ? offer.priceUsd : topUp, creditUsd: offer ? null : topUp,
       network, coin, payAddress: info ? (info.family === "evm" ? EVM_WALLET : SOLANA_WALLET) : null, expectedAmount: amount, quoteUsdPrice: quote,
@@ -338,7 +338,8 @@ function buildWorld(now, { state, users }) {
     [users.hedy.id]: [{ kind: "topup", amountUsd: 100, balanceAfterUsd: 100, orderCode: "CUR-T9BQ2XKM", note: "order CUR-T9BQ2XKM", at: at(-1450) }],
     [users.radia.id]: [{ kind: "grant", amountUsd: 5, balanceAfterUsd: 5, orderCode: null, note: "Conference talk", at: at(-(6 * 24 * 60)) }],
   };
-  const billingAccount = user => ({ plan: planOf[user.id] ?? null, apiWallet: user.id === users.operator.id ? wallet(0) : walletOf(user), operator: user.id === users.operator.id });
+  // prepay: how many months of each plan the account may still pay for (an account on a plan has used some of the six).
+  const billingAccount = user => ({ plan: planOf[user.id] ?? null, apiWallet: user.id === users.operator.id ? wallet(0) : walletOf(user), operator: user.id === users.operator.id, prepay: planOf[user.id] ? { pro: 5, max: 5 } : { pro: 6, max: 6 } });
   const adminAccount = user => ({ plan: planOf[user.id] ?? null, apiWallet: walletOf(user), orders: ordersOf(user).map(row => ({ ...row.admin, events: [] })), ledger: ledgers[user.id] ?? [] });
   const userById = id => Object.values(users).find(user => user.id === id) ?? null;
 

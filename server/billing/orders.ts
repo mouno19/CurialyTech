@@ -1,8 +1,8 @@
 import { randomBytes, randomInt } from "node:crypto";
 import type { PoolClient } from "pg";
 import {
-  API_TOPUP, coinOn, discountedUsd, discountPercent, explorerTxUrl, isPlanId, LATE_SUBMIT_HOURS, MAX_OPEN_ORDERS, MICROS_PER_USD, networkInfo, normalizeOrderCode,
-  normalizeTxHash, ORDER_TTL_MINUTES, PAYMENT_STATUS, planAfterPurchase, usdToMicros,
+  API_TOPUP, coinOn, discountedUsd, discountPercent, explorerTxUrl, isPlanId, LATE_SUBMIT_HOURS, MAX_OPEN_ORDERS, MAX_PLAN_MONTHS, MICROS_PER_USD, networkInfo, normalizeOrderCode,
+  normalizeTxHash, ORDER_TTL_MINUTES, PAYMENT_STATUS, planAfterPurchase, prepayableMonths, usdToMicros,
   type AdminAccountBilling, type AdminBillingOverview, type AdminPaymentOrder, type AdminWalletBalances, type CoinId, type CoinKind, type NetworkId, type PaymentEvent, type PaymentOrder,
   type PaymentStatus, type PlanConfig, type PlanEffect, type PlanId, type PlanState,
 } from "@shared/billing";
@@ -20,8 +20,8 @@ import { BillingError, getBillingSettings, offeredNetworks, walletConfig, wallet
 
 type OrderRow = {
   id: string; code: string; user_id: string; kind: "plan" | "api"; plan_id: PlanId | null;
-  /** A plan's days and allowance as sold (the operator may change the plan before the payment arrives). */
-  plan_days: number | null; plan_credits_per_window: number | null;
+  /** A plan's days and allowance as sold (the operator may change the plan before the payment arrives), and how many periods it pays for. */
+  plan_days: number | null; plan_credits_per_window: number | null; plan_months: number | null;
   list_usd: string; discount_percent: number; price_usd: string; credit_usd: string | null;
   network: NetworkId | null; coin: CoinId | null; pay_address: string | null;
   expected_amount: string | null; expected_units: string | null; quote_usd_price: string | null; quoted_at: Date | null;
@@ -154,8 +154,10 @@ const dayOf = (iso: string) => {
 function titleOf(row: OrderRow, plans: Record<PlanId, PlanConfig>) {
   if (row.kind === "api") return `API balance · $${dollars(centsOf(row.credit_usd ?? row.list_usd))}`;
   const plan = row.plan_id ? plans[row.plan_id] : null;
-  const days = row.plan_days ?? plan?.days ?? 0;
-  return plan ? `${plan.name} · ${days} day${days === 1 ? "" : "s"}` : "Plan";
+  if (!plan) return "Plan";
+  if ((row.plan_months ?? 1) > 1) return `${plan.name} · ${row.plan_months} months`;
+  const days = row.plan_days ?? plan.days;
+  return `${plan.name} · ${days} day${days === 1 ? "" : "s"}`;
 }
 
 const unitsText = (row: OrderRow, units: string | null) => {
@@ -174,7 +176,8 @@ function submitUntil(row: OrderRow, now = Date.now()) {
 /** The payer's view. Like credit history, the account's own view leaves out the operator's notes. */
 export function toOrderView(row: OrderRow, events: EventRow[], plans: Record<PlanId, PlanConfig>, forAdmin = false): PaymentOrder {
   return {
-    code: row.code, kind: row.kind, planId: row.plan_id, planDays: row.plan_days, planCreditsPerWindow: row.plan_credits_per_window, title: titleOf(row, plans),
+    code: row.code, kind: row.kind, planId: row.plan_id, planDays: row.plan_days, planCreditsPerWindow: row.plan_credits_per_window,
+    planMonths: row.kind === "plan" ? row.plan_months ?? 1 : null, title: titleOf(row, plans),
     listUsd: Number(row.list_usd), discountPercent: row.discount_percent, priceUsd: Number(row.price_usd), creditUsd: row.credit_usd === null ? null : Number(row.credit_usd),
     network: row.network, coin: row.coin, payAddress: row.pay_address, expectedAmount: unitsText(row, row.expected_units),
     quoteUsdPrice: row.quote_usd_price === null ? null : Number(row.quote_usd_price), txHash: row.tx_hash, receivedAmount: unitsText(row, row.received_units),
@@ -238,7 +241,8 @@ const addEvent = (client: PoolClient, orderId: string, from: PaymentStatus | nul
 
 // ---- Placing an order ----
 
-export type NewOrder = { kind: "plan"; planId: PlanId } | { kind: "api"; amountUsd: number };
+/** months: how many periods of the plan it pays for at once (1 when left out). */
+export type NewOrder = { kind: "plan"; planId: PlanId; months?: number } | { kind: "api"; amountUsd: number };
 
 /**
  * A new order, priced here: a plan at its price less the plan discount, a top-up at face value. A
@@ -250,9 +254,12 @@ export async function createOrder(userId: string, input: NewOrder): Promise<{ or
   let listCents: number;
   let percent = 0;
   let creditCents: number | null = null;
+  const months = input.kind === "plan" ? input.months ?? 1 : null;
   if (input.kind === "plan") {
     if (!isPlanId(input.planId)) throw new BillingError("Choose Pro or Max.", "invalid_plan", 400);
-    listCents = centsOf(settings.plans[input.planId].priceUsd);
+    if (!Number.isInteger(months) || months! < 1 || months! > MAX_PLAN_MONTHS) throw new BillingError(`Choose from 1 to ${MAX_PLAN_MONTHS} months.`, "invalid_months", 400);
+    // Paying ahead: each period at today's price and today's offer.
+    listCents = centsOf(settings.plans[input.planId].priceUsd) * months!;
     percent = discountPercent(settings.discount, "plans");
   } else {
     if (!Number.isInteger(input.amountUsd) || input.amountUsd < API_TOPUP.minUsd || input.amountUsd > API_TOPUP.maxUsd) {
@@ -265,7 +272,7 @@ export async function createOrder(userId: string, input: NewOrder): Promise<{ or
   const priceCents = centsOf(discountedUsd(listCents / 100, percent));
   const planId = input.kind === "plan" ? input.planId : null;
   // What the plan gives, fixed on the order as it is sold.
-  const planDays = planId ? settings.plans[planId].days : null;
+  const planDays = planId ? settings.plans[planId].days * months! : null;
   const planCredits = planId ? settings.plans[planId].creditsPerWindow : null;
   const result = await transaction(async client => {
     // An account's orders are placed one at a time (double clicks, two tabs).
@@ -273,17 +280,27 @@ export async function createOrder(userId: string, input: NewOrder): Promise<{ or
     const { rows: [same] } = await client.query<{ id: string }>(
       `SELECT id FROM curialy.payment_orders WHERE user_id = $1 AND status = 'awaiting_payment' AND network IS NULL AND kind = $2 AND plan_id IS NOT DISTINCT FROM $3
          AND list_usd = $4 AND price_usd = $5 AND plan_days IS NOT DISTINCT FROM $6 AND plan_credits_per_window IS NOT DISTINCT FROM $7
-         AND created_at > now() - interval '30 minutes' AND expires_at > now() ORDER BY created_at DESC LIMIT 1`,
-      [userId, input.kind, planId, usdText(listCents), usdText(priceCents), planDays, planCredits],
+         AND plan_months IS NOT DISTINCT FROM $8 AND created_at > now() - interval '30 minutes' AND expires_at > now() ORDER BY created_at DESC LIMIT 1`,
+      [userId, input.kind, planId, usdText(listCents), usdText(priceCents), planDays, planCredits, months],
     );
     if (same) return { id: same.id, created: false };
     if ((await ordersInProgress(client, userId)) >= MAX_OPEN_ORDERS) throw tooManyOrders();
+    // A plan runs at most MAX_PLAN_MONTHS periods ahead, its open orders included (checked under this account's lock).
+    if (planId) {
+      const room = await prepayRoom(client, userId, planId, settings.plans);
+      if (months! > room) {
+        const name = settings.plans[planId].name;
+        throw conflict(room === 0
+          ? `Your plan is already paid ${MAX_PLAN_MONTHS} months ahead, counting orders you haven't paid yet. You can add more once it's closer.`
+          : `You can pay for up to ${room} more month${room === 1 ? "" : "s"} of ${name} now: a plan runs at most ${MAX_PLAN_MONTHS} months ahead, counting orders you haven't paid yet.`, "prepay_limit");
+      }
+    }
     for (let attempt = 0; attempt < 5; attempt++) {
       // A code already in use leaves no row: try another.
       const { rows: [row] } = await client.query<{ id: string }>(
-        `INSERT INTO curialy.payment_orders (code, user_id, kind, plan_id, list_usd, discount_percent, price_usd, credit_usd, expires_at, plan_days, plan_credits_per_window)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now() + make_interval(mins => $9), $10, $11) ON CONFLICT (code) DO NOTHING RETURNING id`,
-        [newOrderCode(), userId, input.kind, planId, usdText(listCents), percent, usdText(priceCents), creditCents === null ? null : usdText(creditCents), ORDER_TTL_MINUTES, planDays, planCredits],
+        `INSERT INTO curialy.payment_orders (code, user_id, kind, plan_id, list_usd, discount_percent, price_usd, credit_usd, expires_at, plan_days, plan_credits_per_window, plan_months)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now() + make_interval(mins => $9), $10, $11, $12) ON CONFLICT (code) DO NOTHING RETURNING id`,
+        [newOrderCode(), userId, input.kind, planId, usdText(listCents), percent, usdText(priceCents), creditCents === null ? null : usdText(creditCents), ORDER_TTL_MINUTES, planDays, planCredits, months],
       );
       if (!row) continue;
       await addEvent(client, row.id, null, "awaiting_payment", { actor: "customer", actorId: userId }, "Order created");
@@ -799,6 +816,31 @@ export async function walletBalances(): Promise<AdminWalletBalances> {
 }
 
 // ---- Accounts: plans and API balance ----
+
+/**
+ * How many months of `planId` the account can pay for now: its plan, then its open plan orders as
+ * sold (placed but not paid or turned down yet), may not run past MAX_PLAN_MONTHS periods from now.
+ */
+async function prepayRoom(client: Pick<PoolClient, "query">, userId: string, planId: PlanId, plans: Record<PlanId, PlanConfig>) {
+  const [{ rows: [user] }, { rows: open }] = await Promise.all([
+    client.query<UserRow>("SELECT id, plan_id, plan_expires_at, plan_credits_per_window, api_balance_micros FROM curialy.users WHERE id = $1", [userId]),
+    client.query<{ plan_id: PlanId; plan_days: number | null; list_usd: string }>(
+      `SELECT plan_id, plan_days, list_usd FROM curialy.payment_orders WHERE user_id = $1 AND kind = 'plan' AND plan_id IS NOT NULL
+         AND (status IN ('pending', 'confirming', 'review') OR (status = 'awaiting_payment' AND expires_at > now())) ORDER BY created_at`,
+      [userId],
+    ),
+  ]);
+  const orders = open.filter(order => isPlanId(order.plan_id)).map(order => ({ planId: order.plan_id, days: order.plan_days ?? plans[order.plan_id].days, listUsd: Number(order.list_usd) }));
+  return prepayableMonths(user ? planStateOf(user) : null, orders, planId, plans);
+}
+
+/** BillingAccount.prepay: the most months of each plan the account can pay for now. */
+export async function prepayLimits(userId: string): Promise<Record<PlanId, number>> {
+  const settings = await getBillingSettings();
+  const db = { query: (text: string, values?: unknown[]) => query(text, values) } as Pick<PoolClient, "query">;
+  const [pro, max] = await Promise.all([prepayRoom(db, userId, "pro", settings.plans), prepayRoom(db, userId, "max", settings.plans)]);
+  return { pro, max };
+}
 
 /** The account's active plan (BillingAccount.plan). */
 export async function planOfAccount(userId: string) {

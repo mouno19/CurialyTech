@@ -544,6 +544,38 @@ describe("review fixes", () => {
   });
 });
 
+describe("paying ahead", () => {
+  it("prices several months at today's offer, each one a period, and names it by its months", async () => {
+    const { order } = await orders.createOrder("u1", { kind: "plan", planId: "pro", months: 3 });
+    expect(order).toMatchObject({ title: "Pro · 3 months", listUsd: 60, discountPercent: 90, priceUsd: 6, planDays: 90, planMonths: 3, planCreditsPerWindow: 6000 });
+    // One month is the plain order it always was.
+    const single = await orders.createOrder("u1", { kind: "plan", planId: "max" });
+    expect(single.order).toMatchObject({ title: "Max · 30 days", listUsd: 80, priceUsd: 8, planDays: 30, planMonths: 1 });
+    for (const months of [0, 7, 1.5]) await expectError(orders.createOrder("u1", { kind: "plan", planId: "pro", months }), 400, "invalid_months");
+  });
+
+  it("keeps a plan from running more than six months ahead, counting orders not paid yet", async () => {
+    Object.assign(fake.users.get("u1")!, { plan_id: "pro", plan_expires_at: new Date(Date.now() + 120 * DAY), plan_credits_per_window: 6000 });
+    // 120 days left: two more months fit (180), three don't.
+    await expectError(orders.createOrder("u1", { kind: "plan", planId: "pro", months: 3 }), 409, "prepay_limit");
+    await orders.createOrder("u1", { kind: "plan", planId: "pro", months: 2 });
+    // That order counts while it waits for payment: nothing more fits now.
+    const error = await orders.createOrder("u1", { kind: "plan", planId: "pro", months: 1 }).catch(caught => caught);
+    expect(error).toMatchObject({ status: 409, code: "prepay_limit" });
+    expect(error.message).toMatch(/already paid 6 months ahead/);
+    expect(await orders.prepayLimits("u1")).toEqual({ pro: 0, max: expect.any(Number) });
+  });
+
+  it("applies every month it paid for", async () => {
+    const { order } = await orders.createOrder("u1", { kind: "plan", planId: "pro", months: 4 });
+    const row = Object.assign(orderByCode(order.code), { network: "bnb", coin: "USDT", pay_address: EVM, expected_units: "8003700000000000000", quoted_at: new Date(), tx_hash: HASH, status: "confirming" });
+    await orders.applyOrder(row.id, "system");
+    const user = fake.users.get("u1")!;
+    expect(user).toMatchObject({ plan_id: "pro", plan_credits_per_window: 6000 });
+    expect((user.plan_expires_at!.getTime() - Date.now()) / DAY).toBeCloseTo(120, 3);
+  });
+});
+
 describe("expiry", () => {
   it("expires orders awaiting payment past their window, with an event, and nothing else", async () => {
     const stale = addOrder({ user_id: "u1", expires_at: new Date(Date.now() - 1000) });

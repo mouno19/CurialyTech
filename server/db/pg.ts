@@ -444,6 +444,13 @@ const MIGRATIONS: { id: number; sql: string }[] = [
       CREATE INDEX IF NOT EXISTS api_ledger_user_idx ON curialy.api_ledger (user_id, created_at DESC);
     `,
   },
+  {
+    id: 13,
+    sql: `
+      -- A plan order can pay for several periods at once (1 to 6): how many. Older orders paid for one.
+      ALTER TABLE curialy.payment_orders ADD COLUMN IF NOT EXISTS plan_months integer;
+    `,
+  },
 ];
 
 export async function migrate() {

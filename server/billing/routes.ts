@@ -2,7 +2,7 @@ import { Router, type NextFunction, type Request, type Response } from "express"
 import { z } from "zod";
 import { BASE_OUTPUT_TOKENS, MODELS, outputLimit } from "@shared/agent";
 import {
-  API_PRICES, API_TOPUP, COIN_INFO, discountedPrices, discountedUsd, discountPercent, MAX_DISCOUNT_PERCENT, modelLimits, NON_STREAMING_MAX_TOKENS,
+  API_PRICES, API_TOPUP, COIN_INFO, discountedPrices, discountedUsd, discountPercent, MAX_DISCOUNT_PERCENT, MAX_PLAN_MONTHS, modelLimits, NON_STREAMING_MAX_TOKENS,
   PAYMENT_STATUS, PLAN_IDS, USAGE_RANGES, type AdminAccountBilling, type AdminBillingOverview, type ApiModelPrice, type BillingAccount, type BillingCatalog,
   type NetworkInfo, type PaymentStatus, type PublicNetwork, type UsageRange,
 } from "@shared/billing";
@@ -11,7 +11,7 @@ import { accountOf, rateLimited, requireAdmin, requireUser } from "../auth";
 import { getSettings as getCreditSettings } from "../credits";
 import {
   accountBilling, adjustApiBalance, approveOrder, billingOverview, chooseMethod, createOrder, endPlan, getAdminOrder, getOwnOrder, grantPlan, listAdminOrders, walletBalances,
-  listOwnOrders, planOfAccount, recheckOrder, rejectOrder, submitHash, type AdminOrderFilter,
+  listOwnOrders, planOfAccount, prepayLimits, recheckOrder, rejectOrder, submitHash, type AdminOrderFilter,
 } from "./orders";
 import { apiUsageReport, creditUsageReport } from "./reports";
 import { BillingError, getBillingSettings, offeredNetworks, saveBillingSettings } from "./settings";
@@ -79,7 +79,10 @@ export async function billingCatalog(): Promise<BillingCatalog> {
 // ---- Bodies ----
 
 const newOrderSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("plan"), planId: z.enum(["pro", "max"], "Choose Pro or Max.") }),
+  z.object({
+    kind: z.literal("plan"), planId: z.enum(["pro", "max"], "Choose Pro or Max."),
+    months: z.number("Choose how many months.").int(`Choose from 1 to ${MAX_PLAN_MONTHS} months.`).min(1, `Choose from 1 to ${MAX_PLAN_MONTHS} months.`).max(MAX_PLAN_MONTHS, `Choose from 1 to ${MAX_PLAN_MONTHS} months.`).optional(),
+  }),
   z.object({
     kind: z.literal("api"),
     amountUsd: z.number("Enter an amount in dollars.").int("A top-up is a whole number of dollars.")
@@ -142,8 +145,8 @@ export function billingRouter() {
 
   router.get("/account", handle(async (req, res) => {
     const user = accountOf(req);
-    const [plan, apiWallet] = await Promise.all([planOfAccount(user.id), getApiWallet(user.id)]);
-    res.json({ plan, apiWallet, operator: user.role === "admin" } satisfies BillingAccount);
+    const [plan, apiWallet, prepay] = await Promise.all([planOfAccount(user.id), getApiWallet(user.id), prepayLimits(user.id)]);
+    res.json({ plan, apiWallet, operator: user.role === "admin", prepay } satisfies BillingAccount);
   }));
 
   router.get("/orders", handle(async (req, res) => res.json({ orders: await listOwnOrders(accountOf(req).id) })));

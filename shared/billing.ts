@@ -50,6 +50,38 @@ export function planAfterPurchase(current: PlanState, bought: PlanId, plans: Rec
   return { planId: active.planId, expiresAt: new Date(end + added).toISOString(), effect: "extend_higher" };
 }
 
+// ---- Paying ahead ----
+
+/** A plan can be paid for up to this many periods (its days) at once, and never runs further ahead than that from today. */
+export const MAX_PLAN_MONTHS = 6;
+
+const DAY_MS = 86_400_000;
+
+/** A plan as sold for `months` periods: that many times its days, at that many times its list price. */
+export function planForMonths(plans: Record<PlanId, PlanConfig>, planId: PlanId, months: number): Record<PlanId, PlanConfig> {
+  const plan = plans[planId];
+  return { ...plans, [planId]: { ...plan, days: plan.days * months, priceUsd: plan.priceUsd * months } };
+}
+
+/**
+ * The most months of `planId` the account can pay for now (0 when none): after its plan and the plan
+ * orders it has open (placed but not paid or turned down yet, as sold: their days and list price), a
+ * new one may not take the plan further than MAX_PLAN_MONTHS periods from now (a day's slack).
+ */
+export function prepayableMonths(
+  state: PlanState, open: { planId: PlanId; days: number; listUsd: number }[], planId: PlanId, plans: Record<PlanId, PlanConfig>, now = Date.now(),
+): number {
+  let projected = state;
+  for (const order of open) {
+    projected = planAfterPurchase(projected, order.planId, { ...plans, [order.planId]: { ...plans[order.planId], days: order.days, priceUsd: order.listUsd } }, now);
+  }
+  for (let months = MAX_PLAN_MONTHS; months >= 1; months--) {
+    const next = planAfterPurchase(projected, planId, planForMonths(plans, planId, months), now);
+    if (Date.parse(next.expiresAt) <= now + (MAX_PLAN_MONTHS * plans[next.planId].days + 1) * DAY_MS) return months;
+  }
+  return 0;
+}
+
 // ---- The launch discount ----
 
 export type DiscountConfig = {
@@ -398,7 +430,9 @@ export type PaymentOrder = {
   /** What the plan gives, fixed when the order was placed (it applies these even if the plan has changed since). */
   planDays: number | null;
   planCreditsPerWindow: number | null;
-  /** "Pro · 30 days", "API balance · $25" */
+  /** How many periods of the plan it pays for (1 to MAX_PLAN_MONTHS); null for a top-up. */
+  planMonths: number | null;
+  /** "Pro · 30 days", "Pro · 3 months", "API balance · $25" */
   title: string;
   listUsd: number;
   discountPercent: number;
@@ -497,6 +531,8 @@ export type BillingAccount = {
   apiWallet: ApiWallet;
   /** The operator's account is not charged for credits or API use. */
   operator: boolean;
+  /** The most months of each plan the account can pay for now (prepayableMonths). */
+  prepay: Record<PlanId, number>;
 };
 
 // ---- Usage reports ----

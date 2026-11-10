@@ -16,7 +16,8 @@ const timeZone = () => {
   }
 };
 
-export type NewOrder = { kind: "plan"; planId: PlanId } | { kind: "api"; amountUsd: number };
+/** months: how many periods of the plan to pay for at once (1 to MAX_PLAN_MONTHS; 1 when left out). */
+export type NewOrder = { kind: "plan"; planId: PlanId; months?: number } | { kind: "api"; amountUsd: number };
 
 export const billingApi = {
   /** No sign-in needed (the homepage uses it). */
