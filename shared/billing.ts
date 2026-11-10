@@ -509,7 +509,7 @@ export type FreeTier = {
   welcomeCredits: number;
   creditsPerWindow: number;
   windowHours: number;
-  rewards: { followHandle: string; followCredits: number; postCredits: number; boost: { creditsPerWindow: number; windowHours: number; endsAt: string | null } | null };
+  rewards: { followHandle: string; followCredits: number; postCredits: number; apiUsd: number; boost: { creditsPerWindow: number; windowHours: number; endsAt: string | null } | null };
 };
 
 /** GET /api/billing/catalog (no sign-in needed: the homepage shows it). */

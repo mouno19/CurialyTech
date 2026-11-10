@@ -244,6 +244,7 @@ describe("validation before anything is written", () => {
     await expect(credits.saveSettings({ welcomeCredits: -1 }, "admin")).rejects.toMatchObject({ status: 400 });
     await expect(credits.saveSettings({ rewards: { followHandle: "not a name" } }, "admin")).rejects.toMatchObject({ status: 400 });
     await expect(credits.saveSettings({ rewards: { boost: { windowHours: 0 } } }, "admin")).rejects.toMatchObject({ status: 400 });
+    await expect(credits.saveSettings({ rewards: { apiUsd: -1 } }, "admin")).rejects.toMatchObject({ status: 400 });
   });
 });
 

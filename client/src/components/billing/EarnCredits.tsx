@@ -16,7 +16,7 @@ import { offerEnd } from "./plans";
 const followUrl = (handle: string) => `https://x.com/intent/follow?screen_name=${encodeURIComponent(handle)}`;
 const postUrl = (text: string) => `https://x.com/intent/post?text=${encodeURIComponent(text)}`;
 
-export function EarnCredits() {
+export function EarnCredits({ onApiCredit }: { onApiCredit?: () => void }) {
   const [rewards, setRewards] = useState<RewardsState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [username, setUsername] = useState("");
@@ -35,11 +35,12 @@ export function EarnCredits() {
   useEffect(() => { load(); }, [load]);
 
   const fail = (actionError: unknown) => setFormError(errorMessage(actionError, "That didn't work. Try again."));
-  const claimed = (credits: number, state: RewardsState) => {
+  const claimed = (credits: number, apiUsd: number, state: RewardsState) => {
     setRewards(state);
     setFormError(null);
-    toast.success(`${creditCount(credits)} credits added.`);
+    toast.success(apiUsd > 0 ? `${creditCount(credits)} credits added, and $${apiUsd} on your Developer API balance.` : `${creditCount(credits)} credits added.`);
     void refreshAccount();
+    if (apiUsd > 0) onApiCredit?.();
   };
 
   const link = async (event: FormEvent) => {
@@ -72,7 +73,7 @@ export function EarnCredits() {
     setFormError(null);
     try {
       const result = await accountApi.claimFollow();
-      claimed(result.credits, result.state);
+      claimed(result.credits, result.apiUsd, result.state);
     } catch (followError) {
       fail(followError);
     } finally {
@@ -86,7 +87,7 @@ export function EarnCredits() {
     setFormError(null);
     try {
       const result = await accountApi.claimPost(posted);
-      claimed(result.credits, result.state);
+      claimed(result.credits, result.apiUsd, result.state);
       setPosted("");
     } catch (postError) {
       fail(postError);
@@ -183,6 +184,13 @@ function Steps({ rewards, id, username, posted, busy, onUsername, onPosted, onLi
           )}
         </li>
       </ol>
+      {rewards.api.usd > 0 && (
+        <p className="bill-note">
+          {rewards.api.grantedAt
+            ? `$${rewards.api.usd} is on your Developer API balance for doing both.`
+            : `Do both and $${rewards.api.usd} is added to your Developer API balance, once.`}
+        </p>
+      )}
       {rewards.boost.offered && (
         <p className="bill-note">
           {rewards.boost.active

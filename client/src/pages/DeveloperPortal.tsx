@@ -955,7 +955,7 @@ export default function DeveloperPortal() {
             <div>
               <span className="eyebrow">Developer API</span>
               <h2 className="page-title">Call Curialy's models from your code</h2>
-              <p className="page-sub">Create a key, point an Anthropic or OpenAI SDK at Curialy, and send requests from your own apps. Each request is paid from your API balance at the model's price, shown below.</p>
+              <p className="page-sub">Create a key, point an Anthropic or OpenAI SDK at Curialy, and send requests from your own apps. Each request is paid from your API balance at the model's price, shown below.{prices.catalog && prices.catalog.free.rewards.apiUsd > 0 ? ` Follow @${prices.catalog.free.rewards.followHandle} and post about Curialy, and $${prices.catalog.free.rewards.apiUsd} is added to this balance once.` : ""}</p>
             </div>
           </header>
 

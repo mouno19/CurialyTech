@@ -353,7 +353,7 @@ export const developerApi = {
 };
 
 /** A claimed X reward: what it paid, the rewards afterwards and the balance. */
-export type RewardClaimed = { credits: number; state: RewardsState; balance: CreditBalance };
+export type RewardClaimed = { credits: number; apiUsd: number; state: RewardsState; balance: CreditBalance };
 
 export const accountApi = {
   get: () => api<AccountInfo>("/api/account"),

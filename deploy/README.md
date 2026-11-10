@@ -70,7 +70,7 @@ are used for failover and delegation only.
 ## Free credits and the X rewards (`server/credits.ts`, `server/rewards.ts`, page `/billing`)
 
 - A new account gets welcome credits once (default 60, Admin → Settings); they are bonus credits and never refill. There is no refilling allowance for everyone unless "credits per window" is set above zero. The first few accounts from one network get them; later ones from the same network start without them (`server/signup-network.ts`).
-- Plans & Billing → Earn credits on X: an account links one X account, then claims following (default @Yumiko_web3, 240) and a public post of its own that names curialy.tech (default 300). Each once. Both claimed, the launch boost refills (default 300 every 8 hours) until the offer is turned off or its end passes; a plan's allowance is used instead when it is higher.
+- Plans & Billing → Earn credits on X: an account links one X account, then claims following (default @Yumiko_web3, 240) and a public post of its own that names curialy.tech (default 300). Each once. Both claimed, the Developer API balance gets $20 once (migration 15, `x_api_granted_at`, an `api_ledger` grant) and the launch boost refills (default 300 every 8 hours) until the offer is turned off or its end passes; a plan's allowance is used instead when it is higher.
 - Checks use `X_BEARER_TOKEN` (app-only) against `api.x.com`: the user by username, the post by id, and follower pages (the account's own following list only when the follower list is too long to read). The token is never logged. Migration 14 adds the columns and gives existing accounts the welcome credits.
 
 ## Payments, plans and the paid API (`server/billing`, pages `/billing`, `/pay/:code`, Admin → Payments)

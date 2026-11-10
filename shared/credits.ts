@@ -18,6 +18,8 @@ export type RewardSettings = {
   followHandle: string;
   followCredits: number;
   postCredits: number;
+  /** Dollars added to the Developer API balance once, when both rewards are claimed (0: none). */
+  apiUsd: number;
   boost: BoostSettings;
 };
 
@@ -35,7 +37,7 @@ export type CreditSettings = {
 
 export const DEFAULT_CREDIT_SETTINGS: CreditSettings = {
   creditsPerWindow: 0, windowHours: 5, signupsOpen: true, welcomeCredits: 60,
-  rewards: { followHandle: "Yumiko_web3", followCredits: 240, postCredits: 300, boost: { enabled: true, creditsPerWindow: 300, windowHours: 8, endsAt: null } },
+  rewards: { followHandle: "Yumiko_web3", followCredits: 240, postCredits: 300, apiUsd: 20, boost: { enabled: true, creditsPerWindow: 300, windowHours: 8, endsAt: null } },
 };
 
 /** The X username as typed ("@Name", "name ", "x.com/name"), without the @; null when it can't be one. */
@@ -63,6 +65,8 @@ export type RewardsState = {
   x: { username: string; linkedAt: string; locked: boolean } | null;
   follow: { credits: number; claimedAt: string | null };
   post: { credits: number; claimedAt: string | null; postUrl: string | null };
+  /** usd: added to the Developer API balance once both are claimed; grantedAt: when this account received it. */
+  api: { usd: number; grantedAt: string | null };
   /** offered: the boost is on and hasn't ended; active: this account has it. */
   boost: { offered: boolean; active: boolean; creditsPerWindow: number; windowHours: number; endsAt: string | null };
   /** A post the account can use as it is (the X "post" intent opens with it). */

@@ -481,6 +481,21 @@ const MIGRATIONS: { id: number; sql: string }[] = [
       INSERT INTO curialy.credit_events (user_id, kind, amount, detail) SELECT id, 'welcome', 60, 'welcome credits' FROM granted;
     `,
   },
+  {
+    id: 15,
+    sql: `
+      -- $20 on the Developer API balance, once, when both X rewards are claimed (server/rewards.ts).
+      ALTER TABLE curialy.users ADD COLUMN IF NOT EXISTS x_api_granted_at timestamptz;
+      -- Anyone who already did both before this column existed gets it now. It is not paid again.
+      WITH granted AS (
+        UPDATE curialy.users SET api_balance_micros = api_balance_micros + 20000000, x_api_granted_at = now()
+          WHERE x_followed_at IS NOT NULL AND x_posted_at IS NOT NULL AND x_api_granted_at IS NULL AND NOT free_allowance_withheld
+          RETURNING id, api_balance_micros
+      )
+      INSERT INTO curialy.api_ledger (user_id, kind, amount_micros, balance_after_micros, note)
+      SELECT id, 'grant', 20000000, api_balance_micros, 'Developer API credit for following and posting on X' FROM granted;
+    `,
+  },
 ];
 
 export async function migrate() {

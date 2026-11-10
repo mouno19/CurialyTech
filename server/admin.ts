@@ -242,6 +242,7 @@ export function adminRouter() {
         followHandle: z.string().trim().max(100).optional(),
         followCredits: z.number().int().optional(),
         postCredits: z.number().int().optional(),
+        apiUsd: z.number().int().optional(),
         boost: z.object({
           enabled: z.boolean().optional(),
           creditsPerWindow: z.number().int().optional(),
