@@ -7,6 +7,7 @@ import multer from "multer";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
 import { MODELS, type AgentEvent, type AgentEventBody } from "@shared/agent";
+import { SAVED_SKILL_LIMITS } from "@shared/skills";
 import { isActiveStatus, isFinalStatus } from "@shared/taskStatus";
 import { countMedia, deleteMedia, getMedia, isElsewhere, listMedia, markMediaMissing, mediaIds, mediaStatus, openMedia, storageConfig, storeMedia, assertStorageAvailable, type MediaCursor } from "../media/snowflake";
 import { deleteFiles, vaultFullError, vaultState } from "../media/vault";
@@ -23,6 +24,7 @@ import { appendTaskEvent } from "./events";
 import { countActiveRuns, getLifecycleRow, judgeStaleness } from "./lifecycle";
 import { PROVIDER_ENV, probeProviders } from "./providers";
 import { activeTaskCount, followUp, followUpRepoBlocked, followUpSpec, isBusy, isRunning, requestCancel, RESTARTING, retryTask, startDeployRun, startTask, TaskRejected, type FollowUpRepo } from "./runner";
+import { deleteSavedSkill, listSavedSkills, replaceTaskSkills, saveSavedSkill, SavedSkillError } from "./saved-skills";
 import { admissionRefusal, oneAtATime } from "./admission";
 import { drainQueue, editQueued, listQueue, queueMessage, QueueRejected, removeQueued, requeue } from "./queue";
 import { listWorkspaceTree, removeWorkspace, resolveInWorkspace, SANDBOX_MODE, SandboxError, workspacePath } from "./sandbox";
@@ -45,6 +47,7 @@ const createSchema = z.object({
   repoBranch: z.string().trim().max(200).nullish(),
   team: z.boolean().default(false),
   clientMessageId: z.string().trim().max(80).optional(),
+  skillIds: z.array(z.string().uuid("One of those skills is not on this account.")).max(SAVED_SKILL_LIMITS.maxPerTask, `A task can use ${SAVED_SKILL_LIMITS.maxPerTask} skills.`).optional(),
 });
 const linkSchema = z.object({ repo: z.string().trim().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/), branch: z.string().trim().max(200).optional() });
 
@@ -60,6 +63,12 @@ const followUpSchema = z.object({
   repoBranch: z.string().trim().max(200).nullish(),
   /** The task has another repository: switch to this one (it stays in the workspace as files). */
   replaceRepo: z.boolean().optional(),
+  /** Replace the task's saved skills. Omitted leaves them as they are; an empty list clears them. */
+  skillIds: z.array(z.string().uuid("One of those skills is not on this account.")).max(SAVED_SKILL_LIMITS.maxPerTask, `A task can use ${SAVED_SKILL_LIMITS.maxPerTask} skills.`).optional(),
+});
+const skillWriteSchema = z.object({
+  name: z.string().trim().min(1, "Name the skill.").max(SAVED_SKILL_LIMITS.name, `Keep the name under ${SAVED_SKILL_LIMITS.name} characters.`),
+  body: z.string().trim().min(1, "Write the procedure.").max(SAVED_SKILL_LIMITS.body, `Keep the procedure under ${SAVED_SKILL_LIMITS.body} characters.`),
 });
 const queueEditSchema = z.object({ prompt: z.string().trim().min(1).max(20_000) });
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -133,6 +142,7 @@ function sendStorageError(res: Response, error: StorageError) {
 
 function sendError(res: Response, error: unknown) {
   if (error instanceof z.ZodError) return res.status(400).json({ error: error.issues.map(issue => issue.message).join("; ") });
+  if (error instanceof SavedSkillError) return res.status(error.status).json({ error: error.message });
   if (error instanceof StorageError) return sendStorageError(res, error);
   if (error instanceof TaskRejected) return res.status(error.message === RESTARTING ? 503 : 409).json({ error: brandText(error.message) });
   if (error instanceof QueueRejected) return res.status(error.status).json({ error: error.message });
@@ -265,6 +275,27 @@ export function agentRouter() {
 
   router.get("/models", (_req, res) => res.json({ models: MODELS }));
 
+  router.get("/skills", handle(async (req, res) => {
+    res.json({ skills: await listSavedSkills(accountOf(req).id) });
+  }));
+
+  router.post("/skills", handle(async (req, res) => {
+    const input = skillWriteSchema.parse(req.body);
+    res.status(201).json({ skill: await saveSavedSkill(accountOf(req).id, input) });
+  }));
+
+  router.patch("/skills/:id", handle(async (req, res) => {
+    if (!UUID.test(String(req.params.id))) return res.status(404).json({ error: "That skill is not on this account." });
+    const input = skillWriteSchema.parse(req.body);
+    res.json({ skill: await saveSavedSkill(accountOf(req).id, { id: String(req.params.id), ...input }) });
+  }));
+
+  router.delete("/skills/:id", handle(async (req, res) => {
+    if (!UUID.test(String(req.params.id))) return res.status(404).json({ error: "That skill is not on this account." });
+    await deleteSavedSkill(accountOf(req).id, String(req.params.id));
+    res.json({ deleted: true });
+  }));
+
   router.get("/health", handle(async (req, res) => {
     const user = accountOf(req);
     // A deep check probes every provider: the operator's tool. Accounts see their own active runs.
@@ -390,7 +421,7 @@ export function agentRouter() {
     const extras = await followUpExtras(task, input);
     await oneAtATime(accountOf(req).id, async () => {
       if (!(await admitRun(req, res))) return;
-      const started = await followUp(task.id, input.prompt, await resolveAttachments(input.attachmentIds, accountOf(req).id), { clientMessageId: input.clientMessageId, expectedRunId: input.expectedRunId, ...extras });
+      const started = await followUp(task.id, input.prompt, await resolveAttachments(input.attachmentIds, accountOf(req).id), { clientMessageId: input.clientMessageId, expectedRunId: input.expectedRunId, skillIds: input.skillIds, ...extras });
       res.status(202).json({ ok: true, status: "queued", ...started });
     });
   }));
@@ -402,6 +433,12 @@ export function agentRouter() {
     if (!task) return;
     const input = followUpSchema.parse(req.body);
     const extras = await followUpExtras(task, input, { queued: true });
+    // The queue stores the message, not the skill list: the task row is what the later run reads.
+    if (input.skillIds !== undefined) {
+      const owner = await taskOwner(task.id);
+      if (!owner) return res.status(404).json({ error: "Task not found." });
+      await replaceTaskSkills(task.id, owner, input.skillIds);
+    }
     const item = await queueMessage(task.id, accountOf(req).id, { prompt: input.prompt, attachments: await resolveAttachments(input.attachmentIds, accountOf(req).id), clientMessageId: input.clientMessageId, ...extras });
     // The run may have ended while this was on its way: then it starts now.
     const drained = await drainQueue(task.id).catch(() => null);

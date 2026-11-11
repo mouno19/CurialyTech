@@ -581,6 +581,27 @@ input[type="checkbox"].vault-check { position: absolute; top: 4px; left: 4px; z-
 .skill-desc { font-size: 13.5px; line-height: 1.5; color: var(--text-2); }
 .skill-runtime { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding-top: 12px; border-top: 1px dashed var(--border); }
 .skill-runtime > p { font-size: 12.5px; line-height: 1.5; color: var(--text-2); }
+.skill-section-title { margin: 0 0 12px; font-size: 15px; font-weight: 600; }
+.saved-skills { display: flex; flex-direction: column; gap: 16px; margin-bottom: 36px; }
+.saved-skills-copy { margin: 6px 0 0; max-width: 68ch; font-size: 14px; line-height: 1.5; color: var(--text-2); }
+.saved-skill-form { display: flex; flex-direction: column; gap: 12px; padding: 16px; }
+.saved-skill-form-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.saved-skill-list { margin: 0; padding: 0; list-style: none; }
+.saved-skill { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; }
+.saved-skill + .saved-skill { border-top: 1px solid var(--border); }
+.saved-skill-name { margin: 0; font-size: 14px; font-weight: 600; }
+.saved-skill-body { margin: 0; white-space: pre-wrap; font-size: 13.5px; line-height: 1.5; color: var(--text-2); }
+.saved-skill-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.skill-pick { position: relative; }
+.skill-pick-panel { --popover-w: 320px; display: flex; flex-direction: column; gap: 10px; }
+.skill-pick-lead { margin: 0; font-size: 13px; line-height: 1.45; color: var(--text-2); }
+.skill-pick-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; max-height: 240px; overflow: auto; }
+.skill-pick-row { display: flex; gap: 8px; align-items: flex-start; padding: 6px 4px; border-radius: 8px; cursor: pointer; }
+.skill-pick-row:hover { background: var(--paper-deep); }
+.skill-pick-row input { margin-top: 2px; }
+.skill-pick-name { display: block; font-size: 13px; font-weight: 600; }
+.skill-pick-body { display: -webkit-box; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-size: 12px; line-height: 1.4; color: var(--text-3); }
+.skill-pick-empty { margin: 0; font-size: 13px; line-height: 1.45; color: var(--text-2); }
 
 /* =============================================================================================
    API Key Manager

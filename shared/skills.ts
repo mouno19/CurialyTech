@@ -73,13 +73,13 @@ export const SKILLS: CurialySkill[] = [
     shortName: "Data",
     description: "Analyze data and identify patterns.",
     category: "analysis",
-    version: "1.0.0",
+    version: "1.1.0",
     icon: "chart",
     accent: "mint",
     enabled: true,
     availability: "available",
-    instructions: "Use deterministic parsing and calculations for supported CSV, JSON, and tabular text inputs.",
-    requiredTools: ["tabular-parser", "statistics"],
+    instructions: "Summarize CSV, TSV, JSON and Excel tables with column types, missing values and numeric summaries. The summary does not need a library installed in the sandbox.",
+    requiredTools: ["analyze_data"],
     outputFormat: "Summary statistics, findings, and limitations",
     examplePrompts: ["Find patterns in this CSV", "Summarize these metrics"]
   },
@@ -105,13 +105,13 @@ export const SKILLS: CurialySkill[] = [
     shortName: "Docs",
     description: "Extract insights from uploaded files.",
     category: "documents",
-    version: "1.0.0",
+    version: "1.1.0",
     icon: "file",
     accent: "mint",
     enabled: true,
     availability: "available",
-    instructions: "Extract text from supported documents, identify key facts, and state when extraction or limits prevent certainty.",
-    requiredTools: ["text-extractor", "document-parser"],
+    instructions: "Read PDF, Word (.docx) and PowerPoint (.pptx) text when a file is attached and again with read_document. Say when a file has no text layer or the reading was cut short.",
+    requiredTools: ["read_document"],
     outputFormat: "Key facts, outline, and source references",
     examplePrompts: ["Summarize this document", "Extract dates and owners"]
   }
@@ -133,3 +133,12 @@ export function selectSkills(input: string, think: boolean, webSearch: boolean):
 export function getSkill(id: string) {
   return SKILLS.find(skill => skill.id === id);
 }
+
+/**
+ * A procedure the account writes once (how tests run, how a pull request is described, which folders
+ * stay untouched). Attached to a task by id, including a repository that has no note yet.
+ * name and body lengths match the database checks on curialy.user_skills.
+ */
+export const SAVED_SKILL_LIMITS = { maxPerAccount: 30, maxPerTask: 8, name: 80, body: 2000 } as const;
+
+export type SavedSkill = { id: string; name: string; body: string; updatedAt: string };
