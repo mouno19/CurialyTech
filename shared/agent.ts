@@ -323,6 +323,8 @@ export type AgentTaskSummary = {
   format?: ConversationFormat;
   createdAt: string;
   updatedAt: string;
+  /** Saved skills attached to this task, in the order they are followed. Empty when none are. */
+  skillIds?: string[];
 };
 
 export type CreateTaskRequest = {
@@ -337,4 +339,6 @@ export type CreateTaskRequest = {
   repoBranch?: string | null;
   /** Dev Team mode: Architect → Engineer → Reviewer with review rounds. Agent mode only. */
   team?: boolean;
+  /** Saved skills to follow on this task (ids from this account). Omitted leaves none attached. */
+  skillIds?: string[];
 };

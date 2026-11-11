@@ -16,9 +16,10 @@ type SessionRow = {
   github_mode: "export" | "linked" | null; github_branch: string | null; team: boolean; created_at: Date; updated_at: Date;
   status_reason: StatusReason | null; status_changed_at: Date | null; started_at: Date | null; finished_at: Date | null;
   run_id: string | null; attempt: number; cancel_requested_at: Date | null; outcome: RunOutcome | null; conversation_format: ConversationFormat | null;
+  skill_ids?: string[] | null;
 };
 
-const SUMMARY_COLUMNS = "id, prompt, status, mode, model, effort, web_search, phase, answer, error, usage, files_changed, workspace_state, github_repo, github_repo_url, github_pushed_at, github_mode, github_branch, team, created_at, updated_at, status_reason, status_changed_at, started_at, finished_at, run_id, attempt, cancel_requested_at, outcome, conversation_format";
+const SUMMARY_COLUMNS = "id, prompt, status, mode, model, effort, web_search, phase, answer, error, usage, files_changed, workspace_state, github_repo, github_repo_url, github_pushed_at, github_mode, github_branch, team, created_at, updated_at, status_reason, status_changed_at, started_at, finished_at, run_id, attempt, cancel_requested_at, outcome, conversation_format, skill_ids";
 
 function fromRow(row: SessionRow): AgentTaskSummary & { workspaceState: string } {
   // Rows recovered by the pre-lease code were marked failed with this text; they were interrupted.
@@ -34,19 +35,25 @@ function fromRow(row: SessionRow): AgentTaskSummary & { workspaceState: string }
     runId: row.run_id ?? undefined, attempt: row.attempt, cancelRequested: Boolean(row.cancel_requested_at), outcome: row.outcome ?? undefined,
     format: row.conversation_format ?? undefined,
     createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(),
+    skillIds: row.skill_ids ?? [],
   };
 }
 
 /** Insert a new task already claimed by this worker for its first run (so a crash before it starts is recoverable). */
-export async function createAgentTask(task: { id: string; userId: string; runId: string; prompt: string; mode: TaskMode; model: string; effort: ThinkingLevel; webSearch: boolean; format: ConversationFormat; team?: boolean }) {
+export async function createAgentTask(task: { id: string; userId: string; runId: string; prompt: string; mode: TaskMode; model: string; effort: ThinkingLevel; webSearch: boolean; format: ConversationFormat; team?: boolean; skillIds?: string[] }) {
   const userId = task.userId;
   owners.set(task.id, userId);
   await query(
     `INSERT INTO curialy.chat_sessions (id, user_id, prompt, status, mode, model, effort, web_search, conversation_format, team,
-       run_id, attempt, worker_id, lease_expires_at, status_reason, status_changed_at)
-     VALUES ($1, $2, $3, 'queued', $4, $5, $6, $7, $8, $9, $10, 1, $11, now() + interval '${LEASE_SECONDS} seconds', 'prompt', now())`,
-    [task.id, userId, cleanText(task.prompt), task.mode, task.model, task.effort, task.webSearch, task.format, Boolean(task.team), task.runId, WORKER_ID],
+       run_id, attempt, worker_id, lease_expires_at, status_reason, status_changed_at, skill_ids)
+     VALUES ($1, $2, $3, 'queued', $4, $5, $6, $7, $8, $9, $10, 1, $11, now() + interval '${LEASE_SECONDS} seconds', 'prompt', now(), $12::uuid[])`,
+    [task.id, userId, cleanText(task.prompt), task.mode, task.model, task.effort, task.webSearch, task.format, Boolean(task.team), task.runId, WORKER_ID, task.skillIds ?? []],
   );
+}
+
+/** Replace the saved skills attached to a task. The next run of the task follows this list. */
+export async function setTaskSkills(id: string, skillIds: string[]) {
+  await query("UPDATE curialy.chat_sessions SET skill_ids = $2::uuid[], updated_at = now(), last_activity_at = now() WHERE id = $1", [id, skillIds]);
 }
 
 export async function getTeamState<T>(id: string): Promise<T | null> {
