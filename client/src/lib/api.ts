@@ -1,4 +1,5 @@
 import type { AgentTaskSummary, CreateTaskRequest, ModelSpec, QueuedMessage, StatusReason, TaskQueue, TaskStatus } from "@shared/agent";
+import type { SavedSkill } from "@shared/skills";
 import type { ApiKeyInfo } from "@shared/gateway";
 import type { CreditBalance, CreditSettings, RewardsState } from "@shared/credits";
 import type { DeploymentState } from "@shared/taskStatus";
@@ -129,8 +130,8 @@ export type GitHubStatus = { configured: boolean; connected: boolean; login: str
 /** completedWithIssues: completed runs whose outcome had problems (failing checks, review not approved, publish failed). */
 export type TaskStats = { total: number; completed: number; completedWithIssues?: number; failed: number; cancelled: number; interrupted: number; running: number; filesChanged: number; active: number };
 export type TaskDetail = { task: AgentTaskSummary; /** an event channel is open on this server */ live: boolean; /** a run is executing on this server */ running: boolean; /** follow-ups waiting for the run to end */ queue?: TaskQueue };
-/** What a follow-up asks for besides its text: another model (same conversation format), a repository to link. */
-export type FollowUpExtras = { model?: string | null; repo?: string | null; repoBranch?: string | null; /** the task has another repository: switch to this one */ replaceRepo?: boolean };
+/** What a follow-up asks for besides its text: another model (same conversation format), a repository to link, saved skills to follow. */
+export type FollowUpExtras = { model?: string | null; repo?: string | null; repoBranch?: string | null; /** the task has another repository: switch to this one */ replaceRepo?: boolean; /** replace the task's saved skills; omitted keeps them */ skillIds?: string[] };
 /** started: the run had already ended, so the message started at once. */
 export type QueueStarted = { runId: string; itemId: string } | null;
 
@@ -212,6 +213,10 @@ export const agentApi = {
   models: () => api<{ models: ModelSpec[] }>("/api/agent/models"),
   health: (deep = false) => api<HealthResponse>(`/api/agent/health${deep ? "?deep=1" : ""}`),
   keys: () => api<{ keys: KeyStatus[] }>("/api/agent/keys"),
+  skills: () => api<{ skills: SavedSkill[] }>("/api/agent/skills"),
+  saveSkill: (body: { name: string; body: string }) => api<{ skill: SavedSkill }>("/api/agent/skills", { method: "POST", json: body }),
+  updateSkill: (id: string, body: { name: string; body: string }) => api<{ skill: SavedSkill }>(`/api/agent/skills/${enc(id)}`, { method: "PATCH", json: body }),
+  deleteSkill: (id: string) => api<{ deleted: true }>(`/api/agent/skills/${enc(id)}`, { method: "DELETE" }),
   stats: () => api<TaskStats>("/api/agent/stats"),
 
   tasks: () => api<{ tasks: AgentTaskSummary[] }>("/api/agent/tasks"),

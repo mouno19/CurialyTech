@@ -12,7 +12,7 @@ process.env.AGENT_SANDBOX = "none";
 
 type Session = Record<string, any>;
 type Logged = { seq: number; type: string; data: Record<string, any>; created_at: Date };
-const fake = vi.hoisted(() => ({ rows: new Map<string, Session>(), logs: new Map<string, Logged[]>(), unexpected: [] as string[], messages: [] as string[], role: "admin", available: 0, queue: [] as Record<string, any>[] }));
+const fake = vi.hoisted(() => ({ rows: new Map<string, Session>(), logs: new Map<string, Logged[]>(), unexpected: [] as string[], messages: [] as string[], role: "admin", available: 0, queue: [] as Record<string, any>[], skills: [] as { id: string; user_id: string; name: string; body: string; updated_at: Date }[] }));
 const ACTIVE = ["queued", "running", "cancelling"];
 
 /** curialy.queued_followups (queue.ts), statement by statement. */
@@ -101,7 +101,7 @@ function answer(text: string, values: any[]): { rows: any[]; rowCount?: number }
 
   if (text.startsWith("INSERT INTO curialy.chat_sessions")) {
     const [id, , prompt, mode, modelId, effort, webSearch, format, team, runId, workerId] = values;
-    fake.rows.set(id, { ...blankSession(id), prompt, status: "queued", mode, model: modelId, effort, web_search: webSearch, conversation_format: format, team, run_id: runId, attempt: 1, worker_id: workerId, lease_expires_at: new Date(Date.now() + 45_000), status_reason: "prompt" });
+    fake.rows.set(id, { ...blankSession(id), prompt, status: "queued", mode, model: modelId, effort, web_search: webSearch, conversation_format: format, team, run_id: runId, attempt: 1, worker_id: workerId, lease_expires_at: new Date(Date.now() + 45_000), status_reason: "prompt", skill_ids: Array.isArray(values[11]) ? values[11] : [] });
     return { rows: [], rowCount: 1 };
   }
   if (text.startsWith("SELECT id, prompt, status")) return { rows: row ? [{ ...row }] : [] };
@@ -177,6 +177,10 @@ function answer(text: string, values: any[]): { rows: any[]; rowCount?: number }
   if (text.startsWith("INSERT INTO curialy.messages")) { fake.messages.push(`${values[1]}: ${values[2]}`); return { rows: [], rowCount: 1 }; }
   // Every task here is the operator's.
   if (text.startsWith("SELECT user_id FROM curialy.chat_sessions WHERE id = $1")) return { rows: row ? [{ user_id: "admin" }] : [] };
+  if (text.includes("FROM curialy.user_skills")) {
+    const ids = Array.isArray(values[1]) ? values[1] as string[] : null;
+    return { rows: fake.skills.filter(skill => skill.user_id === values[0] && (ids === null || ids.includes(skill.id))).map(skill => ({ id: skill.id, name: skill.name, body: skill.body, updated_at: skill.updated_at })) };
+  }
   if (text.startsWith("SELECT role FROM curialy.users WHERE id = $1")) return { rows: [{ role: fake.role }] };
   fake.unexpected.push(text.slice(0, 120));
   return { rows: [], rowCount: 0 };
@@ -268,7 +272,7 @@ function blankSession(id: string): Session {
     id, prompt: "", status: "queued", mode: "agent", model: "claude-sonnet-4-5", effort: "medium", web_search: false, phase: null, answer: null, error: null,
     usage: { inputTokens: 0, outputTokens: 0, thinkingTokens: 0 }, files_changed: 0, workspace_state: "none", github_repo: null, github_repo_url: null, github_pushed_at: null,
     github_mode: null, github_branch: null, team: false, created_at: new Date(), updated_at: new Date(), status_reason: null, status_changed_at: new Date(), started_at: null,
-    finished_at: null, run_id: null, attempt: 0, cancel_requested_at: null, outcome: null, worker_id: null, lease_expires_at: null, conversation: [], conversation_format: "anthropic",
+    finished_at: null, run_id: null, attempt: 0, cancel_requested_at: null, outcome: null, worker_id: null, lease_expires_at: null, conversation: [], conversation_format: "anthropic", skill_ids: [],
   };
 }
 
@@ -327,6 +331,7 @@ beforeEach(() => {
   fake.available = 0;
   fake.unexpected.length = 0;
   fake.messages.length = 0;
+  fake.skills.length = 0;
   for (const spy of Object.values(publish)) spy.mockClear();
 });
 
@@ -896,6 +901,42 @@ describe("a follow-up on another model", () => {
   });
 });
 
+describe("saved skills on a later run", () => {
+  const skillId = "20000000-0000-4000-8000-000000000003";
+
+  it("a follow-up attaches a skill", async () => {
+    const id = seedTask({ status: "completed", status_reason: null, skill_ids: [] });
+    fake.skills.push({ id: skillId, user_id: "admin", name: "Pull requests", body: "Describe the user-visible change.", updated_at: new Date() });
+    model.script = () => [{ type: "text", text: "Opened it." }];
+    await runner.followUp(id, "Open the pull request", [], { skillIds: [skillId] });
+    await finished(id);
+    expect(fake.rows.get(id)?.skill_ids).toEqual([skillId]);
+    expect(model.systems[0].map(block => block.text).join("\n")).toContain("Describe the user-visible change.");
+    expect(fake.unexpected).toEqual([]);
+  });
+
+  it("a retry keeps the skills already on the task", async () => {
+    fake.skills.push({ id: skillId, user_id: "admin", name: "Pull requests", body: "Describe the user-visible change.", updated_at: new Date() });
+    const id = seedTask({ skill_ids: [skillId] });
+    model.script = () => [{ type: "text", text: "Retried it." }];
+    await runner.retryTask(id, { expectedRunId: OLD_RUN });
+    await finished(id);
+    expect(fake.rows.get(id)?.skill_ids).toEqual([skillId]);
+    expect(model.systems[0].map(block => block.text).join("\n")).toContain("Describe the user-visible change.");
+    expect(fake.unexpected).toEqual([]);
+  });
+
+  it("a follow-up can clear the attached skills", async () => {
+    const id = seedTask({ status: "completed", status_reason: null, skill_ids: [skillId] });
+    model.script = () => [{ type: "text", text: "Continued." }];
+    await runner.followUp(id, "Continue without that procedure", [], { skillIds: [] });
+    await finished(id);
+    expect(fake.rows.get(id)?.skill_ids).toEqual([]);
+    expect(model.systems[0].map(block => block.text).join("\n")).not.toContain("Saved skills for this task");
+    expect(fake.unexpected).toEqual([]);
+  });
+});
+
 describe("a follow-up from a stale tab", () => {
   it("does not start when the task moved on to another run", async () => {
     const id = seedTask({ status: "completed", status_reason: null });
@@ -920,6 +961,30 @@ describe("a new task", () => {
     expect(fake.rows.get(id)).toMatchObject({ status: "completed", answer: "Here is your haiku.", attempt: 1 });
     expectWellFormed(id);
     expect(fake.messages).toEqual(["user: Write a haiku about tests", "assistant: Here is your haiku."]);
+    expect(fake.unexpected).toEqual([]);
+  });
+
+  it("follows a saved skill even when the task has no repository", async () => {
+    const skillId = "20000000-0000-4000-8000-000000000001";
+    fake.skills.push({ id: skillId, user_id: "admin", name: "How to run tests", body: "Run pnpm test. Leave billing alone.", updated_at: new Date() });
+    model.script = () => [{ type: "text", text: "Ran the suite." }];
+    const id = await runner.startTask({ prompt: "Check the tests", model: "claude-sonnet-4-5", mode: "agent", effort: "medium", webSearch: false, attachmentIds: [], team: false, skillIds: [skillId] }, []);
+    await finished(id);
+    expect(fake.rows.get(id)?.skill_ids).toEqual([skillId]);
+    expect(fake.rows.get(id)?.github_repo ?? null).toBeNull();
+    const system = model.systems[0].map(block => block.text).join("\n");
+    expect(system).toContain("### How to run tests");
+    expect(system).toContain("Run pnpm test. Leave billing alone.");
+    expect(system).toContain("no repository note");
+    expect(JSON.stringify(model.params[0].messages)).not.toContain("Run pnpm test. Leave billing alone.");
+    expect(fake.logs.get(id)?.some(entry => entry.type === "notice" && String(entry.data.message).includes("How to run tests"))).toBe(true);
+    expect(fake.unexpected).toEqual([]);
+  });
+
+  it("refuses a skill that is not on the account and does not create the task", async () => {
+    const before = fake.rows.size;
+    await expect(runner.startTask({ prompt: "Check the tests", model: "claude-sonnet-4-5", mode: "agent", effort: "medium", webSearch: false, attachmentIds: [], team: false, skillIds: ["20000000-0000-4000-8000-000000000002"] }, [])).rejects.toThrow(/not on this account/);
+    expect(fake.rows.size).toBe(before);
     expect(fake.unexpected).toEqual([]);
   });
 });

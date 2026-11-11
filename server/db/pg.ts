@@ -510,6 +510,25 @@ const MIGRATIONS: { id: number; sql: string }[] = [
       );
     `,
   },
+  {
+    id: 17,
+    sql: `
+      -- Procedures an account writes once and attaches to any task. Separate from a repository note.
+      CREATE TABLE IF NOT EXISTS curialy.user_skills (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id uuid NOT NULL REFERENCES curialy.users(id) ON DELETE CASCADE,
+        name text NOT NULL,
+        body text NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        CONSTRAINT user_skills_name_len CHECK (char_length(name) BETWEEN 1 AND 80),
+        CONSTRAINT user_skills_body_len CHECK (char_length(body) BETWEEN 1 AND 2000)
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS user_skills_name_idx ON curialy.user_skills (user_id, lower(name));
+      CREATE INDEX IF NOT EXISTS user_skills_user_idx ON curialy.user_skills (user_id, updated_at DESC);
+      ALTER TABLE curialy.chat_sessions ADD COLUMN IF NOT EXISTS skill_ids uuid[] NOT NULL DEFAULT '{}';
+    `,
+  },
 ];
 
 export async function migrate() {

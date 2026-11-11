@@ -314,7 +314,7 @@ export default function TaskWorkspace({ id }: { id: string }) {
 
   const sendFollowUp = useCallback(async (text: string, files: PendingAttachment[], choice: FollowUpChoice) => {
     const clientMessageId = newClientId();
-    const extras = { model: choice.model, repo: choice.repo?.full_name ?? null, repoBranch: choice.repo?.default_branch ?? null, ...(choice.replaceRepo ? { replaceRepo: true } : {}) };
+    const extras = { model: choice.model, repo: choice.repo?.full_name ?? null, repoBranch: choice.repo?.default_branch ?? null, ...(choice.replaceRepo ? { replaceRepo: true } : {}), ...(choice.skillIds !== undefined ? { skillIds: choice.skillIds } : {}) };
     // While a run is active the message waits in the queue and starts by itself when the run ends.
     const queueIt = async () => {
       const result = await agentApi.queue(id, text, files.map(file => file.id), { clientMessageId, ...extras });

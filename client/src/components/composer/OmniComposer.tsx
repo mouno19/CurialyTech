@@ -23,6 +23,7 @@ import { usePresence, useTypewriter } from "@/lib/motion";
 import { AttachmentTray, MAX_ATTACHMENTS, useAttachments } from "@/lib/useAttachments";
 import { insertAtCursor } from "@/lib/insertText";
 import { DictationButton } from "./DictationButton";
+import { readAttachedSkills, SkillPicker, writeAttachedSkills } from "./SkillPicker";
 // The unsent prompt survives a reload, the GitHub sign-in round trip and a hand-off from the homepage.
 import { PREFS_KEY, readDraft, writeDraft } from "@/lib/composerDraft";
 
@@ -300,6 +301,8 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed, examples }: {
   const [focused, setFocused] = useState(false);
   const [submitted, setSubmitted] = useState("");
   const [repo, setRepo] = useState<GitHubRepo | null>(null);
+  const [skillIds, setSkillIds] = useState(readAttachedSkills);
+  const [skillsReady, setSkillsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const attachments = useAttachments();
@@ -382,6 +385,10 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed, examples }: {
   }, [storageDown]);
 
   useEffect(() => {
+    if (skillsReady) writeAttachedSkills(skillIds);
+  }, [skillIds, skillsReady]);
+
+  useEffect(() => {
     if (!seed) return;
     setPrompt(seed.text);
     if ((seed.mode && seed.mode !== prefs.mode) || (seed.team !== undefined && seed.team !== prefs.team)) {
@@ -410,6 +417,7 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed, examples }: {
         attachmentIds: sent,
         repo: agent ? repo?.full_name ?? null : null,
         repoBranch: agent ? repo?.default_branch ?? null : null,
+        ...(skillsReady ? { skillIds } : {}),
       });
       writeDraft("");
       setPrompt("");
@@ -525,6 +533,7 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed, examples }: {
               onWeb={webSearch => update({ webSearch })}
               webReason={webReason}
             />
+            <SkillPicker selected={skillIds} onChange={setSkillIds} onReady={setSkillsReady} />
             <Tip content={attachBlocked ?? "Attach files, or paste or drop them into the box"}>
               <button type="button" className="toggle" aria-label="Attach files" aria-disabled={attachBlocked ? true : undefined} onClick={() => (attachBlocked ? setNote(attachBlocked) : attachments.open())}>
                 {storageDown ? <CloudOff size={14} aria-hidden="true" /> : <Paperclip size={14} aria-hidden="true" />}

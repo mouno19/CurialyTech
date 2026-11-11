@@ -133,3 +133,12 @@ export function selectSkills(input: string, think: boolean, webSearch: boolean):
 export function getSkill(id: string) {
   return SKILLS.find(skill => skill.id === id);
 }
+
+/**
+ * A procedure the account writes once (how tests run, how a pull request is described, which folders
+ * stay untouched). Attached to a task by id, including a repository that has no note yet.
+ * name and body lengths match the database checks on curialy.user_skills.
+ */
+export const SAVED_SKILL_LIMITS = { maxPerAccount: 30, maxPerTask: 8, name: 80, body: 2000 } as const;
+
+export type SavedSkill = { id: string; name: string; body: string; updatedAt: string };

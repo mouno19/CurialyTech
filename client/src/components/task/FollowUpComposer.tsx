@@ -7,6 +7,7 @@ import { cx } from "@/components/common/cx";
 import { IconButton } from "@/components/common/IconButton";
 import { Spinner } from "@/components/common/Spinner";
 import { DictationButton } from "@/components/composer/DictationButton";
+import { SkillPicker } from "@/components/composer/SkillPicker";
 import { ModelPicker } from "@/components/composer/OmniComposer";
 import { RepoSelector } from "@/components/RepoSelector";
 import { errorMessage, type GitHubRepo } from "@/lib/api";
@@ -35,7 +36,7 @@ const REDEPLOY: Partial<Record<TaskStatus, string>> = {
  * What the next message asks for besides its text: null keeps the task's model, or its repository.
  * replaceRepo: the task has another repository and the message switches it to `repo`.
  */
-export type FollowUpChoice = { model: string | null; repo: GitHubRepo | null; replaceRepo: boolean };
+export type FollowUpChoice = { model: string | null; repo: GitHubRepo | null; replaceRepo: boolean; /** set when this message changes the task's skills, including clearing them */ skillIds?: string[] };
 
 export type QueueActions = {
   edit: (itemId: string, prompt: string) => Promise<void>;
@@ -80,6 +81,10 @@ export function FollowUpComposer({ taskId, task, status, onSend, redeploy = fals
   const [note, setNote] = useState("");
   const [model, setModel] = useState<string | null>(null);
   const [repo, setRepo] = useState<GitHubRepo | null>(null);
+  const [skillIds, setSkillIds] = useState<string[]>(task?.skillIds ?? []);
+  const [skillsReady, setSkillsReady] = useState(false);
+  const attachedKey = (task?.skillIds ?? []).join(",");
+  useEffect(() => { setSkillIds(task?.skillIds ?? []); }, [task?.id, attachedKey]);
   const attachments = useAttachments();
   const { status: github } = useGitHub();
   const input = useRef<HTMLTextAreaElement>(null);
@@ -117,7 +122,9 @@ export function FollowUpComposer({ taskId, task, status, onSend, redeploy = fals
     const message = text.trim() || "See the attached file(s).";
     const files = attachments.files.slice();
     const pinned = picked ?? (active && items.some(item => item.model) ? shownModel : null);
-    const choice: FollowUpChoice = { model: active ? pinned : picked, repo: canPickRepo ? repo : null, replaceRepo: canPickRepo && switching };
+    const serverIds = task?.skillIds ?? [];
+    const skillsChanged = skillsReady && (skillIds.length !== serverIds.length || skillIds.some((id, index) => id !== serverIds[index]));
+    const choice: FollowUpChoice = { model: active ? pinned : picked, repo: canPickRepo ? repo : null, replaceRepo: canPickRepo && switching, ...(skillsChanged ? { skillIds } : {}) };
     setSending(true);
     setError(null);
     setDictationError(null);
@@ -185,6 +192,7 @@ export function FollowUpComposer({ taskId, task, status, onSend, redeploy = fals
                 />
               )}
               {canPickRepo && <RepoSelector value={repo?.full_name ?? current} onChange={pickRepo} compact className="omni-repo" clearable={Boolean(repo)} />}
+              <SkillPicker selected={skillIds} onChange={setSkillIds} onReady={setSkillsReady} />
               <button type="button" className="toggle" onClick={attachments.open} disabled={attachments.full} title="Attach files, or paste or drop screenshots into the box">
                 <Paperclip size={14} aria-hidden="true" />
                 <span className="toggle-label">Attach</span>
