@@ -10,9 +10,9 @@ const RUNTIME: Record<string, { status: "live" | "partial"; how: string }> = {
   "web-research": { status: "live", how: "Web toggle: page fetching from the sandbox, the Curialy Live Browser and the Research Agent." },
   coding: { status: "live", how: "Agent mode: file tools, run_command, harness verification and self-healing." },
   "deep-thinking": { status: "live", how: "Visible reasoning with a low · medium · high thinking level on models that support it." },
-  "data-analysis": { status: "partial", how: "Agent mode with Python 3 in the sandbox (install pandas per task)." },
+  "data-analysis": { status: "live", how: "CSV, TSV, JSON and Excel tables are summarized on attach: column types, missing values, and the range and average of each number. analyze_data does the same for any table already in the workspace." },
   writing: { status: "live", how: "Chat mode on any model." },
-  "document-analysis": { status: "partial", how: "Attach text files; they are copied into the task workspace. PDF/DOCX need a parser installed by the agent." },
+  "document-analysis": { status: "live", how: "PDF, Word and PowerPoint files are read on attach when they have a text layer. A scan with no text is reported as unreadable. read_document returns the rest of a long file." },
 };
 
 const STATUS = {
@@ -30,7 +30,7 @@ export default function Skills() {
             <div>
               <span className="eyebrow">Capabilities</span>
               <h2 className="page-title">Skill Store</h2>
-              <p className="page-sub">What tasks can do, and the runtime mechanism behind each skill. {live} of {SKILLS.length} are fully available; partial ones work with the limits noted.</p>
+              <p className="page-sub">What tasks can do, and the runtime mechanism behind each skill. {live === SKILLS.length ? `All ${SKILLS.length} are available.` : `${live} of ${SKILLS.length} are fully available; partial ones work with the limits noted.`}</p>
             </div>
           </header>
           <ul className="cols-3 skill-grid">
