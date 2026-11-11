@@ -1,8 +1,14 @@
+import fs from "node:fs";
+import path from "node:path";
 import zlib from "node:zlib";
+import { chartPathFor, renderColumnChart } from "./chart";
+import { transcribeScannedPdf, type ScanTranscript } from "./scan";
+import { readWorkspaceBytes, writeWorkspaceBytes } from "./sandbox";
 
 // Documents and tables are read here, in the app, so a task can summarize a PDF, a Word file or a
 // spreadsheet without installing a parser or a data library in the sandbox. A scan (a PDF with no
-// text layer) stays unreadable: nothing here invents words that are not in the file.
+// text layer) is rendered to page images and read by a vision model. A table with a numeric column
+// also gets one bar chart from those numbers.
 
 const MAX_ENTRY = 20 * 1024 * 1024;
 const MAX_UNZIPPED = 40 * 1024 * 1024;
@@ -20,6 +26,8 @@ export type FileReading = {
   text: string;
   /** The table summary. Empty for a document. */
   summary: string;
+  /** One chart drawn from the numeric column this summary already computed. */
+  chart?: { png: Buffer; caption: string };
   /** Set when nothing usable could be read. */
   warning?: string;
 };
@@ -101,10 +109,16 @@ export function documentSlice(
   return `${reading.label}. Characters ${start + 1}-${end} of ${text.length.toLocaleString("en-US")}.\n\n${slice}${more}`;
 }
 
+export type ReadOptions = {
+  signal?: AbortSignal;
+  onUsage?: (usage: { model: string; inputTokens: number; outputTokens: number }) => void;
+};
+
 export async function readFileContents(
   filename: string,
   mime: string,
-  bytes: Buffer
+  bytes: Buffer,
+  opts?: ReadOptions
 ): Promise<FileReading | null> {
   const kind = detectKind(filename, mime);
   if (kind === "skip") return null;
@@ -126,7 +140,7 @@ export async function readFileContents(
       warning:
         "Legacy Excel .xls files are not readable. Save the file as .xlsx or .csv and attach that.",
     };
-  if (kind === "pdf") return readPdf(bytes);
+  if (kind === "pdf") return readPdf(bytes, opts);
   if (kind === "docx" || kind === "pptx") return readOffice(kind, bytes);
   if (kind === "xlsx") return readSheet(bytes);
   if (kind === "csv" || kind === "tsv")
@@ -138,35 +152,67 @@ export async function readFileContents(
   return { kind: "text", label: "text file", text, summary: "" };
 }
 
-/** A table summary for analyze_data. `sheet` picks an Excel sheet by name. */
-export async function analyzeFile(
+/** A table summary for analyze_data, plus one chart when a numeric column was computed. `sheet` picks an Excel sheet by name. */
+export async function analyzeTable(
   filename: string,
   mime: string,
   bytes: Buffer,
   sheet?: string
-): Promise<string> {
+): Promise<{ summary: string; chart: { png: Buffer; caption: string } | null }> {
   const kind = detectKind(filename, mime || filename);
   if (kind === "pdf" || kind === "docx" || kind === "pptx" || kind === "doc")
-    return "This is a document, not a table. Use read_document to read it.";
+    return { summary: "This is a document, not a table. Use read_document to read it.", chart: null };
   if (kind === "xls")
-    return "Legacy Excel .xls files are not readable. Save the file as .xlsx or .csv.";
+    return { summary: "Legacy Excel .xls files are not readable. Save the file as .xlsx or .csv.", chart: null };
   if (kind === "xlsx") {
     const grids = xlsxGrids(bytes);
-    if (typeof grids === "string") return grids;
+    if (typeof grids === "string") return { summary: grids, chart: null };
     const wanted = sheet?.trim();
     const grid = wanted
       ? grids.find(item => item.title.toLowerCase() === wanted.toLowerCase())
       : grids[0];
     if (!grid)
-      return `No sheet named "${wanted}". Sheets: ${grids.map(item => item.title).join(", ") || "(none)"}.`;
-    return formatGrid(grid, wanted ? [] : grids.filter(item => item !== grid));
+      return { summary: `No sheet named "${wanted}". Sheets: ${grids.map(item => item.title).join(", ") || "(none)"}.`, chart: null };
+    const described = describeTable(grid, wanted ? [] : grids.filter(item => item !== grid));
+    return { summary: described.summary, chart: described.chart ?? null };
   }
   const reading = await readFileContents(filename, mime, bytes);
-  if (!reading) return "This file is not a CSV, TSV, JSON or Excel table.";
-  if (reading.warning && !reading.summary) return reading.warning;
+  if (!reading) return { summary: "This file is not a CSV, TSV, JSON or Excel table.", chart: null };
+  if (reading.warning && !reading.summary) return { summary: reading.warning, chart: null };
   if (reading.kind !== "table")
-    return "This file is not a CSV, TSV, JSON or Excel table.";
-  return reading.summary;
+    return { summary: "This file is not a CSV, TSV, JSON or Excel table.", chart: null };
+  return { summary: reading.summary, chart: reading.chart ?? null };
+}
+
+export async function analyzeFile(filename: string, mime: string, bytes: Buffer, sheet?: string) {
+  return (await analyzeTable(filename, mime, bytes, sheet)).summary;
+}
+
+/** Draw the chart for each attached table. Called after the run's file snapshot, so the images are part of what the run produced. */
+export async function writeAttachmentCharts(root: string) {
+  let names: string[] = [];
+  try {
+    names = fs.readdirSync(path.join(root, "attachments"));
+  } catch {
+    return [];
+  }
+  const written: string[] = [];
+  for (const name of names) {
+    if (!/\.(csv|tsv|json|xlsx)$/i.test(name) || name.includes("/") || name.includes("\\")) continue;
+    const relative = `attachments/${name}`;
+    try {
+      const file = readWorkspaceBytes(root, relative);
+      if (!file.exists) continue;
+      const table = await analyzeTable(file.relative, "", file.bytes);
+      if (!table.chart) continue;
+      const dest = chartPathFor(file.relative);
+      writeWorkspaceBytes(root, dest, table.chart.png);
+      written.push(dest);
+    } catch (error) {
+      console.error("[reading] chart:", error instanceof Error ? error.message : error);
+    }
+  }
+  return written;
 }
 
 // ---- Office packages (zip of XML) ----
@@ -279,11 +325,13 @@ function readSheet(bytes: Buffer): FileReading {
       summary: "",
       warning: "This spreadsheet has no sheets.",
     };
+  const described = describeTable(grids[0], grids.slice(1));
   return {
     kind: "table",
     label: "Excel spreadsheet",
     text: "",
-    summary: formatGrid(grids[0], grids.slice(1)),
+    summary: described.summary,
+    ...(described.chart ? { chart: described.chart } : {}),
   };
 }
 
@@ -488,7 +536,7 @@ function safeCode(code: number) {
 
 // ---- PDF ----
 
-async function readPdf(bytes: Buffer): Promise<FileReading> {
+async function readPdf(bytes: Buffer, opts?: ReadOptions): Promise<FileReading> {
   if (bytes.length > MAX_PDF_BYTES)
     return {
       kind: "document",
@@ -506,22 +554,19 @@ async function readPdf(bytes: Buffer): Promise<FileReading> {
       warning: "This file is not a PDF.",
     };
   try {
-    const { extractText } = await import("unpdf");
-    const { totalPages, text } = await extractText(new Uint8Array(bytes), {
-      mergePages: true,
-    });
-    const cleaned = clipText(text.replace(/\u0000/g, "").trim(), MAX_TEXT);
-    const label = `PDF, ${totalPages} page${totalPages === 1 ? "" : "s"}`;
-    if (!cleaned)
-      return {
-        kind: "document",
-        label,
-        text: "",
-        summary: "",
-        warning:
-          "No text layer in this PDF. It may be a scan, so the words are not readable.",
-      };
-    return { kind: "document", label, text: cleaned, summary: "" };
+    // One document for the text and, when that is empty, the page images. Opening it again
+    // after the first read is destroyed makes the worker drop the next file.
+    const { extractText, getDocumentProxy } = await import("unpdf");
+    const pdf = await getDocumentProxy(new Uint8Array(bytes));
+    try {
+      const { totalPages, text } = await extractText(pdf, { mergePages: true });
+      const cleaned = clipText(text.replace(/\u0000/g, "").trim(), MAX_TEXT);
+      const label = `PDF, ${totalPages} page${totalPages === 1 ? "" : "s"}`;
+      if (!cleaned) return unreadScan(label, await transcribeScannedPdf(pdf, opts?.signal), opts);
+      return { kind: "document", label, text: cleaned, summary: "" };
+    } finally {
+      await pdf.loadingTask.destroy().catch(() => undefined);
+    }
   } catch (error) {
     console.error(
       "[reading] pdf:",
@@ -536,6 +581,22 @@ async function readPdf(bytes: Buffer): Promise<FileReading> {
         "Could not read this PDF. It may be password-protected or damaged.",
     };
   }
+}
+
+function unreadScan(label: string, scan: ScanTranscript, opts?: ReadOptions): FileReading {
+  if (scan.usage && scan.usage.inputTokens + scan.usage.outputTokens > 0) opts?.onUsage?.(scan.usage);
+  if (scan.text) {
+    return { kind: "document", label: `${label}, read from page images`, text: clipText(scan.text, MAX_TEXT), summary: "" };
+  }
+  return {
+    kind: "document",
+    label,
+    text: "",
+    summary: "",
+    warning: scan.failed
+      ? "No text layer in this PDF. Its page images could not be read."
+      : "No text layer in this PDF. It may be a scan, so the words are not readable.",
+  };
 }
 
 // ---- Tables ----
@@ -557,11 +618,13 @@ function readDelimited(
   const parsed = parseDelimited(text, delimiterOf(text, kind));
   const grid = gridFromRows(filename, parsed.rows);
   grid.truncated = grid.truncated || parsed.truncated;
+  const described = describeTable(grid, []);
   return {
     kind: "table",
     label: `${kind.toUpperCase()} table`,
     text: "",
-    summary: formatGrid(grid, []),
+    summary: described.summary,
+    ...(described.chart ? { chart: described.chart } : {}),
   };
 }
 
@@ -589,11 +652,13 @@ function readJsonTable(filename: string, bytes: Buffer): FileReading {
     return { kind: "text", label: "JSON", text: excerpt, summary: "" };
   }
   if (grids.length === 1) grids[0].title = filename;
+  const described = describeTable(grids[0], grids.slice(1));
   return {
     kind: "table",
     label: "JSON table",
     text: "",
-    summary: formatGrid(grids[0], grids.slice(1)),
+    summary: described.summary,
+    ...(described.chart ? { chart: described.chart } : {}),
   };
 }
 
@@ -823,6 +888,51 @@ function classifyCell(raw: string): {
       return percent ? { kind: "percent", number } : { kind: "number", number };
   }
   return { kind: "text" };
+}
+
+function describeTable(grid: Grid, others: Grid[]) {
+  const summary = formatGrid(grid, others);
+  const chart = chartOf(grid);
+  if (!chart) return { summary };
+  const caption = chart.caption;
+  return { summary: `${summary}\nChart: ${caption}.`, chart: { png: chart.png, caption } };
+}
+
+const CHART_ROWS = 24;
+
+function chartOf(grid: Grid): { png: Buffer; caption: string } | null {
+  const kinds = grid.headers.map((header, index) => columnKind(header, grid.rows.map(row => row[index] ?? "")));
+  const valueIndex = kinds.findIndex(kind => kind === "number" || kind === "percent");
+  if (valueIndex < 0) return null;
+  const labelIndex = kinds.findIndex((kind, index) => index !== valueIndex && (kind === "text" || kind === "date"));
+  const paired: { label: string; value: number }[] = [];
+  for (const row of grid.rows) {
+    const cell = classifyCell(row[valueIndex] ?? "");
+    if (cell.number === undefined) continue;
+    paired.push({ label: labelIndex < 0 ? String(paired.length + 1) : (row[labelIndex] ?? "").trim() || String(paired.length + 1), value: cell.number });
+    if (paired.length >= CHART_ROWS) break;
+  }
+  if (!paired.length) return null;
+  const valueHeader = grid.headers[valueIndex] || "value";
+  const labelHeader = labelIndex < 0 ? "" : grid.headers[labelIndex] || "row";
+  const limited = grid.rows.filter(row => classifyCell(row[valueIndex] ?? "").number !== undefined).length > paired.length;
+  const caption = `${valueHeader}${labelHeader ? ` by ${labelHeader}` : ""}${limited ? `, first ${paired.length} rows` : ""}`;
+  return { png: renderColumnChart({ caption, labels: paired.map(item => item.label), values: paired.map(item => item.value) }), caption };
+}
+
+function columnKind(header: string, values: string[]): CellKind {
+  const cells = values.map(classifyCell);
+  const filled = cells.filter(cell => cell.kind !== "empty");
+  if (!filled.length) return "empty";
+  const counts = new Map<CellKind, number>();
+  for (const cell of filled) counts.set(cell.kind, (counts.get(cell.kind) ?? 0) + 1);
+  const [dominant] = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  if (dominant[1] < filled.length * 0.8) return "text";
+  if (dominant[0] === "number" && /date|time/i.test(header)) {
+    const numbers = filled.map(cell => cell.number!).filter(number => number !== undefined);
+    if (numbers.every(number => number > 20_000 && number < 80_000)) return "date";
+  }
+  return dominant[0];
 }
 
 function formatGrid(grid: Grid, others: Grid[]) {
