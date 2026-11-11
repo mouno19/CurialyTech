@@ -101,6 +101,21 @@ export function readWorkspaceFile(root: string, requested: string) {
   }
 }
 
+/** Raw bytes, for documents and tables. Attachments can be larger than a source file the model edits. */
+export function readWorkspaceBytes(root: string, requested: string, maxBytes = 25 * 1024 * 1024) {
+  const { absolute, relative } = resolveInWorkspace(root, requested);
+  const stat = fs.lstatSync(absolute, { throwIfNoEntry: false });
+  if (!stat) return { exists: false as const, relative, absolute };
+  if (!stat.isFile()) throw new SandboxError(`${relative} is not a regular file.`);
+  if (stat.size > maxBytes) throw new SandboxError(`${relative} is larger than ${maxBytes} bytes.`);
+  const fd = fs.openSync(absolute, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try {
+    return { exists: true as const, relative, absolute, bytes: fs.readFileSync(fd) };
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 export function writeWorkspaceFile(root: string, requested: string, content: string) {
   if (Buffer.byteLength(content) > MAX_FILE_BYTES) throw new SandboxError(`Refusing to write more than ${MAX_FILE_BYTES} bytes.`);
   const { absolute, relative } = resolveInWorkspace(root, requested);

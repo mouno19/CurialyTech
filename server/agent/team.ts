@@ -21,7 +21,7 @@ const PUBLISH_TURNS = 12;
 
 type TeamState = { architect: Anthropic.MessageParam[]; engineer: Anthropic.MessageParam[]; reviewer: Anthropic.MessageParam[]; cycles: number; plans: TeamPlan[]; reviews: TeamReview[] };
 
-const READ_TOOLS = ["list_files", "read_file", "search_files", "web_fetch", "browse", "browser_click", "browser_type", "browser_scroll", "browser_extract", "browser_screenshot", "browser_close"];
+const READ_TOOLS = ["list_files", "read_file", "read_document", "analyze_data", "search_files", "web_fetch", "browse", "browser_click", "browser_type", "browser_scroll", "browser_extract", "browser_screenshot", "browser_close"];
 // Architect and Reviewer run commands read-only: whatever a command changes in the source is reverted
 // (RunContext.readOnly). Cloning the task's repository is setup, not an edit, so the Architect may.
 const ROLE_TOOLS: Record<TeamRole, string[]> = {

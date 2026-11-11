@@ -23,7 +23,8 @@ import { brandText } from "@shared/brand";
 import { storeArtifacts } from "./artifacts";
 import { absoluteAssetWarnings, detectPreviewRoot, previewBaseUrl, registerLiveServer, unregisterLiveServer, waitForPort } from "./preview";
 import type { BrowseResult } from "./browser";
-import { clip, deleteWorkspaceFile, listWorkspaceTree, readWorkspaceFile, resolveInWorkspace, runCommand, SANDBOX_MODE, SandboxError, sandboxPortHost, writeWorkspaceBytes, writeWorkspaceFile } from "./sandbox";
+import { analyzeFile, documentSlice, readFileContents } from "./reading";
+import { clip, deleteWorkspaceFile, listWorkspaceTree, readWorkspaceBytes, readWorkspaceFile, resolveInWorkspace, runCommand, SANDBOX_MODE, SandboxError, sandboxPortHost, writeWorkspaceBytes, writeWorkspaceFile } from "./sandbox";
 import { DEFAULT_VOICE, MAX_EXPRESSIVE_CHARS, MAX_SPEECH_CHARS, VOICES, worstCaseSeconds } from "@shared/voice";
 import { voiceCredits } from "@shared/credits";
 import { speakExpressive, speakStandard, studioConfigured, transcribe, voiceConfigured, VoiceError } from "../voice/engines";
@@ -104,6 +105,8 @@ const schemas = {
   update_plan: z.object({ steps: z.array(z.object({ title: z.string().min(1).max(300), status: z.enum(["pending", "in_progress", "done"]) })).min(1).max(30) }),
   list_files: z.object({ path: z.string().default("."), depth: z.number().int().min(1).max(8).default(3) }),
   read_file: z.object({ path: z.string().min(1), start_line: z.number().int().min(1).optional(), end_line: z.number().int().min(1).optional() }),
+  read_document: z.object({ path: z.string().min(1), start: z.number().int().min(0).default(0), max_chars: z.number().int().min(500).max(40_000).default(12_000) }),
+  analyze_data: z.object({ path: z.string().min(1), sheet: z.string().max(200).optional() }),
   write_file: z.object({ path: z.string().min(1), content: z.string(), append: z.boolean().optional() }),
   edit_file: z.object({ path: z.string().min(1), old_string: z.string().min(1), new_string: z.string(), replace_all: z.boolean().default(false) }),
   delete_file: z.object({ path: z.string().min(1) }),
@@ -182,7 +185,7 @@ const CODING_TOOLS: ToolDef[] = [
   },
   {
     name: "read_file",
-    description: "Read a UTF-8 text file from the workspace, optionally a line range. Output lines are prefixed with line numbers.",
+    description: "Read a UTF-8 text file from the workspace, optionally a line range. Output lines are prefixed with line numbers. For a PDF, Word or PowerPoint file use read_document; for a CSV, JSON or Excel table use analyze_data.",
     input_schema: { type: "object", properties: { path: { type: "string" }, start_line: { type: "integer" }, end_line: { type: "integer" } }, required: ["path"] },
   },
   {
@@ -211,6 +214,19 @@ const CODING_TOOLS: ToolDef[] = [
       ? "Run a bash command in the workspace, inside this task's own Linux sandbox (Debian 12, Node 20, npm, Python 3.11, git, passwordless sudo; internet access). stdout/stderr stream live to the user. Use for installs, builds, typechecks, linters and tests."
       : "Run a bash command in the workspace as an unprivileged sandbox user (Node 22, npm, Python 3.10 available; internet access, no access to the host). stdout/stderr stream live to the user. Use for installs, builds, typechecks, linters and tests.",
     input_schema: { type: "object", properties: { command: { type: "string" }, timeout_sec: { type: "integer", description: "5-600, default 120" } }, required: ["command"] },
+  },
+];
+
+const INSIGHT_TOOLS: ToolDef[] = [
+  {
+    name: "read_document",
+    description: "Read the text of a PDF, Word (.docx) or PowerPoint (.pptx) file in the workspace, including files under attachments/. A PDF with no text layer (a scan) cannot be read. start is the character offset of a later part (default 0). For a CSV, JSON or Excel file, use analyze_data.",
+    input_schema: { type: "object", properties: { path: { type: "string" }, start: { type: "integer", description: "Character offset, default 0" }, max_chars: { type: "integer", description: "500-40000, default 12000" } }, required: ["path"] },
+  },
+  {
+    name: "analyze_data",
+    description: "Summarize a CSV, TSV, JSON (an array of objects, or one JSON object per line) or Excel (.xlsx) table in the workspace: row and column counts, column types, missing values, and for numbers the min, max, average and median. No package install. sheet selects an Excel sheet by name (default: the first).",
+    input_schema: { type: "object", properties: { path: { type: "string" }, sheet: { type: "string", description: "Excel sheet name" } }, required: ["path"] },
   },
 ];
 
@@ -339,7 +355,7 @@ export function toolsFor(opts: { coding: boolean; web: boolean; eager: boolean; 
 }
 
 function toolList(opts: { coding: boolean; web: boolean; github?: boolean }): ToolDef[] {
-  const tools: ToolDef[] = [];
+  const tools: ToolDef[] = [...INSIGHT_TOOLS];
   if (opts.coding) tools.push(...CODING_TOOLS, ATTACH_TOOL);
   if (opts.github) tools.push(...(opts.coding ? GITHUB_TOOLS : GITHUB_TOOLS.slice(0, 2)), REMEMBER_TOOL);
   if (opts.coding && deployConfigured().ok) tools.push(DEPLOY_TOOL);
@@ -351,6 +367,24 @@ function toolList(opts: { coding: boolean; web: boolean; github?: boolean }): To
     if (PROVIDER_ENV.manusKey) tools.push(DELEGATE_TOOL);
   }
   return tools;
+}
+
+async function readDocumentTool(input: z.infer<typeof schemas.read_document>, ctx: ToolContext): Promise<ToolOutcome> {
+  const file = readWorkspaceBytes(ctx.root, input.path);
+  if (!file.exists) return { ok: false, content: `File not found: ${file.relative}`, summary: "Not found" };
+  const reading = await readFileContents(file.relative, classify(file.relative).mimeType, file.bytes);
+  if (!reading) return { ok: false, content: `${file.relative} is not a PDF, Word, PowerPoint or text file.`, summary: "Not a document" };
+  const content = documentSlice(reading, input.start, input.max_chars);
+  const failed = Boolean(reading.warning && !reading.text && reading.kind !== "table");
+  return { ok: !failed, content: clip(content, 60_000), summary: failed ? reading.warning!.slice(0, 160) : reading.label };
+}
+
+async function analyzeDataTool(input: z.infer<typeof schemas.analyze_data>, ctx: ToolContext): Promise<ToolOutcome> {
+  const file = readWorkspaceBytes(ctx.root, input.path);
+  if (!file.exists) return { ok: false, content: `File not found: ${file.relative}`, summary: "Not found" };
+  const content = await analyzeFile(file.relative, classify(file.relative).mimeType, file.bytes, input.sheet);
+  const failed = /^(This is a document|This file is not|Legacy |Could not|No sheet|This spreadsheet|This file is empty)/.test(content);
+  return { ok: !failed, content: clip(content, 40_000), summary: content.split("\n")[0].slice(0, 160) };
 }
 
 function htmlToText(html: string) {
@@ -406,6 +440,10 @@ async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOu
       const text = entries.length ? entries.map(entry => (entry.type === "dir" ? `${entry.path}/` : `${entry.path} (${entry.size} B)`)).join("\n") : "(empty)";
       return { ok: true, content: text, summary: `${entries.length} entries` };
     }
+    case "read_document":
+      return readDocumentTool(input as z.infer<typeof schemas.read_document>, ctx);
+    case "analyze_data":
+      return analyzeDataTool(input as z.infer<typeof schemas.analyze_data>, ctx);
     case "read_file": {
       const { path, start_line, end_line } = input as z.infer<typeof schemas.read_file>;
       const file = readWorkspaceFile(ctx.root, path);
