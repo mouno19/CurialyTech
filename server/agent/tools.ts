@@ -23,7 +23,8 @@ import { brandText } from "@shared/brand";
 import { storeArtifacts } from "./artifacts";
 import { absoluteAssetWarnings, detectPreviewRoot, previewBaseUrl, registerLiveServer, unregisterLiveServer, waitForPort } from "./preview";
 import type { BrowseResult } from "./browser";
-import { analyzeFile, documentSlice, readFileContents } from "./reading";
+import { chartPathFor } from "./chart";
+import { analyzeTable, documentSlice, readFileContents } from "./reading";
 import { clip, deleteWorkspaceFile, listWorkspaceTree, readWorkspaceBytes, readWorkspaceFile, resolveInWorkspace, runCommand, SANDBOX_MODE, SandboxError, sandboxPortHost, writeWorkspaceBytes, writeWorkspaceFile } from "./sandbox";
 import { DEFAULT_VOICE, MAX_EXPRESSIVE_CHARS, MAX_SPEECH_CHARS, VOICES, worstCaseSeconds } from "@shared/voice";
 import { voiceCredits } from "@shared/credits";
@@ -63,7 +64,7 @@ export type ToolContext = {
  */
 export const OPERATOR_TOOLS = new Set(["deploy_preview", "delegate_research", "browser_click", "browser_type"]);
 
-export type ToolImage = { mediaType: "image/jpeg"; base64: string };
+export type ToolImage = { mediaType: "image/png" | "image/jpeg"; base64: string };
 /** images: screenshots for the model (vision models only); audit: the visual test's design audit, for the harness. */
 /** baseline: files the tool took from the repository as they are (a sync): its state, not this run's work. */
 export type ToolOutcome = { ok: boolean; content: string; summary: string; exitCode?: number | null; images?: ToolImage[]; audit?: DesignAudit | null; baseline?: string[] };
@@ -220,12 +221,12 @@ const CODING_TOOLS: ToolDef[] = [
 const INSIGHT_TOOLS: ToolDef[] = [
   {
     name: "read_document",
-    description: "Read the text of a PDF, Word (.docx) or PowerPoint (.pptx) file in the workspace, including files under attachments/. A PDF with no text layer (a scan) cannot be read. start is the character offset of a later part (default 0). For a CSV, JSON or Excel file, use analyze_data.",
+    description: "Read the text of a PDF, Word (.docx) or PowerPoint (.pptx) file in the workspace, including files under attachments/. A PDF with no text layer is a scan: its page images are sent to a vision model and the words that model reads are returned. start is the character offset of a later part (default 0). For a CSV, JSON or Excel file, use analyze_data.",
     input_schema: { type: "object", properties: { path: { type: "string" }, start: { type: "integer", description: "Character offset, default 0" }, max_chars: { type: "integer", description: "500-40000, default 12000" } }, required: ["path"] },
   },
   {
     name: "analyze_data",
-    description: "Summarize a CSV, TSV, JSON (an array of objects, or one JSON object per line) or Excel (.xlsx) table in the workspace: row and column counts, column types, missing values, and for numbers the min, max, average and median. No package install. sheet selects an Excel sheet by name (default: the first).",
+    description: "Summarize a CSV, TSV, JSON (an array of objects, or one JSON object per line) or Excel (.xlsx) table in the workspace: row and column counts, column types, missing values, and for numbers the min, max, average and median. Also draws one bar chart from the numeric column that summary computed and saves the image. No package install. sheet selects an Excel sheet by name (default: the first).",
     input_schema: { type: "object", properties: { path: { type: "string" }, sheet: { type: "string", description: "Excel sheet name" } }, required: ["path"] },
   },
 ];
@@ -372,7 +373,10 @@ function toolList(opts: { coding: boolean; web: boolean; github?: boolean }): To
 async function readDocumentTool(input: z.infer<typeof schemas.read_document>, ctx: ToolContext): Promise<ToolOutcome> {
   const file = readWorkspaceBytes(ctx.root, input.path);
   if (!file.exists) return { ok: false, content: `File not found: ${file.relative}`, summary: "Not found" };
-  const reading = await readFileContents(file.relative, classify(file.relative).mimeType, file.bytes);
+  const reading = await readFileContents(file.relative, classify(file.relative).mimeType, file.bytes, {
+    signal: ctx.signal,
+    onUsage: usage => ctx.emit({ type: "usage", turn: 0, model: usage.model, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, thinkingTokens: 0, cacheReadTokens: 0 }),
+  });
   if (!reading) return { ok: false, content: `${file.relative} is not a PDF, Word, PowerPoint or text file.`, summary: "Not a document" };
   const content = documentSlice(reading, input.start, input.max_chars);
   const failed = Boolean(reading.warning && !reading.text && reading.kind !== "table");
@@ -382,9 +386,18 @@ async function readDocumentTool(input: z.infer<typeof schemas.read_document>, ct
 async function analyzeDataTool(input: z.infer<typeof schemas.analyze_data>, ctx: ToolContext): Promise<ToolOutcome> {
   const file = readWorkspaceBytes(ctx.root, input.path);
   if (!file.exists) return { ok: false, content: `File not found: ${file.relative}`, summary: "Not found" };
-  const content = await analyzeFile(file.relative, classify(file.relative).mimeType, file.bytes, input.sheet);
-  const failed = /^(This is a document|This file is not|Legacy |Could not|No sheet|This spreadsheet|This file is empty)/.test(content);
-  return { ok: !failed, content: clip(content, 40_000), summary: content.split("\n")[0].slice(0, 160) };
+  const table = await analyzeTable(file.relative, classify(file.relative).mimeType, file.bytes, input.sheet);
+  const failed = /^(This is a document|This file is not|Legacy |Could not|No sheet|This spreadsheet|This file is empty)/.test(table.summary);
+  let content = table.summary;
+  let images: ToolImage[] | undefined;
+  if (table.chart && !failed) {
+    const dest = chartPathFor(file.relative);
+    writeWorkspaceBytes(ctx.root, dest, table.chart.png);
+    ctx.onFileChange(dest);
+    content += `\nChart image: ${dest}.`;
+    if (ctx.vision) images = [{ mediaType: "image/png", base64: table.chart.png.toString("base64") }];
+  }
+  return { ok: !failed, content: clip(content, 40_000), summary: content.split("\n")[0].slice(0, 160), ...(images ? { images } : {}) };
 }
 
 function htmlToText(html: string) {

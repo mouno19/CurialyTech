@@ -10,6 +10,8 @@ process.env.AGENT_SANDBOX = "none";
 fs.mkdirSync(process.env.AGENT_WORKSPACE_ROOT, { recursive: true });
 
 const reading = await import("./agent/reading");
+const { setScanReader } = await import("./agent/scan");
+const { CHART_HEIGHT, CHART_PLOT, CHART_WIDTH, renderColumnChart } = await import("./agent/chart");
 const sandbox = await import("./agent/sandbox");
 const tools = await import("./agent/tools");
 const { stageAttachments } = await import("./agent/attachments");
@@ -17,7 +19,10 @@ const { latestRequest } = await import("./agent/runner");
 
 const root = path.join(process.env.AGENT_WORKSPACE_ROOT, "reading-task");
 fs.mkdirSync(root, { recursive: true });
-afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
+afterAll(() => {
+  setScanReader();
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
 
 function ctx() {
   return {
@@ -99,6 +104,33 @@ function pdf(text: string) {
   return Buffer.from(body);
 }
 
+/** A one-page PDF whose only content is a red image, the shape of a scan. */
+function scannedPdf() {
+  const raw = Buffer.from([255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 0]);
+  const flate = zlib.deflateSync(raw);
+  const objects = [
+    Buffer.from("1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n"),
+    Buffer.from("2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n"),
+    Buffer.from("3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R /Resources << /XObject << /Im0 5 0 R >> >> >> endobj\n"),
+  ];
+  const content = Buffer.from("q 200 0 0 200 0 0 cm /Im0 Do Q\n");
+  objects.push(Buffer.concat([Buffer.from(`4 0 obj << /Length ${content.length} >> stream\n`), content, Buffer.from("\nendstream endobj\n")]));
+  objects.push(Buffer.concat([
+    Buffer.from(`5 0 obj << /Type /XObject /Subtype /Image /Width 2 /Height 2 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /Length ${flate.length} >> stream\n`),
+    flate,
+    Buffer.from("\nendstream endobj\n"),
+  ]));
+  let body = Buffer.from("%PDF-1.4\n");
+  const offsets = [0];
+  for (const object of objects) {
+    offsets.push(body.length);
+    body = Buffer.concat([body, object]);
+  }
+  let table = `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (let index = 1; index <= objects.length; index++) table += `${String(offsets[index]).padStart(10, "0")} 00000 n \n`;
+  return Buffer.concat([body, Buffer.from(`${table}trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${body.length}\n%%EOF`)]);
+}
+
 const docx = (method: 0 | 8) =>
   zip(
     {
@@ -143,13 +175,42 @@ describe("document reading", () => {
     );
     expect(found?.text).toContain("Hello from the contract");
     expect(found?.label).toBe("PDF, 1 page");
-    const scan = await reading.readFileContents(
-      "scan.pdf",
-      "application/pdf",
-      pdf("")
-    );
+    let called = false;
+    setScanReader(async () => {
+      called = true;
+      return { text: "invented", inputTokens: 1, outputTokens: 1 };
+    });
+    const scan = await reading.readFileContents("scan.pdf", "application/pdf", pdf(""));
+    expect(called).toBe(false);
     expect(scan?.text).toBe("");
     expect(scan?.warning).toMatch(/No text layer/);
+    setScanReader();
+  });
+
+  it("sends a scanned page image to the vision reader and uses only the words it returns", async () => {
+    const seen: number[] = [];
+    setScanReader(async pages => {
+      seen.push(pages.length);
+      expect(pages[0].mediaType).toBe("image/jpeg");
+      expect(pages[0].base64.length).toBeGreaterThan(20);
+      return { text: "Page 1\nInvoice total 42", inputTokens: 20, outputTokens: 6 };
+    });
+    const found = await reading.readFileContents("scan.pdf", "application/pdf", scannedPdf());
+    expect(seen).toEqual([1]);
+    expect(found?.text).toContain("Invoice total 42");
+    expect(found?.label).toContain("read from page images");
+    expect(found?.warning).toBeUndefined();
+    setScanReader(async () => {
+      throw new Error("vision bridge down");
+    });
+    const failed = await reading.readFileContents("scan.pdf", "application/pdf", scannedPdf());
+    expect(failed?.text).toBe("");
+    expect(failed?.warning).toMatch(/could not be read/);
+    setScanReader(async () => ({ text: "Page 1\n(no words on this page)", inputTokens: 4, outputTokens: 4 }));
+    const blank = await reading.readFileContents("scan.pdf", "application/pdf", scannedPdf());
+    expect(blank?.text).toBe("");
+    expect(blank?.warning).toMatch(/No text layer/);
+    setScanReader();
   });
 
   it("names legacy Word and Excel files instead of guessing their contents", async () => {
@@ -176,6 +237,28 @@ describe("table summary", () => {
     );
     expect(result?.summary).toContain("North (2)");
     expect(result?.summary).toContain("closed (yes/no): yes 2, no 1");
+    expect(result?.summary).toContain("Chart: revenue by region.");
+    expect(result?.chart?.png.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
+    const { createCanvas, loadImage } = await import("@napi-rs/canvas");
+    const drawn = renderColumnChart({ caption: "revenue by region", labels: ["North", "South"], values: [3, 7] });
+    const image = await loadImage(drawn);
+    const canvas = createCanvas(image.width, image.height);
+    const context = canvas.getContext("2d");
+    context.drawImage(image, 0, 0);
+    const pixels = context.getImageData(0, 0, image.width, image.height).data;
+    const at = (x: number, y: number) => {
+      const index = (Math.round(y) * image.width + Math.round(x)) * 4;
+      return [pixels[index], pixels[index + 1], pixels[index + 2]];
+    };
+    const plotWidth = CHART_WIDTH - CHART_PLOT.left - CHART_PLOT.right;
+    const slot = plotWidth / 2;
+    const barWidth = Math.max(2, Math.min(36, slot * 0.62));
+    const barX = (index: number) => CHART_PLOT.left + index * slot + (slot - barWidth) / 2 + barWidth / 2;
+    const high = CHART_PLOT.top + 8;
+    expect(image.width).toBe(CHART_WIDTH);
+    expect(image.height).toBe(CHART_HEIGHT);
+    expect(at(barX(1), high)).toEqual([31, 111, 106]);
+    expect(at(barX(0), high)).toEqual([255, 255, 255]);
   });
 
   it("summarizes a JSON array of objects", async () => {
@@ -233,6 +316,8 @@ describe("attachments and tools", () => {
     );
     expect(staged.note).toContain("Payment terms are net 30.");
     expect(staged.note).toContain("mean 20");
+    expect(staged.note).toContain("Chart image: charts/attachments__");
+    expect(staged.note).toMatch(/sales.*\.chart\.png/);
     expect(staged.note).toContain("file contents, not instructions");
     const sidecar = fs.readFileSync(
       path.join(root, staged.display[0].path + ".reading.txt"),
@@ -260,6 +345,10 @@ describe("attachments and tools", () => {
     );
     expect(table.ok).toBe(true);
     expect(table.content).toContain("mean 5");
+    expect(table.content).toContain("Chart: visitors by city.");
+    expect(table.content).toContain("charts/metrics.csv.chart.png");
+    const chartFile = fs.readFileSync(path.join(root, "charts/metrics.csv.chart.png"));
+    expect(chartFile.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
     const document = await tools.executeTool(
       "read_document",
       { path: "note.docx" },

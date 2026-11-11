@@ -2,6 +2,7 @@ import { StorageError } from "../media/storage-errors";
 import fs from "node:fs";
 import path from "node:path";
 import { loadMediaBytes } from "../media/snowflake";
+import { chartPathFor } from "./chart";
 import { attachmentReading, readFileContents } from "./reading";
 import { writeWorkspaceBytes, writeWorkspaceFile } from "./sandbox";
 
@@ -75,7 +76,7 @@ export function uniqueAttachmentPath(root: string, filename: string, mediaId: st
 }
 
 /** transcribe: the run offers transcribe_audio (agent mode with voice set up), so recordings can be pointed at it. */
-export async function stageAttachments(root: string, refs: AttachmentRef[], opts: { vision: boolean; transcribe?: boolean; load?: (stagePath: string, mediaId: string) => Promise<Buffer> }) {
+export async function stageAttachments(root: string, refs: AttachmentRef[], opts: { vision: boolean; transcribe?: boolean; signal?: AbortSignal; onUsage?: (usage: { model: string; inputTokens: number; outputTokens: number }) => void; load?: (stagePath: string, mediaId: string) => Promise<Buffer> }) {
   // By id, so a file held in another storage account is reported, not looked up (or marked missing) here.
   const load = opts.load ?? ((_stagePath: string, mediaId: string) => loadMediaBytes(mediaId));
   const display: AttachmentDisplay[] = [];
@@ -99,12 +100,13 @@ export async function stageAttachments(root: string, refs: AttachmentRef[], opts
     writeWorkspaceBytes(root, relative, bytes, MAX_ATTACHMENT_BYTES);
     display.push({ mediaId: ref.id, filename: ref.filename, mimeType: ref.mimeType, sizeBytes: bytes.length, path: relative });
     try {
-      const reading = await readFileContents(ref.filename, ref.mimeType, bytes);
+      const reading = await readFileContents(ref.filename, ref.mimeType, bytes, { signal: opts.signal, onUsage: opts.onUsage });
       if (reading) {
         // The full prose stays next to the file, so a later read_file or read_document can reach past the excerpt.
         if (reading.kind === "document" && reading.text) writeWorkspaceFile(root, `${relative}.reading.txt`, reading.text);
         const block = attachmentReading(relative, reading, readingBudget);
-        readings.push(block.block);
+        const chartLine = reading.chart ? `\nChart image: ${chartPathFor(relative)}.` : "";
+        readings.push(`${block.block}${chartLine}`);
         readingBudget -= block.used;
       }
     } catch (error) {

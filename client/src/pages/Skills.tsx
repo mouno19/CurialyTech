@@ -13,9 +13,9 @@ const RUNTIME: Record<string, { status: "live" | "partial"; how: string }> = {
   "web-research": { status: "live", how: "Web toggle: page fetching from the sandbox, the Curialy Live Browser and the Research Agent." },
   coding: { status: "live", how: "Agent mode: file tools, run_command, harness verification and self-healing." },
   "deep-thinking": { status: "live", how: "Visible reasoning with a low · medium · high thinking level on models that support it." },
-  "data-analysis": { status: "live", how: "CSV, TSV, JSON and Excel tables are summarized on attach: column types, missing values, and the range and average of each number. analyze_data does the same for any table already in the workspace." },
+  "data-analysis": { status: "live", how: "CSV, TSV, JSON and Excel tables are summarized on attach: column types, missing values, and the range and average of each number. One bar chart is drawn from that numeric column. analyze_data does the same for any table already in the workspace." },
   writing: { status: "live", how: "Chat mode on any model." },
-  "document-analysis": { status: "live", how: "PDF, Word and PowerPoint files are read on attach when they have a text layer. A scan with no text is reported as unreadable. read_document returns the rest of a long file." },
+  "document-analysis": { status: "live", how: "PDF, Word and PowerPoint files are read on attach. A scan with no text layer is sent to a vision model as page images, and that reading is what the task sees. read_document returns the rest of a long file." },
 };
 
 const STATUS = {
