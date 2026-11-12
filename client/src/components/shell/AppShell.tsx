@@ -4,12 +4,13 @@ import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Popover from "@radix-ui/react-popover";
 import type { LucideIcon } from "lucide-react";
-import { Activity, ChevronsUpDown, ExternalLink, House, Images, KeyRound, LayoutDashboard, LogOut, Menu, MoreHorizontal, PanelLeftClose, PanelLeftOpen, PlugZap, RefreshCw, ShieldCheck, SquareTerminal, Store, Unplug, Wallet, X, Braces } from "lucide-react";
+import { Activity, ChevronsUpDown, ExternalLink, House, Images, KeyRound, LayoutDashboard, LifeBuoy, LogOut, Menu, MoreHorizontal, PanelLeftClose, PanelLeftOpen, PlugZap, RefreshCw, ShieldCheck, SquareTerminal, Store, Unplug, Wallet, X, Braces } from "lucide-react";
 import { toast } from "sonner";
 import { agentApi, authApi, errorMessage, relativeTime, type ProviderProbe } from "@/lib/api";
 import { needsOperator, useGitHub, useHealth } from "@/lib/appStatus";
 import { useAccount } from "@/lib/account";
 import { CreditsMeter } from "./CreditsMeter";
+import { useSupportUnread } from "@/lib/support";
 import { useIsDesktop } from "@/lib/breakpoints";
 import { CurialyMark, Wordmark } from "@/components/brand/Logo";
 import { Button } from "@/components/common/Button";
@@ -65,15 +66,16 @@ export type AppShellProps = {
 };
 
 /** operator: shown to the operator's account only (the server enforces it too). */
-const NAV: { href: string; label: string; icon: LucideIcon; badge?: boolean; operator?: boolean }[] = [
+const NAV: { href: string; label: string; icon: LucideIcon; badge?: "tasks" | "support"; operator?: boolean }[] = [
   { href: "/", label: "Workspace Dashboard", icon: LayoutDashboard },
-  { href: "/tasks", label: "Live Tasks", icon: Activity, badge: true },
+  { href: "/tasks", label: "Live Tasks", icon: Activity, badge: "tasks" },
   { href: "/sandbox", label: "Code Sandbox", icon: SquareTerminal },
   { href: "/media", label: "Media Vault", icon: Images },
   { href: "/integrations", label: "System Integrations", icon: PlugZap },
   { href: "/skills", label: "Skill Store", icon: Store },
   { href: "/developer", label: "Developer API", icon: Braces },
   { href: "/billing", label: "Plans & Billing", icon: Wallet },
+  { href: "/support", label: "Support", icon: LifeBuoy, badge: "support" },
   { href: "/keys", label: "API Key Manager", icon: KeyRound, operator: true },
   { href: "/admin", label: "Admin", icon: ShieldCheck, operator: true },
 ];
@@ -249,6 +251,7 @@ export function AppShell({ title, crumb, crumbHref, titleAddon, actions, topbarA
 function SidebarBody({ rail, headEnd, onNavigate }: { rail: boolean; headEnd?: ReactNode; onNavigate?: () => void }) {
   const [location] = useLocation();
   const { activeTasks } = useHealth();
+  const supportUnread = useSupportUnread();
   const operator = useAccount().info?.user.role === "admin";
   return (
     <>
@@ -262,7 +265,8 @@ function SidebarBody({ rail, headEnd, onNavigate }: { rail: boolean; headEnd?: R
         <div className="nav-section micro" aria-hidden="true">Workspace</div>
         {NAV.filter(item => !item.operator || operator).map(item => {
           const current = isCurrent(location, item.href);
-          const count = item.badge ? activeTasks : 0;
+          const count = item.badge === "tasks" ? activeTasks : item.badge === "support" ? supportUnread : 0;
+          const badgeWord = item.badge === "support" ? "unread" : "running";
           const link = (
             <Link href={item.href} className="nav-item" aria-current={current ? "page" : undefined} onClick={onNavigate}>
               <item.icon size={17} aria-hidden="true" />
@@ -271,13 +275,13 @@ function SidebarBody({ rail, headEnd, onNavigate }: { rail: boolean; headEnd?: R
                 <span className="nav-badge">
                   <span className="sr-only">, </span>
                   {count}
-                  <span className="sr-only"> running</span>
+                  <span className="sr-only"> {badgeWord}</span>
                 </span>
               )}
             </Link>
           );
           return rail ? (
-            <Tip key={item.href} content={count > 0 ? `${item.label} · ${count} running` : item.label} side="right">
+            <Tip key={item.href} content={count > 0 ? `${item.label} · ${count} ${badgeWord}` : item.label} side="right">
               {link}
             </Tip>
           ) : (

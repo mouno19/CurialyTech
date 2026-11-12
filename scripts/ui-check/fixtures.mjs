@@ -1169,6 +1169,29 @@ export function createFixtures({ now = Date.now(), deployUrls = "vendor" } = {})
     ["GET", "/api/admin/settings", () => ({ json: { settings: { creditsPerWindow: 60, windowHours: 5, signupsOpen: true } } })],
     ["PUT", "/api/admin/settings", () => ({ json: { settings: { creditsPerWindow: 60, windowHours: 5, signupsOpen: true } } })],
     ["POST", "/api/account/redeem", () => ({ status: 400, json: { error: "That code isn't valid.", code: "invalid_code" } })],
+    // Support: one open conversation waiting on a reply, and one already closed.
+    ["GET", "/api/support/unread", () => ({ json: { unread: 1 } })],
+    ["GET", "/api/support/threads", () => ({ json: {
+      unread: 1,
+      threads: [
+        { id: "00000000-0000-4000-8000-0000000000c1", subject: "Preview stayed on building", status: "open", createdAt: minutesAgo(40), updatedAt: minutesAgo(6), preview: "It has said building for twenty minutes.", unread: true, own: false, account: { name: "Ada Lovelace", login: "ada-lovelace" } },
+        { id: "00000000-0000-4000-8000-0000000000c2", subject: "Where welcome credits show", status: "closed", createdAt: minutesAgo(4000), updatedAt: minutesAgo(3000), preview: "They are on Plans & Billing, under your balance.", unread: false, own: false, account: { name: "Grace Hopper", login: "grace-hopper-with-a-long-login" } },
+      ],
+    } })],
+    ["GET", "/api/support/threads/:id", () => ({ json: {
+      unread: 0,
+      thread: {
+        id: "00000000-0000-4000-8000-0000000000c1", subject: "Preview stayed on building", status: "open", createdAt: minutesAgo(40), updatedAt: minutesAgo(6), preview: "It has said building for twenty minutes.", unread: false, own: false, account: { name: "Ada Lovelace", login: "ada-lovelace" },
+        messages: [
+          { id: "00000000-0000-4000-8000-0000000000c3", body: "I published a preview and it still says building.", createdAt: minutesAgo(40), mine: false, fromStaff: false },
+          { id: "00000000-0000-4000-8000-0000000000c4", body: "Builds usually finish within a few minutes. If this one stays on building, start a new preview from the Preview tab.", createdAt: minutesAgo(20), mine: true, fromStaff: true },
+          { id: "00000000-0000-4000-8000-0000000000c5", body: "It has said building for twenty minutes.", createdAt: minutesAgo(6), mine: false, fromStaff: false },
+        ],
+      },
+    } })],
+    ["POST", "/api/support/threads", () => ({ status: 201, json: { unread: 0, thread: { id: "00000000-0000-4000-8000-0000000000c1", subject: "Preview stayed on building", status: "open", createdAt: minutesAgo(1), updatedAt: minutesAgo(1), preview: "It still says building.", unread: false, own: true, account: null, messages: [] } } })],
+    ["POST", "/api/support/threads/:id/messages", () => ({ json: { unread: 0, thread: { id: "00000000-0000-4000-8000-0000000000c1", subject: "Preview stayed on building", status: "open", createdAt: minutesAgo(40), updatedAt: minutesAgo(1), preview: "Thanks, that fixed it.", unread: false, own: false, account: { name: "Ada Lovelace", login: "ada-lovelace" }, messages: [] } } })],
+    ["POST", "/api/support/threads/:id/close", () => ({ json: { unread: 0, thread: { id: "00000000-0000-4000-8000-0000000000c1", subject: "Preview stayed on building", status: "closed", createdAt: minutesAgo(40), updatedAt: minutesAgo(1), preview: "It has said building for twenty minutes.", unread: false, own: false, account: { name: "Ada Lovelace", login: "ada-lovelace" }, messages: [] } } })],
     ["GET", "/api/admin/users/:id/credits", ({ params }) => ({ json: { credits: adminUsers.find(user => user.id === params.id)?.credits ?? freeCredits, history: [] } })],
     ["POST", "/api/admin/users/:id/credits", () => ({ json: { credits: freeCredits } })],
     ["PUT", "/api/admin/users/:id/allowance", () => ({ json: { credits: freeCredits } })],

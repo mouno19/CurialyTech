@@ -62,6 +62,7 @@ export function buildPlan(fx, { viewports = VIEWPORTS, only = null } = {}) {
     { id: "media", path: "/media" },
     { id: "integrations", path: "/integrations" },
     { id: "skills", path: "/skills" },
+    { id: "support", path: "/support" },
     { id: "keys", path: "/keys" },
     // The operator's dashboard (accounts, promo codes, settings).
     { id: "admin", path: "/admin" },
@@ -116,7 +117,7 @@ export function buildPlan(fx, { viewports = VIEWPORTS, only = null } = {}) {
   // The dark theme (the device asks for it: the page follows): every kind of page once wide and once
   // on a phone, and the theme menu itself (opened, never changed: a check never stores a theme).
   const DARK = new Set(["dashboard", "tasks", "task-completed", "task-running", "sandbox", "media", "media-pro", "media-full", "media-select", "media-delete-all",
-    "integrations", "skills", "keys", "admin", "login", "home", "not-found", "billing", "pay-usdt", "pay-review", "developer", "admin-payments", "admin-order", "credits-dialog"]);
+    "integrations", "skills", "support", "keys", "admin", "login", "home", "not-found", "billing", "pay-usdt", "pay-review", "developer", "admin-payments", "admin-order", "credits-dialog"]);
   const darkPages = [...pages, ...vault, ...billing].filter(page => DARK.has(page.id));
   const darkViewports = [viewports.find(viewport => viewport.width >= 1440) ?? viewports[0], viewports.find(viewport => viewport.width > 360 && viewport.width <= PHONE_MAX) ?? viewports[viewports.length - 1]];
   for (const viewport of darkViewports.filter(Boolean)) {

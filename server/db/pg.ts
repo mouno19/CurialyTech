@@ -536,6 +536,35 @@ const MIGRATIONS: { id: number; sql: string }[] = [
       ALTER TABLE curialy.deployments ADD COLUMN IF NOT EXISTS upstream_url text;
     `,
   },
+  {
+    id: 19,
+    sql: `
+      -- One conversation per issue on the Support page. The operator replies in the same thread.
+      CREATE TABLE IF NOT EXISTS curialy.support_threads (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id uuid NOT NULL REFERENCES curialy.users(id) ON DELETE CASCADE,
+        subject text NOT NULL,
+        status text NOT NULL DEFAULT 'open',
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        user_unread boolean NOT NULL DEFAULT false,
+        staff_unread boolean NOT NULL DEFAULT false,
+        CONSTRAINT support_threads_subject_len CHECK (char_length(subject) BETWEEN 1 AND 120),
+        CONSTRAINT support_threads_status CHECK (status IN ('open', 'closed'))
+      );
+      CREATE INDEX IF NOT EXISTS support_threads_user_idx ON curialy.support_threads (user_id, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS support_threads_staff_idx ON curialy.support_threads (updated_at DESC) WHERE staff_unread;
+      CREATE TABLE IF NOT EXISTS curialy.support_messages (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        thread_id uuid NOT NULL REFERENCES curialy.support_threads(id) ON DELETE CASCADE,
+        author_id uuid NOT NULL REFERENCES curialy.users(id) ON DELETE CASCADE,
+        body text NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        CONSTRAINT support_messages_body_len CHECK (char_length(body) BETWEEN 1 AND 4000)
+      );
+      CREATE INDEX IF NOT EXISTS support_messages_thread_idx ON curialy.support_messages (thread_id, created_at, id);
+    `,
+  },
 ];
 
 export async function migrate() {
