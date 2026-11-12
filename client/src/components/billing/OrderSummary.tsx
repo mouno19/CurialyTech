@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import { Check, CircleSlash, CircleX, Clock, TriangleAlert } from "lucide-react";
 import { formatUsd, type PaymentOrder, type PaymentStatus } from "@shared/billing";
+import { TopUpPrice } from "./TopUpPrice";
 import { clockText } from "@/lib/account";
 import { CopyButton } from "./CopyButton";
 import { momentText } from "./format";
@@ -27,15 +28,21 @@ export function OrderSummary({ order, status, secondsLeft, onCopied }: { order: 
         </div>
         <p className="pay-item">{order.title}</p>
         <p className="pay-price">
-          {discounted && (
+          {order.kind === "api" && order.creditUsd !== null && order.creditUsd > order.priceUsd ? (
+            <TopUpPrice paidUsd={order.priceUsd} creditPerUsd={1} worthUsd={order.creditUsd} />
+          ) : (
             <>
-              <s className="pay-price-list"><span className="sr-only">List price </span>{formatUsd(order.listUsd)}</s>
-              <span className="chip">{order.discountPercent}% off</span>
+              {discounted && (
+                <>
+                  <s className="pay-price-list"><span className="sr-only">List price </span>{formatUsd(order.listUsd)}</s>
+                  <span className="chip">{order.discountPercent}% off</span>
+                </>
+              )}
+              <span className="pay-price-paid"><span className="sr-only">{discounted ? "You pay " : "Price "}</span>{formatUsd(order.priceUsd)}</span>
             </>
           )}
-          <span className="pay-price-paid"><span className="sr-only">{discounted ? "You pay " : "Price "}</span>{formatUsd(order.priceUsd)}</span>
         </p>
-        {order.kind === "api" && order.creditUsd !== null && <p className="field-hint">Adds {formatUsd(order.creditUsd)} of API usage at the prices on the Developer API page.</p>}
+        {order.kind === "api" && order.creditUsd !== null && order.creditUsd > order.priceUsd && <p className="field-hint">The crossed price is added to your API balance. You pay the price beside it.</p>}
         {secondsLeft !== null && secondsLeft > 0 && (
           <p className="pay-deadline">
             <Clock size={14} aria-hidden="true" />

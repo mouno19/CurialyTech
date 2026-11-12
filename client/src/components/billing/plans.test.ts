@@ -102,7 +102,7 @@ describe("prices and the offer", () => {
     expect(offerEnd("not a date", date, time)).toBe("limited time");
     expect(offerSentence({ plansPercent: 90, apiPercent: 90, endsAt: null })).toBe("Launch offer on plans and Developer API prices.");
     expect(offerSentence({ plansPercent: 90, apiPercent: 0, endsAt: null })).toBe("Launch offer on plans.");
-    expect(topUpSentence(100)).toBe("$1 paid adds $100 of balance. Requests are charged at the prices on the Developer API page.");
+    expect(topUpSentence(100)).toBe("The crossed price is the balance you receive: $1 paid is shown as $100 crossed out. Requests are charged at the prices on the Developer API page.");
     expect(offerSentence({ plansPercent: 90, apiPercent: 50, endsAt: null })).toBe("Launch offer: 90% off plans, 50% off Developer API prices.");
   });
 

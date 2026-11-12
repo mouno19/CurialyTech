@@ -6,7 +6,6 @@ import { BadgePercent, Check, Copy, Info, KeyRound, Plus, RotateCcw, TriangleAle
 import { toast } from "sonner";
 import { AppShell } from "@/components/shell/AppShell";
 import { TopUpForm } from "@/components/billing/TopUpForm";
-import { topUpSentence } from "@/components/billing/plans";
 import { RankBars, TimeBars, type ChartSeries } from "@/components/charts";
 import { usableTimeZone, viewerTimeZone } from "@/components/charts/scale";
 import { Button } from "@/components/common/Button";
@@ -296,20 +295,20 @@ function useApiUsage(range: UsageRange) {
  * What the available balance (or the smallest top-up, while nothing is available) buys on one model,
  * at its price after the offer. A balance below zero is paid first from the top-up, so it buys less.
  */
-function WhatItBuys({ models, availableMicros, balanceMicros, topUpUsd }: { models: ApiModelPrice[]; availableMicros: number; balanceMicros: number; topUpUsd: number }) {
+function WhatItBuys({ models, availableMicros, balanceMicros, paidUsd, balanceUsd }: { models: ApiModelPrice[]; availableMicros: number; balanceMicros: number; paidUsd: number; balanceUsd: number }) {
   const id = useId();
   const [modelId, setModelId] = useState(models[0].id);
   const model = models.find(entry => entry.id === modelId) ?? models[0];
   const owed = Math.max(0, -balanceMicros);
-  const usd = availableMicros > 0 ? microsToUsd(availableMicros) : topUpUsd - microsToUsd(owed);
+  const usd = availableMicros > 0 ? microsToUsd(availableMicros) : balanceUsd - microsToUsd(owed);
   // What is owed takes all of the smallest top-up: nothing to show.
   if (!(usd > 0)) return null;
   const tokens = (perMillion: number) => (perMillion > 0 ? compact.format(Math.floor((usd / perMillion) * 1_000_000)) : null);
   const output = tokens(model.price.output);
   const input = tokens(model.price.input);
   const label = availableMicros > 0 ? `What ${funds(availableMicros)} buys`
-    : owed > 0 ? `What a ${wholeDollars(topUpUsd)} top-up buys, after the ${owing(owed)} you owe`
-      : `What a ${wholeDollars(topUpUsd)} top-up buys`;
+    : owed > 0 ? `What a ${wholeDollars(paidUsd)} top-up buys, after the ${owing(owed)} you owe`
+      : `What a ${wholeDollars(paidUsd)} top-up buys`;
   return (
     <div className="api-buys">
       <label className="field-label" htmlFor={id}>{label}</label>
@@ -383,7 +382,7 @@ function BalanceCard({ account, error, catalog, onAdd, onRetry }: { account: Bil
         ) : null}
         <p className="field-hint">While a request runs, about the most it could cost is reserved from your balance: its prompt is estimated, so a reply can cost a little more. When it ends you pay for the tokens it used, and the rest is released.</p>
         {error && <p className="api-stale">Couldn't refresh the balance just now: {error}</p>}
-        {catalog && catalog.models.length > 0 && <WhatItBuys models={catalog.models} availableMicros={wallet.availableMicros} balanceMicros={wallet.balanceMicros} topUpUsd={catalog.apiTopup.minUsd} />}
+        {catalog && catalog.models.length > 0 && <WhatItBuys models={catalog.models} availableMicros={wallet.availableMicros} balanceMicros={wallet.balanceMicros} paidUsd={catalog.apiTopup.minUsd} balanceUsd={catalog.apiTopup.minUsd * catalog.apiTopup.creditPerUsd} />}
       </div>
     );
   }
@@ -408,7 +407,7 @@ function AddBalanceDialog({ open, onOpenChange, catalog, error, onRetry }: { ope
       onOpenChange={onOpenChange}
       title="Add balance"
       description={catalog
-        ? `Whole dollars from ${wholeDollars(catalog.apiTopup.minUsd)} to ${wholeDollars(catalog.apiTopup.maxUsd)}, paid in crypto. ${topUpSentence(catalog.apiTopup.creditPerUsd)}`
+        ? `Whole dollars from ${wholeDollars(catalog.apiTopup.minUsd)} to ${wholeDollars(catalog.apiTopup.maxUsd)}, paid in crypto. The crossed price is the balance you receive.`
         : "Top up your API balance with crypto."}
     >
       {catalog ? (

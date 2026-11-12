@@ -145,7 +145,7 @@ export function Footer({ signedIn }: { signedIn: boolean }) {
           <p>curialy<span>.</span></p>
         </Reveal>
         <div className="lp-footer-bottom">
-          <p>© 2026 Curialy AI</p>
+          <p>© 2026 Curialy AI · <Link href="/docs" className="ink-link">Documentation</Link> · <Link href="/docs#terms" className="ink-link">Terms</Link> · <Link href="/docs#privacy" className="ink-link">Privacy</Link></p>
           <p>Made with curiosity, compiled with care.</p>
         </div>
       </div>

@@ -101,37 +101,54 @@
 .topup { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .topup[data-compact] { gap: 10px; }
 .topup-intro { font-size: 13.5px; line-height: 1.55; color: var(--text-2); }
+.topup-deal { display: flex; flex-direction: column; gap: 6px; }
+.topup-deal-caption { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; font: 12px/1.45 var(--font-mono); color: var(--text-3); }
+.topup-price { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+.topup-worth { text-decoration-thickness: 1px; }
+.topup-price-deal .topup-worth { font-size: 18px; font-weight: 500; color: var(--text-3); }
+.topup-price-deal .topup-pay { font-family: var(--font-display); font-size: 44px; font-weight: 400; line-height: 1; letter-spacing: -0.01em; color: var(--text); }
+.topup-price-note { display: flex; width: 100%; margin-bottom: 8px; }
+.topup-price-note .topup-worth { font: 400 1.5rem/1 var(--font-display); color: var(--text-3); }
+.topup-price-note .topup-pay { font: 400 2.6rem/1 var(--font-display); letter-spacing: -0.02em; color: var(--text); }
+.topup-price-choice { flex-direction: column; align-items: flex-start; gap: 3px; }
+.topup-price-choice .topup-worth { font-size: 13px; font-weight: 500; color: var(--text-3); }
+.topup-price-choice .topup-pay { font-family: var(--font-display); font-size: 26px; font-weight: 400; line-height: 1; color: var(--text); }
+.topup[data-compact] .topup-price-deal .topup-pay { font-size: 36px; }
+.topup[data-compact] .topup-price-choice .topup-pay { font-size: 22px; }
 .topup-fieldset { display: flex; flex-direction: column; gap: 12px; min-width: 0; margin: 0; padding: 0; border: 0; }
 /* A legend is not a flex item: it takes its own margin. */
 .topup-fieldset > legend { margin-bottom: 8px; padding: 0; }
-.topup-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.topup-presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
 .topup-preset {
-  display: inline-flex;
-  align-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   justify-content: center;
-  min-width: 56px;
-  height: 34px;
-  padding: 0 14px;
+  min-width: 0;
+  min-height: 72px;
+  padding: 10px 12px;
   border: 1px solid var(--border-strong);
-  border-radius: var(--r-pill);
+  border-radius: var(--r-md);
   background: var(--surface-raised);
   color: var(--text);
-  font-size: 13px;
-  font-weight: 600;
   font-variant-numeric: tabular-nums;
   line-height: 1;
+  text-align: left;
   transition: background-color var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
 }
+.topup-preset-other { align-items: center; font-family: var(--font-display); font-size: 22px; font-weight: 400; }
 .topup-preset:hover:not(:disabled):not([data-state="checked"]) { border-color: var(--ink-soft); background: var(--hover); }
 .topup-preset[data-state="checked"] { border-color: var(--ink); background: var(--ink); color: var(--paper); }
+.topup-preset[data-state="checked"] .topup-worth { color: rgb(var(--paper-rgb) / 0.72); }
+.topup-preset[data-state="checked"] .topup-pay { color: var(--paper); }
 .topup-preset:disabled { opacity: 0.5; }
-.topup[data-compact] .topup-preset { min-width: 48px; height: 30px; padding: 0 11px; font-size: 12.5px; }
+.topup[data-compact] .topup-preset { min-height: 64px; padding: 8px 10px; }
+.topup[data-compact] .topup-preset-other { font-size: 18px; }
 .topup-custom { max-width: 260px; }
 .topup-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 /* Ending a dialog that has no actions row (Add balance on the Developer API page): room under its button. */
 .dialog-body:last-child > .topup:last-child { padding-bottom: 18px; }
 @media (max-width: 639.98px) {
-  .topup-preset, .topup[data-compact] .topup-preset { min-width: 52px; height: 40px; }
   .topup-custom { max-width: none; }
   .topup-actions > .btn { width: 100%; }
 }

@@ -1,13 +1,14 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 import * as RadioGroup from "@radix-ui/react-radio-group";
 import { DollarSign, Info, TriangleAlert, Wallet } from "lucide-react";
 import type { BillingCatalog } from "@shared/billing";
 import { billingApi } from "@/lib/billing";
 import { errorMessage } from "@/lib/api";
 import { Button } from "@/components/common/Button";
-import { formatPrice, topUpSentence } from "./plans";
+import { formatPrice } from "./plans";
 import { parseTopUp } from "./topUp";
+import { TopUpPrice } from "./TopUpPrice";
 
 /**
  * Presets ($5, $10, $25, $50, $100) and a custom whole-dollar amount ($5–$1,000); creates an API top-up order and
@@ -61,11 +62,13 @@ export function TopUpForm({ catalog, compact = false }: { catalog: BillingCatalo
 
   return (
     <form className="topup" data-compact={compact || undefined} onSubmit={event => void submit(event)} noValidate>
-      {!compact && (
-        <p className="topup-intro">
-          {topUpSentence(limits.creditPerUsd)}
+      {amount.ok && (
+        <p className="topup-deal">
+          <TopUpPrice paidUsd={amount.amountUsd} creditPerUsd={limits.creditPerUsd} />
+          <span className="topup-deal-caption">of API balance, at the prices on the Developer API page. <Link href="/docs#api" className="link">How pricing works</Link></span>
         </p>
       )}
+      <p className="topup-intro">The crossed price is the balance you receive. The other price is what you pay.</p>
       <fieldset className="topup-fieldset" disabled={closed}>
         <legend id={ids.legend} className="field-label">Amount</legend>
         <RadioGroup.Root
@@ -80,8 +83,12 @@ export function TopUpForm({ catalog, compact = false }: { catalog: BillingCatalo
             setFailure(null);
           }}
         >
-          {presets.map(preset => <RadioGroup.Item key={preset} value={String(preset)} className="topup-preset">{formatPrice(preset)}</RadioGroup.Item>)}
-          <RadioGroup.Item value="custom" className="topup-preset">Other</RadioGroup.Item>
+          {presets.map(preset => (
+            <RadioGroup.Item key={preset} value={String(preset)} className="topup-preset">
+              <TopUpPrice paidUsd={preset} creditPerUsd={limits.creditPerUsd} variant="choice" />
+            </RadioGroup.Item>
+          ))}
+          <RadioGroup.Item value="custom" className="topup-preset topup-preset-other">Other</RadioGroup.Item>
         </RadioGroup.Root>
         {choice === "custom" && (
           <div className="field topup-custom">
@@ -122,7 +129,7 @@ export function TopUpForm({ catalog, compact = false }: { catalog: BillingCatalo
       {failure && <p className="field-error" role="alert"><TriangleAlert size={14} aria-hidden="true" />{failure}</p>}
       <div className="topup-actions">
         <Button type="submit" variant="primary" icon={Wallet} busy={busy} disabled={closed}>
-          {busy ? "Starting the top-up…" : amount.ok ? `Top up ${formatPrice(amount.amountUsd)}` : "Top up"}
+          {busy ? "Starting the top-up…" : amount.ok ? `Pay ${formatPrice(amount.amountUsd)}` : "Top up"}
         </Button>
         <span className="field-hint">You pay in crypto on the next page.</span>
       </div>

@@ -17,7 +17,7 @@ import { TopUpForm } from "@/components/billing/TopUpForm";
 import { creditCount, dayText, microsText, shortDayText, spendableCredits, spendableMicrosText } from "@/components/billing/format";
 import { shownStatus } from "@/components/billing/orderState";
 import { EarnCredits } from "@/components/billing/EarnCredits";
-import { daysLeftText, formatPrice, freeMultiple, freeTierLines, monthsText, offerBadge, offerSentence, ownAllowance, planAction, planConfigs, planState, topUpSentence, vaultText } from "@/components/billing/plans";
+import { daysLeftText, formatPrice, freeMultiple, freeTierLines, monthsText, offerBadge, offerSentence, ownAllowance, planAction, planConfigs, planState, vaultText } from "@/components/billing/plans";
 
 // Plans & Billing: the account's plan and credits, the 30-day plans, the Developer API balance and
 // its top-ups, credit use over time, the account's orders, and what a payment can be made with.
@@ -154,7 +154,7 @@ export default function Billing() {
               <span className="eyebrow">Plans & Billing</span>
               <h2 className="page-title">More credits, and a balance for the API</h2>
               <p className="page-sub">
-                A plan raises your credits for a set number of days; it's paid once and doesn't renew. The Developer API is paid from a dollar balance you top up. Payments are made in crypto.
+                A plan raises your credits for a set number of days; it's paid once and doesn't renew. The Developer API is paid from a dollar balance you top up. Payments are made in crypto. <Link href="/docs" className="link">Documentation</Link> covers pricing, payments, and the terms.
               </p>
             </div>
           </header>
@@ -162,7 +162,7 @@ export default function Billing() {
           {catalog.data && offer && (
             <div className="bill-offer" role="note">
               <BadgePercent size={18} aria-hidden="true" />
-              <p><strong>{offer}</strong> <span>{offerSentence(catalog.data.discount)} {topUpSentence(catalog.data.apiTopup.creditPerUsd)}</span></p>
+              <p><strong>{offer}</strong> <span>{offerSentence(catalog.data.discount)} A top-up shows the balance crossed out and the price you pay beside it.</span></p>
             </div>
           )}
 
