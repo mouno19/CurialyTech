@@ -18,7 +18,8 @@ const agent = await import(path.join(SHARED, "agent.ts"));
 
 const settings = billing.DEFAULT_BILLING_SETTINGS;
 const plansPercent = billing.discountPercent(settings.discount, "plans");
-const apiPercent = billing.discountPercent(settings.discount, "api");
+// routes.ts bills API usage at the listed prices. The top-up multiple is the offer.
+const apiPercent = 0;
 
 // routes.ts publicNetwork(): what the catalog says about a network.
 const publicNetwork = network => ({
@@ -50,7 +51,7 @@ const out = {
       return { id, name: plan.name, listUsd: plan.priceUsd, priceUsd: billing.discountedUsd(plan.priceUsd, plansPercent), discountPercent: plansPercent, creditsPerWindow: plan.creditsPerWindow, days: plan.days };
     }),
     discount: { plansPercent, apiPercent, endsAt: plansPercent || apiPercent ? settings.discount.endsAt : null },
-    apiTopup: { minUsd: billing.API_TOPUP.minUsd, maxUsd: billing.API_TOPUP.maxUsd, presets: [...billing.API_TOPUP.presets] },
+    apiTopup: { minUsd: billing.API_TOPUP.minUsd, maxUsd: billing.API_TOPUP.maxUsd, presets: [...billing.API_TOPUP.presets], creditPerUsd: billing.API_TOPUP.creditPerUsd },
     networks: billing.PAYMENT_NETWORKS.map(publicNetwork),
     models: gateway.GATEWAY_MODELS.filter(model => billing.API_PRICES[model.id]).map(model => modelPrice(model, apiPercent)),
   },

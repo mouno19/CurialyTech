@@ -103,6 +103,11 @@ export function freeMultiple(creditsPerWindow: number, freeCredits: number) {
 
 type Discount = BillingCatalog["discount"];
 
+/** What a top-up buys: $1 paid adds $100 of balance, spent at the prices on the Developer API page. */
+export function topUpSentence(creditPerUsd: number) {
+  return `${formatPrice(1)} paid adds ${formatPrice(creditPerUsd)} of balance. Requests are charged at the prices on the Developer API page.`;
+}
+
 /** The offer in one line ("90% off plans and Developer API prices"), or null without one. */
 export function offerText(discount: Discount): string | null {
   const plans = discount.plansPercent;

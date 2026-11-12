@@ -73,7 +73,8 @@ export function freeTier(credits: CreditSettings, now = Date.now()): FreeTier {
 export async function billingCatalog(): Promise<BillingCatalog> {
   const [settings, credits] = await Promise.all([getBillingSettings(), getCreditSettings()]);
   const plansPercent = discountPercent(settings.discount, "plans");
-  const apiPercent = discountPercent(settings.discount, "api");
+  // Requests are billed at the prices on the Developer API page. The offer is the top-up: $1 paid adds creditPerUsd of balance.
+  const apiPercent = 0;
   const networks = offeredNetworks();
   return {
     plans: PLAN_IDS.map(id => {
@@ -82,7 +83,7 @@ export async function billingCatalog(): Promise<BillingCatalog> {
     }),
     discount: { plansPercent, apiPercent, endsAt: plansPercent || apiPercent ? settings.discount.endsAt : null },
     free: freeTier(credits),
-    apiTopup: { minUsd: API_TOPUP.minUsd, maxUsd: API_TOPUP.maxUsd, presets: [...API_TOPUP.presets] },
+    apiTopup: { minUsd: API_TOPUP.minUsd, maxUsd: API_TOPUP.maxUsd, presets: [...API_TOPUP.presets], creditPerUsd: API_TOPUP.creditPerUsd },
     paymentsOpen: settings.paymentsOpen && networks.length > 0,
     networks: networks.map(publicNetwork),
     // A model without a price can't be called, so it isn't listed.

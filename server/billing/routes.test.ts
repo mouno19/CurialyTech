@@ -98,9 +98,9 @@ describe("the catalog", () => {
       { id: "max", name: "Max", listUsd: 80, priceUsd: 8, discountPercent: 90, creditsPerWindow: 30000, days: 30 },
     ]);
     expect(body).toMatchObject({
-      discount: { plansPercent: 90, apiPercent: 90, endsAt: null },
+      discount: { plansPercent: 90, apiPercent: 0, endsAt: null },
       free: { welcomeCredits: 60, creditsPerWindow: 0, windowHours: 5, rewards: { followHandle: "Yumiko_web3", followCredits: 240, postCredits: 300, apiUsd: 20, boost: { creditsPerWindow: 300, windowHours: 8, endsAt: null } } },
-      apiTopup: { minUsd: 5, maxUsd: 1000, presets: [5, 10, 25, 50, 100] }, paymentsOpen: true,
+      apiTopup: { minUsd: 5, maxUsd: 1000, presets: [5, 10, 25, 50, 100], creditPerUsd: 100 }, paymentsOpen: true,
     });
     expect(body.networks.map((network: { id: string }) => network.id)).toEqual(["ethereum", "bnb", "polygon", "solana"]);
     expect(body.networks[1]).toEqual({
@@ -115,11 +115,11 @@ describe("the catalog", () => {
     expect(body.models.map((model: { id: string }) => model.id)).toEqual(GATEWAY_MODELS.filter(model => API_PRICES[model.id]).map(model => model.id));
     expect(body.models.find((model: { id: string }) => model.id === "claude-opus-5-5")).toEqual({
       id: "claude-opus-5-5", label: "Claude Opus 5.5", format: "anthropic",
-      list: { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 }, price: { input: 0.4, output: 2, cacheRead: 0.02, cacheWrite: 0.5 }, longContext: null,
+      list: { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 }, price: { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 }, longContext: null,
       contextWindow: 1_000_000, maxOutput: 128_000, maxTokens: { streaming: 64_000, nonStreaming: NON_STREAMING_MAX_TOKENS },
     });
     expect(body.models.find((model: { id: string }) => model.id === "openai-gpt-5.5")).toMatchObject({
-      format: "openai", longContext: { above: 272_000, input: 10, output: 45, cacheRead: 1, cacheWrite: 10, price: { input: 1, output: 4.5, cacheRead: 0.1, cacheWrite: 1 } }, contextWindow: null,
+      format: "openai", longContext: { above: 272_000, input: 10, output: 45, cacheRead: 1, cacheWrite: 10, price: { input: 10, output: 45, cacheRead: 1, cacheWrite: 10 } }, contextWindow: null,
     });
     // Streamed: the model's verified output limit (Grok 4.6 answers at 32K); whole replies: 16,384.
     expect(body.models).toHaveLength(GATEWAY_MODELS.length);
@@ -133,7 +133,7 @@ describe("the catalog", () => {
     let { body } = await call("/api/billing/catalog");
     expect(body.paymentsOpen).toBe(false);
     expect(body.plans.map((plan: { priceUsd: number }) => plan.priceUsd)).toEqual([20, 80]);
-    expect(body.discount).toEqual({ plansPercent: 0, apiPercent: 90, endsAt: null });
+    expect(body.discount).toEqual({ plansPercent: 0, apiPercent: 0, endsAt: null });
     fake.settings.delete("billing");
     resetBillingSettings();
     vi.stubEnv("PAY_EVM_ADDRESS", "");
@@ -172,12 +172,12 @@ describe("the account", () => {
 describe("orders", () => {
   const order = (user: string, body: unknown) => call("/api/billing/orders", { method: "POST", user, body });
 
-  it("are priced on the server: the discount on plans only, top-ups at face value", async () => {
+  it("are priced on the server: the discount on plans only, a top-up credited at 100 times the payment", async () => {
     const plan = await order(ADA, { kind: "plan", planId: "pro", priceUsd: 0.01, discountPercent: 100 });
     expect(plan.status).toBe(201);
     expect(plan.body.order).toMatchObject({ kind: "plan", planId: "pro", listUsd: 20, discountPercent: 90, priceUsd: 2, status: "awaiting_payment", events: [{ status: "awaiting_payment", actor: "customer" }] });
     const topUp = await order(ADA, { kind: "api", amountUsd: 25, priceUsd: 1 });
-    expect(topUp.body.order).toMatchObject({ kind: "api", listUsd: 25, discountPercent: 0, priceUsd: 25, creditUsd: 25 });
+    expect(topUp.body.order).toMatchObject({ kind: "api", listUsd: 25, discountPercent: 0, priceUsd: 25, creditUsd: 2500 });
     // A double click is the same order (200, not a new one).
     const again = await order(ADA, { kind: "plan", planId: "pro" });
     expect(again).toMatchObject({ status: 200, body: { order: { code: plan.body.order.code } } });

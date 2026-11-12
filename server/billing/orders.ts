@@ -245,8 +245,9 @@ const addEvent = (client: PoolClient, orderId: string, from: PaymentStatus | nul
 export type NewOrder = { kind: "plan"; planId: PlanId; months?: number } | { kind: "api"; amountUsd: number };
 
 /**
- * A new order, priced here: a plan at its price less the plan discount, a top-up at face value. A
- * double click gets the same order back (same item, no payment details yet, under 30 minutes old).
+ * A new order, priced here: a plan at its price less the plan discount, a top-up that credits
+ * API_TOPUP.creditPerUsd dollars of balance for each dollar paid. A double click gets the same
+ * order back (same item, including the same credit, no payment details yet, under 30 minutes old).
  */
 export async function createOrder(userId: string, input: NewOrder): Promise<{ order: PaymentOrder; created: boolean }> {
   const settings = await getBillingSettings();
@@ -265,9 +266,9 @@ export async function createOrder(userId: string, input: NewOrder): Promise<{ or
     if (!Number.isInteger(input.amountUsd) || input.amountUsd < API_TOPUP.minUsd || input.amountUsd > API_TOPUP.maxUsd) {
       throw new BillingError(`A top-up is a whole number of dollars from $${API_TOPUP.minUsd} to $${API_TOPUP.maxUsd.toLocaleString("en-US")}.`, "invalid_amount", 400);
     }
-    // $1 paid is $1 of balance: top-ups are never discounted.
+    // The payment is the dollars they send. The balance they receive is that many times creditPerUsd, at the listed token prices.
     listCents = input.amountUsd * 100;
-    creditCents = listCents;
+    creditCents = input.amountUsd * API_TOPUP.creditPerUsd * 100;
   }
   const priceCents = centsOf(discountedUsd(listCents / 100, percent));
   const planId = input.kind === "plan" ? input.planId : null;
@@ -280,8 +281,9 @@ export async function createOrder(userId: string, input: NewOrder): Promise<{ or
     const { rows: [same] } = await client.query<{ id: string }>(
       `SELECT id FROM curialy.payment_orders WHERE user_id = $1 AND status = 'awaiting_payment' AND network IS NULL AND kind = $2 AND plan_id IS NOT DISTINCT FROM $3
          AND list_usd = $4 AND price_usd = $5 AND plan_days IS NOT DISTINCT FROM $6 AND plan_credits_per_window IS NOT DISTINCT FROM $7
-         AND plan_months IS NOT DISTINCT FROM $8 AND created_at > now() - interval '30 minutes' AND expires_at > now() ORDER BY created_at DESC LIMIT 1`,
-      [userId, input.kind, planId, usdText(listCents), usdText(priceCents), planDays, planCredits, months],
+         AND plan_months IS NOT DISTINCT FROM $8 AND credit_usd IS NOT DISTINCT FROM $9
+         AND created_at > now() - interval '30 minutes' AND expires_at > now() ORDER BY created_at DESC LIMIT 1`,
+      [userId, input.kind, planId, usdText(listCents), usdText(priceCents), planDays, planCredits, months, creditCents === null ? null : usdText(creditCents)],
     );
     if (same) return { id: same.id, created: false };
     if ((await ordersInProgress(client, userId)) >= MAX_OPEN_ORDERS) throw tooManyOrders();

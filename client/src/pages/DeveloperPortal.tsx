@@ -6,6 +6,7 @@ import { BadgePercent, Check, Copy, Info, KeyRound, Plus, RotateCcw, TriangleAle
 import { toast } from "sonner";
 import { AppShell } from "@/components/shell/AppShell";
 import { TopUpForm } from "@/components/billing/TopUpForm";
+import { topUpSentence } from "@/components/billing/plans";
 import { RankBars, TimeBars, type ChartSeries } from "@/components/charts";
 import { usableTimeZone, viewerTimeZone } from "@/components/charts/scale";
 import { Button } from "@/components/common/Button";
@@ -407,7 +408,7 @@ function AddBalanceDialog({ open, onOpenChange, catalog, error, onRetry }: { ope
       onOpenChange={onOpenChange}
       title="Add balance"
       description={catalog
-        ? `Whole dollars from ${wholeDollars(catalog.apiTopup.minUsd)} to ${wholeDollars(catalog.apiTopup.maxUsd)}, paid in crypto. Each dollar you pay is a dollar of API balance${catalog.discount.apiPercent > 0 ? "; the offer lowers token prices, not top-ups" : ""}.`
+        ? `Whole dollars from ${wholeDollars(catalog.apiTopup.minUsd)} to ${wholeDollars(catalog.apiTopup.maxUsd)}, paid in crypto. ${topUpSentence(catalog.apiTopup.creditPerUsd)}`
         : "Top up your API balance with crypto."}
     >
       {catalog ? (

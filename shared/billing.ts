@@ -89,7 +89,7 @@ export type DiscountConfig = {
   percent: number;
   /** Applies to plan prices. */
   plans: boolean;
-  /** Applies to Developer API token prices (not to top-ups: $1 paid is $1 of balance). */
+  /** Kept with saved settings. Token prices are the prices on the Developer API page; this flag does not change them. */
   api: boolean;
   /** When it ends (ISO), or null: until the operator turns it off. */
   endsAt: string | null;
@@ -130,8 +130,11 @@ export type BillingSettingsPatch = {
   autoVerify?: boolean;
 };
 
-/** Developer API top-ups, in whole US dollars. */
-export const API_TOPUP = { minUsd: 5, maxUsd: 1000, presets: [5, 10, 25, 50, 100] } as const;
+/**
+ * Developer API top-ups, in whole US dollars.
+ * creditPerUsd: each dollar paid adds this many dollars of balance, spent at the prices on the Developer API page.
+ */
+export const API_TOPUP = { minUsd: 5, maxUsd: 1000, presets: [5, 10, 25, 50, 100], creditPerUsd: 100 } as const;
 
 // ---- Money ----
 
@@ -518,7 +521,7 @@ export type BillingCatalog = {
   /** The offer as it applies right now (percent 0 when it is off or has ended). */
   discount: { plansPercent: number; apiPercent: number; endsAt: string | null };
   free: FreeTier;
-  apiTopup: { minUsd: number; maxUsd: number; presets: number[] };
+  apiTopup: { minUsd: number; maxUsd: number; presets: number[]; creditPerUsd: number };
   /** Payments can be made right now (the operator can pause new orders; a server without wallets has none). */
   paymentsOpen: boolean;
   networks: PublicNetwork[];
