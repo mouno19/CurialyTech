@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import express from "express";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { createSpeechReader, SPEECH_MEDIA_TYPE } from "@shared/voice";
 
 // The agent API mounted on an in-process server (127.0.0.1, ephemeral port), with the database and
 // file storage replaced: what status codes and bodies the client gets when storage misbehaves.
@@ -46,6 +47,10 @@ const credits = vi.hoisted(() => ({
 const voice = vi.hoisted(() => ({
   transcribe: vi.fn(async () => ({ text: "Fix the login page", seconds: 90, language: "en", byParagraph: null })),
   speakStandard: vi.fn(async (text: string) => ({ audio: Buffer.from("ID3audio"), mimeType: "audio/mpeg" as const, characters: text.length, engine: "standard" as const })),
+  speakReadAloud: vi.fn(async function* (text: string) {
+    void text;
+    yield Buffer.from("ID3audio");
+  }),
 }));
 vi.mock("./voice/engines", async importOriginal => ({ ...(await importOriginal<typeof import("./voice/engines")>()), ...voice, voiceConfigured: () => true }));
 vi.mock("./auth", async importOriginal => {
@@ -873,9 +878,10 @@ describe("accounts: each sees only its own", () => {
 });
 
 describe("voice", () => {
-  const dictate = (account: "other" | "admin" = "other") => {
+  const dictate = (account: "other" | "admin" = "other", language?: string) => {
     const body = new FormData();
     body.append("audio", new Blob([new Uint8Array(4096)], { type: "audio/webm" }), "dictation.webm");
+    if (language) body.append("language", language);
     return fetch(`${base}/voice/transcribe`, { method: "POST", body, headers: account === "other" ? { "x-test-account": "other" } : {} });
   };
 
@@ -885,9 +891,21 @@ describe("voice", () => {
     const response = await dictate();
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ text: "Fix the login page", seconds: 90, language: "en" });
-    // No language from the browser: it is detected.
-    expect(voice.transcribe).toHaveBeenCalledWith(expect.any(Buffer), "audio/webm");
+    // No browser language: multilingual, with nothing to bias it toward.
+    expect(voice.transcribe).toHaveBeenCalledWith(expect.any(Buffer), "audio/webm", expect.objectContaining({ language: "multi" }));
+    expect(voice.transcribe.mock.calls[0][2]).not.toHaveProperty("hint");
     expect(credits.charge).toHaveBeenCalledWith("user-b", 0.15, null, "dictation (90 s)");
+  });
+
+  it("passes the browser language as a hint and drops one the engine would reject", async () => {
+    voice.transcribe.mockClear();
+    const hinted = await dictate("other", "en-US");
+    expect(hinted.status).toBe(200);
+    expect(voice.transcribe).toHaveBeenCalledWith(expect.any(Buffer), "audio/webm", expect.objectContaining({ language: "multi", hint: "en-US" }));
+    voice.transcribe.mockClear();
+    const rejected = await dictate("other", "not-a-language");
+    expect(rejected.status).toBe(200);
+    expect(voice.transcribe.mock.calls[0][2]).not.toHaveProperty("hint");
   });
 
   it("refuses a free account without credits before sending any audio", async () => {
@@ -901,21 +919,24 @@ describe("voice", () => {
 
   it("reads an answer aloud for its owner only, and never reads code", async () => {
     scriptTask(session());
-    voice.speakStandard.mockClear();
+    voice.speakReadAloud.mockClear();
     const other = await fetch(`${base}/tasks/${TASK}/speech`, { method: "POST", headers: { "content-type": "application/json", "x-test-account": "other" }, body: JSON.stringify({ text: "Done." }) });
     expect(other.status).toBe(404);
-    expect(voice.speakStandard).not.toHaveBeenCalled();
+    expect(voice.speakReadAloud).not.toHaveBeenCalled();
 
     const own = await fetch(`${base}/tasks/${TASK}/speech`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "It builds.\n```js\nconst secret = 1;\n```" }) });
     expect(own.status).toBe(200);
-    expect(own.headers.get("content-type")).toBe("audio/mpeg");
-    expect(Buffer.from(await own.arrayBuffer()).toString()).toBe("ID3audio");
-    expect(voice.speakStandard.mock.calls[0][0]).toBe("It builds.\n (code omitted)");
+    expect(own.headers.get("content-type")).toBe(SPEECH_MEDIA_TYPE);
+    expect(own.headers.get("x-accel-buffering")).toBe("no");
+    const spoken = createSpeechReader().push(new Uint8Array(await own.arrayBuffer()));
+    expect(spoken.done).toBe(true);
+    expect(Buffer.from(spoken.frames[0]).toString()).toBe("ID3audio");
+    expect(voice.speakReadAloud.mock.calls[0][0]).toBe("It builds.");
 
     // Nothing speakable (an image and a bare link): refused, nothing synthesized or charged.
-    voice.speakStandard.mockClear();
+    voice.speakReadAloud.mockClear();
     const empty = await fetch(`${base}/tasks/${TASK}/speech`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "![shot](a.png) https://example.com" }) });
     expect(empty.status).toBe(400);
-    expect(voice.speakStandard).not.toHaveBeenCalled();
+    expect(voice.speakReadAloud).not.toHaveBeenCalled();
   });
 });

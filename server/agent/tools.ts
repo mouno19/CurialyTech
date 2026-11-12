@@ -263,7 +263,7 @@ const BROWSER_TOOLS: ToolDef[] = [
 const VOICE_TOOLS: ToolDef[] = [
   {
     name: "transcribe_audio",
-    description: "Transcribe an audio or video file in the workspace (mp3, wav, m4a, ogg, flac, webm, mp4, mov) to text with Curialy Voice. Use it for recordings the user attached (under attachments/) and for files you produced. speakers: true labels who said what (meetings, interviews). output_path: also save the transcript there. Language is detected unless you pass a code such as en or es.",
+    description: "Transcribe an audio or video file in the workspace (mp3, wav, m4a, ogg, flac, webm, mp4, mov) to text with Curialy Voice. Use it for recordings the user attached (under attachments/) and for files you produced. speakers: true labels who said what (meetings, interviews). output_path: also save the transcript there. Pass a language code such as en or es when you know it (more accurate). Without one, any supported language is transcribed, including a mix.",
     input_schema: { type: "object", properties: { path: { type: "string" }, language: { type: "string" }, speakers: { type: "boolean" }, output_path: { type: "string" } }, required: ["path"] },
   },
   {
