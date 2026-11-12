@@ -1,5 +1,7 @@
 import { brandText } from "@shared/brand";
-import { voiceSpec } from "@shared/voice";
+import { dictationHint, splitForSpeech, splitReadAloud, voiceSpec } from "@shared/voice";
+
+export { splitForSpeech, splitReadAloud };
 
 // Curialy Voice, on two engines. The standard engine (Deepgram) does almost everything: dictation,
 // transcripts and narration. The studio engine (ElevenLabs) is kept for emotion and voice acting:
@@ -67,11 +69,21 @@ async function studioError(response: Response) {
 
 export type Transcript = { text: string; seconds: number; language: string | null; byParagraph: string | null };
 
-/** A recording to text. `speakers`: label who said what (meetings, interviews). */
-export async function transcribe(audio: Buffer, contentType: string, opts: { language?: string; speakers?: boolean; signal?: AbortSignal } = {}): Promise<Transcript> {
+/**
+ * A recording to text. `speakers`: label who said what (meetings, interviews).
+ * A known language uses that model. Otherwise Nova-3 multilingual is used (no separate detection
+ * pass, and a mix of languages still transcribes). `hint` biases that toward the caller's language.
+ */
+export async function transcribe(audio: Buffer, contentType: string, opts: { language?: string; hint?: string; speakers?: boolean; signal?: AbortSignal } = {}): Promise<Transcript> {
   const params = new URLSearchParams({ model: "nova-3", smart_format: "true", punctuate: "true" });
-  if (opts.language && /^[a-z]{2,3}(-[A-Za-z]{2,4})?$/.test(opts.language)) params.set("language", opts.language);
-  else params.set("detect_language", "true");
+  const requested = (opts.language ?? "").trim();
+  const monolingual = Boolean(requested && requested !== "multi" && /^[a-z]{2,3}(-[a-zA-Z0-9]{2,8}){0,2}$/.test(requested));
+  if (monolingual) params.set("language", requested);
+  else {
+    params.set("language", "multi");
+    const hint = dictationHint(opts.hint);
+    if (hint) params.append("language_hint", hint);
+  }
   if (opts.speakers) {
     params.set("diarize_model", "latest");
     params.set("paragraphs", "true");
@@ -94,10 +106,14 @@ export async function transcribe(audio: Buffer, contentType: string, opts: { lan
   const data: any = await response.json();
   const channel = data?.results?.channels?.[0];
   const alternative = channel?.alternatives?.[0];
+  const languages = alternative?.languages;
+  const heard = typeof channel?.detected_language === "string" && channel.detected_language
+    ? channel.detected_language
+    : Array.isArray(languages) && typeof languages[0] === "string" ? languages[0] : monolingual ? requested : null;
   return {
     text: String(alternative?.transcript ?? "").trim(),
     seconds: Number(data?.metadata?.duration) || 0,
-    language: channel?.detected_language ?? opts.language ?? null,
+    language: heard,
     byParagraph: String(alternative?.paragraphs?.transcript ?? "").trim() || null,
   };
 }
@@ -106,43 +122,43 @@ export async function transcribe(audio: Buffer, contentType: string, opts: { lan
 
 export type Speech = { audio: Buffer; mimeType: "audio/mpeg"; characters: number; engine: "standard" | "studio" };
 
-/** Pieces of at most `max` characters, split at sentence ends (else at spaces). */
-export function splitForSpeech(text: string, max = STANDARD_MAX_CHARS) {
-  const pieces: string[] = [];
-  let rest = text.trim();
-  while (rest.length > max) {
-    const window = rest.slice(0, max);
-    const cut = Math.max(window.lastIndexOf(". "), window.lastIndexOf("! "), window.lastIndexOf("? "), window.lastIndexOf("\n"));
-    const at = cut > max * 0.4 ? cut + 1 : window.lastIndexOf(" ") > max * 0.4 ? window.lastIndexOf(" ") : max;
-    pieces.push(rest.slice(0, at).trim());
-    rest = rest.slice(at).trim();
+async function synthesize(piece: string, voiceId: string, key: string, signal?: AbortSignal) {
+  let response: Response;
+  try {
+    response = await fetch(`${STANDARD_API}/speak?model=aura-2-${voiceId}-en&encoding=mp3`, {
+      method: "POST",
+      headers: { Authorization: `Token ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ text: piece }),
+      signal: within(90_000, signal),
+    });
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    throw new VoiceError("Voice isn't reachable right now. Try again in a moment.", 503, "voice_unavailable");
   }
-  if (rest) pieces.push(rest);
-  return pieces;
+  if (!response.ok) throw await standardError(response);
+  return Buffer.from(await response.arrayBuffer());
 }
 
-/** Natural narration (the default for all speech). MP3. */
+/** Natural narration (the default for all speech). One MP3, for a file the user keeps. */
 export async function speakStandard(text: string, voiceId?: string, signal?: AbortSignal): Promise<Speech> {
   const voice = voiceSpec(voiceId);
   const key = standardKey();
   const parts: Buffer[] = [];
-  for (const piece of splitForSpeech(text)) {
-    let response: Response;
-    try {
-      response = await fetch(`${STANDARD_API}/speak?model=aura-2-${voice.id}-en&encoding=mp3`, {
-        method: "POST",
-        headers: { Authorization: `Token ${key}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ text: piece }),
-        signal: within(90_000, signal),
-      });
-    } catch (error) {
-      if (signal?.aborted) throw error;
-      throw new VoiceError("Voice isn't reachable right now. Try again in a moment.", 503, "voice_unavailable");
-    }
-    if (!response.ok) throw await standardError(response);
-    parts.push(Buffer.from(await response.arrayBuffer()));
-  }
+  for (const piece of splitForSpeech(text, STANDARD_MAX_CHARS)) parts.push(await synthesize(piece, voice.id, key, signal));
   return { audio: Buffer.concat(parts), mimeType: "audio/mpeg", characters: text.length, engine: "standard" };
+}
+
+/**
+ * Read an answer aloud, one piece at a time. The first piece is the opening, so the caller can
+ * play it while the rest is prepared. Each yielded buffer is one complete MP3.
+ */
+export async function* speakReadAloud(text: string, voiceId?: string, signal?: AbortSignal): AsyncGenerator<Buffer> {
+  const voice = voiceSpec(voiceId);
+  const key = standardKey();
+  for (const piece of splitReadAloud(text, STANDARD_MAX_CHARS)) {
+    if (signal?.aborted) throw signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
+    yield await synthesize(piece, voice.id, key, signal);
+  }
 }
 
 // ---- Studio: voices and budget (cached; both lookups are free) ----

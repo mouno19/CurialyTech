@@ -322,32 +322,33 @@ export type Account = { id: string; role: "admin" | "user"; login: string | null
 export type CreditEvent = { kind: "usage" | "grant" | "promo" | "adjust" | "plan" | "welcome" | "reward"; amount: number; detail: string | null; taskId: string | null; at: string };
 export type AccountInfo = { user: Account; credits: CreditBalance; github: { configured: boolean; connected: boolean; login: string | null }; voice?: { available: boolean } };
 
-/** A binary response (audio) with the same error handling as api(). */
-async function apiBlob(path: string, init: RequestInit & { json?: unknown }): Promise<Blob> {
-  const { json, ...rest } = init;
-  let response: Response;
-  try {
-    response = await fetch(path, { credentials: "same-origin", ...rest, headers: { ...(json !== undefined ? { "content-type": "application/json" } : {}), ...(rest.headers ?? {}) }, body: json !== undefined ? JSON.stringify(json) : rest.body });
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") throw error;
-    throw new ApiError("Can't reach the server. Check your connection and try again.", 0, "network");
-  }
-  if (response.ok) return response.blob();
-  if (response.status === 401) window.dispatchEvent(new Event("curialy:unauthorized"));
-  const body = (await response.json().catch(() => ({}))) as { error?: unknown; code?: unknown };
-  throw new ApiError(typeof body.error === "string" && body.error ? body.error : fallbackMessage(response.status), response.status, typeof body.code === "string" ? body.code : undefined, undefined, body);
-}
-
 export const voiceApi = {
-  /** Dictation: a recording to text (charged per audio minute on free accounts). */
+  /** Dictation: a recording to text (charged per audio minute on free accounts). `language` biases the transcript. */
   transcribe: (audio: Blob, language?: string, signal?: AbortSignal) => {
     const body = new FormData();
     body.append("audio", audio, `dictation.${audio.type.includes("mp4") ? "m4a" : audio.type.includes("ogg") ? "ogg" : "webm"}`);
     if (language) body.append("language", language);
     return api<{ text: string; seconds: number; language: string | null }>("/api/agent/voice/transcribe", { method: "POST", body, signal });
   },
-  /** An answer read aloud (MP3). */
-  speech: (taskId: string, text: string, signal?: AbortSignal) => apiBlob(`/api/agent/tasks/${encodeURIComponent(taskId)}/speech`, { method: "POST", json: { text }, signal }),
+  /**
+   * An answer read aloud. The body starts as soon as the opening is spoken (framed MP3 pieces),
+   * so playback doesn't wait for the rest of the answer.
+   */
+  speech: async (taskId: string, text: string, signal?: AbortSignal) => {
+    const path = `/api/agent/tasks/${encodeURIComponent(taskId)}/speech`;
+    let response: Response;
+    try {
+      response = await fetch(path, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ text }), signal });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") throw error;
+      throw unreachable();
+    }
+    if (!response.ok || !response.body) {
+      const data = await response.json().catch(() => ({}));
+      throw failure(response.status, data, response.headers.get("retry-after"), path);
+    }
+    return response.body;
+  },
 };
 
 /** Developer API keys: the secret comes back from create() once and is never shown again. */

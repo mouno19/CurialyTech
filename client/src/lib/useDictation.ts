@@ -45,8 +45,9 @@ export function useDictation(onText: (text: string) => void, onMessage: (message
     setState("transcribing");
     abort.current = new AbortController();
     try {
-      // No language hint: the server detects it (people dictate in languages other than the browser's).
-      const result = await voiceApi.transcribe(blob, undefined, abort.current.signal);
+      // The browser's language biases the transcript. A recording in another language is still heard.
+      const language = typeof navigator !== "undefined" ? navigator.language : "";
+      const result = await voiceApi.transcribe(blob, language || undefined, abort.current.signal);
       void refreshAccount();
       if (result.text) {
         onText(result.text);

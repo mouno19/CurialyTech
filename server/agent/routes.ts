@@ -14,8 +14,8 @@ import { deleteFiles, vaultFullError, vaultState } from "../media/vault";
 import { DELETE_BATCH, MAX_SELECT_IDS, MAX_UPLOAD_BYTES, MEDIA_KINDS, UPLOADS_AT_ONCE, vaultFull, type MediaKind } from "@shared/media";
 import { accountOf, rateLimited, requireAdmin } from "../auth";
 import { charge, getBalance, outOfCreditsMessage } from "../credits";
-import { speakStandard, transcribe, voiceConfigured, VoiceError } from "../voice/engines";
-import { MAX_DICTATION_BYTES, MAX_DICTATION_SECONDS, READ_ALOUD_INPUT_CHARS, READ_ALOUD_MAX_CHARS, speakableText, VOICES, worstCaseSeconds } from "@shared/voice";
+import { speakReadAloud, transcribe, voiceConfigured, VoiceError } from "../voice/engines";
+import { dictationHint, MAX_DICTATION_BYTES, MAX_DICTATION_SECONDS, READ_ALOUD_INPUT_CHARS, READ_ALOUD_MAX_CHARS, SPEECH_MEDIA_TYPE, speakableText, VOICES, worstCaseSeconds } from "@shared/voice";
 import { voiceCredits } from "@shared/credits";
 import { redact, StorageError } from "../media/storage-errors";
 import { isLive, liveChannel } from "./bus";
@@ -924,13 +924,30 @@ export function agentRouter() {
     // Paid for the longest this recording could be, so a low bit rate can't stretch a few credits.
     const release = await voiceAllowed(req, res, voiceCredits({ seconds: worstCaseSeconds(req.file.buffer.length) }));
     if (!release) return;
+    // Leaving the page stops the transcription instead of paying for a recording nobody will read.
+    const abort = new AbortController();
+    let settled = false;
+    res.on("close", () => { if (!settled) abort.abort(); });
     try {
       const user = accountOf(req);
-      // The language is detected: speakers often dictate in a language other than the browser's.
-      const transcript = await transcribe(req.file.buffer, req.file.mimetype || "audio/webm");
+      const raw = req.body?.language;
+      // Multilingual, biased toward the browser's language. A recording in another language is still heard.
+      const hint = dictationHint(typeof raw === "string" ? raw : Array.isArray(raw) ? String(raw[0] ?? "") : undefined);
+      const transcript = await transcribe(req.file.buffer, req.file.mimetype || "audio/webm", { language: "multi", ...(hint ? { hint } : {}), signal: abort.signal });
+      if (abort.signal.aborted) {
+        if (!res.headersSent) res.end();
+        return;
+      }
+      settled = true;
       await charge(user.id, voiceCredits({ seconds: transcript.seconds }), null, `dictation (${Math.round(transcript.seconds)} s)`).catch(error => console.error("[voice] charge:", error instanceof Error ? error.message : error));
       res.setHeader("Cache-Control", "no-store");
       res.json({ text: transcript.text, seconds: transcript.seconds, language: transcript.language });
+    } catch (error) {
+      if (abort.signal.aborted) {
+        if (!res.headersSent) res.end();
+        return;
+      }
+      throw error;
     } finally {
       release();
     }
@@ -950,12 +967,46 @@ export function agentRouter() {
       // The listener left: stop synthesizing (res "close" fires when the connection goes away).
       const abort = new AbortController();
       res.on("close", () => { if (!res.writableFinished) abort.abort(); });
-      const speech = await speakStandard(spoken, input.voice, abort.signal);
-      await charge(accountOf(req).id, voiceCredits({ characters: spoken.length }), task.id, `read aloud (${spoken.length} characters)`).catch(error => console.error("[voice] charge:", error instanceof Error ? error.message : error));
-      res.setHeader("Content-Type", speech.mimeType);
-      res.setHeader("Content-Length", String(speech.audio.length));
-      res.setHeader("Cache-Control", "no-store");
-      res.end(speech.audio);
+      // res.write returns false when the socket buffer is full, not when the write failed.
+      const writeBytes = (payload: Buffer) => {
+        if (res.destroyed || res.writableEnded) return false;
+        res.write(payload);
+        return true;
+      };
+      try {
+        for await (const audio of speakReadAloud(spoken, input.voice, abort.signal)) {
+          if (!audio.length || abort.signal.aborted) break;
+          // The opening is sent as soon as it exists. Later pieces follow on the same response.
+          if (!res.headersSent) {
+            await charge(accountOf(req).id, voiceCredits({ characters: spoken.length }), task.id, `read aloud (${spoken.length} characters)`).catch(error => console.error("[voice] charge:", error instanceof Error ? error.message : error));
+            res.writeHead(200, {
+              "Content-Type": SPEECH_MEDIA_TYPE,
+              "Cache-Control": "no-store, no-transform",
+              "X-Accel-Buffering": "no",
+            });
+            res.flushHeaders();
+          }
+          const header = Buffer.alloc(4);
+          header.writeUInt32BE(audio.length);
+          if (!writeBytes(header) || !writeBytes(audio)) return;
+        }
+        if (abort.signal.aborted) {
+          if (!res.headersSent) res.end();
+          else res.end();
+          return;
+        }
+        if (!res.headersSent) return res.status(400).json({ error: "There's nothing to read aloud in that answer.", code: "empty" });
+        writeBytes(Buffer.alloc(4));
+        res.end();
+      } catch (error) {
+        if (abort.signal.aborted || res.headersSent) {
+          if (!res.headersSent) res.end();
+          else if (!res.writableEnded) res.end();
+          if (!abort.signal.aborted) console.error("[voice] read aloud stopped:", error instanceof Error ? error.message : error);
+          return;
+        }
+        throw error;
+      }
     } finally {
       release();
     }

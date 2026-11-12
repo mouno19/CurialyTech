@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { brandText } from "@shared/brand";
 import { voiceCredits } from "@shared/credits";
-import { speakableText } from "@shared/voice";
+import { createSpeechReader, dictationHint, speakableText } from "@shared/voice";
 
 // Curialy Voice: what each engine is asked for, how its answers and errors come back (never with a
 // provider's name), and the studio budget guard that refuses before anything is spent.
@@ -31,17 +31,30 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 const audio = (bytes = 4) => new Response(new Uint8Array(bytes), { status: 200, headers: { "content-type": "audio/mpeg" } });
 
 describe("transcription (standard engine)", () => {
-  it("sends the bytes with the key, detects the language, and returns text, duration and language", async () => {
-    respond = () => json({ metadata: { duration: 12.5 }, results: { channels: [{ detected_language: "en", alternatives: [{ transcript: " Build a landing page. " }] }] } });
+  it("sends the bytes with the key, transcribes any language, and returns text, duration and language", async () => {
+    respond = () => json({ metadata: { duration: 12.5 }, results: { channels: [{ alternatives: [{ transcript: " Build a landing page. ", languages: ["en"] }] }] } });
     const result = await engines.transcribe(Buffer.from("RIFFdata"), "audio/wav");
     expect(result).toEqual({ text: "Build a landing page.", seconds: 12.5, language: "en", byParagraph: null });
     const [call] = calls;
     expect(call.url).toMatch(/^https:\/\/api\.deepgram\.com\/v1\/listen\?/);
     const params = new URL(call.url).searchParams;
     expect(params.get("model")).toBe("nova-3");
-    expect(params.get("detect_language")).toBe("true");
+    expect(params.get("language")).toBe("multi");
+    expect(params.get("detect_language")).toBeNull();
+    expect(params.get("language_hint")).toBeNull();
     expect((call.init.headers as Record<string, string>).Authorization).toBe("Token dg-test-key");
     expect((call.init.headers as Record<string, string>)["Content-Type"]).toBe("audio/wav");
+  });
+
+  it("biases multilingual dictation toward a known language, and ignores one the engine would reject", async () => {
+    respond = () => json({ metadata: { duration: 1 }, results: { channels: [{ alternatives: [{ transcript: "hola", languages: ["es"] }] }] } });
+    await engines.transcribe(Buffer.from("x"), "audio/webm", { language: "multi", hint: "pt-BR" });
+    expect(new URL(calls[0].url).searchParams.get("language_hint")).toBe("pt");
+    calls = [];
+    await engines.transcribe(Buffer.from("x"), "audio/webm", { language: "multi", hint: "not-a-language" });
+    const params = new URL(calls[0].url).searchParams;
+    expect(params.get("language")).toBe("multi");
+    expect(params.get("language_hint")).toBeNull();
   });
 
   it("labels speakers on request, and uses a given language instead of detecting one", async () => {
@@ -95,6 +108,31 @@ describe("speech", () => {
     expect(pieces.every(piece => piece.length <= 12)).toBe(true);
     expect(pieces.join(" ")).toBe("One. Two three. Four five six.");
   });
+
+  it("speaks the opening of a long answer before the rest, and a short answer as one piece", async () => {
+    respond = () => audio(3);
+    const collected = async (text: string) => {
+      const parts: Buffer[] = [];
+      for await (const part of engines.speakReadAloud(text, "thalia")) parts.push(part);
+      return parts;
+    };
+    calls = [];
+    const short = await collected("It builds.");
+    expect(short).toHaveLength(1);
+    expect(JSON.parse(String(calls[0].init.body)).text).toBe("It builds.");
+
+    calls = [];
+    const long = `${"This sentence adds more words to the opening. ".repeat(8)}And then the rest of the answer keeps going. `.repeat(20);
+    const parts = await collected(long);
+    const spoken = calls.map(call => JSON.parse(String(call.init.body)).text as string);
+    expect(parts).toHaveLength(spoken.length);
+    expect(spoken.length).toBeGreaterThan(1);
+    expect(spoken[0].length).toBeGreaterThanOrEqual(180);
+    expect(spoken[0].length).toBeLessThanOrEqual(320);
+    expect(spoken[0].endsWith(".")).toBe(true);
+    expect(spoken.slice(1).every(piece => piece.length <= 2000)).toBe(true);
+    expect(spoken.join(" ").replace(/ +/g, " ")).toBe(long.trim().replace(/ +/g, " "));
+  });
 });
 
 describe("expressive speech (studio engine)", () => {
@@ -136,8 +174,38 @@ describe("shared voice rules", () => {
   it("reads prose aloud, not code, tables, images or raw links", () => {
     const spoken = speakableText("# Done\nThe **app** builds. See [the docs](https://x.dev).\n```ts\nconst a = 1;\n```\n| a | b |\n|---|---|\n![shot](a.png) Visit https://example.com now.");
     expect(spoken).toContain("The app builds. See the docs.");
-    expect(spoken).toContain("(code omitted)");
-    expect(spoken).not.toMatch(/const a|\| a \||shot|https?:/);
+    expect(spoken).not.toMatch(/code omitted|const a|\| a \||shot|https?:/);
+  });
+
+  it("keeps a short inline name and drops a long one", () => {
+    expect(speakableText("Call `save()` then `" + "x".repeat(90) + "`. Done.")).toBe("Call save() then. Done.");
+  });
+
+  it("biases dictation toward the browser language, including regional tags the model folds back", () => {
+    expect(dictationHint("en-US")).toBe("en-US");
+    expect(dictationHint("EN_gb")).toBe("en-GB");
+    expect(dictationHint("pt-BR")).toBe("pt");
+    expect(dictationHint("zh-Hans-CN")).toBe("zh-CN");
+    expect(dictationHint("zh-Hant-TW")).toBe("zh");
+    expect(dictationHint("es-419")).toBe("es");
+    expect(dictationHint("xx-YY")).toBeNull();
+    expect(dictationHint("")).toBeNull();
+  });
+
+  it("reads speech frames as they arrive, including a length split across chunks, and stops on a broken length", () => {
+    const payload = new TextEncoder().encode("ID3audio");
+    const framed = new Uint8Array(4 + payload.length);
+    new DataView(framed.buffer).setUint32(0, payload.length);
+    framed.set(payload, 4);
+    const reader = createSpeechReader();
+    expect(reader.push(framed.slice(0, 3))).toEqual({ frames: [], done: false });
+    const got = reader.push(framed.slice(3));
+    expect(got.done).toBe(false);
+    expect(new TextDecoder().decode(got.frames[0])).toBe("ID3audio");
+    expect(reader.push(new Uint8Array(4)).done).toBe(true);
+    const broken = new Uint8Array(4);
+    new DataView(broken.buffer).setUint32(0, 9_000_000);
+    expect(() => createSpeechReader().push(broken)).toThrow(/cut off/);
   });
 
   it("stays fast on crafted input (bounded patterns, capped length)", () => {
