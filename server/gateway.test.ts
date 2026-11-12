@@ -6,8 +6,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 // The Developer API end to end over HTTP: keys (create once, list, revoke), key authentication,
 // the model allowlist, failover from the internal bridge to the relay's copy of the model, what
 // never reaches a caller or the log (upstream names, hosts, headers and error texts), and what a
-// request costs: held against the account's API balance while it runs, then charged at list price
-// less the API discount (the operator's usage recorded at no cost).
+// request costs: held against the account's API balance while it runs, then charged at the listed
+// price (the operator's usage recorded at no cost). A top-up credits 100 times the dollars paid.
 
 process.env.CORTEX_BRIDGE_URL = "http://bridge.test";
 process.env.RELAY_API_URL = "https://relay.test";
@@ -239,9 +239,9 @@ describe("the gateway", () => {
     expect(response.headers.get("access-control-allow-origin")).toBe("*");
     for (const name of response.headers.keys()) expect(name).not.toMatch(/snowflake|envoy|^server$/);
     expect(upstream.calls).toEqual([expect.objectContaining({ url: "http://bridge.test/v1/messages", body: expect.objectContaining({ model: "claude-opus-5-5", stream: true }) })]);
-    // 20k in at $4 and 1,250 out at $20 per million: $0.105 at list, $0.0105 after 90% off.
-    await vi.waitFor(() => expect(wallet.records).toEqual([row("bridge-user", key.id, "claude-opus-5-5", [20_000, 1_250], 105_000, 10_500, 90)]));
-    expect(wallet.balances.get("bridge-user")).toBe(10_000_000 - 10_500);
+    // 20k in at $4 and 1,250 out at $20 per million: $0.105 at the listed prices.
+    await vi.waitFor(() => expect(wallet.records).toEqual([row("bridge-user", key.id, "claude-opus-5-5", [20_000, 1_250], 105_000, 105_000, 0)]));
+    expect(wallet.balances.get("bridge-user")).toBe(10_000_000 - 105_000);
     await settled("bridge-user");
   });
 
@@ -307,14 +307,14 @@ describe("the gateway", () => {
     expect(body).toContain('event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}');
     expect(body).toContain("event: message_stop");
     // 10k in, 2,500 out: $0.04 + $0.05 at list.
-    await vi.waitFor(() => expect(wallet.records).toEqual([row("stream-user", key.id, "claude-opus-5-5", [10_000, 2_500], 90_000, 9_000, 90)]));
+    await vi.waitFor(() => expect(wallet.records).toEqual([row("stream-user", key.id, "claude-opus-5-5", [10_000, 2_500], 90_000, 90_000, 0)]));
 
     upstream.bridge = () => stream([{ type: "message_start", message: { id: "m", model: "claude-opus-5-5", usage: { input_tokens: 5 } } }, { type: "error", error: { type: "overloaded_error", message: "Snowflake region us-west-2 overloaded" } }]);
     const failed = await (await call("/v1/messages", secret, { ...ask, stream: true })).text();
     expect(failed).toContain('event: error\ndata: {"type":"error","error":{"type":"api_error","message":"The requested model service is currently unavailable. Please retry shortly."}}');
     expect(failed).not.toMatch(/snowflake|us-west-2/i);
     // What it read before the error is billed: 5 input tokens.
-    await vi.waitFor(() => expect(wallet.records.at(-1)).toEqual(row("stream-user", key.id, "claude-opus-5-5", [5, 0], 20, 2, 90)));
+    await vi.waitFor(() => expect(wallet.records.at(-1)).toEqual(row("stream-user", key.id, "claude-opus-5-5", [5, 0], 20, 20, 0)));
     await settled("stream-user");
   });
 
@@ -365,8 +365,8 @@ describe("the gateway", () => {
       const status = await Promise.race([response.then(answer => answer.status), new Promise<number>(resolve => setTimeout(() => resolve(0), 300))]);
       statuses.push(status);
     }
-    // Each holds 4 input tokens at the cache-write rate and 64 out, after 90% off; 3 + 64 tokens.
-    expect(reservedFor("burst-user")).toEqual({ reservedMicros: 3 * 132, reservedTokens: 3 * 70, requests: 3 });
+    // Each holds 4 input tokens at the cache-write rate and 64 out, at the listed prices; 3 + 64 tokens.
+    expect(reservedFor("burst-user")).toEqual({ reservedMicros: 3 * 1_320, reservedTokens: 3 * 70, requests: 3 });
     gates.forEach(open => open());
     const final = (await Promise.all(pending)).map(answer => answer.status);
     expect(final.filter(status => status === 200)).toHaveLength(3);
@@ -410,7 +410,7 @@ describe("the gateway", () => {
     await reader.cancel();
     left();
     // 1000 in, 25000 out on Opus 5.5: $0.504 at list (not the 10,000 its visible text would suggest).
-    await vi.waitFor(() => expect(wallet.records).toEqual([row("cut-user", key.id, "claude-opus-5-5", [1_000, 25_000], 504_000, 50_400, 90)]));
+    await vi.waitFor(() => expect(wallet.records).toEqual([row("cut-user", key.id, "claude-opus-5-5", [1_000, 25_000], 504_000, 504_000, 0)]));
     await settled("cut-user");
 
     // Unstreamed: the stream is assembled into one message, tool input included.
@@ -458,7 +458,7 @@ describe("the gateway", () => {
     });
     expect(upstream.calls[0]).toMatchObject({ url: "http://bridge.test/v1/chat/completions", body: { model: "grok-4.7", stream: true, stream_options: { include_usage: true }, max_tokens: 4096 } });
     // 20k in at $2 and 1,250 out at $6 per million.
-    await vi.waitFor(() => expect(wallet.records).toEqual([row("chat-user", key.id, "grok-4.7", [20_000, 1_250], 47_500, 4_750, 90)]));
+    await vi.waitFor(() => expect(wallet.records).toEqual([row("chat-user", key.id, "grok-4.7", [20_000, 1_250], 47_500, 47_500, 0)]));
 
     // Streamed without include_usage: cleaned chunks, no usage chunk, [DONE]; the caller's limit is passed on.
     upstream.calls.length = 0;
@@ -528,7 +528,7 @@ describe("the gateway", () => {
     expect(whole.usage).toEqual({ prompt_tokens: 1000, completion_tokens: 200, total_tokens: 4200, prompt_tokens_details: { cached_tokens: 0 }, completion_tokens_details: { reasoning_tokens: 3000 } });
     expect(whole.choices[0].message).toEqual({ role: "assistant", content: null, function_call: { name: "lookup", arguments: '{"q":"Lyon"}' } });
     // 1000 in, 3200 out (4200 - 1000): 1,000 x $1.40 + 3,200 x $4.40 per million.
-    await vi.waitFor(() => expect(wallet.records).toEqual([row("review3-user", key.id, "glm-5.3", [1_000, 3_200], 15_480, 1_548, 90)]));
+    await vi.waitFor(() => expect(wallet.records).toEqual([row("review3-user", key.id, "glm-5.3", [1_000, 3_200], 15_480, 15_480, 0)]));
 
     // A huge response format counts toward what the request could cost.
     wallet.balances.set("review3-user", 10_000);
@@ -536,7 +536,7 @@ describe("the gateway", () => {
     const schema = { type: "json_schema", json_schema: { name: "big", schema: { type: "object", description: "x".repeat(400_000) } } };
     const held = await call("/v1/chat/completions", secret, { model: "kimi-k3", max_tokens: 100, response_format: schema, messages: [{ role: "user", content: "Hi" }] });
     expect(held.status).toBe(402);
-    expect((await held.json()).error).toMatchObject({ type: "insufficient_balance", message: expect.stringMatching(/^This request could cost up to \$0\.04 and \$0\.01 is available\./) });
+    expect((await held.json()).error).toMatchObject({ type: "insufficient_balance", message: expect.stringMatching(/^This request could cost up to \$0\.\d+ and \$0\.01 is available\./) });
     expect(upstream.calls).toEqual([]);
   });
 
@@ -599,24 +599,17 @@ describe("paying for the API", () => {
     expect((await call("/v1/messages", operator, { ...ask, max_tokens: 100_000 })).status).toBe(200);
   });
 
-  it("holds the most a request can cost after the discount, and refuses one the balance cannot cover", async () => {
+  it("holds the most a request can cost at the listed prices, and refuses one the balance cannot cover", async () => {
     const { secret } = await newKey("hold-user");
     wallet.balances.set("hold-user", 10_000);
-    // Opus 5.5 non-streaming at 16,384 tokens: up to $0.0328 after 90% off.
+    // Opus 5.5 non-streaming at 16,384 tokens is about $0.33 at the listed prices.
     const big = await call("/v1/messages", secret, { ...ask, max_tokens: 16_384 });
     expect(big.status).toBe(402);
-    expect((await big.json()).error).toEqual({ type: "insufficient_balance", code: 402, message: "This request could cost up to $0.03 and $0.01 is available. Lower max_tokens or add balance on the Developer API page: https://curialy.tech/developer" });
-    // Without the discount even 1,024 tokens could cost $0.0205.
-    billing.discount = { ...billing.discount, api: false };
-    const listPrice = await call("/v1/messages", secret, ask);
-    expect(listPrice.status).toBe(402);
-    expect((await listPrice.json()).error.message).toMatch(/^This request could cost up to \$0\.02 and \$0\.01 is available\./);
-    // An offer that has ended is no discount either.
-    billing.discount = { percent: 90, plans: true, api: true, endsAt: new Date(Date.now() - 60_000).toISOString() };
-    expect((await call("/v1/messages", secret, ask)).status).toBe(402);
-    expect(upstream.calls).toEqual([]);
-    billing.discount = { percent: 90, plans: true, api: true, endsAt: null };
+    expect((await big.json()).error.message).toMatch(/^This request could cost up to \$0\.33 and \$0\.01 is available\./);
+    // A short request the balance covers goes through. 1,024 tokens is about $0.02.
+    wallet.balances.set("hold-user", 30_000);
     expect((await call("/v1/messages", secret, ask)).status).toBe(200);
+    expect(upstream.calls.length).toBeGreaterThan(0);
     await settled("hold-user");
   });
 
@@ -661,13 +654,13 @@ describe("paying for the API", () => {
   it("holds past the long-context threshold at the long-context rates", async () => {
     const { secret } = await newKey("long-user");
     // About 100K input tokens, plus a quarter: past Haiku 5.5's 100K threshold, so its long-context
-    // cache-write rate holds about $0.0081 (the standard rates would hold $0.0016).
+    // cache-write rate holds about $0.08 (the standard rates would hold about $0.016).
     const long = { model: "claude-haiku-5-5", max_tokens: 1000, messages: [{ role: "user", content: "x".repeat(400_000) }] };
     wallet.balances.set("long-user", 5_000);
     const refused = await call("/v1/messages", secret, long);
     expect(refused.status).toBe(402);
-    expect((await refused.json()).error.message).toMatch(/^This request could cost up to \$0\.0081 and \$0\.005 is available\./);
-    wallet.balances.set("long-user", 9_000);
+    expect((await refused.json()).error.message).toMatch(/^This request could cost up to \$0\.08 and \$0\.005 is available\./);
+    wallet.balances.set("long-user", 100_000);
     expect((await call("/v1/messages", secret, long)).status).toBe(200);
   });
 
@@ -677,8 +670,8 @@ describe("paying for the API", () => {
     upstream.bridge = () => gate.response;
     const running = call("/v1/messages", secret, { ...ask, stream: true });
     await vi.waitFor(() => expect(upstream.calls).toHaveLength(1));
-    // 3 input tokens (estimated) and 1,024 out; up to $0.00205 after the discount.
-    expect(reservedFor("reserve-user")).toEqual({ reservedMicros: 2_052, reservedTokens: 1_030, requests: 1 });
+    // 3 input tokens (estimated) and 1,024 out; about $0.0205 at the listed prices.
+    expect(reservedFor("reserve-user")).toEqual({ reservedMicros: 20_520, reservedTokens: 1_030, requests: 1 });
     gate.open();
     expect((await running).status).toBe(200);
     await (await running).text();
@@ -694,8 +687,8 @@ describe("paying for the API", () => {
 
   it("never lets two requests spend the same balance, even when one was charged after the other read it", async () => {
     const { key, secret } = await newKey("race-user");
-    wallet.balances.set("race-user", 30_000);
-    // A holds $0.020004 (10,000 tokens out) and costs $0.0184 when it ends.
+    wallet.balances.set("race-user", 300_000);
+    // A holds about $0.20 (10,000 tokens out) and costs $0.184 when it ends.
     const first = gated(counted({ input_tokens: 1_000 }, 9_000));
     upstream.bridge = () => first.response;
     const a = call("/v1/messages", secret, { ...ask, max_tokens: 10_000, stream: true });
@@ -703,7 +696,7 @@ describe("paying for the API", () => {
     // While A runs, what is left cannot hold B.
     const blocked = await call("/v1/messages", secret, { ...ask, max_tokens: 10_000, stream: true });
     expect(blocked.status).toBe(402);
-    expect((await blocked.json()).error.message).toMatch(/^This request could cost up to \$0\.02 and \$0\.01 is available\./);
+    expect((await blocked.json()).error.message).toMatch(/^This request could cost up to \$0\.20 and \$0\.10 is available\./);
 
     // B reads the balance before A is charged, and decides after: A's charge still counts.
     let release = () => undefined as void;
@@ -720,12 +713,12 @@ describe("paying for the API", () => {
     first.open();
     expect((await a).status).toBe(200);
     await (await a).text();
-    await vi.waitFor(() => expect(wallet.records).toEqual([row("race-user", key.id, "claude-opus-5-5", [1_000, 9_000], 184_000, 18_400, 90)]));
+    await vi.waitFor(() => expect(wallet.records).toEqual([row("race-user", key.id, "claude-opus-5-5", [1_000, 9_000], 184_000, 184_000, 0)]));
     await vi.waitFor(() => expect(reservedFor("race-user").reservedMicros).toBe(0));
     release();
     const late = await b;
     expect(late.status).toBe(402);
-    expect((await late.json()).error.message).toMatch(/^This request could cost up to \$0\.02 and \$0\.01 is available\./);
+    expect((await late.json()).error.message).toMatch(/^This request could cost up to \$0\.20 and \$0\.1[0-9] is available\./);
     expect(upstream.calls).toHaveLength(1);
     await settled("race-user");
   });
@@ -758,31 +751,30 @@ describe("paying for the API", () => {
 
   it("keeps a finished request's hold until its charge is written", async () => {
     const { secret } = await newKey("slow-charge-user");
-    wallet.balances.set("slow-charge-user", 30_000);
+    wallet.balances.set("slow-charge-user", 300_000);
     let written = () => undefined as void;
     wallet.writing = new Promise<void>(resolve => { written = resolve; });
     upstream.bridge = () => stream(counted({ input_tokens: 1_000 }, 9_000));
     await (await call("/v1/messages", secret, { ...ask, max_tokens: 10_000, stream: true })).text();
     // The reply is done and its slot free; its charge is not written yet, so its hold stays.
-    await vi.waitFor(() => expect(reservedFor("slow-charge-user")).toEqual({ reservedMicros: 20_004, reservedTokens: 10_006, requests: 0 }));
+    await vi.waitFor(() => expect(reservedFor("slow-charge-user")).toEqual({ reservedMicros: 200_040, reservedTokens: 10_006, requests: 0 }));
     const next = await call("/v1/messages", secret, { ...ask, max_tokens: 10_000, stream: true });
     expect(next.status).toBe(402);
     expect(upstream.calls).toHaveLength(1);
     written();
     await settled("slow-charge-user");
-    expect(wallet.balances.get("slow-charge-user")).toBe(30_000 - 18_400);
+    expect(wallet.balances.get("slow-charge-user")).toBe(300_000 - 184_000);
   });
 
-  it("charges Anthropic replies with their cache tokens, whole and streamed, at the discount they were admitted at", async () => {
+  it("charges Anthropic replies with their cache tokens, whole and streamed, at the listed prices", async () => {
     const { key, secret } = await newKey("cache-user");
     upstream.bridge = () => stream(counted({ input_tokens: 100, cache_read_input_tokens: 50_000, cache_creation_input_tokens: 2_000 }, 500));
     // 100 x $4 + 50,000 x $0.20 + 2,000 x $5 + 500 x $20 per million = $0.0304 at list.
     expect((await call("/v1/messages", secret, ask)).status).toBe(200);
-    await vi.waitFor(() => expect(wallet.records).toEqual([row("cache-user", key.id, "claude-opus-5-5", [100, 500, 50_000, 2_000], 30_400, 3_040, 90)]));
-    billing.discount = { ...billing.discount, percent: 0 };
+    await vi.waitFor(() => expect(wallet.records).toEqual([row("cache-user", key.id, "claude-opus-5-5", [100, 500, 50_000, 2_000], 30_400, 30_400, 0)]));
     await (await call("/v1/messages", secret, { ...ask, stream: true })).text();
     await vi.waitFor(() => expect(wallet.records.at(-1)).toEqual(row("cache-user", key.id, "claude-opus-5-5", [100, 500, 50_000, 2_000], 30_400, 30_400, 0)));
-    expect(wallet.balances.get("cache-user")).toBe(10_000_000 - 3_040 - 30_400);
+    expect(wallet.balances.get("cache-user")).toBe(10_000_000 - 30_400 - 30_400);
     // A fully cached prompt (no uncached input) is billed as it was counted, not as an estimate.
     upstream.bridge = () => stream(counted({ input_tokens: 0, cache_read_input_tokens: 8_000 }, 10));
     await (await call("/v1/messages", secret, ask)).text();
@@ -797,7 +789,7 @@ describe("paying for the API", () => {
     ].map(entry => `data: ${JSON.stringify(entry)}\n\n`).join("") + "data: [DONE]\n\n", { status: 200, headers: { "content-type": "text/event-stream" } });
     expect((await call("/v1/chat/completions", secret, { model: "openai-gpt-5.4", messages: [{ role: "user", content: "Hi" }] })).status).toBe(200);
     // 8,000 x $2.50 + 12,000 x $0.25 + 1,250 x $15 per million = $0.04175 at list.
-    await vi.waitFor(() => expect(wallet.records).toEqual([row("cached-chat-user", key.id, "openai-gpt-5.4", [8_000, 1_250, 12_000, 0], 41_750, 4_175, 90)]));
+    await vi.waitFor(() => expect(wallet.records).toEqual([row("cached-chat-user", key.id, "openai-gpt-5.4", [8_000, 1_250, 12_000, 0], 41_750, 41_750, 0)]));
   });
 
   it("never charges the operator, nor checks its balance, but records its usage at list price for its charts", async () => {
@@ -842,7 +834,7 @@ describe("paying for the API", () => {
       const response = await call("/v1/messages", secret, ask);
       expect(response.status).toBe(200);
       expect((await response.json()).content).toEqual([{ type: "text", text: "Hello!" }]);
-      await vi.waitFor(() => expect(JSON.stringify(error.mock.calls)).toContain("[Curialy Gateway] charge failed (account failing-user, claude-opus-5-5, 10500 micro-dollars)"));
+      await vi.waitFor(() => expect(JSON.stringify(error.mock.calls)).toContain("[Curialy Gateway] charge failed (account failing-user, claude-opus-5-5, 105000 micro-dollars)"));
       expect(JSON.stringify(error.mock.calls)).not.toContain("example.com");
       await settled("failing-user");
     } finally {

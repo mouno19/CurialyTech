@@ -3,7 +3,7 @@ import * as RadioGroup from "@radix-ui/react-radio-group";
 import * as Switch from "@radix-ui/react-switch";
 import { BadgePercent, Clock, RotateCcw, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
-import { discountPercent, formatPerMillion, PAYMENT_NETWORKS, PLAN_IDS, PLAN_RANK, type AdminBillingOverview, type BillingSettings, type PlanId } from "@shared/billing";
+import { API_TOPUP, discountPercent, formatPerMillion, PAYMENT_NETWORKS, PLAN_IDS, PLAN_RANK, type AdminBillingOverview, type BillingSettings, type PlanId } from "@shared/billing";
 import type { CreditSettings } from "@shared/credits";
 import { creditCount, fullText, shortDayText } from "@/components/billing/format";
 import { formatPrice, freeMultiple, freeTierLines, listText, offerBadge, offerSentence } from "@/components/billing/plans";
@@ -112,7 +112,7 @@ export function PlansPanel({ billing, billingError, free, onSaved }: {
   };
 
   const ended = offerEnded(saved.discount);
-  const running = !ended && (discountPercent(saved.discount, "plans") > 0 || discountPercent(saved.discount, "api") > 0);
+  const running = !ended && discountPercent(saved.discount, "plans") > 0;
   const offerState = running ? (saved.discount.endsAt ? `On until ${shortDayText(saved.discount.endsAt)}` : "On, no end date") : ended ? "Ended" : "Off";
 
   return (
@@ -149,7 +149,7 @@ export function PlansPanel({ billing, billingError, free, onSaved }: {
             <h3 id={`${uid}-offer`}>Launch offer</h3>
             <span className="chip" data-tone={running ? "success" : "neutral"}>{offerState}</span>
           </div>
-          <p className="field-hint">A percent off plan prices and Developer API token prices. Top-ups are never discounted: $1 paid is $1 of API balance. Without an end date, customers see “limited time”.</p>
+          <p className="field-hint">A percent off plan prices. Developer API requests use the prices on the Developer page. A top-up adds {formatPrice(API_TOPUP.creditPerUsd)} of that balance for each {formatPrice(1)} paid. Without an end date, customers see “limited time”.</p>
           {ended && saved.discount.endsAt && (
             <div className="notice" data-tone="neutral">
               <Clock size={16} aria-hidden="true" />
@@ -163,7 +163,6 @@ export function PlansPanel({ billing, billingError, free, onSaved }: {
             <legend className="field-label">Applies to</legend>
             <div className="admin-checks">
               <label className="admin-check"><input type="checkbox" checked={draft.onPlans} onChange={event => update({ onPlans: event.target.checked })} /><span>Plans</span></label>
-              <label className="admin-check"><input type="checkbox" checked={draft.onApi} onChange={event => update({ onApi: event.target.checked })} /><span>Developer API prices</span></label>
             </div>
           </fieldset>
           <fieldset className="admin-fieldset">
@@ -356,7 +355,7 @@ function Preview({ settings, billing, free, partial }: { settings: BillingSettin
             ))}
           </tbody>
         </table>
-        <p className="field-hint">Per million tokens. Every model on the Developer API page gets the same percent off.</p>
+        <p className="field-hint">Per million tokens, the prices on the Developer API page. A top-up adds {formatPrice(API_TOPUP.creditPerUsd)} of this balance for each {formatPrice(1)} paid.</p>
       </div>
       {payments && <p className="admin-preview-pay">{payments}</p>}
     </div>

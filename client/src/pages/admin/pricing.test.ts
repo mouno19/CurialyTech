@@ -109,7 +109,7 @@ describe("what customers see", () => {
   it("prices the plans as the catalog does", () => {
     const { offers, discount } = catalogPreview(saved(), NOW);
     expect(offers.map(offer => [offer.name, offer.listUsd, offer.priceUsd, offer.discountPercent])).toEqual([["Pro", 20, 2, 90], ["Max", 80, 8, 90]]);
-    expect(discount).toEqual({ plansPercent: 90, apiPercent: 90, endsAt: null });
+    expect(discount).toEqual({ plansPercent: 90, apiPercent: 0, endsAt: null });
   });
 
   it("drops the offer where it doesn't apply, and once it has ended", () => {

@@ -309,7 +309,7 @@ function PayPage({ code }: { code: string | null }) {
 
   const startNewOrder = async () => {
     if (!order || !begin("reorder")) return;
-    const input: NewOrder = order.kind === "plan" && order.planId ? { kind: "plan", planId: order.planId } : { kind: "api", amountUsd: Math.round(order.creditUsd ?? order.listUsd) };
+    const input: NewOrder = order.kind === "plan" && order.planId ? { kind: "plan", planId: order.planId } : { kind: "api", amountUsd: Math.round(order.priceUsd) };
     try {
       const { order: next } = await billingApi.createOrder(input);
       if (alive.current) navigate(`/pay/${encodeURIComponent(next.code)}`);

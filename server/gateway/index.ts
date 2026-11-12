@@ -2,10 +2,9 @@ import { randomBytes } from "node:crypto";
 import express, { Router, type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
 import { getModel, outputLimit } from "@shared/agent";
-import { API_PRICES, apiCost, discountPercent, formatUsd, microsToUsd, modelLimits, NON_STREAMING_MAX_TOKENS, ratesFor } from "@shared/billing";
+import { API_PRICES, apiCost, formatUsd, microsToUsd, modelLimits, NON_STREAMING_MAX_TOKENS, ratesFor } from "@shared/billing";
 import { GATEWAY_MODEL_IDS, GATEWAY_MODELS, gatewayModel } from "@shared/gateway";
 import { accountOf, requireUser } from "../auth";
-import { getBillingSettings } from "../billing/settings";
 import { apiBalanceMicros, recordApiUsage } from "../billing/wallet";
 import { createKey, findActiveKey, KeyError, listKeys, revokeKey, touchKey, type GatewayKey } from "./keys";
 import { chatChunks, toAnthropic, toChatCompletion, TranslationError } from "./openai";
@@ -13,8 +12,8 @@ import { addUsage, chatBuilder, cleanChunk, emptyUsage, errorBody, messageBuilde
 
 // The Developer API. /api/keys: an account's keys (signed in). /v1 (and /api/v1): Anthropic Messages
 // and OpenAI Chat Completions for the gateway models, authenticated by key, paid from the key's
-// account's API balance: each reply at the model's list price less the API discount. The operator's
-// account is not charged (its usage is still recorded, at no cost).
+// account's API balance: each reply at the model's listed price. A top-up adds more balance than it
+// costs. The operator's account is not charged (its usage is still recorded, at no cost).
 
 const asyncRoute = (handler: (req: Request, res: Response) => Promise<unknown>) => (req: Request, res: Response) => void handler(req, res).catch(error => {
   if (error instanceof KeyError) return res.status(error.status).json({ error: error.message });
@@ -190,7 +189,6 @@ async function admit(req: Request, res: Response, next: NextFunction) {
   ADMITTED.set(req, admission);
   if (!key.operator) {
     try {
-      const settings = await getBillingSettings();
       // A charge that settles while the balance is read may already be in it, and would then count
       // twice (balance and charged-since): read again until none settled meanwhile (three tries; a
       // count left twice only refuses early).
@@ -200,7 +198,8 @@ async function admit(req: Request, res: Response, next: NextFunction) {
         admission.chargedBefore = before;
         if (account.charged === before) break;
       }
-      admission.percentOff = discountPercent(settings.discount, "api");
+      // Usage is charged at the prices on the Developer API page. The offer is the top-up multiple, not a cut on each token.
+      admission.percentOff = 0;
       if (!(available(admission) > 0)) {
         admission.release();
         return send(res, 402, "insufficient_balance", EMPTY_BALANCE);
@@ -268,7 +267,7 @@ function maxTokensFor(model: string) {
 }
 
 /**
- * The most a request can cost, in micro-dollars after the discount: its input (the estimate and a
+ * The most a request can cost, in micro-dollars at the listed prices: its input (the estimate and a
  * quarter more, as it is rough) at the higher of the input and cache-write rates, long-context rates
  * past the model's threshold, and every token it may write.
  */

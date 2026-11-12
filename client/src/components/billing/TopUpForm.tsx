@@ -6,7 +6,7 @@ import type { BillingCatalog } from "@shared/billing";
 import { billingApi } from "@/lib/billing";
 import { errorMessage } from "@/lib/api";
 import { Button } from "@/components/common/Button";
-import { formatPrice } from "./plans";
+import { formatPrice, topUpSentence } from "./plans";
 import { parseTopUp } from "./topUp";
 
 /**
@@ -63,7 +63,7 @@ export function TopUpForm({ catalog, compact = false }: { catalog: BillingCatalo
     <form className="topup" data-compact={compact || undefined} onSubmit={event => void submit(event)} noValidate>
       {!compact && (
         <p className="topup-intro">
-          Requests are charged to this balance at each model's list price{catalog.discount.apiPercent > 0 ? `, ${catalog.discount.apiPercent}% off right now` : ""}. Top-ups aren't discounted: $1 paid is $1 of balance.
+          {topUpSentence(limits.creditPerUsd)}
         </p>
       )}
       <fieldset className="topup-fieldset" disabled={closed}>

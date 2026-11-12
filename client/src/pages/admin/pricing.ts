@@ -212,7 +212,8 @@ export type CatalogPreview = { offers: PlanOffer[]; discount: BillingCatalog["di
 /** The catalog's plans and offer with these settings: the same sums GET /api/billing/catalog makes. */
 export function catalogPreview(settings: BillingSettings, now = Date.now()): CatalogPreview {
   const plansPercent = discountPercent(settings.discount, "plans", now);
-  const apiPercent = discountPercent(settings.discount, "api", now);
+  // The public catalog bills API usage at the listed prices. The percent does not change them.
+  const apiPercent = 0;
   return {
     offers: PLAN_IDS.map(id => {
       const plan = settings.plans[id];

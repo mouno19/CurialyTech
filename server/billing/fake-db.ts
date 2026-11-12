@@ -128,9 +128,10 @@ export async function run(sql: string, values: any[] = []): Promise<{ rows: Row[
 
   // Placing an order
   if (text.startsWith("SELECT id FROM curialy.payment_orders WHERE user_id = $1 AND status = 'awaiting_payment' AND network IS NULL")) {
-    const [userId, kind, planId, list, price, days, credits, months] = values;
+    const [userId, kind, planId, list, price, days, credits, months, credit] = values;
     const same = newest(fake.orders).find(row => row.user_id === userId && row.status === "awaiting_payment" && row.network === null && row.kind === kind && (row.plan_id ?? null) === (planId ?? null)
       && Number(row.list_usd) === Number(list) && Number(row.price_usd) === Number(price) && (row.plan_days ?? null) === (days ?? null) && (row.plan_credits_per_window ?? null) === (credits ?? null) && (row.plan_months ?? null) === (months ?? null)
+      && (row.credit_usd === null ? null : Number(row.credit_usd)) === (credit === null ? null : Number(credit))
       && row.created_at.getTime() > now.getTime() - 30 * 60_000 && row.expires_at > now);
     return result(same ? [{ id: same.id }] : []);
   }

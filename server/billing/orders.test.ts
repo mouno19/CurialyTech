@@ -61,13 +61,13 @@ const withDetails = (patch: Record<string, unknown> = {}) => addOrder({
 });
 
 describe("placing an order", () => {
-  it("prices plans with the plan discount and top-ups at face value, whatever the client sent", async () => {
+  it("prices plans with the plan discount and credits a top-up at 100 times the payment, whatever the client sent", async () => {
     const plan = await orders.createOrder("u1", { kind: "plan", planId: "max", priceUsd: 0.01 } as any);
     expect(plan.created).toBe(true);
     expect(plan.order).toMatchObject({ kind: "plan", planId: "max", title: "Max · 30 days", listUsd: 80, discountPercent: 90, priceUsd: 8, creditUsd: null, status: "awaiting_payment", network: null, submitUntil: null });
     expect(plan.order.code).toMatch(/^CUR-[0-9A-HJKMNP-TV-Z]{8}$/);
     const topUp = await orders.createOrder("u1", { kind: "api", amountUsd: 25 });
-    expect(topUp.order).toMatchObject({ kind: "api", planId: null, title: "API balance · $25", listUsd: 25, discountPercent: 0, priceUsd: 25, creditUsd: 25 });
+    expect(topUp.order).toMatchObject({ kind: "api", planId: null, title: "API balance · $2500", listUsd: 25, discountPercent: 0, priceUsd: 25, creditUsd: 2500 });
     expect(fake.events.map(event => [event.to_status, event.actor, event.actor_id, event.note])).toEqual([["awaiting_payment", "customer", "u1", "Order created"], ["awaiting_payment", "customer", "u1", "Order created"]]);
     // An offer that has ended, or one for the API only, leaves plans at list price.
     resetBillingSettings();

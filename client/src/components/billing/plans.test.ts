@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PlanOffer } from "@shared/billing";
 import type { FreeTier } from "@shared/billing";
-import { daysLeftText, daysText, formatPrice, freeMultiple, freeTierLines, listText, offerBadge, offerEnd, offerSentence, offerText, ownAllowance, planAction, planConfigs, planState } from "./plans";
+import { daysLeftText, daysText, formatPrice, freeMultiple, freeTierLines, listText, offerBadge, offerEnd, offerSentence, offerText, ownAllowance, planAction, planConfigs, planState, topUpSentence } from "./plans";
 
 const NOW = Date.parse("2026-11-09T12:00:00Z");
 const DAY = 86_400_000;
@@ -102,6 +102,7 @@ describe("prices and the offer", () => {
     expect(offerEnd("not a date", date, time)).toBe("limited time");
     expect(offerSentence({ plansPercent: 90, apiPercent: 90, endsAt: null })).toBe("Launch offer on plans and Developer API prices.");
     expect(offerSentence({ plansPercent: 90, apiPercent: 0, endsAt: null })).toBe("Launch offer on plans.");
+    expect(topUpSentence(100)).toBe("$1 paid adds $100 of balance. Requests are charged at the prices on the Developer API page.");
     expect(offerSentence({ plansPercent: 90, apiPercent: 50, endsAt: null })).toBe("Launch offer: 90% off plans, 50% off Developer API prices.");
   });
 

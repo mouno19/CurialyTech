@@ -35,7 +35,7 @@ export function OrderSummary({ order, status, secondsLeft, onCopied }: { order: 
           )}
           <span className="pay-price-paid"><span className="sr-only">{discounted ? "You pay " : "Price "}</span>{formatUsd(order.priceUsd)}</span>
         </p>
-        {order.kind === "api" && order.creditUsd !== null && <p className="field-hint">Adds {formatUsd(order.creditUsd)} to your API balance. Top-ups aren't discounted: $1 paid is $1 of balance.</p>}
+        {order.kind === "api" && order.creditUsd !== null && <p className="field-hint">Adds {formatUsd(order.creditUsd)} of API usage at the prices on the Developer API page.</p>}
         {secondsLeft !== null && secondsLeft > 0 && (
           <p className="pay-deadline">
             <Clock size={14} aria-hidden="true" />

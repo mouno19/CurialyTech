@@ -17,7 +17,7 @@ import { TopUpForm } from "@/components/billing/TopUpForm";
 import { creditCount, dayText, microsText, shortDayText, spendableCredits, spendableMicrosText } from "@/components/billing/format";
 import { shownStatus } from "@/components/billing/orderState";
 import { EarnCredits } from "@/components/billing/EarnCredits";
-import { daysLeftText, formatPrice, freeMultiple, freeTierLines, monthsText, offerBadge, offerSentence, ownAllowance, planAction, planConfigs, planState, vaultText } from "@/components/billing/plans";
+import { daysLeftText, formatPrice, freeMultiple, freeTierLines, monthsText, offerBadge, offerSentence, ownAllowance, planAction, planConfigs, planState, topUpSentence, vaultText } from "@/components/billing/plans";
 
 // Plans & Billing: the account's plan and credits, the 30-day plans, the Developer API balance and
 // its top-ups, credit use over time, the account's orders, and what a payment can be made with.
@@ -162,7 +162,7 @@ export default function Billing() {
           {catalog.data && offer && (
             <div className="bill-offer" role="note">
               <BadgePercent size={18} aria-hidden="true" />
-              <p><strong>{offer}</strong> <span>{offerSentence(catalog.data.discount)} Top-ups aren't discounted.</span></p>
+              <p><strong>{offer}</strong> <span>{offerSentence(catalog.data.discount)} {topUpSentence(catalog.data.apiTopup.creditPerUsd)}</span></p>
             </div>
           )}
 

@@ -5,7 +5,7 @@ import { MAX_PLAN_MONTHS, type BillingCatalog } from "@shared/billing";
 import { billingApi } from "@/lib/billing";
 import { Reveal } from "@/components/common/Reveal";
 import { creditCount, shortDayText } from "@/components/billing/format";
-import { formatPrice, freeMultiple, freeTierLines, listText, offerEnd, offerText, vaultText } from "@/components/billing/plans";
+import { formatPrice, freeMultiple, freeTierLines, listText, offerEnd, offerText, topUpSentence, vaultText } from "@/components/billing/plans";
 import { scrollToAnchor, SectionLabel } from "./primitives";
 
 /** The coins a payment can use, stablecoins first, each once (USDT and USDC are on every network). */
@@ -113,7 +113,7 @@ export function Pricing({ signedIn }: { signedIn: boolean }) {
             <Reveal className="lp-pricing-foot">
               <div className="lp-pricing-notes">
                 <p className="lp-pricing-api">
-                  Every model on the Developer API at {priced.discount.apiPercent > 0 ? `${priced.discount.apiPercent}% off list price` : "list price"}, paid from a balance you top up from {formatPrice(priced.apiTopup.minUsd)}.
+                  {topUpSentence(priced.apiTopup.creditPerUsd)} Top up from {formatPrice(priced.apiTopup.minUsd)}.
                 </p>
                 <Coins catalog={priced} />
               </div>
