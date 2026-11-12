@@ -39,7 +39,11 @@ export function Receipt({ order, account, planName, idPrefix = "receipt" }: { or
         <div><dt>Order</dt><dd className="mono">{order.code}</dd></div>
         {holder && <div><dt>Account</dt><dd>{holder}</dd></div>}
         <div><dt>Item</dt><dd>{order.title}</dd></div>
-        <div><dt>List price</dt><dd className="tabular">{formatUsd(order.listUsd)}</dd></div>
+        {order.kind === "api" && order.creditUsd !== null && order.creditUsd > order.priceUsd ? (
+          <div><dt>API balance</dt><dd className="tabular">{formatUsd(order.creditUsd)}</dd></div>
+        ) : (
+          <div><dt>List price</dt><dd className="tabular">{formatUsd(order.listUsd)}</dd></div>
+        )}
         {order.discountPercent > 0 && saved > 0 && <div><dt>Offer</dt><dd className="tabular">{order.discountPercent}% off (−{formatUsd(saved)})</dd></div>}
         <div><dt>Paid</dt><dd className="tabular receipt-paid">{formatUsd(order.priceUsd)}</dd></div>
         {order.coin && (received ? (

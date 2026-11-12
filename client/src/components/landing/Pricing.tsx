@@ -5,7 +5,8 @@ import { MAX_PLAN_MONTHS, type BillingCatalog } from "@shared/billing";
 import { billingApi } from "@/lib/billing";
 import { Reveal } from "@/components/common/Reveal";
 import { creditCount, shortDayText } from "@/components/billing/format";
-import { formatPrice, freeMultiple, freeTierLines, listText, offerEnd, offerText, topUpSentence, vaultText } from "@/components/billing/plans";
+import { TopUpPrice } from "@/components/billing/TopUpPrice";
+import { formatPrice, freeMultiple, freeTierLines, listText, offerEnd, offerText, vaultText } from "@/components/billing/plans";
 import { scrollToAnchor, SectionLabel } from "./primitives";
 
 /** The coins a payment can use, stablecoins first, each once (USDT and USDC are on every network). */
@@ -113,7 +114,8 @@ export function Pricing({ signedIn }: { signedIn: boolean }) {
             <Reveal className="lp-pricing-foot">
               <div className="lp-pricing-notes">
                 <p className="lp-pricing-api">
-                  {topUpSentence(priced.apiTopup.creditPerUsd)} Top up from {formatPrice(priced.apiTopup.minUsd)}.
+                  <TopUpPrice paidUsd={priced.apiTopup.minUsd} creditPerUsd={priced.apiTopup.creditPerUsd} variant="note" />
+                  <span> The crossed price is the API balance for a {formatPrice(priced.apiTopup.minUsd)} top-up. You pay the price beside it. Requests are charged at the prices on the Developer API page.</span>
                 </p>
                 <Coins catalog={priced} />
               </div>

@@ -28,6 +28,7 @@ const Pay = lazy(() => import("./pages/Pay"));
 const Admin = lazy(() => import("./pages/Admin"));
 // The public homepage has its own chunk and stylesheet.
 const Landing = lazy(() => import("./pages/Landing"));
+const Docs = lazy(() => import("./pages/Docs"));
 
 function Splash() {
   return (
@@ -103,8 +104,8 @@ function Gate() {
   }
   const admin = me.data?.admin ?? false;
   if (!me.data?.user) {
-    // Visitors get the homepage at "/"; every other address asks them to sign in (and stays put,
-    // so a shared task link opens after signing in).
+    // Visitors get the homepage, the documentation, and the terms. Every other address asks them
+    // to sign in (and stays put, so a shared task link opens after signing in).
     // After signing in, auth.me is fetched again; the signed-in routes then take over (and send
     // /login to the dashboard), so nothing else shows in between.
     const signIn = <Login configured={me.data?.configured ?? false} github={me.data?.github ?? false} signupsOpen={me.data?.signupsOpen ?? true} onSignedIn={signedIn} />;
@@ -113,6 +114,8 @@ function Gate() {
         <Switch>
           <Route path="/"><Suspense fallback={<Splash />}><Landing signedIn={false} /></Suspense></Route>
           <Route path="/welcome"><Suspense fallback={<Splash />}><Landing signedIn={false} /></Suspense></Route>
+          <Route path="/docs"><Suspense fallback={<Splash />}><Docs signedIn={false} /></Suspense></Route>
+          <Route path="/terms"><Suspense fallback={<Splash />}><Docs signedIn={false} section="terms" /></Suspense></Route>
           <Route>{signIn}</Route>
         </Switch>
       </ErrorBoundary>
@@ -136,6 +139,8 @@ function Gate() {
           <Route path="/developer" component={DeveloperPortal} />
           <Route path="/billing" component={Billing} />
           <Route path="/support" component={Support} />
+          <Route path="/docs"><Docs signedIn /></Route>
+          <Route path="/terms"><Docs signedIn section="terms" /></Route>
           {/* One page per order: a new code is a new page (its own requests, timers and announcements). */}
           <Route path="/pay/:code">{params => <Pay key={params.code} code={params.code} />}</Route>
           {/* The operator's pages: other accounts land on the dashboard. */}

@@ -1,0 +1,65 @@
+/* Documentation and terms. A reading page, public and signed in, with its own header. */
+
+.docs { min-height: 100dvh; background: var(--paper); color: var(--text); }
+.docs-bar {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 14px 24px; border-bottom: 1px solid var(--border);
+  background: rgb(var(--paper-rgb) / 0.92); backdrop-filter: blur(10px);
+}
+.docs-bar-brand { display: flex; align-items: baseline; gap: 12px; min-width: 0; color: var(--text); text-decoration: none; }
+.docs-bar-brand:hover { color: var(--text); }
+.docs-kicker { font: 500 11px/1 var(--font-mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--vermilion-ink); }
+.docs-bar-actions { display: flex; align-items: center; gap: 8px; }
+.docs-layout {
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 28px;
+  width: min(1080px, calc(100% - 32px)); margin: 0 auto; padding: 36px 0 88px;
+}
+.docs-nav { display: flex; gap: 6px; margin: 0; padding: 0 0 8px; overflow-x: auto; list-style: none; scrollbar-width: none; }
+.docs-nav::-webkit-scrollbar { display: none; }
+.docs-nav a {
+  flex: none; padding: 6px 10px; border-radius: var(--r-pill);
+  color: var(--text-2); font-size: 13px; text-decoration: none; white-space: nowrap;
+}
+.docs-nav a:hover { color: var(--text); background: var(--hover); }
+.docs-nav a[aria-current="location"] { color: var(--text); background: var(--paper-deep); font-weight: 600; }
+@media (max-width: 899.98px) {
+  .docs-nav { scroll-padding-inline: 8px; mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent); }
+}
+.docs-article { min-width: 0; }
+.docs-lede { max-width: 40rem; }
+.docs h1 { margin: 10px 0 0; font: 400 clamp(2.4rem, 6vw, 3.6rem)/0.98 var(--font-display); letter-spacing: -0.02em; }
+.docs-standfirst { max-width: 38rem; margin: 16px 0 0; font-size: 1.125rem; line-height: 1.6; color: var(--text-2); text-wrap: pretty; }
+.docs-updated { margin: 14px 0 0; font: 12px/1.4 var(--font-mono); color: var(--text-3); }
+.docs-section { margin-top: 48px; padding-top: 8px; scroll-margin-top: 84px; }
+.docs-section h2 { margin: 0; font: 400 2rem/1.15 var(--font-display); letter-spacing: -0.02em; }
+.docs-section h3 { margin: 22px 0 0; font-size: 1.05rem; font-weight: 650; }
+.docs-section p, .docs-section li { font-size: 1.02rem; line-height: 1.65; color: var(--text-2); text-wrap: pretty; }
+.docs-section p { margin: 12px 0 0; }
+.docs-section ul, .docs-section ol { margin: 12px 0 0; padding-left: 1.2em; }
+.docs-section li + li { margin-top: 6px; }
+.docs-section strong { color: var(--text); font-weight: 650; }
+.docs-section a { color: var(--accent-text); }
+.docs-card {
+  display: flex; flex-direction: column; gap: 8px;
+  margin-top: 18px; padding: 18px; border: 1px solid var(--ink); border-radius: var(--r-md);
+  background: var(--card); box-shadow: var(--shadow-ink-sm);
+}
+.docs-card .topup-price-note { margin-bottom: 0; }
+.docs-card p { margin: 0; }
+.docs-facts { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin: 18px 0 0; }
+.docs-fact { padding-top: 12px; border-top: 1px dashed var(--border); }
+.docs-fact dt { font: 500 11px/1.4 var(--font-mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-3); }
+.docs-fact dd { margin: 4px 0 0; font-size: 1rem; line-height: 1.55; color: var(--text); }
+.docs-plans { display: flex; flex-direction: column; gap: 10px; margin: 16px 0 0; padding: 0; list-style: none; }
+.docs-plan { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; }
+.docs-plan-name { font-weight: 650; color: var(--text); }
+.docs-plan s { margin-right: 8px; color: var(--text-3); text-decoration-thickness: 1px; }
+.docs-plan-pay { font-family: var(--font-display); font-size: 1.6rem; line-height: 1; }
+@media (min-width: 900px) {
+  .docs-layout { grid-template-columns: 200px minmax(0, 1fr); gap: 56px; align-items: start; padding-top: 48px; }
+  .docs-nav { position: sticky; top: 88px; flex-direction: column; gap: 2px; overflow: visible; }
+  .docs-nav a { padding: 5px 0; border-radius: 0; white-space: normal; }
+  .docs-nav a[aria-current="location"] { background: none; box-shadow: inset 2px 0 0 var(--ink); padding-left: 10px; }
+  .docs-facts { grid-template-columns: 1fr 1fr; }
+}

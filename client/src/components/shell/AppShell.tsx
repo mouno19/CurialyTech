@@ -4,7 +4,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Popover from "@radix-ui/react-popover";
 import type { LucideIcon } from "lucide-react";
-import { Activity, ChevronsUpDown, ExternalLink, House, Images, KeyRound, LayoutDashboard, LifeBuoy, LogOut, Menu, MoreHorizontal, PanelLeftClose, PanelLeftOpen, PlugZap, RefreshCw, ShieldCheck, SquareTerminal, Store, Unplug, Wallet, X, Braces } from "lucide-react";
+import { Activity, BookOpen, ChevronsUpDown, ExternalLink, House, Images, KeyRound, LayoutDashboard, LifeBuoy, LogOut, Menu, MoreHorizontal, PanelLeftClose, PanelLeftOpen, PlugZap, RefreshCw, ShieldCheck, SquareTerminal, Store, Unplug, Wallet, X, Braces } from "lucide-react";
 import { toast } from "sonner";
 import { agentApi, authApi, errorMessage, relativeTime, type ProviderProbe } from "@/lib/api";
 import { needsOperator, useGitHub, useHealth } from "@/lib/appStatus";
@@ -76,6 +76,7 @@ const NAV: { href: string; label: string; icon: LucideIcon; badge?: "tasks" | "s
   { href: "/developer", label: "Developer API", icon: Braces },
   { href: "/billing", label: "Plans & Billing", icon: Wallet },
   { href: "/support", label: "Support", icon: LifeBuoy, badge: "support" },
+  { href: "/docs", label: "Documentation", icon: BookOpen },
   { href: "/keys", label: "API Key Manager", icon: KeyRound, operator: true },
   { href: "/admin", label: "Admin", icon: ShieldCheck, operator: true },
 ];
