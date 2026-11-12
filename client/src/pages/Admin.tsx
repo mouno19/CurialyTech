@@ -637,7 +637,7 @@ function SettingsPanel({ onSaved }: { onSaved: () => void }) {
   return (
     <form className="card admin-card admin-form" onSubmit={save} noValidate>
       <div className="card-head"><h3>Free credits</h3></div>
-      <p className="field-hint">A new account gets the welcome credits once; they never refill. Credits per window, when above zero, is a refilling allowance for every account (a window starts with the first credit spent). Accounts with their own allowance, a plan or the X boost keep whichever is higher. One credit is 25,000 tokens on a standard model (output counts four times).</p>
+      <p className="field-hint">A new account gets the welcome credits once; they never refill. Credits per window, when above zero, is a refilling allowance for every account (the first window starts with the first credit spent, then it refills on that schedule). Accounts with their own allowance, a plan or the X boost keep whichever is higher. One credit is 25,000 tokens on a standard model (output counts four times).</p>
       <div className="admin-form-row">
         <div className="field">
           <label className="field-label" htmlFor={`${id}-welcome`}>Welcome credits</label>
@@ -653,7 +653,7 @@ function SettingsPanel({ onSaved }: { onSaved: () => void }) {
         </div>
       </div>
       <h4 className="admin-form-title">Earned on X</h4>
-      <p className="field-hint">Each is claimed once per account, after this server has checked it on X. Both claimed: the Developer API balance gets the dollars below, once, and the boost's allowance refills on its own window until the offer ends (empty: until you turn it off).</p>
+      <p className="field-hint">Each is claimed once per account, after this server has checked it on X. Both claimed: the Developer API balance gets the dollars below, once, and the boost's allowance refills on its own window until the offer ends (empty: until you turn it off). That window starts when the second reward is claimed and refills from that time.</p>
       <div className="admin-form-row">
         <div className="field">
           <label className="field-label" htmlFor={`${id}-handle`}>Account to follow</label>

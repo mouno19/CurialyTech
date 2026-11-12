@@ -36,6 +36,11 @@ function creditsLeftText(credits: CreditBalance) {
   const shown = creditCount(spendableCredits(credits.available));
   return `${shown} ${shown === "1" ? "credit" : "credits"} left`;
 }
+function allowanceHint(credits: CreditBalance) {
+  if (credits.boost && credits.allowance === credits.boost.creditsPerWindow) return "The window starts when the boost begins and refills from that time.";
+  return "The first window starts when you spend a credit, then it refills on that schedule.";
+}
+
 function refillText(credits: CreditBalance) {
   // Without an allowance nothing refills: the account's credits are its own (promo codes, grants).
   if (credits.unlimited || credits.allowance === 0) return null;
@@ -193,7 +198,7 @@ export default function Billing() {
                       <dt>Allowance</dt>
                       <dd>
                         <span className="bill-fact-value">{creditCount(credits.allowance)} every {credits.windowHours} hours</span>
-                        <span className="bill-fact-hint">A window starts with the first credit you spend.</span>
+                        <span className="bill-fact-hint">{allowanceHint(credits)}</span>
                       </dd>
                     </div>
                   )}
@@ -398,7 +403,7 @@ function PlanCards({ catalog, current, planKnown, planFailed, own, freeHere, cre
           {freeLines.lines.map(line => <span key={line} className="bill-plan-multiple">{line}</span>)}
           <span className="bill-plan-multiple">{vaultText(false)}</span>
         </p>
-        <p className="field-hint">{freeHere === "not_included" ? "Not included on this account." : free > 0 ? "A window starts with the first credit you spend." : "Welcome credits are given once and don't refill."}</p>
+        <p className="field-hint">{freeHere === "not_included" ? "Not included on this account." : free > 0 ? "The first window starts when you spend a credit, then it refills on that schedule." : "Welcome credits are given once and don't refill."}</p>
       </li>
       {catalog.plans.map(offer => {
         const room = prepay?.[offer.id] ?? MAX_PLAN_MONTHS;
