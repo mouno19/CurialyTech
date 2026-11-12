@@ -67,8 +67,10 @@ describe("balance", () => {
     const open = credits.balanceOf(user({ window_started_at: new Date(now - HOUR), window_used: "41.5" }), settings, now);
     expect(open).toMatchObject({ used: 41.5, remaining: 18.5, available: 18.5 });
     expect(Date.parse(open.resetsAt!)).toBe(now + 4 * HOUR);
-    // A window that ended counts as none: the allowance is back in full.
-    expect(credits.balanceOf(user({ window_started_at: new Date(now - 6 * HOUR), window_used: "60" }), settings, now)).toMatchObject({ used: 0, remaining: 60, resetsAt: null });
+    // A window that ended is already in its next period: the allowance is full, and the refill stays on the original schedule.
+    const renewed = credits.balanceOf(user({ window_started_at: new Date(now - 6 * HOUR), window_used: "60" }), settings, now);
+    expect(renewed).toMatchObject({ used: 0, remaining: 60 });
+    expect(Date.parse(renewed.resetsAt!)).toBe(now + 4 * HOUR);
   });
 
   it("gives an account without the free allowance no window and no refill time; an own allowance still applies", () => {
@@ -119,6 +121,17 @@ describe("plans", () => {
     const balance = credits.balanceOf(both, boosted, now);
     expect(balance).toMatchObject({ allowance: 300, windowHours: 8, used: 40, remaining: 260, canEarn: false, welcome: true, boost: { creditsPerWindow: 300, windowHours: 8, endsAt: null } });
     expect(Date.parse(balance.resetsAt!)).toBe(now + 7 * HOUR);
+    // The boost's window starts when the later reward was claimed. A spend inside it does not move the start.
+    const renewedAt = Date.parse("2026-11-12T00:14:00.000Z");
+    const spentAt = Date.parse("2026-11-12T07:00:00.000Z");
+    const slid = user({ x_followed_at: new Date(renewedAt - HOUR), x_posted_at: new Date(renewedAt), window_started_at: new Date(spentAt), window_used: "12" });
+    const during = credits.balanceOf(slid, boosted, spentAt);
+    expect(during).toMatchObject({ allowance: 300, windowHours: 8, used: 12, remaining: 288 });
+    expect(Date.parse(during.resetsAt!)).toBe(renewedAt + 8 * HOUR);
+    // Once that window ends, the next one begins on the same minute and the earlier spend does not count.
+    const after = credits.balanceOf(slid, boosted, renewedAt + 8 * HOUR + 30 * 60_000);
+    expect(after).toMatchObject({ used: 0, remaining: 300 });
+    expect(Date.parse(after.resetsAt!)).toBe(renewedAt + 16 * HOUR);
     // One reward isn't enough, and a plan above the boost keeps the plan's window.
     expect(credits.balanceOf(user({ x_followed_at: new Date() }), boosted, now)).toMatchObject({ allowance: 0, boost: null, canEarn: true });
     expect(credits.balanceOf({ ...both, plan_id: "pro", plan_expires_at: new Date(now + 10 * 86_400_000), plan_credits_per_window: 6000 }, boosted, now)).toMatchObject({ allowance: 6000, windowHours: 5, boost: { creditsPerWindow: 300 } });
@@ -180,6 +193,35 @@ describe("charge", () => {
     // 10 from the window, 5 from the bonus.
     expect(balance).toMatchObject({ used: 60, remaining: 0, bonus: 5, available: 5 });
     expect(store.events.map(values => values[1])).toEqual([-50, -15]);
+  });
+
+  it("keeps the next window on the time the previous one ended", async () => {
+    const now = Date.now();
+    const origin = new Date(now - 6 * HOUR);
+    store.user = user({ window_started_at: origin, window_used: "60" });
+    const balance = await credits.charge("u1", 4, "t1", "turn");
+    const periodStart = origin.getTime() + 5 * HOUR;
+    expect((store.user!.window_started_at as Date).getTime()).toBe(periodStart);
+    expect(Date.parse(balance.resetsAt!)).toBe(periodStart + 5 * HOUR);
+    expect(balance).toMatchObject({ used: 4, remaining: 56 });
+  });
+
+  it("charges a boost spend against the window that began when the boost did", async () => {
+    const renewedAt = Date.parse("2026-11-12T00:14:00.000Z");
+    const spentAt = Date.parse("2026-11-12T07:00:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(spentAt);
+    try {
+      store.settings = { creditsPerWindow: 0 };
+      credits.resetCreditSettings();
+      store.user = user({ x_followed_at: new Date(renewedAt), x_posted_at: new Date(renewedAt) });
+      const balance = await credits.charge("u1", 10, "t1", "turn");
+      expect((store.user!.window_started_at as Date).getTime()).toBe(renewedAt);
+      expect(Date.parse(balance.resetsAt!)).toBe(renewedAt + 8 * HOUR);
+      expect(balance).toMatchObject({ used: 10, remaining: 290, windowHours: 8 });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("spends only bonus credits for an account without the free allowance, and never opens a window for it", async () => {

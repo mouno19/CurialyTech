@@ -9,8 +9,10 @@ import { db, query } from "./db/pg";
 // A refilling allowance per window comes from a plan (30 days, paid in crypto), from an allowance
 // the operator set for the account, from the settings' allowance for everyone (default 0: none),
 // or from the launch boost (server/rewards.ts: both X rewards done, while the offer lasts). The
-// largest applies; a window opens with the first credit spent after the previous one ended. Admins
-// are not charged. Every change is a credit_events row.
+// largest applies. A window keeps the time it began: the boost's begins when both X rewards are
+// claimed, and any other allowance's begins with the first credit spent. The next window starts
+// when that one ends, so a later spend stays in the window that already renewed. Admins are not
+// charged. Every change is a credit_events row.
 
 /**
  * free_allowance_withheld: the account started without the free credits (see auth-github.ts); an own allowance still applies.
@@ -105,6 +107,17 @@ export async function saveSettings(patch: CreditSettingsPatch, by: string) {
 
 // ---- Balance ----
 
+/**
+ * The window covering `now` on a schedule that began at `originMs`.
+ * Periods step forward by whole windows, so the start stays on the original time.
+ */
+export function windowOnSchedule(originMs: number, windowMs: number, now: number): { start: number; end: number } | null {
+  if (!(windowMs > 0) || !Number.isFinite(originMs)) return null;
+  const elapsed = Math.max(0, now - originMs);
+  const start = originMs + Math.floor(elapsed / windowMs) * windowMs;
+  return { start, end: start + windowMs };
+}
+
 /** The launch boost as it applies to this account right now: both X rewards claimed, and the offer on and not ended. */
 export function activeBoost(row: Pick<UserCredits, "x_followed_at" | "x_posted_at">, settings: CreditSettings, now = Date.now()): CreditBalance["boost"] {
   const { boost } = settings.rewards;
@@ -121,20 +134,29 @@ export function balanceOf(row: UserCredits, settings: CreditSettings, now = Date
   // a paid plan. The window is the boost's only when the boost alone sets the allowance.
   let allowance = plan ? Math.max(plan.creditsPerWindow, own) : own;
   let windowHours = settings.windowHours;
-  if (boost && boost.creditsPerWindow > allowance) {
+  // The boost's window is dated from the later claim. Any other allowance is dated from its first spend.
+  const boostSetsWindow = Boolean(boost && boost.creditsPerWindow > allowance);
+  if (boostSetsWindow && boost) {
     allowance = boost.creditsPerWindow;
     windowHours = boost.windowHours;
   }
   const bonus = Number(row.bonus_credits);
   const windowMs = windowHours * 3_600_000;
-  // Without an allowance there is no window, and so never a refill time.
-  const open = allowance > 0 && row.window_started_at !== null && now < row.window_started_at.getTime() + windowMs;
-  const used = open ? Number(row.window_used) : 0;
+  const claimAt = boostSetsWindow && row.x_followed_at && row.x_posted_at
+    ? Math.max(row.x_followed_at.getTime(), row.x_posted_at.getTime())
+    : null;
+  const originMs = allowance > 0 ? (claimAt ?? row.window_started_at?.getTime() ?? null) : null;
+  const period = originMs === null ? null : windowOnSchedule(originMs, windowMs, now);
+  // Usage recorded for an earlier period does not carry into the one that covers now.
+  const usageInPeriod = period !== null && row.window_started_at !== null
+    && row.window_started_at.getTime() >= period.start
+    && row.window_started_at.getTime() < period.end;
+  const used = usageInPeriod ? Number(row.window_used) : 0;
   const remaining = Math.max(0, allowance - used);
   return {
     unlimited: row.role === "admin",
     allowance, used: round(used), remaining: round(remaining), bonus: round(bonus), available: round(remaining + bonus),
-    resetsAt: open ? new Date(row.window_started_at!.getTime() + windowMs).toISOString() : null,
+    resetsAt: period ? new Date(period.end).toISOString() : null,
     windowHours,
     plan,
     boost,
@@ -195,8 +217,14 @@ export async function charge(userId: string, amount: number, sessionId: string |
     const fromBonus = Math.min(before.bonus, amount - fromWindow);
     // Whatever neither covers still counts against the window (it ends at the reset). Without an
     // allowance there is no window: only bonus credits are spent, and no window is opened.
+    // A window that already has a schedule keeps that start: the spend is written against the
+    // period covering now, which began when the window renewed, not at this spend.
     const windowless = before.allowance === 0;
-    const windowStart = windowless ? row.window_started_at : before.resetsAt ? row.window_started_at! : new Date(now);
+    const windowStart = windowless
+      ? row.window_started_at
+      : before.resetsAt
+        ? new Date(Date.parse(before.resetsAt) - before.windowHours * 3_600_000)
+        : new Date(now);
     const windowUsed = windowless ? Number(row.window_used) : before.used + amount - fromBonus;
     const { rows: [updated] } = await client.query<UserCredits>(
       `UPDATE curialy.users SET window_started_at = $2, window_used = $3, bonus_credits = bonus_credits - $4 WHERE id = $1 RETURNING ${COLUMNS}`,

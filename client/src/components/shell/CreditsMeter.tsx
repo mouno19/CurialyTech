@@ -84,11 +84,15 @@ export function CreditsDialog({ open, onOpenChange, credits }: { open: boolean; 
     }
   };
   const plan = credits.unlimited ? null : planLine(credits);
+  const windowFromBoost = credits.boost !== null && credits.allowance === credits.boost.creditsPerWindow;
+  const windowSentence = windowFromBoost
+    ? "The window starts when the boost begins and refills from that time."
+    : "The first window starts when you spend a credit, then it refills on that schedule.";
   return (
     <Dialog open={open} onOpenChange={onOpenChange} size="sm" title="Credits" description={
       credits.unlimited ? "The operator's account is not charged."
         : credits.allowance === 0 ? "Credits on this account come from the welcome credits, X and promo codes. They don't refill."
-          : `${plan ? `With ${plan}, this` : credits.boost ? "With the X boost, this" : "This"} account gets ${formatCredits(credits.allowance)} credits every ${credits.windowHours} hours; a window starts with the first credit you spend.`
+          : `${plan ? `With ${plan}, this` : credits.boost ? "With the X boost, this" : "This"} account gets ${formatCredits(credits.allowance)} credits every ${credits.windowHours} hours. ${windowSentence}`
     }       footer={credits.unlimited ? undefined : (
       // A plan adds credits to every window; the page also has the X rewards, the API balance and past orders.
       <Link href={credits.canEarn ? "/billing#rewards" : "/billing"} className={plan ? "btn" : "btn primary"} onClick={() => onOpenChange(false)}>{plan ? "Plans & Billing" : credits.canEarn ? "Earn credits on X" : "Get more credits"}</Link>
