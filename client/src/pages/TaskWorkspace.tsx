@@ -421,8 +421,8 @@ export default function TaskWorkspace({ id }: { id: string }) {
     : active ? "Wait for the run to finish."
       : !caps ? (deployments.error ? "Couldn't check whether live previews are available." : "Checking whether live previews are available…")
         : !caps.configured ? "Live previews aren't set up on this server."
-          : caps.allowed === false ? "Public live previews are available on the operator's account only. Your app runs in the Preview tab."
-          : !caps.github ? "Connect GitHub to deploy: previews are built from a temporary private repository in your account."
+          : caps.allowed === false ? "Public live previews aren't available on this account."
+          : !caps.github ? "Live previews aren't available right now."
             : null;
   const deployAction = agentTask ? { disabledReason: deployReason, busy: deploying, onOpen: () => setDeployOpen(true) } : null;
 
@@ -544,7 +544,6 @@ export default function TaskWorkspace({ id }: { id: string }) {
     </section>
   );
 
-  const login = github?.login ?? "your-account";
   return (
     <AppShell title={task ? firstLine(task.prompt) : "Task"} crumb="Live Tasks" crumbHref="/tasks" titleAddon={status ? <StatusBadge status={status} outcome={latestOutcome.outcome} reason={reason} size="sm" /> : undefined} topbarActions={actions}>
       {region}
@@ -587,7 +586,7 @@ export default function TaskWorkspace({ id }: { id: string }) {
         Files written so far are kept. Nothing is published, pushed or deployed.
       </ConfirmDialog>
       <ConfirmDialog open={deployOpen} onOpenChange={setDeployOpen} title="Deploy a live preview?" confirmLabel="Deploy preview" busyLabel="Starting…" onConfirm={confirmDeploy} confirmDisabled={Boolean(deployReason)}>
-        Creates a temporary private repository <strong className="mono break-anywhere">{login}/curialy-preview-…</strong> in your GitHub account and a public preview URL that is removed after about 2 hours. Your own repositories are not changed.
+        Publishes a temporary preview on {window.location.host}. It is removed after about 2 hours. Your own repositories are not changed.
       </ConfirmDialog>
       <ConfirmDialog open={deleteOpen} onOpenChange={setDeleteOpen} title="Delete this task?" confirmLabel="Delete task" busyLabel="Deleting…" tone="danger" onConfirm={confirmDelete} confirmDisabled={active}>
         <p>This permanently removes:</p>

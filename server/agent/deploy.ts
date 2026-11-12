@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { deriveDeploymentState, type DeploymentState } from "@shared/taskStatus";
 import { adminUserId, db, query } from "../db/pg";
 import { createRepo, pushProjectToRepo, repoToken, retireRepo, throwIfAborted, WORKFLOW_PATH } from "../services/github";
@@ -6,14 +6,18 @@ import { appendTaskEvent } from "./events";
 import { PROVIDER_ENV } from "./providers";
 import { isPublishExcluded, readWorkspaceFiles } from "./workspaces";
 import { taskOwner } from "./store";
+import { publicPreviewUrl } from "./deploy-proxy";
 
-// Temporary live previews on Render, which only deploys from Git. Every preview builds from its own
-// throwaway PRIVATE repository in the connected account; a preview never writes to a repository the
-// user owns or linked (an earlier version pushed a full-tree snapshot to the linked repo's default
-// branch). The service and the temporary repository are removed when the preview expires, fails or
-// is cancelled, and every change of state is recorded on the task's event log.
+// Temporary live previews. The build runs on the operator's hosting account (a paid instance, so it
+// draws that account's credits) from a throwaway PRIVATE repository in the operator's GitHub account.
+// A preview never writes to a repository the user owns or linked. The address people open is on this
+// site (`/p/<id>/`); the hosting hostname is only the upstream the proxy fetches. The service and the
+// temporary repository are removed when the preview expires, fails or is cancelled.
 
 const PREVIEW_TTL_MINUTES = Number(process.env.PREVIEW_TTL_MINUTES || 120);
+const PREVIEW_LIMIT = 2;
+/** Smallest paid instance: a free instance does not draw the account's credits and sleeps. */
+const WEB_PLAN = process.env.RENDER_WEB_PLAN || "0.5c-512mb";
 
 export type DeployRequest = {
   sessionId: string;
@@ -60,8 +64,19 @@ export async function deployPreview(req: DeployRequest) {
   const config = deployConfigured();
   if (!config.ok) throw new Error("Live previews are not configured on this server.");
   const owner = await taskOwner(req.sessionId);
-  const github = owner ? await repoToken(owner) : null;
-  if (!github) throw new Error("Connect GitHub first (sidebar → Connect GitHub): live previews are built from a Git repository.");
+  const operatorId = await adminUserId();
+  if (owner && owner !== operatorId) {
+    const { rows: [count] } = await query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM curialy.deployments d
+       JOIN curialy.chat_sessions s ON s.id = d.session_id
+       WHERE s.user_id = $1 AND d.deleted_at IS NULL AND d.expires_at > now()`,
+      [owner],
+    );
+    if (Number(count?.n ?? 0) >= PREVIEW_LIMIT) throw new Error("This account already has 2 live previews. Take one down from its Preview tab before starting another.");
+  }
+  // The temporary repository is the operator's, so the hosting account can read it. The user's own repositories are never written.
+  const github = await repoToken(operatorId);
+  if (!github) throw new Error("Live previews aren't available right now.");
   // Uploads and local secrets never go into a repository, even a private temporary one.
   // Workflow files stay out: a preview repository must not run the project's GitHub Actions.
   const files = (await readWorkspaceFiles(req.root)).files.filter(file => !isPublishExcluded(file.path) && !WORKFLOW_PATH.test(file.path));
@@ -69,7 +84,8 @@ export async function deployPreview(req: DeployRequest) {
   throwIfAborted(req.signal);
 
   const id = randomUUID();
-  const name = `curialy-preview-${id.slice(0, 8)}`;
+  // The public path uses the row id. The service name is a different value, so the public address does not reveal the upstream host.
+  const name = `curialy-preview-${randomBytes(4).toString("hex")}`;
   const expiresAt = new Date(Date.now() + PREVIEW_TTL_MINUTES * 60_000);
   // Recorded before any external call, with the names it will use, so a crash cannot orphan them.
   await query(
@@ -91,7 +107,7 @@ export async function deployPreview(req: DeployRequest) {
     req.onProgress("creating", `Creating ${req.kind === "static" ? "static site" : "web service"} ${name}…`);
     const body = req.kind === "static"
       ? { type: "static_site", name, ownerId: PROVIDER_ENV.renderOwner, repo: repo.html_url, branch: pushed.branch, autoDeploy: "no", serviceDetails: { buildCommand: req.buildCommand || "", publishPath: req.publishPath || ".", pullRequestPreviewsEnabled: "no" } }
-      : { type: "web_service", name, ownerId: PROVIDER_ENV.renderOwner, repo: repo.html_url, branch: pushed.branch, autoDeploy: "no", serviceDetails: { runtime: "node", plan: "free", region: "oregon", envSpecificDetails: { buildCommand: req.buildCommand || "npm install", startCommand: req.startCommand || "npm start" } } };
+      : { type: "web_service", name, ownerId: PROVIDER_ENV.renderOwner, repo: repo.html_url, branch: pushed.branch, autoDeploy: "no", serviceDetails: { runtime: "node", plan: WEB_PLAN, region: "oregon", envSpecificDetails: { buildCommand: req.buildCommand || "npm install", startCommand: req.startCommand || "npm start" } } };
     let created: any;
     try {
       created = await render("/services", { method: "POST", body: JSON.stringify(body) });
@@ -105,8 +121,9 @@ export async function deployPreview(req: DeployRequest) {
       throw error;
     }
     const service = created.service ?? created;
-    const url: string = service.serviceDetails?.url ?? `https://${name}.onrender.com`;
-    await query("UPDATE curialy.deployments SET service_id = $2, url = $3, status = 'building' WHERE id = $1", [id, service.id, url]);
+    const upstream: string = service.serviceDetails?.url ?? `https://${name}.onrender.com`;
+    const url = publicPreviewUrl(id);
+    await query("UPDATE curialy.deployments SET service_id = $2, url = $3, upstream_url = $4, status = 'building' WHERE id = $1", [id, service.id, url, upstream]);
     req.onProgress("building", "Building the live preview…", url);
 
     const deadline = Date.now() + 12 * 60_000;
@@ -143,10 +160,8 @@ export type RemovalReason = "expired" | "failed" | "cancelled" | "interrupted" |
 /** Retire a preview's temporary repository; on failure it stays "repo pending" for the sweeper. */
 async function retireTempRepo(id: string, repo: string) {
   try {
-    // The repository is in the account of the task that deployed it (the operator for older rows).
-    const { rows: [row] } = await query<{ session_id: string | null }>("SELECT session_id FROM curialy.deployments WHERE id = $1", [id]);
-    const owner = (row?.session_id ? await taskOwner(row.session_id) : null) ?? (await adminUserId());
-    const github = await repoToken(owner);
+    // The repository was created in the operator's account, so only that token can retire it.
+    const github = await repoToken(await adminUserId());
     if (!github) throw new Error("GitHub is disconnected");
     const outcome = await retireRepo(github.token, repo);
     await query("UPDATE curialy.deployments SET cleanup_detail = $2, last_error = NULL WHERE id = $1", [id, `service deleted; repo ${outcome}`]);
@@ -191,7 +206,7 @@ export async function destroyDeployment(id: string, reason: RemovalReason) {
 }
 
 export type DeploymentView = {
-  /** openUrl: same-origin address that redirects to a live preview (use it for links and frames). */
+  /** openUrl: the preview on this site (use it for links and frames). */
   id: string; callId: string | null; state: DeploymentState; url: string | null; openUrl: string | null; detail: string | null;
   target: { kind: "temp_repo" | "user_repo"; repo: string | null; private: boolean };
   createdAt: string; expiresAt: string; removedAt: string | null; removedReason: string | null; canRemove: boolean;
@@ -207,7 +222,7 @@ export async function listTaskDeployments(sessionId: string, runActive: boolean)
   return rows.map(row => {
     const state = deriveDeploymentState({ status: row.status, expiresAt: row.expires_at, deletedAt: row.deleted_at, removedReason: row.removed_reason }, now, runActive);
     return {
-      id: row.id, callId: row.call_id, state, url: row.url, openUrl: state === "live" && row.url ? `/api/agent/tasks/${sessionId}/deployments/${row.id}/open` : null, detail: row.detail,
+      id: row.id, callId: row.call_id, state, url: row.url, openUrl: state === "live" && row.url ? `/p/${row.id}/` : null, detail: row.detail,
       // Older previews built from the user's own repository were recorded with repo_owned_by_user.
       target: { kind: row.repo_owned_by_user ? "user_repo" : "temp_repo", repo: row.repo, private: !row.repo_owned_by_user },
       createdAt: row.created_at.toISOString(), expiresAt: row.expires_at.toISOString(),

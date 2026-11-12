@@ -14,6 +14,7 @@ import { startDeploymentSweeper } from "../agent/deploy";
 import { closeDb, migrate } from "../db/pg";
 import { registerGitHubAuth } from "../auth-github";
 import { previewHandler } from "../agent/preview";
+import { servePublishedPreview } from "../agent/deploy-proxy";
 import { SANDBOX_MODE } from "../agent/sandbox";
 import { startCloudSandbox, stopCloudSandboxes } from "../agent/e2b";
 import { gatewayRouter, keysRouter } from "../gateway";
@@ -43,6 +44,9 @@ async function startServer() {
   startDeploymentSweeper(isBusy);
   // Agent previews: token-authenticated, sandboxed (CSP), and mounted before the body parsers so
   // requests can be streamed untouched to a dev server running in the sandbox.
+  // Published previews: a temporary address on this site. Mounted before the app's framing policy,
+  // which would otherwise refuse to show the page, and before the body parsers so a form can stream.
+  app.use("/p/:id", (req, res) => { void servePublishedPreview(req, res); });
   app.use("/api/workspace/preview/:taskId/:token", (req, res) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "no-referrer");

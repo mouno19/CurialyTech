@@ -62,10 +62,12 @@ describe("operator-only tools", () => {
     for (const name of tools.OPERATOR_TOOLS) expect(offered(false)).not.toContain(name);
     expect(offered(false)).toContain("run_command");
     const { value } = ctx();
-    for (const name of ["deploy_preview", "delegate_research", "browser_click", "browser_type"]) {
+    for (const name of ["delegate_research", "browser_click", "browser_type"]) {
       const outcome = await tools.executeTool(name, {}, { ...value, operator: false });
       expect(outcome, name).toMatchObject({ ok: false, summary: "Not available" });
     }
+    // A preview is available to every account, and still only when that run was asked to deploy.
+    expect((await tools.executeTool("deploy_preview", { kind: "static" }, { ...value, operator: false })).summary).toBe("Deploy not requested");
   });
 });
 

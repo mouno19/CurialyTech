@@ -816,7 +816,8 @@ describe("accounts: each sees only its own", () => {
     scriptTask(session());
     expect((await fetch(`${base}/keys`, as())).status).toBe(403);
     expect((await fetch(`${base}/deployments`, as())).status).toBe(403);
-    expect((await fetch(`${base}/tasks/${TASK}/deploy`, as({ method: "POST", body: JSON.stringify({ confirm: true }) }))).status).toBe(403);
+    // Another account cannot publish this task's preview. Its own task can.
+    expect((await fetch(`${base}/tasks/${TASK}/deploy`, as({ method: "POST", body: JSON.stringify({ confirm: true }) }))).status).toBe(404);
     expect(publish.deployPreview).not.toHaveBeenCalled();
   });
 

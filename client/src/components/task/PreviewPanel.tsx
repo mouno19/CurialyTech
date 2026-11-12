@@ -53,7 +53,7 @@ export function PreviewPanel({ taskId, status, active, preview, deployments, dep
               </Button>
             )}
           </div>
-          <p className="section-sub">A temporary public site built from a private copy of this workspace, removed automatically after about 2 hours.</p>
+          <p className="section-sub">A temporary public site on this domain, removed automatically after about 2 hours.</p>
           {deploy?.disabledReason && <p className="field-hint">{deploy.disabledReason}</p>}
           <Deployments data={deployments} />
         </section>
