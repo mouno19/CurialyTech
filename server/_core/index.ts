@@ -7,6 +7,7 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { loginHandler, logoutHandler, requireUser, sameOriginOnly, sessionsConfigured } from "../auth";
 import { accountRouter, adminRouter } from "../admin";
+import { supportRouter } from "../support";
 import { agentRouter, githubReposHandler } from "../agent/routes";
 import { isBusy, shutdownRuns, startLifecycle } from "../agent/runner";
 import { startWorkspaceSweeper } from "../agent/workspaces";
@@ -82,6 +83,7 @@ async function startServer() {
   // Every account reaches the agent; each route checks that the task, file or repository is its own.
   app.use("/api/agent", requireUser, agentRouter());
   app.use("/api/account", accountRouter());
+  app.use("/api/support", supportRouter());
   app.use("/api/keys", keysRouter());
   // Plans, API top-ups and crypto payments (the catalog is public; the rest checks the account itself).
   app.use("/api/billing", billingRouter());

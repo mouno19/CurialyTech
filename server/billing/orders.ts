@@ -389,7 +389,7 @@ function assertCanSubmit(row: OrderRow, now = Date.now()) {
   if (row.status === "rejected") throw conflict("This order was rejected.", "order_rejected");
   // Paid just before the details expired: the hash is still taken for a while after.
   if ((row.status === "awaiting_payment" || row.status === "expired") && now >= row.expires_at.getTime() + LATE_SUBMIT_HOURS * 3_600_000) {
-    throw conflict(`This order expired more than ${LATE_SUBMIT_HOURS} hours ago. If you paid it, contact support with the transaction hash.`, "order_expired");
+    throw conflict(`This order expired more than ${LATE_SUBMIT_HOURS} hours ago. If you paid it, open Support and send the transaction hash.`, "order_expired");
   }
 }
 

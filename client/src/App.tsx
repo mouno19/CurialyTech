@@ -23,6 +23,7 @@ const Skills = lazy(() => import("./pages/Skills"));
 const ApiKeys = lazy(() => import("./pages/ApiKeys"));
 const DeveloperPortal = lazy(() => import("./pages/DeveloperPortal"));
 const Billing = lazy(() => import("./pages/Billing"));
+const Support = lazy(() => import("./pages/Support"));
 const Pay = lazy(() => import("./pages/Pay"));
 const Admin = lazy(() => import("./pages/Admin"));
 // The public homepage has its own chunk and stylesheet.
@@ -134,6 +135,7 @@ function Gate() {
           <Route path="/skills" component={Skills} />
           <Route path="/developer" component={DeveloperPortal} />
           <Route path="/billing" component={Billing} />
+          <Route path="/support" component={Support} />
           {/* One page per order: a new code is a new page (its own requests, timers and announcements). */}
           <Route path="/pay/:code">{params => <Pay key={params.code} code={params.code} />}</Route>
           {/* The operator's pages: other accounts land on the dashboard. */}
