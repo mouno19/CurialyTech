@@ -218,6 +218,9 @@ export function listWorkspaceTree(root: string, sub = ".", maxDepth = 4, limit =
 
 export type CommandResult = { exitCode: number | null; timedOut: boolean; output: string; durationMs: number };
 
+/** Longest any command may run: a background one (a dev server for the length of a run). Commands waited for are capped lower by their callers. */
+export const MAX_COMMAND_SEC = 1800;
+
 export type CommandOptions = {
   root: string;
   command: string;

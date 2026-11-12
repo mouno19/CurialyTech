@@ -9,12 +9,14 @@ all state, a Snowflake stage for media. Production layout and operations are in
 | Piece | Where | Notes |
 |---|---|---|
 | Model catalog | `shared/agent.ts` | The 28 picker models, their provider, format and capabilities; aliases for retired ids. |
-| Dispatch and loops | `server/agent/runner.ts` | Auto routing, Anthropic-format tool loop (Claude, Gemini via relay), OpenAI-format loop (GPT, Grok, Kimi, GLM, Ultramarine), chat-only runner (inference and SQL `AI_COMPLETE`), harness verification and self-healing, escalation. |
+| Dispatch and loops | `server/agent/runner.ts` | Auto routing, Anthropic-format tool loop (Claude, Gemini via relay), OpenAI-format loop (GPT, Grok, Kimi, GLM, Ultramarine), chat-only runner (inference and SQL `AI_COMPLETE`), harness verification and self-healing (3 rounds), escalation. Verification counts changes made by commands too, falls back to the build or to syntax checks of the changed files when a project has no checks, and skips a check the agent passed after its last change. `write_file` won't replace a file that was there before the run until the agent has read it. |
 | Providers | `server/agent/providers.ts` | Bridge clients for Cortex Messages / chat completions / inference, RelayStation, Paper Instruments, Research Agent, health probes. |
 | SQL completion and media | `server/media/snowflake.ts` | `AI_COMPLETE` (bound parameters, cancellable), stage uploads, presigned URLs. |
 | Recovery | `server/agent/recovery.ts` | Failure diagnosis, backoff, context compaction, history repairs, same-format failover tiers. |
 | Dev Team | `server/agent/team.ts` | Architect / Engineer / Reviewer with read-only enforcement, review rounds and gated publishing. |
 | Tools | `server/agent/tools.ts` | Plan, files, shell, search, web fetch, live browser, visual preview tests, attachments, GitHub, deploy previews, research. |
+| Background commands | `server/agent/jobs.ts` | Installs, builds and dev servers that run past a few seconds go on in the background (token `bg-…`), streaming into their tool card; `command_status` / `stop_command`; completion notes on the agent's next tool result. At most 3 per run; servers stop when the agent finishes its turn, the rest get 5 minutes; all stop when the run ends. Cloud sandbox only (commands here run one at a time). |
+| Command output | `server/agent/output.ts` | What the model reads of a command: colours and progress redraws stripped, repeats folded, and long logs cut to the first 10 lines, the error lines and the last 30 (file contents, diffs and searches kept whole up to 16 KB). The run log keeps every line. |
 | Sandbox | `server/agent/sandbox.ts` | Per-task workspaces; commands run as `curialy-agent` in a transient systemd scope (512 MB, 150% CPU, 256 tasks) via `setpriv`; path checks through `realpath`/`O_NOFOLLOW`. |
 | Events | `server/agent/bus.ts`, `store.ts` | Per-task sequenced events, coalesced deltas, batched writes to Tiger, SSE replay at `/api/agent/tasks/:id/events`. |
 | Workspaces | `server/agent/workspaces.ts` | Snapshots to Tiger, restore on follow-up, idle sweep. |

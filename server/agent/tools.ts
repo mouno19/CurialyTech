@@ -30,6 +30,8 @@ import { DEFAULT_VOICE, MAX_EXPRESSIVE_CHARS, MAX_SPEECH_CHARS, VOICES, worstCas
 import { voiceCredits } from "@shared/credits";
 import { speakExpressive, speakStandard, studioConfigured, transcribe, voiceConfigured, VoiceError } from "../voice/engines";
 import { classify } from "./artifacts";
+import { backgroundAvailable, describeJob, failed, jobKind, MAX_JOBS, SERVER_JOB_SEC, TASK_JOB_SEC, type Job, type JobRegistry } from "./jobs";
+import { commandOutput } from "./output";
 
 export type ToolContext = {
   root: string;
@@ -55,6 +57,12 @@ export type ToolContext = {
   design?: { surface: Surface; allowed: string[] };
   /** The repository the user switched the task to (the harness's clone step of such a follow-up only). */
   repoSwitch?: string;
+  /** The run's background commands. Absent: every command is waited for (read-only roles, or commands that run one at a time). */
+  jobs?: JobRegistry;
+  /** The agent read this file (workspace-relative). */
+  onRead?: (path: string) => void;
+  /** Why write_file may not replace this existing file yet (null: it may). */
+  mustReadFirst?: (path: string) => string | null;
 };
 
 /**
@@ -67,7 +75,8 @@ export const OPERATOR_TOOLS = new Set(["delegate_research", "browser_click", "br
 export type ToolImage = { mediaType: "image/png" | "image/jpeg"; base64: string };
 /** images: screenshots for the model (vision models only); audit: the visual test's design audit, for the harness. */
 /** baseline: files the tool took from the repository as they are (a sync): its state, not this run's work. */
-export type ToolOutcome = { ok: boolean; content: string; summary: string; exitCode?: number | null; images?: ToolImage[]; audit?: DesignAudit | null; baseline?: string[] };
+/** jobId: the command goes on in the background; its card's result is sent when it ends. */
+export type ToolOutcome = { ok: boolean; content: string; summary: string; exitCode?: number | null; images?: ToolImage[]; audit?: DesignAudit | null; baseline?: string[]; jobId?: string };
 
 const VERIFY_PATTERN = /\b(tsc|vitest|jest|pytest|eslint|ruff|mypy|pyright|go (test|vet)|cargo (test|check)|node --test|(npm|pnpm|yarn)( run)? (test|lint|check|typecheck|build))\b/;
 export const isVerificationCommand = (command: string) => VERIFY_PATTERN.test(command);
@@ -112,7 +121,9 @@ const schemas = {
   edit_file: z.object({ path: z.string().min(1), old_string: z.string().min(1), new_string: z.string(), replace_all: z.boolean().default(false) }),
   delete_file: z.object({ path: z.string().min(1) }),
   search_files: z.object({ pattern: z.string().min(1).max(500), path: z.string().default(".") }),
-  run_command: z.object({ command: z.string().min(1).max(8000), timeout_sec: z.number().int().min(5).max(600).default(120) }),
+  run_command: z.object({ command: z.string().min(1).max(8000), timeout_sec: z.number().int().min(5).max(SERVER_JOB_SEC).optional(), background: z.boolean().optional() }),
+  command_status: z.object({ id: z.string().trim().max(40).optional(), wait_sec: z.number().int().min(0).max(300).default(0) }),
+  stop_command: z.object({ id: z.string().trim().min(1).max(40) }),
   web_fetch: z.object({ url: z.string().url().max(2000) }),
   delegate_research: z.object({ task: z.string().min(10).max(12000) }),
   browse: z.object({ url: z.string().url().max(2000), screenshot: z.boolean().default(true), full_page: z.boolean().default(false), wait_ms: z.number().int().min(0).max(15000).default(2000) }),
@@ -209,12 +220,27 @@ const CODING_TOOLS: ToolDef[] = [
     description: "Search file contents with an extended regular expression (grep -E). Returns up to 200 matching lines as path:line:text.",
     input_schema: { type: "object", properties: { pattern: { type: "string" }, path: { type: "string" } }, required: ["pattern"] },
   },
-  {
+  SANDBOX_MODE === "e2b" ? {
     name: "run_command",
-    description: SANDBOX_MODE === "e2b"
-      ? "Run a bash command in the workspace, inside this task's own Linux sandbox (Debian 12, Node 20, npm, Python 3.11, git, passwordless sudo; internet access). stdout/stderr stream live to the user. Use for installs, builds, typechecks, linters and tests."
-      : "Run a bash command in the workspace as an unprivileged sandbox user (Node 22, npm, Python 3.10 available; internet access, no access to the host). stdout/stderr stream live to the user. Use for installs, builds, typechecks, linters and tests.",
+    description: "Run a bash command in the workspace, inside this task's own Linux sandbox (Debian 12, Node 20, npm, Python 3.11, git, passwordless sudo; internet access). stdout/stderr stream live to the user; you get the first lines, the error lines and the last lines of long output (redirect it to a file and read_file that for more). Use for installs, builds, typechecks, linters and tests. Slow commands don't hold you up: an install, build or dev server still running after a few seconds goes on in the background, and you get its id (bg-…) and its output so far. background: true sends any command there at once; background: false waits for it however long it takes (up to timeout_sec). While one runs, keep working on what doesn't depend on it, but leave the files it changes alone (package.json during an install). You are told when it ends; command_status shows its result and stop_command stops it. Background commands stop when this run ends.",
+    input_schema: { type: "object", properties: { command: { type: "string" }, timeout_sec: { type: "integer", description: `Time limit: 5-600 for a command you wait for (default 120); in the background up to ${SERVER_JOB_SEC} (default ${TASK_JOB_SEC}, or ${SERVER_JOB_SEC} for a server)` }, background: { type: "boolean", description: "true: run it in the background now; false: wait for it to finish. Default: installs, builds and servers go to the background if they take more than a few seconds" } }, required: ["command"] },
+  } : {
+    name: "run_command",
+    description: "Run a bash command in the workspace as an unprivileged sandbox user (Node 22, npm, Python 3.10 available; internet access, no access to the host). stdout/stderr stream live to the user; you get the first lines, the error lines and the last lines of long output (redirect it to a file and read_file that for more). Use for installs, builds, typechecks, linters and tests.",
     input_schema: { type: "object", properties: { command: { type: "string" }, timeout_sec: { type: "integer", description: "5-600, default 120" } }, required: ["command"] },
+  },
+];
+
+const JOB_TOOLS: ToolDef[] = [
+  {
+    name: "command_status",
+    description: "Check this run's background commands (started by run_command): with id, one command's state, exit code and the part of its output that matters (first lines, error lines, last lines); without id, all of them. wait_sec (up to 300) first waits for it to end, or without id for the next one to end: use it when nothing else can go ahead until it does.",
+    input_schema: { type: "object", properties: { id: { type: "string", description: "The id run_command returned, e.g. bg-1a2b" }, wait_sec: { type: "integer", description: "0-300, default 0" } } },
+  },
+  {
+    name: "stop_command",
+    description: "Stop a background command and everything it started: a dev server you no longer need, or a command that hangs.",
+    input_schema: { type: "object", properties: { id: { type: "string", description: "The id run_command returned, e.g. bg-1a2b" } }, required: ["id"] },
   },
 ];
 
@@ -358,6 +384,7 @@ export function toolsFor(opts: { coding: boolean; web: boolean; eager: boolean; 
 function toolList(opts: { coding: boolean; web: boolean; github?: boolean }): ToolDef[] {
   const tools: ToolDef[] = [...INSIGHT_TOOLS];
   if (opts.coding) tools.push(...CODING_TOOLS, ATTACH_TOOL);
+  if (opts.coding && backgroundAvailable()) tools.push(...JOB_TOOLS);
   if (opts.github) tools.push(...(opts.coding ? GITHUB_TOOLS : GITHUB_TOOLS.slice(0, 2)), REMEMBER_TOOL);
   if (opts.coding && deployConfigured().ok) tools.push(DEPLOY_TOOL);
   if ((opts.web || opts.coding) && browserConfigured()) tools.push(BROWSE_TOOL, ...BROWSER_TOOLS);
@@ -465,11 +492,15 @@ async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOu
       const start = (start_line ?? 1) - 1;
       const end = Math.min(lines.length, end_line ?? lines.length);
       const numbered = lines.slice(start, end).map((line, index) => `${String(start + index + 1).padStart(5)}  ${line}`).join("\n");
+      ctx.onRead?.(file.relative);
       return { ok: true, content: clip(numbered, 60_000), summary: `${file.relative} lines ${start + 1}-${end} of ${lines.length}` };
     }
     case "write_file": {
       const { path, content, append } = input as z.infer<typeof schemas.write_file>;
       const previous = readWorkspaceFile(ctx.root, path);
+      // Replacing a file that was already there is never done blind.
+      const unread = previous.exists && !append ? ctx.mustReadFirst?.(previous.relative) : null;
+      if (unread) return { ok: false, content: unread, summary: "Read it first" };
       const next = append && previous.exists ? previous.content + content : content;
       const { relative } = writeWorkspaceFile(ctx.root, path, next);
       const { added, removed } = emitFileChange(ctx, relative, previous.exists ? previous.content : null, next);
@@ -503,12 +534,21 @@ async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOu
       const lines = result.output.trim() ? result.output.trim().split("\n").length : 0;
       return { ok: true, content: result.output.trim() || "No matches.", summary: `${lines} match${lines === 1 ? "" : "es"}` };
     }
-    case "run_command": {
-      const { command, timeout_sec } = input as z.infer<typeof schemas.run_command>;
-      ctx.onCommand(command);
-      const result = await runCommand({ root: ctx.root, command, timeoutSec: timeout_sec, signal: ctx.signal, onOutput: (stream, chunk) => ctx.emit({ type: "tool_output", callId: ctx.callId, stream, chunk }) });
-      const status = result.timedOut ? `timed out after ${timeout_sec}s` : `exit code ${result.exitCode}`;
-      return { ok: result.exitCode === 0, content: `${clip(result.output) || "(no output)"}\n\n[${status}, ${result.durationMs} ms]`, summary: status, exitCode: result.exitCode };
+    case "run_command":
+      return runCommandTool(input as z.infer<typeof schemas.run_command>, ctx);
+    case "command_status":
+      return commandStatusTool(input as z.infer<typeof schemas.command_status>, ctx);
+    case "stop_command": {
+      const { id } = input as z.infer<typeof schemas.stop_command>;
+      const job = ctx.jobs?.get(id);
+      if (!job || !ctx.jobs) return unknownJob(id, ctx);
+      if (job.state !== "running") {
+        job.reported = true;
+        return { ok: true, content: `${ctx.jobs.report(job.id, 2000)}\nNothing to stop.`, summary: `${job.id} had already ended` };
+      }
+      await ctx.jobs.stop(job.id, "stopped with stop_command");
+      job.reported = job.state !== "running";
+      return { ok: true, content: job.state === "running" ? `${job.id} is being stopped; it hasn't ended yet.` : ctx.jobs.report(job.id, 2000), summary: `Stopped ${job.id}` };
     }
     case "web_fetch": {
       const { url } = input as z.infer<typeof schemas.web_fetch>;
@@ -613,6 +653,83 @@ async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOu
       return { ok: result.status === "completed", content: clip(result.answer, 40_000), summary: `Research ${result.status}` };
     }
   }
+}
+
+/** How long a command that may go to the background is waited for first: one that finishes by then is answered like any other. */
+const TASK_GRACE_MS = 15_000;
+/** A dev server: until it says it is up (its address is in the output), or this long. */
+const SERVER_GRACE_MS = 8_000;
+/** background: true: just long enough to catch a command that fails at once (a typo, a missing script). */
+const EXPLICIT_GRACE_MS = 2_000;
+/** A command that is waited for. */
+const FOREGROUND_SEC = 600;
+
+async function runCommandTool(input: z.infer<typeof schemas.run_command>, ctx: ToolContext): Promise<ToolOutcome> {
+  const { command, timeout_sec, background } = input;
+  ctx.onCommand(command);
+  const kind = ctx.jobs && background !== false ? jobKind(command) ?? (background ? "task" : null) : null;
+  if (kind && ctx.jobs) {
+    const timeoutSec = timeout_sec ?? (kind === "server" ? SERVER_JOB_SEC : TASK_JOB_SEC);
+    const job = ctx.jobs.start({ command, kind, timeoutSec, callId: ctx.callId, emit: ctx.emit });
+    if (typeof job !== "string") return waitOrDetach(ctx, ctx.jobs, job, background ? EXPLICIT_GRACE_MS : kind === "server" ? SERVER_GRACE_MS : TASK_GRACE_MS);
+    // At the limit of background commands: one that was asked for is refused, the rest are waited for.
+    if (background) return { ok: false, content: job, summary: `${MAX_JOBS} already in the background` };
+  }
+  const timeout = Math.min(timeout_sec ?? 120, FOREGROUND_SEC);
+  const result = await runCommand({ root: ctx.root, command, timeoutSec: timeout, signal: ctx.signal, onOutput: (stream, chunk) => ctx.emit({ type: "tool_output", callId: ctx.callId, stream, chunk }) });
+  const status = result.timedOut ? `timed out after ${timeout}s` : `exit code ${result.exitCode}`;
+  return { ok: result.exitCode === 0, content: `${commandOutput(command, result.output, result.exitCode === 0) || "(no output)"}\n\n[${status}, ${result.durationMs} ms]`, summary: status, exitCode: result.exitCode };
+}
+
+/** Wait a little: a command that ends by then is answered as usual; otherwise it goes on in the background. */
+async function waitOrDetach(ctx: ToolContext, jobs: JobRegistry, job: Job, graceMs: number): Promise<ToolOutcome> {
+  await jobs.waitUntilReady(job, graceMs, ctx.signal);
+  const elapsed = Date.now() - job.startedAt;
+  if (job.state !== "running") {
+    job.reported = true;
+    const ok = job.state === "exited" && job.exitCode === 0;
+    const status = job.state === "timed_out" ? `timed out after ${job.timeoutSec}s` : job.state === "stopped" ? "stopped" : `exit code ${job.exitCode}`;
+    return { ok, content: `${commandOutput(job.command, jobs.text(job.id), ok) || "(no output)"}\n\n[${status}, ${elapsed} ms]`, summary: status, exitCode: job.exitCode };
+  }
+  job.detached = true;
+  const output = jobs.text(job.id).trim();
+  const limit = job.kind === "server" ? "this run ends" : `it reaches its ${job.timeoutSec} s limit`;
+  return {
+    ok: true,
+    jobId: job.id,
+    content: `Running in the background as ${job.id} (started ${Math.round(elapsed / 1000)} s ago; it stops by itself when ${limit}).\n${output ? `Output so far:\n${commandOutput(job.command, output, true)}` : "No output yet."}\n\nKeep working on what doesn't depend on it. You'll be told when it ends; command_status ${job.id} shows its progress (wait_sec to wait for it), stop_command ${job.id} stops it.`,
+    summary: `running in the background (${job.id})`,
+  };
+}
+
+function unknownJob(id: string, ctx: ToolContext): ToolOutcome {
+  if (!ctx.jobs) return { ok: false, content: "Background commands aren't available here: run_command waits for every command.", summary: "Not available" };
+  const known = ctx.jobs.list().map(job => job.id);
+  return { ok: false, content: `No background command ${id} in this run${known.length ? ` (this run has ${known.join(", ")})` : ""}. A background command stops when the run that started it ends; run it again if you still need it.`, summary: "Unknown id" };
+}
+
+async function commandStatusTool(input: z.infer<typeof schemas.command_status>, ctx: ToolContext): Promise<ToolOutcome> {
+  const jobs = ctx.jobs;
+  if (!jobs) return unknownJob(input.id ?? "", ctx);
+  const waitMs = input.wait_sec * 1000;
+  if (input.id) {
+    const job = jobs.get(input.id);
+    if (!job) return unknownJob(input.id, ctx);
+    await jobs.wait([job], waitMs, { signal: ctx.signal });
+    if (job.state !== "running") job.reported = true;
+    const summary = job.state === "running" ? `${job.id} still running` : failed(job) ? `${job.id} failed` : `${job.id} ${job.state === "stopped" ? "stopped" : "finished"}`;
+    return { ok: true, content: jobs.report(job.id), summary };
+  }
+  if (!jobs.list().length) return { ok: true, content: "No background commands in this run.", summary: "None" };
+  await jobs.wait(jobs.running(), waitMs, { signal: ctx.signal });
+  // Ended and not yet reported: in full. The rest: a line each.
+  const lines = jobs.list().map(job => {
+    if (job.state === "running" || job.reported) return describeJob(job);
+    job.reported = true;
+    return jobs.report(job.id, 3000);
+  });
+  const running = jobs.running().length;
+  return { ok: true, content: lines.join("\n\n"), summary: running ? `${running} running` : "None running" };
 }
 
 async function runGitHubTool(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOutcome> {

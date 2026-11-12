@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { CommandExitError, Sandbox, SandboxNotFoundError, SandboxNotRunningError, SandboxUnreachableError, TimeoutError, type CommandHandle } from "e2b";
 import { brandText } from "@shared/brand";
-import { resolveInWorkspace, SandboxError, useRemoteSandbox, writeWorkspaceBytes, type CommandOptions, type CommandResult } from "./sandbox";
+import { MAX_COMMAND_SEC, resolveInWorkspace, SandboxError, useRemoteSandbox, writeWorkspaceBytes, type CommandOptions, type CommandResult } from "./sandbox";
 
 // Agent commands run in a cloud sandbox (one per task), never on this server. The task's directory
 // here keeps what the file tools, previews, archives, exports and deploys read: sources and build
@@ -74,6 +74,8 @@ type Box = {
   lastUsed: number;
   /** When the sandbox's own timeout ends unless extended (it also proves the sandbox is still there). */
   aliveUntil: number;
+  /** Until when each running command needs the sandbox (its time limit and the sync after it), by command. */
+  holds: Map<number, number>;
   syncLock: Promise<unknown>;
 };
 
@@ -366,7 +368,7 @@ async function openBox(taskId: string, root: string, signal?: AbortSignal): Prom
   const promise = (async () => {
     await makeRoom(signal);
     const remote = await connect(taskId);
-    const box: Box = { taskId, remote, local: new Map(), remoteSeen: new Map(), remoteOnly: new Set(), active: 0, lastUsed: Date.now(), aliveUntil: Date.now() + IDLE_MS, syncLock: Promise.resolve() };
+    const box: Box = { taskId, remote, local: new Map(), remoteSeen: new Map(), remoteOnly: new Set(), active: 0, lastUsed: Date.now(), aliveUntil: Date.now() + IDLE_MS, holds: new Map(), syncLock: Promise.resolve() };
     try {
       // A new sandbox starts empty: everything here is uploaded.
       await withSyncLock(box, () => push(box, root));
@@ -431,7 +433,7 @@ export function waitWithin(running: Pick<Started, "wait">, ms: number): Promise<
 async function runRemote(opts: CommandOptions): Promise<CommandResult> {
   const started = Date.now();
   const taskId = path.basename(opts.root);
-  const timeout = Math.max(5, Math.min(600, Math.round(opts.timeoutSec)));
+  const timeout = Math.max(5, Math.min(MAX_COMMAND_SEC, Math.round(opts.timeoutSec)));
   const sync = opts.sync ?? "full";
   let output = "";
   let streamed = 0;
@@ -455,7 +457,8 @@ async function runRemote(opts: CommandOptions): Promise<CommandResult> {
   }
 
   // Each command is its own session, so whatever it leaves running stops with it.
-  const sessionFile = `/tmp/.curialy-sid-${++counter}`;
+  const commandId = ++counter;
+  const sessionFile = `/tmp/.curialy-sid-${commandId}`;
   const script = `echo $$ > ${sessionFile}; cd -- ${REMOTE_ROOT} || exit 97; eval "$1"`;
   const killSession = `s=$(cat ${sessionFile} 2>/dev/null); [ -n "$s" ] && pkill -KILL -s "$s"; rm -f ${sessionFile}; `;
 
@@ -484,6 +487,8 @@ async function runRemote(opts: CommandOptions): Promise<CommandResult> {
   }
   const live: Box = box!;
   const running: Started = command;
+  // Commands run side by side (background ones): when one ends, the sandbox still lives as long as the others need.
+  live.holds.set(commandId, Date.now() + (timeout + 120) * 1000);
   const stopSession = () => live.remote.exec(`${killSession}true`, 15_000).catch(() => undefined);
   // Its children too: one holding the output open would otherwise keep the command "running".
   const onAbort = () => { void running.kill(); void stopSession(); };
@@ -536,7 +541,8 @@ async function runRemote(opts: CommandOptions): Promise<CommandResult> {
     opts.signal?.removeEventListener("abort", onAbort);
     live.active--;
     live.lastUsed = Date.now();
-    extend(live, IDLE_MS).catch(() => undefined);
+    live.holds.delete(commandId);
+    extend(live, Math.max(IDLE_MS, ...Array.from(live.holds.values(), until => until - Date.now()))).catch(() => undefined);
   }
 }
 
