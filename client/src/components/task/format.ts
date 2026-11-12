@@ -34,8 +34,9 @@ export function interruptedCause(reason: StatusReason | null | undefined) {
 export function deploymentName(url: string | null | undefined) {
   if (!url) return null;
   try {
-    const host = new URL(url).hostname;
-    return isVendorUrl(url) ? host.split(".")[0] : host;
+    const parsed = new URL(url);
+    if (/^\/p\/[^/]+/.test(parsed.pathname)) return parsed.host;
+    return isVendorUrl(url) ? parsed.hostname.split(".")[0] : parsed.hostname;
   } catch {
     return null;
   }

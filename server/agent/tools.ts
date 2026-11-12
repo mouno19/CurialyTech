@@ -62,7 +62,7 @@ export type ToolContext = {
  * delegated to a paid agent that fills in forms and signs up on websites, and clicking or typing on
  * other people's websites could be used to act there in the operator's name.
  */
-export const OPERATOR_TOOLS = new Set(["deploy_preview", "delegate_research", "browser_click", "browser_type"]);
+export const OPERATOR_TOOLS = new Set(["delegate_research", "browser_click", "browser_type"]);
 
 export type ToolImage = { mediaType: "image/png" | "image/jpeg"; base64: string };
 /** images: screenshots for the model (vision models only); audit: the visual test's design audit, for the harness. */
@@ -299,7 +299,7 @@ const VISUAL_TOOL: ToolDef = {
 
 const DEPLOY_TOOL: ToolDef = {
   name: "deploy_preview",
-  description: "Deploy the current workspace as a temporary live preview with Curialy Cloud Deploy (auto-deleted after about 2 hours) and return its public URL. Use kind 'static' for plain HTML/CSS/JS or a static build (set build_command and publish_path, e.g. 'npm install && npm run build' and 'dist'); use kind 'node' for a server that listens on process.env.PORT (set start_command). Only call it when the user asks for a deploy or live preview. The preview runs only this project: no database or other services, so an app that needs one must start in a self-contained mode (for example SQLite or an in-memory store) from its start command. Building takes a few minutes.",
+  description: "Deploy the current workspace as a temporary live preview on this site (a curialy.tech address, removed after about 2 hours) and return that URL. Use kind 'static' for plain HTML/CSS/JS or a static build (set build_command and publish_path, e.g. 'npm install && npm run build' and 'dist'); use kind 'node' for a server that listens on process.env.PORT (set start_command). Only call it when the user asks for a deploy or live preview. The preview runs only this project: no database or other services, so an app that needs one must start in a self-contained mode (for example SQLite or an in-memory store) from its start command. Build with relative asset paths (Vite: base: './'). Building takes a few minutes.",
   input_schema: { type: "object", properties: { kind: { type: "string", enum: ["static", "node"] }, build_command: { type: "string" }, publish_path: { type: "string" }, start_command: { type: "string" } }, required: ["kind"] },
 };
 
@@ -581,8 +581,7 @@ async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOu
           sessionId: ctx.sessionId, callId: ctx.callId, root: ctx.root, kind, buildCommand: build_command, publishPath: publish_path, startCommand: start_command, signal: ctx.signal,
           onCreated: (id, expires) => { deploymentId = id; expiresAt = expires; },
           onProgress: (status, detail, url) => {
-            // The preview's public address is a hosting-provider host: the deployment card links to it
-            // through a first-party route; the log line does not print it.
+            // The public address is on this site. The log line keeps the progress text; the card carries the URL.
             ctx.emit({ type: "tool_output", callId: ctx.callId, stream: status === "failed" ? "stderr" : "stdout", chunk: `[deploy:${status}] ${brandText(detail)}\n` });
             ctx.emit({ type: "deployment", deploymentId: deploymentId || ctx.callId, callId: ctx.callId, status, url, detail: brandText(detail), ...(expiresAt ? { expiresAt } : {}) });
           },
@@ -600,7 +599,7 @@ async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOu
         throw new Error(`${message}\nThe failed preview was cleaned up. You may call deploy_preview once more in this run after fixing the cause.`);
       }
       ctx.grants.deployLive = true;
-      return { ok: true, content: `Deployed: ${result.url}\nExpires: ${result.expiresAt}. Verify it with the browse tool before reporting success. In your answer call it "the live preview" (the user opens it from the Preview tab); do not paste this address.`, summary: "Live preview deployed" };
+      return { ok: true, content: `Deployed: ${result.url}\nExpires: ${result.expiresAt}. This address is on curialy.tech and stops working when the preview is removed. Verify it with the browse tool before reporting success, and give the user this address. They can also open it from the Preview tab.`, summary: "Live preview deployed" };
     }
     case "delegate_research": {
       const { task } = input as z.infer<typeof schemas.delegate_research>;

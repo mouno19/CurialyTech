@@ -529,6 +529,13 @@ const MIGRATIONS: { id: number; sql: string }[] = [
       ALTER TABLE curialy.chat_sessions ADD COLUMN IF NOT EXISTS skill_ids uuid[] NOT NULL DEFAULT '{}';
     `,
   },
+  {
+    id: 18,
+    sql: `
+      -- The address the proxy fetches. The url column is the public address on this site.
+      ALTER TABLE curialy.deployments ADD COLUMN IF NOT EXISTS upstream_url text;
+    `,
+  },
 ];
 
 export async function migrate() {

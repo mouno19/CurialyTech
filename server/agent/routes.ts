@@ -30,7 +30,7 @@ import { drainQueue, editQueued, listQueue, queueMessage, QueueRejected, removeQ
 import { listWorkspaceTree, removeWorkspace, resolveInWorkspace, SANDBOX_MODE, SandboxError, workspacePath } from "./sandbox";
 import { activeRunsOf, agentStats, deleteAgentTask, getAgentTask, lastSeq, listAgentTasks, listEventsAfter, listWorkspaceSnapshot, loadWorkspaceSnapshot, readSnapshotFile, taskOwner } from "./store";
 import { findArchivedBuild, findBuildDirs, isPublishExcluded, isUnbuiltTemplate, materializeWorkspace, readWorkspaceFiles, restoreWorkspace, withWorkspaceLock } from "./workspaces";
-import { query } from "../db/pg";
+import { adminUserId, query } from "../db/pg";
 import { branchHead, createRepo, describeGitHubError, disconnect, getConnection, GITHUB_SCOPES, githubApi, GitHubError, isValidRepoName, listRepos, oauthConfigured, pushProjectToRepo, RemoteChangedError, workflowFilesBlocked, workflowScopeMessage } from "../services/github";
 import { cloneIntoWorkspace, commitAndPush, linkedRepo } from "./repos";
 import { absoluteAssetWarnings, detectPreviewRoot, previewBaseUrl } from "./preview";
@@ -487,15 +487,14 @@ export function agentRouter() {
     res.status(drained.kind === "started" ? 202 : 200).json({ started: drained.kind === "started" ? { runId: drained.runId, itemId: drained.itemId } : null, queue: await listQueue(fresh ?? task) });
   }));
 
-  // The Deploy action: a confirmed, separate run that may publish one temporary private preview.
-  // Operator only: a public preview is built from a repository in the operator's GitHub account and
-  // hosted on the operator's hosting account, so it is never offered for other accounts' code.
-  router.post("/tasks/:id/deploy", requireAdmin, handle(async (req, res) => {
+  // The Deploy action: a confirmed run that publishes one temporary preview on this site.
+  // The build uses the operator's hosting account and a temporary repository in the operator's GitHub account.
+  router.post("/tasks/:id/deploy", handle(async (req, res) => {
     const task = await taskOr404(req, res);
     if (!task) return;
     const input = deploySchema.parse(req.body ?? {});
     if (!deployConfigured().ok) return res.status(409).json({ error: "Live previews are not configured on this server." });
-    if (!(await getConnection(accountOf(req).id))) return res.status(409).json({ error: "Connect GitHub first: previews are built from a temporary private repository in your account." });
+    if (!(await getConnection(await adminUserId()))) return res.status(409).json({ error: "Live previews aren't available right now." });
     const started = await startDeployRun(task.id, { expectedRunId: input.runId === undefined ? undefined : input.runId });
     res.status(202).json({ status: "queued", ...started });
   }));
@@ -1212,24 +1211,20 @@ export function agentRouter() {
     const task = await taskOr404(req, res);
     if (!task) return;
     res.setHeader("Cache-Control", "no-store");
-    const user = accountOf(req);
-    const github = await getConnection(user.id).then(Boolean).catch(() => false);
-    // allowed: public previews are an operator feature (see POST /tasks/:id/deploy).
-    res.json({ deployments: await listTaskDeployments(task.id, isRunning(task.id)), capabilities: { configured: deployConfigured().ok, github, allowed: user.role === "admin" } });
+    const github = await getConnection(await adminUserId()).then(Boolean).catch(() => false);
+    res.json({ deployments: await listTaskDeployments(task.id, isRunning(task.id)), capabilities: { configured: deployConfigured().ok, github, allowed: true } });
   }));
 
-  // Links and frames point here instead of at the hosting provider: a redirect while the preview is
-  // live, a clear "gone" page once it expired or was taken down.
+  // Older clients open this route. Send them to the preview on this site.
   router.get("/tasks/:id/deployments/:deploymentId/open", handle(async (req, res) => {
     const task = await taskOr404(req, res);
     if (!task) return;
     const id = String(req.params.deploymentId);
     const view = /^[0-9a-f-]{36}$/i.test(id) ? (await listTaskDeployments(task.id, isRunning(task.id))).find(item => item.id === id) : undefined;
     res.setHeader("Cache-Control", "no-store");
-    // The preview itself decides whether it can be framed (the app shell's policies forbid framing).
     res.removeHeader("X-Frame-Options");
     res.removeHeader("Content-Security-Policy");
-    if (view?.state === "live" && view.url && /^https:\/\//.test(view.url)) return res.redirect(302, view.url);
+    if (view?.state === "live") return res.redirect(302, `/p/${view.id}/`);
     res.status(410).type("html").send(`<!doctype html><meta charset="utf-8"><title>Preview unavailable</title><body style="font:15px system-ui;padding:2rem;color:#14130f;background:#f3efe6">This preview is no longer live (${view ? view.state : "not found"}). Start a new one from the task's Preview tab.</body>`);
   }));
 

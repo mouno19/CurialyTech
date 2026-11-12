@@ -11,7 +11,7 @@ process.env.AGENT_WORKSPACE_ROOT = tmp;
 process.env.AGENT_SANDBOX = "none";
 
 type Call = { text: string; values: unknown[] };
-const db = vi.hoisted(() => ({ calls: [] as Call[], deployment: null as Record<string, unknown> | null }));
+const db = vi.hoisted(() => ({ calls: [] as Call[], deployment: null as Record<string, unknown> | null, owner: "admin", active: 0 }));
 const gh = vi.hoisted(() => ({
   order: [] as string[],
   repoToken: vi.fn(async () => ({ token: "gh-token", login: "octo" })),
@@ -25,7 +25,8 @@ vi.mock("./db/pg", () => ({
   query: vi.fn(async (text: string, values: unknown[] = []) => {
     db.calls.push({ text, values });
     // Every task here is the operator's.
-    if (text.startsWith("SELECT user_id FROM curialy.chat_sessions WHERE id = $1")) return { rows: [{ user_id: "admin" }] };
+    if (text.startsWith("SELECT user_id FROM curialy.chat_sessions WHERE id = $1")) return { rows: [{ user_id: db.owner }] };
+    if (text.includes("count(*)")) return { rows: [{ n: String(db.active) }] };
     if (text.startsWith("INSERT INTO curialy.deployments")) {
       gh.order.push("insert");
       const [id, sessionId, , callId, name, repo] = values as string[];
@@ -54,7 +55,7 @@ const { deployPreview, destroyDeployment } = await import("./agent/deploy");
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
 const TASK = "00000000-0000-4000-8000-0000000000a1";
-let hosting: { method: string; url: string }[] = [];
+let hosting: { method: string; url: string; body?: Record<string, unknown> }[] = [];
 let deployStatus = "live";
 
 function project() {
@@ -70,13 +71,13 @@ function project() {
   return root;
 }
 
-function request(root: string, controller = new AbortController(), hooks: { onCreated?: () => void } = {}) {
+function request(root: string, controller = new AbortController(), hooks: { onCreated?: () => void } = {}, sessionId = TASK) {
   const progress: [string, string, string | undefined][] = [];
   const created: string[] = [];
   return {
     progress, created, controller,
     req: {
-      sessionId: TASK, callId: "call-1", root, kind: "static" as const, buildCommand: "", publishPath: ".", startCommand: "", signal: controller.signal,
+      sessionId, callId: "call-1", root, kind: "static" as const, buildCommand: "", publishPath: ".", startCommand: "", signal: controller.signal,
       onCreated: (id: string) => { created.push(id); gh.order.push("onCreated"); hooks.onCreated?.(); },
       onProgress: (status: string, detail: string, url?: string) => { progress.push([status, detail, url]); },
     },
@@ -86,6 +87,8 @@ function request(root: string, controller = new AbortController(), hooks: { onCr
 beforeEach(() => {
   db.calls.length = 0;
   db.deployment = null;
+  db.owner = "admin";
+  db.active = 0;
   gh.order.length = 0;
   for (const fn of [gh.createRepo, gh.pushProjectToRepo, gh.retireRepo, gh.repoToken]) fn.mockClear();
   hosting = [];
@@ -94,8 +97,8 @@ beforeEach(() => {
   vi.stubEnv("RENDER_OWNER_ID", "owner-1");
   vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit = {}) => {
     const method = init.method ?? "GET";
-    hosting.push({ method, url });
-    if (method === "POST" && url.endsWith("/services")) return new Response(JSON.stringify({ service: { id: "srv-1", serviceDetails: { url: "https://preview.example" } } }), { status: 201 });
+    hosting.push(init.body ? { method, url, body: JSON.parse(String(init.body)) as Record<string, unknown> } : { method, url });
+    if (method === "POST" && url.endsWith("/services")) return new Response(JSON.stringify({ service: { id: "srv-1", serviceDetails: { url: "https://curialy-preview-test.onrender.com" } } }), { status: 201 });
     if (url.includes("/deploys")) return new Response(JSON.stringify([{ deploy: { status: deployStatus } }]), { status: 200 });
     if (url.includes("/services?name=")) return new Response("[]", { status: 200 });
     if (method === "DELETE") return new Response(null, { status: 204 });
@@ -132,7 +135,10 @@ describe("deployPreview", () => {
     expect(gh.order.slice(0, 4)).toEqual(["insert", "onCreated", "createRepo", "push"]);
     expect(db.calls.find(call => call.text.startsWith("INSERT INTO curialy.deployments"))!.values).toContain(`octo/${name}`);
     expect(created).toHaveLength(1);
-    expect(result).toMatchObject({ id: created[0], url: "https://preview.example", repo: `octo/${name}` });
+    expect(result).toMatchObject({ id: created[0], url: `https://curialy.tech/p/${created[0]}/`, repo: `octo/${name}` });
+    expect(result.url).not.toContain("onrender.com");
+    const posted = hosting.find(call => call.method === "POST");
+    expect(posted?.body).toMatchObject({ type: "static_site", autoDeploy: "no", ownerId: "owner-1" });
     expect(progress.map(([status]) => status)).toEqual(["creating", "creating", "building", "building", "live"]);
     expect(db.deployment).toMatchObject({ status: "live", service_id: "srv-1" });
     expect(gh.retireRepo).not.toHaveBeenCalled();
@@ -175,6 +181,43 @@ describe("deployPreview", () => {
     expect(db.calls).toHaveLength(0);
     expect(gh.createRepo).not.toHaveBeenCalled();
     expect(hosting).toHaveLength(0);
+  });
+
+  it("runs a server preview on the paid plan and keeps a second one from the same account off", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const made = request(project());
+    made.req.kind = "node";
+    made.req.startCommand = "npm start";
+    let settled = false;
+    const pending = deployPreview(made.req).finally(() => { settled = true; });
+    for (let i = 0; i < 30 && !settled; i++) await vi.advanceTimersByTimeAsync(1000);
+    await pending;
+    const posted = hosting.find(call => call.method === "POST");
+    expect(posted?.body).toMatchObject({ type: "web_service", serviceDetails: { plan: "0.5c-512mb", runtime: "node" } });
+
+    vi.useRealTimers();
+    db.owner = "user-b";
+    db.active = 2;
+    db.calls.length = 0;
+    gh.createRepo.mockClear();
+    await expect(deployPreview(request(project(), new AbortController(), {}, "00000000-0000-4000-8000-0000000000b2").req)).rejects.toThrow(/2 live previews/);
+    expect(gh.createRepo).not.toHaveBeenCalled();
+  });
+});
+
+describe("preview address", () => {
+  it("serves the preview on this site and rewrites the upstream out of the page", async () => {
+    const { publicPreviewUrl, previewUpstream, rewritePreviewHtml, rewritePreviewLocation } = await import("./agent/deploy-proxy");
+    const id = "00000000-0000-4000-8000-0000000000aa";
+    expect(publicPreviewUrl(id)).toBe(`https://curialy.tech/p/${id}/`);
+    const upstream = previewUpstream("https://curialy-preview-abcd1234.onrender.com")!;
+    expect(previewUpstream("https://example.com")).toBeNull();
+    expect(rewritePreviewLocation("https://curialy-preview-abcd1234.onrender.com/app", upstream, `/p/${id}/`)).toBe(`/p/${id}/app`);
+    expect(rewritePreviewLocation("/assets/app.js", upstream, `/p/${id}/`)).toBe(`/p/${id}/assets/app.js`);
+    const html = rewritePreviewHtml(`<head><link href="/assets/app.css"></head><a href="https://curialy-preview-abcd1234.onrender.com/next">`, upstream, `/p/${id}/`);
+    expect(html).toContain(`<base href="/p/${id}/">`);
+    expect(html).toContain(`href="/p/${id}/assets/app.css"`);
+    expect(html).not.toContain("onrender.com");
   });
 });
 

@@ -169,7 +169,7 @@ export type DeploymentView = {
   removedReason: string | null;
   canRemove: boolean;
 };
-/** allowed: public previews are the operator's feature; other accounts preview inside Curialy. */
+/** allowed: this account may publish a temporary preview on this site. */
 export type TaskDeployments = { deployments: DeploymentView[]; capabilities: { configured: boolean; github: boolean; allowed?: boolean } };
 /** Legacy global deployments list (GET /deployments). */
 export type Deployment = { id: string; sessionId: string | null; status: string; url: string | null; repo: string | null; serviceId: string | null; detail: string | null; expiresAt: string; createdAt: string; deletedAt: string | null };

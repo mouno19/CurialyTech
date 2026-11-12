@@ -739,7 +739,7 @@ export async function followUp(taskId: string, prompt: string, attachments: Atta
   }
 }
 
-const DEPLOY_INSTRUCTION = "Deploy this project as a temporary live preview with deploy_preview (choose static or node and the right build and start commands from the files), then open the URL with browse to confirm it renders, and report the link. The preview runs only this project, with no database or other services: if the app needs one, start it in a self-contained mode (for example SQLite or an in-memory store) from a start script. Do not change any files unless the build or that start mode needs it.";
+const DEPLOY_INSTRUCTION = "Deploy this project as a temporary live preview with deploy_preview (choose static or node and the right build and start commands from the files), then open the URL with browse to confirm it renders, and report the link. The address is on this site and is removed after about 2 hours. The preview runs only this project, with no database or other services: if the app needs one, start it in a self-contained mode (for example SQLite or an in-memory store) from a start script. Do not change any files unless the build or that start mode needs it.";
 
 /** The Deploy action: a run whose only job is a preview deploy, with the deploy grant. */
 export async function startDeployRun(taskId: string, opts: { expectedRunId?: string | null } = {}) {
@@ -863,7 +863,7 @@ function appendUserNote(conversation: Record<string, unknown>[], format: Convers
 
 /**
  * Publishing the agent may do in a run without asking (see tools.ts). A deploy creates a repository
- * and a public preview, so it is granted only by the confirmed Deploy action or by the operator's
+ * and a public preview, so it is granted only by the confirmed Deploy action or by the user's
  * own message asking for one (asksToDeploy), for that run alone: a later message does not inherit
  * it, and a retry of the request gets it only if no run of that request already put a preview live.
  */
@@ -1218,9 +1218,8 @@ async function executeRun(handle: RunHandle, conversation: Record<string, unknow
       console.error("[reading] charts:", error instanceof Error ? error.message : error);
     }
     const request = latestRequest(conversation);
-    // On the operator's own tasks, asking for a deploy in the message is the go-ahead the Deploy
-    // action gives (other accounts never get the tool). Previews still run once, plus one retry.
-    if (opts.mode === "agent" && !opts.grants && handle.operator && asksToDeploy(request.text)) runCtx.grants = { deploy: true };
+    // Asking for a deploy in the message is the go-ahead the Deploy action gives. Previews still run once, plus one retry.
+    if (opts.mode === "agent" && !opts.grants && asksToDeploy(request.text)) runCtx.grants = { deploy: true };
     // Interface work gets a design brief, from the request and the workspace as it is now (not runs
     // limited to a few tools, such as the Deploy action, which build nothing).
     if (opts.mode === "agent" && !opts.allowedTools) {
