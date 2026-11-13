@@ -1,11 +1,13 @@
-// Live USD prices of the networks' own coins (ETH, BNB, POL, SOL), for quoting an exact amount that
+// Live USD prices of the networks' own coins (ETH, BNB, POL, SOL, GRAM), for quoting an exact amount that
 // stays locked for an order's window. Four public sources are asked at once; a quote needs two that
 // agree within 2% of their median, so one wrong or stale source can't set a price. Stablecoins need
 // none of this (one USDT or USDC is paid per dollar).
 
-export type NativeCoin = "ETH" | "BNB" | "POL" | "SOL";
+export type NativeCoin = "ETH" | "BNB" | "POL" | "SOL" | "GRAM";
 
-const GECKO_IDS: Record<NativeCoin, string> = { ETH: "ethereum", BNB: "binancecoin", POL: "polygon-ecosystem-token", SOL: "solana" };
+const GECKO_IDS: Record<NativeCoin, string> = { ETH: "ethereum", BNB: "binancecoin", POL: "polygon-ecosystem-token", SOL: "solana", GRAM: "the-open-network" };
+/** Kraken still lists GRAM by its old ticker (Coinbase and Binance use GRAM; Binance's TON pair is stale). */
+const KRAKEN_SYMBOL: Partial<Record<NativeCoin, string>> = { GRAM: "TON" };
 const TIMEOUT_MS = 5_000;
 const CACHE_MS = 60_000;
 /** Sources must agree within this fraction of their median. */
@@ -21,7 +23,7 @@ async function getJson(url: string): Promise<any> {
 const SOURCES: ((coin: NativeCoin) => Promise<number>)[] = [
   async coin => Number((await getJson(`https://api.coinbase.com/v2/prices/${coin}-USD/spot`)).data?.amount),
   async coin => {
-    const body = await getJson(`https://api.kraken.com/0/public/Ticker?pair=${coin}USD`);
+    const body = await getJson(`https://api.kraken.com/0/public/Ticker?pair=${KRAKEN_SYMBOL[coin] ?? coin}USD`);
     if (body.error?.length) throw new Error("no such pair");
     // The result is keyed by the pair's own name (ETH's is XETHZUSD): the first entry, last trade price.
     const first = Object.values(body.result ?? {})[0] as { c?: string[] } | undefined;

@@ -87,7 +87,7 @@ export function HashForm({ order, value: raw, onValueChange: setRaw, sent = fals
             autoCapitalize="off"
             autoCorrect="off"
             spellCheck={false}
-            placeholder={network?.family === "solana" ? "Transaction signature" : "0x…"}
+            placeholder={network?.family === "solana" ? "Transaction signature" : network?.family === "ton" ? "Transaction hash" : "0x…"}
             aria-invalid={problem?.field === "hash" || undefined}
             aria-describedby={problem?.field === "hash" ? ids.error : ids.hint}
             onChange={event => {

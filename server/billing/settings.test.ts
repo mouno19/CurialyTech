@@ -11,6 +11,7 @@ const settings = await import("./settings");
 
 const EVM = "0x6FD853FE610A76b20E1B02751bc5eD3716D3894b";
 const SOLANA = "9bXLFJhkKcnsvaoV1aEfjNjUf7wh61o3VdUFcUfU5K7i";
+const TON = "UQDxb2OlXXDbw-I1_SlBJZ0irOUN9qD3tsM_bVWy4-Xgm9QZ";
 
 beforeEach(() => {
   resetFake();
@@ -80,11 +81,16 @@ describe("billing settings", () => {
 });
 
 describe("receiving wallets", () => {
-  it("are the configured addresses, the EVM one in its checksummed form, and every network is offered", () => {
+  it("are the configured addresses, the EVM one in its checksummed form, TON's non-bounceable, and every network is offered", () => {
     vi.stubEnv("PAY_EVM_ADDRESS", ` ${EVM.toLowerCase()} `);
     vi.stubEnv("PAY_SOLANA_ADDRESS", SOLANA);
-    expect(settings.walletConfig()).toEqual({ evm: EVM, solana: SOLANA });
-    expect(settings.offeredNetworks().map(network => network.id)).toEqual(["ethereum", "bnb", "polygon", "solana"]);
+    // The raw form (or a bounceable one) is shown non-bounceable: a wallet not deployed yet would bounce a bounceable transfer.
+    vi.stubEnv("PAY_TON_ADDRESS", "0:f16f63a55d70dbc3e235fd2941259d22ace50df6a0f7b6c33f6d55b2e3e5e09b");
+    expect(settings.walletConfig()).toEqual({ evm: EVM, solana: SOLANA, ton: TON });
+    expect(settings.offeredNetworks().map(network => network.id)).toEqual(["ethereum", "bnb", "polygon", "solana", "ton"]);
+    settings.resetBillingSettings();
+    vi.stubEnv("PAY_TON_ADDRESS", "EQDxb2OlXXDbw-I1_SlBJZ0irOUN9qD3tsM_bVWy4-Xgm4nc");
+    expect(settings.walletConfig().ton).toBe(TON);
   });
 
   it("are off when missing or invalid, said once, without the value", () => {
@@ -94,17 +100,23 @@ describe("receiving wallets", () => {
     const pasted = `0x${"4c0883a69102937d6231471b5dbb6204fe512961708279f0a4b0e3bb7d6cc5e1"}`;
     vi.stubEnv("PAY_EVM_ADDRESS", pasted);
     vi.stubEnv("PAY_SOLANA_ADDRESS", "");
-    expect(settings.walletConfig()).toEqual({ evm: null, solana: null });
+    // A TON private key: 32 bytes of hex, no address at all.
+    vi.stubEnv("PAY_TON_ADDRESS", `5be1d0c2${"9f".repeat(28)}`);
+    expect(settings.walletConfig()).toEqual({ evm: null, solana: null, ton: null });
     expect(settings.offeredNetworks()).toEqual([]);
     settings.walletConfig();
-    expect(error).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledTimes(2);
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify([error.mock.calls, warn.mock.calls])).not.toContain("4c0883a6");
-    // A bad checksum, and a Solana address off the curve.
+    expect(JSON.stringify([error.mock.calls, warn.mock.calls])).not.toMatch(/4c0883a6|5be1d0c2/);
+    // A bad checksum, a Solana address off the curve, and TON addresses with a wrong checksum or for the test network.
     settings.resetBillingSettings();
     vi.stubEnv("PAY_EVM_ADDRESS", EVM.replace("b20E", "b20e"));
     vi.stubEnv("PAY_SOLANA_ADDRESS", "4i6g6pTxVJZcSixvKMemmDWsPv9aRSH3m3b6WduXJrhK");
-    expect(settings.walletConfig()).toEqual({ evm: null, solana: null });
+    vi.stubEnv("PAY_TON_ADDRESS", TON.slice(0, -1) + "A");
+    expect(settings.walletConfig()).toEqual({ evm: null, solana: null, ton: null });
+    settings.resetBillingSettings();
+    vi.stubEnv("PAY_TON_ADDRESS", "0QDxb2OlXXDbw-I1_SlBJZ0irOUN9qD3tsM_bVWy4-Xgm2-T");
+    expect(settings.walletConfig().ton).toBeNull();
     settings.resetBillingSettings();
     vi.stubEnv("PAY_EVM_ADDRESS", EVM);
     expect(settings.offeredNetworks().map(network => network.id)).toEqual(["ethereum", "bnb", "polygon"]);

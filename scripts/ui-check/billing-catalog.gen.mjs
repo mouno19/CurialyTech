@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Writes billing-catalog.json next to this file: the billing data the UI check's fixtures serve
-// (plans at the launch offer, the four payment networks, every Developer API model with its list
+// (plans at the launch offer, the payment networks, every Developer API model with its list
 // price, offer price and limits), worked out from shared/billing.ts, shared/gateway.ts and
 // shared/agent.ts exactly as server/billing/routes.ts builds GET /api/billing/catalog.
 // fixtures.mjs reads the JSON (it imports no app code), so run this again after a price change:

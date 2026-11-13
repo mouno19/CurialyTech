@@ -103,6 +103,9 @@ describe("formatting", () => {
     expect(methodText("bnb", "USDT")).toBe("USDT · BEP-20 on BNB Chain");
     expect(methodText("ethereum", "ETH")).toBe("ETH on Ethereum");
     expect(methodText("solana", "BNB")).toBeNull();
+    expect(methodText("ton", "USDT")).toBe("USDT · Jetton on TON");
+    expect(methodText("ton", "USDC")).toBe("USDC · bridged jUSDC on TON");
+    expect(methodText("ton", "GRAM")).toBe("GRAM on TON");
     expect(methodText(null, null)).toBeNull();
   });
 
@@ -155,6 +158,10 @@ describe("hashProblem", () => {
   it("accepts a hash for the order's network", () => {
     expect(hashProblem("bnb", `  ${HASH.toUpperCase().replace("0X", "0x")} `)).toBeNull();
     expect(hashProblem("solana", "5".repeat(88))).toBeNull();
+    // TON: hex, or base64 as wallets and Tonviewer show it.
+    expect(hashProblem("ton", "ccc5e9e86a2b976cb1955dd2aeffbccf1ddb2454cf18f038955f37a47e8236af")).toBeNull();
+    expect(hashProblem("ton", "zMXp6Gorl2yxlV3Srv+8zx3bJFTPGPA4lV83pH6CNq8=")).toBeNull();
+    expect(hashProblem("ton", "zMXp6Gorl2yxlV3Srv-8zx3bJFTPGPA4lV83pH6CNq8")).toBeNull();
   });
 
   it("says what was pasted instead", () => {
@@ -165,6 +172,10 @@ describe("hashProblem", () => {
     expect(hashProblem("solana", HASH)).toMatch(/Ethereum-style hash/);
     expect(hashProblem("solana", "9bXLFJhkKcnsvaoV1aEfjNjUf7wh61o3VdUFcUfU5K7i")).toMatch(/wallet address/);
     expect(hashProblem("solana", "not a hash")).toMatch(/about 88/);
+    expect(hashProblem("ton", "UQDxb2OlXXDbw-I1_SlBJZ0irOUN9qD3tsM_bVWy4-Xgm9QZ")).toMatch(/wallet address/);
+    expect(hashProblem("ton", HASH)).toMatch(/Ethereum-style hash.*TON/);
+    expect(hashProblem("ton", "5".repeat(88))).toMatch(/Solana signature.*TON/);
+    expect(hashProblem("ton", "not a hash")).toMatch(/TON transaction hash is 64 characters/);
   });
 });
 

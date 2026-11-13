@@ -243,10 +243,10 @@ function Wallets({ billing, error }: { billing: AdminBillingOverview | null; err
         error ? <p className="field-error" role="alert"><TriangleAlert size={14} aria-hidden="true" />Couldn't load the wallets: {error}</p> : <p className="field-hint">Loading…</p>
       ) : (
         <>
-          {!billing.wallets.evm && !billing.wallets.solana && (
+          {!billing.wallets.evm && !billing.wallets.solana && !billing.wallets.ton && (
             <div className="notice" data-tone="warning">
               <TriangleAlert size={16} aria-hidden="true" />
-              <div className="notice-body">No receiving wallet is set, so nobody can pay. Set PAY_EVM_ADDRESS, PAY_SOLANA_ADDRESS or both.</div>
+              <div className="notice-body">No receiving wallet is set, so nobody can pay. Set at least one of PAY_EVM_ADDRESS, PAY_SOLANA_ADDRESS and PAY_TON_ADDRESS.</div>
             </div>
           )}
           <dl className="admin-facts">
@@ -274,6 +274,18 @@ function Wallets({ billing, error }: { billing: AdminBillingOverview | null; err
                 </span>
               ) : missing("PAY_SOLANA_ADDRESS", "Solana")}
             </Fact>
+            <Fact label="TON">
+              {billing.wallets.ton ? (
+                <span className="admin-chain-value">
+                  <code className="admin-mono">{billing.wallets.ton}</code>
+                  <span className="admin-chain-actions">
+                    {PAYMENT_NETWORKS.filter(network => network.family === "ton").map(network => (
+                      <ExplorerLink key={network.id} href={`${network.explorer.address}${billing.wallets.ton}`} explorer={network.explorer.name} what={`the wallet on ${network.label}`} />
+                    ))}
+                  </span>
+                </span>
+              ) : missing("PAY_TON_ADDRESS", "TON")}
+            </Fact>
             <Fact label="Telegram alerts">
               {billing.alerts ? "On: your chat gets a message when a payment needs review or completes." : (
                 <span className="admin-missing">Off: set TELEGRAM_BOT_TOKEN and TELEGRAM_ADMIN_CHAT_ID to get a message when a payment needs review or completes.</span>
@@ -292,7 +304,7 @@ function Preview({ settings, billing, free, partial }: { settings: BillingSettin
   const badge = offerBadge(discount, shortDayText);
   const every = free ? `every ${free.windowHours} hours` : "per window";
   const samples = apiSample(discount.apiPercent);
-  const offered = billing ? PAYMENT_NETWORKS.filter(network => (network.family === "evm" ? billing.wallets.evm : billing.wallets.solana)) : null;
+  const offered = billing ? PAYMENT_NETWORKS.filter(network => billing.wallets[network.family]) : null;
   const payments = !settings.paymentsOpen ? "Payments are paused: nobody can start an order."
     : offered === null ? null
       : offered.length === 0 ? "No receiving wallet is set: nobody can start an order."

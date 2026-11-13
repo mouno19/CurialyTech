@@ -120,7 +120,9 @@ export function methodText(network: string | null | undefined, coin: string | nu
 
 /** What a transaction hash looks like on the network (the field's hint). */
 export function hashHint(network: string | null | undefined) {
-  if (networkInfo(network)?.family === "solana") return "The transaction signature: about 88 letters and digits.";
+  const family = networkInfo(network)?.family;
+  if (family === "solana") return "The transaction signature: about 88 letters and digits.";
+  if (family === "ton") return "64 characters (0–9 and a–f), or 44 letters and digits as wallets show it.";
   return "0x followed by 64 characters (0–9 and a–f).";
 }
 
@@ -128,6 +130,8 @@ const EVM_HASH = /^0x[0-9a-fA-F]{64}$/;
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const SOLANA_SIGNATURE = /^[1-9A-HJ-NP-Za-km-z]{86,88}$/;
 const SOLANA_ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+/** A user-friendly TON address: 48 characters starting EQ, UQ, kQ or 0Q. */
+const TON_ADDRESS = /^[EUk0]Q[A-Za-z0-9+/_-]{46}$/;
 
 /** Why a pasted value can't be a transaction hash on the order's network, or null when it can. */
 export function hashProblem(network: string, raw: string): string | null {
@@ -140,6 +144,12 @@ export function hashProblem(network: string, raw: string): string | null {
     if (EVM_ADDRESS.test(value)) return "That looks like a wallet address. Paste the transaction hash: 0x and 64 characters.";
     if (SOLANA_SIGNATURE.test(value)) return `That looks like a Solana signature, but this order is paid on ${info.label}.`;
     return `A ${info.label} transaction hash is 0x followed by 64 characters (0–9 and a–f).`;
+  }
+  if (info.family === "ton") {
+    if (TON_ADDRESS.test(value)) return "That looks like a wallet address. Paste the transaction hash: 64 characters, or 44 letters and digits.";
+    if (EVM_HASH.test(value)) return "That looks like an Ethereum-style hash, but this order is paid on TON.";
+    if (SOLANA_SIGNATURE.test(value)) return "That looks like a Solana signature, but this order is paid on TON.";
+    return "A TON transaction hash is 64 characters (0–9 and a–f), or 44 letters and digits, with no spaces.";
   }
   if (EVM_HASH.test(value)) return "That looks like an Ethereum-style hash, but this order is paid on Solana.";
   if (SOLANA_ADDRESS.test(value)) return "That looks like a wallet address. Paste the transaction signature: about 88 letters and digits.";

@@ -21,7 +21,7 @@ beforeEach(() => {
     if (url.startsWith("https://api.coinbase.com/")) return answer(quotes.coinbase, () => ({ data: { amount: String(quotes.coinbase), base: coin, currency: "USD" } }));
     if (url.startsWith("https://api.kraken.com/")) return answer(quotes.kraken, () => ({ error: [], result: { [coin === "ETH" ? "XETHZUSD" : `${coin}USD`]: { a: ["1"], c: [String(quotes.kraken), "0.5"] } } }));
     if (url.startsWith("https://api.binance.com/")) return answer(quotes.binance, () => ({ symbol: `${coin}USDT`, price: String(quotes.binance) }));
-    if (url.startsWith("https://api.coingecko.com/")) return answer(quotes.gecko, () => ({ ethereum: { usd: quotes.gecko }, solana: { usd: quotes.gecko }, binancecoin: { usd: quotes.gecko }, "polygon-ecosystem-token": { usd: quotes.gecko } }));
+    if (url.startsWith("https://api.coingecko.com/")) return answer(quotes.gecko, () => ({ ethereum: { usd: quotes.gecko }, solana: { usd: quotes.gecko }, binancecoin: { usd: quotes.gecko }, "polygon-ecosystem-token": { usd: quotes.gecko }, "the-open-network": { usd: quotes.gecko } }));
     throw new Error(`unexpected fetch ${url}`);
   });
   vi.spyOn(console, "warn").mockImplementation(() => undefined);
@@ -33,6 +33,15 @@ afterEach(() => {
 });
 
 describe("a quote", () => {
+  it("prices GRAM by its ticker, and on Kraken by TON, the ticker Kraken still lists it under", async () => {
+    quotes = { coinbase: 1.1414, kraken: 1.146, binance: 1.143, gecko: 1.15 };
+    expect(await quoteUsd("GRAM")).toBeCloseTo(1.1445, 10);
+    expect(calls.map(call => call.url)).toEqual(expect.arrayContaining([
+      "https://api.coinbase.com/v2/prices/GRAM-USD/spot", "https://api.kraken.com/0/public/Ticker?pair=TONUSD", "https://api.binance.com/api/v3/ticker/price?symbol=GRAMUSDT",
+    ]));
+    expect(calls.find(call => call.url.startsWith("https://api.coingecko.com/"))!.url).toContain("the-open-network");
+  });
+
   it("is the median of four sources that agree, asked at once with a timeout each", async () => {
     quotes = { coinbase: 3000, kraken: 3010.5, binance: 2995, gecko: 3005 };
     expect(await quoteUsd("ETH")).toBe(3002.5);

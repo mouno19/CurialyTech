@@ -203,10 +203,12 @@ export async function run(sql: string, values: any[] = []): Promise<{ rows: Row[
     }]);
   }
   if (text.startsWith("UPDATE curialy.payment_orders SET status = $2, status_detail = $3")) {
-    const [id, status, status_detail, confirmations, required_confirmations, tx_from, tx_block_time, received_units, chain_verified_at, seconds] = values;
-    paidIndex(byId(id)!, status, chain_verified_at);
-    Object.assign(byId(id)!, {
-      status, status_detail, confirmations, required_confirmations, tx_from, tx_block_time, received_units, chain_verified_at,
+    const [id, status, status_detail, confirmations, required_confirmations, tx_from, tx_block_time, received_units, chain_verified_at, seconds, tx_hash] = values;
+    const row = byId(id)!;
+    // The index applies to the hash the order will hold (a TON check can move it to the receiving transaction).
+    paidIndex({ ...row, tx_hash: tx_hash ?? row.tx_hash }, status, chain_verified_at);
+    Object.assign(row, {
+      status, status_detail, confirmations, required_confirmations, tx_from, tx_block_time, received_units, chain_verified_at, tx_hash: tx_hash ?? row.tx_hash,
       next_check_at: seconds === null ? null : new Date(now.getTime() + seconds * 1000), updated_at: now,
     });
     return result([], 1);

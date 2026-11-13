@@ -93,6 +93,8 @@ export function PaymentDetails({ order, onCopied }: { order: PaymentOrder; onCop
             <li>Only {coin} on {network.label}. Another coin or network can't be matched automatically.</li>
             <li>An exchange that takes its withdrawal fee out of the amount must still deliver exactly {amount} {coin}: add the fee on top.</li>
             {directOnly && <li>Send {coin} straight from a wallet address. A transfer made through a contract (a smart wallet, some exchange withdrawals) can't be matched automatically: it's checked by hand, which takes longer.</li>}
+            {network.family === "ton" && stable && <li>Keep a little GRAM in the sending wallet: a token transfer on TON pays its network fee in GRAM, apart from the amount.</li>}
+            {network.family === "ton" && coin === "USDC" && <li>On TON, USDC is the bridged jUSDC, and wallets list it under that name. Another token called USDC there can't be matched.</li>}
           </ul>
         </div>
       </div>

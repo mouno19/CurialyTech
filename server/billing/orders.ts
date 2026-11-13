@@ -46,7 +46,7 @@ const CONFIRM_WINDOW_MS = 60 * MINUTE;
 const BEFORE_MARGIN_MS = 5 * MINUTE;
 const AFTER_MARGIN_MS = 15 * MINUTE;
 /** Native coins are quoted to this many decimals; the last digits make the amount the order's own. */
-const QUOTE_DECIMALS: Record<NativeCoin, number> = { ETH: 7, BNB: 7, POL: 3, SOL: 6 };
+const QUOTE_DECIMALS: Record<NativeCoin, number> = { ETH: 7, BNB: 7, POL: 3, SOL: 6, GRAM: 4 };
 const STILL_OPEN = "'awaiting_payment', 'pending', 'confirming', 'review'";
 
 const notFound = () => new BillingError("No order with that code on this account.", "not_found", 404);
@@ -644,7 +644,7 @@ export function decide(ctx: CheckContext, check: ChainCheck): Decision {
   const chain = { confirmations: check.confirmations, required: check.required, from: check.from, receivedUnits: check.receivedUnits, blockTime: check.blockTime };
   if (ctx.paidElsewhere) return review("This transaction already paid another order.", chain);
   const progress = check.secondCheck ? "Confirmed; double-checking it with a second network provider."
-    : info.family === "solana" ? "Confirmed; waiting for the network to finalize it." : `${check.confirmations} of ${check.required} confirmations`;
+    : info.family !== "evm" ? "Confirmed; waiting for the network to finalize it." : `${check.confirmations} of ${check.required} confirmations`;
   if (check.state === "confirming") {
     if (ctx.status === "confirming" && confirmingFor > CONFIRM_WINDOW_MS) {
       return review(check.secondCheck ? "Confirmed by one network provider, but a second one couldn't confirm it within 60 minutes." : `Still not final after 60 minutes (${progress}).`, chain);
@@ -691,21 +691,28 @@ export async function runCheck(orderId: string, opts: { force?: boolean; actorId
       [row.id],
     );
     const matched = check.state === "confirming" || check.state === "confirmed";
+    // A TON payment spans several transactions: the order keeps the one that received it, so a
+    // payment has one hash for the rule that it pays one order, whichever of them was pasted.
+    const receiving = (check.state === "confirming" || check.state === "confirmed") && check.txHash && check.txHash !== row.tx_hash ? check.txHash : null;
+    const elsewhere = matched ? ((await paidElsewhere(client, row, row.tx_hash!)) ?? (receiving ? await paidElsewhere(client, row, receiving) : null)) : null;
+    const hash = receiving && !elsewhere ? receiving : row.tx_hash!;
     const decided = decide({
       status: row.status, network: row.network!, checkCount: row.check_count, submittedAt: (times?.submitted ?? row.submitted_at ?? row.created_at).getTime(),
-      confirmingSince: times?.confirming?.getTime() ?? null, autoVerify: settings.autoVerify, paidElsewhere: matched && Boolean(await paidElsewhere(client, row, row.tx_hash!)), now: Date.now(),
+      confirmingSince: times?.confirming?.getTime() ?? null, autoVerify: settings.autoVerify, paidElsewhere: Boolean(elsewhere), now: Date.now(),
     }, check);
     const { chain } = decided;
     const pick = <T>(value: T | undefined, current: T) => (value === undefined ? current : value);
     await client.query(
       `UPDATE curialy.payment_orders SET status = $2, status_detail = $3, confirmations = $4, required_confirmations = $5, tx_from = $6, tx_block_time = $7,
-         received_units = $8, chain_verified_at = $9, next_check_at = now() + make_interval(secs => $10), updated_at = now() WHERE id = $1`,
+         received_units = $8, chain_verified_at = $9, next_check_at = now() + make_interval(secs => $10), tx_hash = $11, updated_at = now() WHERE id = $1`,
       [
         row.id, decided.apply ? row.status : decided.status, pick(decided.detail, row.status_detail), pick(chain.confirmations, row.confirmations), pick(chain.required, row.required_confirmations),
         pick(chain.from, row.tx_from), pick(chain.blockTime, row.tx_block_time), chain.receivedUnits === undefined ? row.received_units : chain.receivedUnits?.toString() ?? null,
         decided.verified ? new Date() : check.state === "mismatch" || check.state === "not_found" || check.state === "seen" ? null : row.chain_verified_at, decided.nextCheckSeconds,
+        hash,
       ],
     );
+    if (hash !== row.tx_hash) await addEvent(client, row.id, row.status, row.status, by, `Transaction hash set to the transaction that received the payment (was ${row.tx_hash!.slice(0, 10)}…${row.tx_hash!.slice(-6)})`);
     if (decided.apply) await applyLocked(client, row, by, decided.note, null);
     else if (decided.status !== row.status) await addEvent(client, row.id, row.status, decided.status, by, decided.note || null);
     else if (opts.force) await addEvent(client, row.id, row.status, row.status, by, `Checked again: ${pick(decided.detail, row.status_detail) ?? PAYMENT_STATUS[row.status].label}`);
@@ -730,8 +737,10 @@ type Found = Extract<ChainCheck, { receivedUnits: bigint; confirmations: number 
 
 async function secondOpinion(payment: PaymentToVerify, first: Found, provider: string | undefined): Promise<ChainCheck> {
   const second = await verifyPayment(payment, { skipProvider: provider });
-  if (second.state === "confirmed" && second.receivedUnits === first.receivedUnits) return first;
-  const otherAmount = (second.state === "confirmed" || second.state === "confirming") && second.receivedUnits !== first.receivedUnits;
+  // The same amount, received by the same transaction (TON names it; elsewhere it is the one given).
+  const agrees = (second.state === "confirmed" || second.state === "confirming") && second.receivedUnits === first.receivedUnits && second.txHash === first.txHash;
+  if (second.state === "confirmed" && agrees) return first;
+  const otherAmount = (second.state === "confirmed" || second.state === "confirming") && !agrees;
   if (second.state === "mismatch" || otherAmount) {
     return { state: "mismatch", reason: "Two network providers disagree about this transaction, so it is checked by hand.", from: first.from, receivedUnits: first.receivedUnits, blockTime: first.blockTime };
   }

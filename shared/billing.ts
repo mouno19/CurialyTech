@@ -289,8 +289,9 @@ export function formatTokenCount(tokens: number) {
 
 // ---- Payment networks and coins ----
 
-export type NetworkId = "ethereum" | "bnb" | "polygon" | "solana";
-export type CoinId = "USDC" | "USDT" | "ETH" | "BNB" | "POL" | "SOL";
+export type NetworkId = "ethereum" | "bnb" | "polygon" | "solana" | "ton";
+export type CoinId = "USDC" | "USDT" | "ETH" | "BNB" | "POL" | "SOL" | "GRAM";
+export type NetworkFamily = "evm" | "solana" | "ton";
 export type CoinKind = "stablecoin" | "native";
 
 export type CoinOnNetwork = {
@@ -298,7 +299,7 @@ export type CoinOnNetwork = {
   kind: CoinKind;
   /** Decimals of the token on this network (USDC and USDT have 18 on BNB Chain, 6 elsewhere). */
   decimals: number;
-  /** Token contracts (EVM) or mints (Solana) that count as this coin; empty for the network's own coin. */
+  /** Token contracts (EVM), mints (Solana) or jetton masters (TON) that count as this coin; empty for the network's own coin. */
   tokens: string[];
   /** How wallets name the token on this network. */
   standard: string;
@@ -307,9 +308,9 @@ export type CoinOnNetwork = {
 export type NetworkInfo = {
   id: NetworkId;
   label: string;
-  family: "evm" | "solana";
+  family: NetworkFamily;
   coins: CoinOnNetwork[];
-  /** EVM: blocks on top of the payment's block (counting it) before it counts. Solana: finalized. */
+  /** EVM: blocks on top of the payment's block (counting it) before it counts. Solana and TON: finalized. */
   confirmations: number;
   /** About how long confirmation takes, for the payer. */
   wait: string;
@@ -321,7 +322,7 @@ export type NetworkInfo = {
 const stable = (coin: "USDC" | "USDT", decimals: number, tokens: string[], standard: string): CoinOnNetwork => ({ coin, kind: "stablecoin", decimals, tokens, standard });
 const native = (coin: CoinId, decimals: number, standard: string): CoinOnNetwork => ({ coin, kind: "native", decimals, tokens: [], standard });
 
-/** Every token contract and mint below was checked on-chain (symbol and decimals) on 2026-11-09. */
+/** Every token contract and mint below was checked on-chain (symbol and decimals) on 2026-11-09; the TON jetton masters on 2026-11-13. */
 export const PAYMENT_NETWORKS: NetworkInfo[] = [
   {
     id: "ethereum", label: "Ethereum", family: "evm", confirmations: 12, wait: "about 3 minutes",
@@ -360,6 +361,17 @@ export const PAYMENT_NETWORKS: NetworkInfo[] = [
       native("SOL", 9, "SOL"),
     ],
   },
+  {
+    // GRAM is the network's own coin (Toncoin, under its original name: the ticker exchanges list it by).
+    id: "ton", label: "TON", family: "ton", confirmations: 1, wait: "under a minute",
+    explorer: { name: "Tonviewer", tx: "https://tonviewer.com/transaction/", address: "https://tonviewer.com/" }, logo: "/pay/net-ton.svg",
+    coins: [
+      stable("USDT", 6, ["EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs"], "Jetton"),
+      // Circle issues no USDC on TON: this is jUSDC, bridged from Ethereum. The operator chose to take it (2026-11-13).
+      stable("USDC", 6, ["EQB-MPwrd1G6WKNkLz_VnV6WqBDd142KMQv-g1O-8QUA3728"], "bridged jUSDC"),
+      native("GRAM", 9, "GRAM"),
+    ],
+  },
 ];
 
 export const COIN_INFO: Record<CoinId, { label: string; logo: string }> = {
@@ -369,6 +381,7 @@ export const COIN_INFO: Record<CoinId, { label: string; logo: string }> = {
   BNB: { label: "BNB", logo: "/pay/net-bnb.svg" },
   POL: { label: "Polygon", logo: "/pay/net-polygon.svg" },
   SOL: { label: "Solana", logo: "/pay/net-solana.svg" },
+  GRAM: { label: "Gram (Toncoin)", logo: "/pay/net-ton.svg" },
 };
 
 export const networkInfo = (id: string | null | undefined) => PAYMENT_NETWORKS.find(network => network.id === id);
@@ -385,8 +398,22 @@ export function normalizeTxHash(network: string, raw: string): string | null {
   const info = networkInfo(network);
   if (!info) return null;
   if (info.family === "evm") return /^0x[0-9a-fA-F]{64}$/.test(value) ? value.toLowerCase() : null;
+  if (info.family === "ton") return tonHashHex(value);
   // A Solana signature: 64 bytes in base58 (87 or 88 characters).
   return /^[1-9A-HJ-NP-Za-km-z]{86,88}$/.test(value) ? value : null;
+}
+
+/** A TON transaction hash as 64 lowercase hex digits, from hex or from base64 as wallets and explorers show it (either alphabet, padded or not). */
+function tonHashHex(value: string): string | null {
+  if (/^[0-9a-fA-F]{64}$/.test(value)) return value.toLowerCase();
+  if (!/^[A-Za-z0-9+/_-]{43}=?$/.test(value)) return null;
+  let bytes: string;
+  try {
+    bytes = atob(`${value.replace(/-/g, "+").replace(/_/g, "/").replace(/=$/, "")}=`);
+  } catch {
+    return null;
+  }
+  return bytes.length === 32 ? Array.from(bytes, char => char.charCodeAt(0).toString(16).padStart(2, "0")).join("") : null;
 }
 
 // ---- Orders ----
@@ -502,7 +529,7 @@ export type ApiModelPrice = {
 };
 
 export type PublicCoin = { coin: CoinId; kind: CoinKind; standard: string; label: string; logo: string; tokens: string[] };
-export type PublicNetwork = { id: NetworkId; label: string; family: "evm" | "solana"; confirmations: number; wait: string; logo: string; explorerName: string; coins: PublicCoin[] };
+export type PublicNetwork = { id: NetworkId; label: string; family: NetworkFamily; confirmations: number; wait: string; logo: string; explorerName: string; coins: PublicCoin[] };
 
 /**
  * What a free account gets: welcome credits once, the refilling allowance (0: none), what following
@@ -587,7 +614,7 @@ export type AdminBillingOverview = {
   subscribers: Record<PlanId, number>;
   apiBalanceTotalUsd: number;
   /** The receiving wallets this server is configured with (null: payments on that family are off). */
-  wallets: { evm: string | null; solana: string | null };
+  wallets: { evm: string | null; solana: string | null; ton: string | null };
   /** Telegram alerts are configured. */
   alerts: boolean;
   settings: BillingSettings;

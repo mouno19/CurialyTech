@@ -219,6 +219,45 @@
             "tokens": []
           }
         ]
+      },
+      {
+        "id": "ton",
+        "label": "TON",
+        "family": "ton",
+        "confirmations": 1,
+        "wait": "under a minute",
+        "logo": "/pay/net-ton.svg",
+        "explorerName": "Tonviewer",
+        "coins": [
+          {
+            "coin": "USDT",
+            "kind": "stablecoin",
+            "standard": "Jetton",
+            "label": "Tether USD",
+            "logo": "/pay/coin-usdt.svg",
+            "tokens": [
+              "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs"
+            ]
+          },
+          {
+            "coin": "USDC",
+            "kind": "stablecoin",
+            "standard": "bridged jUSDC",
+            "label": "USD Coin",
+            "logo": "/pay/coin-usdc.svg",
+            "tokens": [
+              "EQB-MPwrd1G6WKNkLz_VnV6WqBDd142KMQv-g1O-8QUA3728"
+            ]
+          },
+          {
+            "coin": "GRAM",
+            "kind": "native",
+            "standard": "GRAM",
+            "label": "Gram (Toncoin)",
+            "logo": "/pay/net-ton.svg",
+            "tokens": []
+          }
+        ]
       }
     ],
     "models": [
@@ -901,6 +940,46 @@
           "standard": "SOL"
         }
       ]
+    },
+    {
+      "id": "ton",
+      "label": "TON",
+      "family": "ton",
+      "confirmations": 1,
+      "wait": "under a minute",
+      "explorer": {
+        "name": "Tonviewer",
+        "tx": "https://tonviewer.com/transaction/",
+        "address": "https://tonviewer.com/"
+      },
+      "logo": "/pay/net-ton.svg",
+      "coins": [
+        {
+          "coin": "USDT",
+          "kind": "stablecoin",
+          "decimals": 6,
+          "tokens": [
+            "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs"
+          ],
+          "standard": "Jetton"
+        },
+        {
+          "coin": "USDC",
+          "kind": "stablecoin",
+          "decimals": 6,
+          "tokens": [
+            "EQB-MPwrd1G6WKNkLz_VnV6WqBDd142KMQv-g1O-8QUA3728"
+          ],
+          "standard": "bridged jUSDC"
+        },
+        {
+          "coin": "GRAM",
+          "kind": "native",
+          "decimals": 9,
+          "tokens": [],
+          "standard": "GRAM"
+        }
+      ]
     }
   ],
   "coinInfo": {
@@ -927,6 +1006,10 @@
     "SOL": {
       "label": "Solana",
       "logo": "/pay/net-solana.svg"
+    },
+    "GRAM": {
+      "label": "Gram (Toncoin)",
+      "logo": "/pay/net-ton.svg"
     }
   },
   "apiPrices": {

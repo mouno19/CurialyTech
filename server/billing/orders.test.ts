@@ -540,7 +540,7 @@ describe("the operator", () => {
     const overview = await orders.billingOverview();
     expect(overview.counts).toEqual({ awaiting_payment: 51, pending: 0, confirming: 0, review: 1, completed: 1, rejected: 0, expired: 0 });
     expect(overview.revenue).toEqual({ last7dUsd: 2, last30dUsd: 2, totalUsd: 2 });
-    expect(overview.wallets).toEqual({ evm: EVM, solana: SOLANA });
+    expect(overview.wallets).toEqual({ evm: EVM, solana: SOLANA, ton: null });
   });
 });
 
@@ -641,5 +641,45 @@ describe("expiry", () => {
     expect(await orders.expireOrders()).toBe(1);
     expect([stale.status, fresh.status, pending.status]).toEqual(["expired", "awaiting_payment", "pending"]);
     expect(fake.events).toEqual([expect.objectContaining({ order_id: stale.id, from_status: "awaiting_payment", to_status: "expired", actor: "system", note: "Expired without a payment" })]);
+  });
+});
+
+describe("TON payments", () => {
+  const TON = "UQDxb2OlXXDbw-I1_SlBJZ0irOUN9qD3tsM_bVWy4-Xgm9QZ";
+  /** What the payer pasted (the transfer's first transaction), and the transaction that received each payment. */
+  const PASTED = "11".repeat(32);
+  const MINE = "22".repeat(32);
+  const tonOrder = (patch: Record<string, unknown> = {}) => withDetails({
+    network: "ton", coin: "USDT", pay_address: TON, expected_amount: "2.0037", expected_units: "2003700", tx_hash: PASTED, status: "pending", submitted_at: new Date(), next_check_at: new Date(0), ...patch,
+  });
+  const received = (txHash: string, units = 2_003_700n) => ({ state: "confirmed", confirmations: 1, required: 1, from: "0:payer", receivedUnits: units, blockTime: new Date(), txHash });
+
+  beforeAll(() => vi.stubEnv("PAY_TON_ADDRESS", TON));
+
+  it("keeps the transaction that received the payment, whichever hash of the transfer was pasted", async () => {
+    const order = tonOrder();
+    chain.results.push(received(MINE), received(MINE));
+    await orders.runCheck(order.id);
+    expect(chain.calls.map(call => call.txHash)).toEqual([PASTED, PASTED]);
+    expect(order).toMatchObject({ status: "completed", tx_hash: MINE, received_units: "2003700" });
+    expect(fake.events.find(event => event.order_id === order.id && event.note?.startsWith("Transaction hash set"))?.note).toBe("Transaction hash set to the transaction that received the payment (was 1111111111…111111)");
+    expect(fake.users.get("u1")!.plan_id).not.toBeNull();
+  });
+
+  it("won't let a second order take that payment by another of its hashes", async () => {
+    tonOrder({ user_id: "u2", tx_hash: MINE, status: "completed" });
+    const second = tonOrder({ expected_units: "2003800", tx_hash: "33".repeat(32) });
+    chain.results.push(received(MINE, 2_003_800n), received(MINE, 2_003_800n));
+    await orders.runCheck(second.id);
+    expect(second).toMatchObject({ status: "review", status_detail: "This transaction already paid another order.", tx_hash: "33".repeat(32) });
+    expect(fake.users.get("u1")!.plan_id).toBeNull();
+  });
+
+  it("sends a payment two providers trace to different transactions to the operator", async () => {
+    const order = tonOrder();
+    chain.results.push(received(MINE), received("44".repeat(32)));
+    await orders.runCheck(order.id);
+    expect(order).toMatchObject({ status: "review", status_detail: "Two network providers disagree about this transaction, so it is checked by hand." });
+    expect(fake.users.get("u1")!.plan_id).toBeNull();
   });
 });

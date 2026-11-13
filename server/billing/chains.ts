@@ -1,17 +1,23 @@
 import { coinOn, networkInfo, type CoinId, type CoinOnNetwork, type NetworkId, type NetworkInfo } from "@shared/billing";
+import { INTERNAL_TRANSFER, TonError, tonApi, type TonApi, type TonTx } from "./ton";
+import { parseTonAddress, rawTonAddress, type TonAddress } from "./ton-address";
 
 // On-chain checks of a payment, with public addresses only (no key is ever involved). A transaction
 // pays an order when it sent the exact amount of the right coin to the order's wallet, succeeded,
-// is deep enough in the chain, and was made inside the order's window. JSON-RPC over fetch: the
-// operator's endpoints (PAY_RPC_*) first, then public ones. One check uses one endpoint for all its
-// calls (heights differ between providers) and moves to the next when one fails.
+// is deep enough in the chain, and was made inside the order's window. JSON-RPC over fetch (TON:
+// its indexers' REST APIs, ton.ts): the operator's endpoints (PAY_RPC_*) first, then public ones.
+// One check uses one endpoint for all its calls (heights differ between providers) and moves to
+// the next when one fails.
 
 export type ChainCheck =
   | { state: "not_found" }
   /** In the mempool, not in a block yet. */
   | { state: "seen" }
-  /** secondCheck: one provider shows it confirmed, and a second one has yet to (orders.ts asks one before anything is credited). */
-  | { state: "confirming" | "confirmed"; confirmations: number; required: number; from: string | null; receivedUnits: bigint; blockTime: Date; secondCheck?: boolean }
+  /**
+   * secondCheck: one provider shows it confirmed, and a second one has yet to (orders.ts asks one before anything is credited).
+   * txHash: the transaction that received the payment, when it isn't the one given (on TON a transfer spans several).
+   */
+  | { state: "confirming" | "confirmed"; confirmations: number; required: number; from: string | null; receivedUnits: bigint; blockTime: Date; secondCheck?: boolean; txHash?: string }
   /** reason: safe to show the payer. */
   | { state: "mismatch"; reason: string; from?: string | null; receivedUnits?: bigint; blockTime?: Date }
   /** Every endpoint failed. */
@@ -34,8 +40,10 @@ const BUILT_IN_RPC: Record<NetworkId, string[]> = {
   bnb: ["https://bsc-rpc.publicnode.com", "https://bsc-dataseed.bnbchain.org", "https://bsc-dataseed1.defibit.io", "https://1rpc.io/bnb"],
   polygon: ["https://polygon-bor-rpc.publicnode.com", "https://polygon.drpc.org", "https://1rpc.io/matic"],
   solana: ["https://solana-rpc.publicnode.com", "https://api.mainnet-beta.solana.com"],
+  // Two operators' indexers (an operator's own entries speak toncenter's v3 API).
+  ton: ["https://toncenter.com/api/v3", "https://tonapi.io/v2"],
 };
-const RPC_ENV: Record<NetworkId, string> = { ethereum: "PAY_RPC_ETHEREUM", bnb: "PAY_RPC_BNB", polygon: "PAY_RPC_POLYGON", solana: "PAY_RPC_SOLANA" };
+const RPC_ENV: Record<NetworkId, string> = { ethereum: "PAY_RPC_ETHEREUM", bnb: "PAY_RPC_BNB", polygon: "PAY_RPC_POLYGON", solana: "PAY_RPC_SOLANA", ton: "PAY_RPC_TON" };
 const RPC_TIMEOUT_MS = 8_000;
 
 /** keccak-256 of Transfer(address,address,uint256): the ERC-20 transfer event. */
@@ -85,7 +93,7 @@ async function rpc<T>(url: string, method: string, params: unknown[]): Promise<T
 
 /** Why an endpoint failed, in words that name neither the endpoint nor its URL. */
 const describe = (error: unknown) =>
-  error instanceof RpcError ? error.message : error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError") ? "timed out" : error instanceof Error ? error.name : "failed";
+  error instanceof RpcError || error instanceof TonError ? error.message : error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError") ? "timed out" : error instanceof Error ? error.name : "failed";
 
 /** "2.0037" from 2003700 at 6 decimals (no trailing zeros). */
 export function formatUnits(units: bigint, decimals: number) {
@@ -119,7 +127,7 @@ export async function verifyPayment(input: PaymentToVerify, opts: { skipProvider
   const endpoints = rpcEndpoints(input.network).filter(url => providerOf(url) !== opts.skipProvider);
   for (const [index, url] of endpoints.entries()) {
     try {
-      const check = info.family === "evm" ? await checkEvm(url, input, info, coin) : await checkSolana(url, input, info, coin);
+      const check = info.family === "evm" ? await checkEvm(url, input, info, coin) : info.family === "solana" ? await checkSolana(url, input, info, coin) : await checkTon(url, input, info, coin);
       opts.onAnswer?.(providerOf(url));
       return check;
     } catch (error) {
@@ -153,6 +161,7 @@ export async function walletHoldings(network: NetworkId, wallet: string): Promis
 }
 
 async function holding(url: string, info: NetworkInfo, coin: CoinOnNetwork, wallet: string): Promise<bigint> {
+  if (info.family === "ton") return tonHolding(url, coin, wallet);
   if (info.family === "evm") {
     if (coin.kind === "native") return BigInt(await rpc<string>(url, "eth_getBalance", [wallet, "latest"]));
     const data = `${BALANCE_OF}${wallet.toLowerCase().slice(2).padStart(64, "0")}`;
@@ -289,7 +298,7 @@ async function checkSolana(url: string, input: PaymentToVerify, info: NetworkInf
 export type InboundPayment = { txHash: string; coin: CoinId; units: bigint; blockTime: Date };
 
 /** Rough seconds per block, only to choose how far back a scan looks. */
-const BLOCK_SECONDS: Record<NetworkId, number> = { ethereum: 12, bnb: 3, polygon: 2, solana: 1 };
+const BLOCK_SECONDS: Record<NetworkId, number> = { ethereum: 12, bnb: 3, polygon: 2, solana: 1, ton: 5 };
 /** How many blocks one scan reads (a few hours on the faster chains; older payments still match when the payer pastes the hash). */
 const MAX_LOG_BLOCKS = 6_000;
 const LOG_CHUNK = 2_000;
@@ -323,7 +332,7 @@ export async function incomingPayments(network: NetworkId, wallet: string, since
   const endpoints = rpcEndpoints(network);
   for (const [index, url] of endpoints.entries()) {
     try {
-      return info.family === "evm" ? await incomingEvm(url, info, wallet, since, coins) : await incomingSolana(url, info, wallet, since, coins);
+      return info.family === "evm" ? await incomingEvm(url, info, wallet, since, coins) : info.family === "solana" ? await incomingSolana(url, info, wallet, since, coins) : await incomingTon(url, info, wallet, since, coins);
     } catch (error) {
       console.warn(`[Curialy Billing] ${info.label} incoming read, endpoint ${index + 1} of ${endpoints.length}, failed (${describe(error)}).`);
     }
@@ -449,4 +458,113 @@ function solanaReceived(tx: SolanaTx, wallet: string, coin: CoinOnNetwork): bigi
     received += BigInt(post.uiTokenAmount.amount) - BigInt(pre?.uiTokenAmount.amount ?? "0");
   }
   return received;
+}
+
+// ---- TON (GRAM and jettons) ----
+
+/** The jetton wallets the masters assign to an owner, per provider (a second opinion derives its own). They never change. */
+const jettonWallets = new Map<string, Promise<string>>();
+
+function jettonWalletOf(api: TonApi, provider: string, master: string, owner: TonAddress) {
+  const masterAddress = parseTonAddress(master);
+  if (!masterAddress) throw new TonError("jetton master: unreadable");
+  const key = `${provider}|${rawTonAddress(masterAddress)}|${rawTonAddress(owner)}`;
+  let wallet = jettonWallets.get(key);
+  if (!wallet) {
+    wallet = api.jettonWallet(masterAddress, owner);
+    jettonWallets.set(key, wallet);
+    // A failed lookup is asked again next time.
+    wallet.catch(() => { if (jettonWallets.get(key) === wallet) jettonWallets.delete(key); });
+  }
+  return wallet;
+}
+
+/** Tests: forget the jetton wallets looked up so far. */
+export function resetTonJettonWallets() {
+  jettonWallets.clear();
+}
+
+/** The accounts a coin arrives in: the wallet itself for GRAM, the genuine jetton wallets of the coin's masters for a jetton. */
+async function tonReceivers(api: TonApi, provider: string, coin: CoinOnNetwork, owner: TonAddress) {
+  if (coin.kind === "native") return new Set([rawTonAddress(owner)]);
+  return new Set(await Promise.all(coin.tokens.map(master => jettonWalletOf(api, provider, master, owner))));
+}
+
+/**
+ * What one transaction put into a receiving account. GRAM: what the credit phase added, unless the
+ * value went back (a bounceable transfer to a wallet that isn't deployed yet bounces). A jetton: an
+ * internal_transfer the genuine jetton wallet accepted; it accepts those only from genuine wallets
+ * of the same jetton, so a token that merely calls itself USDT can't credit it. failed: it was a
+ * transfer into the account that didn't stay (not, say, the wallet sending something itself).
+ */
+function tonReceived(tx: TonTx, coin: CoinOnNetwork, receivers: Set<string>): { units: bigint; from: string | null; failed: boolean } {
+  const none = { units: 0n, from: null, failed: false };
+  if (!receivers.has(tx.account) || !tx.inbound || tx.inbound.bounced) return none;
+  if (coin.kind === "native") {
+    if (tx.inbound.value <= 0n) return none;
+    return tx.returned || tx.credit <= 0n ? { ...none, from: tx.inbound.source, failed: true } : { units: tx.credit, from: tx.inbound.source, failed: false };
+  }
+  if (tx.inbound.opcode !== INTERNAL_TRANSFER) return none;
+  if (!tx.inbound.jetton || tx.aborted || !tx.computed) return { ...none, from: tx.inbound.jetton?.from ?? tx.inbound.source, failed: true };
+  return { units: tx.inbound.jetton.amount, from: tx.inbound.jetton.from, failed: false };
+}
+
+/**
+ * Every message of the trace has run: each internal message starts exactly one transaction, so a
+ * finished trace has one fewer of those than transactions (the first was started from outside). An
+ * indexer a few seconds behind another shows a shorter trace, which must not read as "not paid";
+ * one that doesn't say what each transaction sent (tonapi) never shows a trace as finished.
+ */
+const traceComplete = (trace: TonTx[]) => trace.every(tx => tx.final && tx.sent !== null) && trace.reduce((sum, tx) => sum + (tx.sent ?? 0), 0) === trace.length - 1;
+
+async function checkTon(url: string, input: PaymentToVerify, info: NetworkInfo, coin: CoinOnNetwork): Promise<ChainCheck> {
+  const owner = parseTonAddress(input.wallet);
+  if (!owner) return { state: "mismatch", reason: "This order's wallet isn't a TON address, so it is checked by hand." };
+  const api = tonApi(url);
+  const trace = await api.trace(input.txHash);
+  if (!trace) return { state: "not_found" };
+  const receivers = await tonReceivers(api, providerOf(url), coin, owner);
+  const readings = trace.map(tx => ({ tx, ...tonReceived(tx, coin, receivers) }));
+  const received = readings.filter(entry => entry.units > 0n);
+  if (!received.length) {
+    // It reached the wallet and failed there; or it hasn't reached it yet; or it never went there.
+    const failed = readings.find(entry => entry.failed && entry.tx.final);
+    if (failed) return { state: "mismatch", reason: FAILED, from: failed.from, blockTime: new Date(failed.tx.now * 1000) };
+    if (!traceComplete(trace)) return { state: "seen" };
+    return { state: "mismatch", reason: `This transaction didn't send ${coin.coin} on ${info.label} to the Curialy wallet.` };
+  }
+  // Several transfers to the wallet in one trace (an exchange paying out in a batch): the one this order expects, else the first.
+  const chosen = received.find(entry => entry.units === input.expectedUnits) ?? received[0];
+  const check = judge(input, info, coin, { received: chosen.units, from: chosen.from, blockTime: new Date(chosen.tx.now * 1000), confirmations: chosen.tx.final ? 1 : 0, required: info.confirmations });
+  // The order keeps the transaction that received its payment: every payment has its own, even inside a shared trace.
+  return check.state === "confirmed" || check.state === "confirming" ? { ...check, txHash: chosen.tx.hash } : check;
+}
+
+async function incomingTon(url: string, info: NetworkInfo, wallet: string, since: Date, coins: CoinId[]): Promise<InboundPayment[]> {
+  const owner = parseTonAddress(wallet);
+  if (!owner) return [];
+  const api = tonApi(url);
+  const sinceUnix = Math.floor(since.getTime() / 1000);
+  const found: InboundPayment[] = [];
+  for (const coin of info.coins.filter(entry => coins.includes(entry.coin))) {
+    const receivers = await tonReceivers(api, providerOf(url), coin, owner);
+    for (const account of receivers) {
+      for (const tx of await api.transactions(account, sinceUnix)) {
+        if (!tx.final) continue;
+        const { units } = tonReceived(tx, coin, receivers);
+        if (units > 0n) found.push({ txHash: tx.hash, coin: coin.coin, units, blockTime: new Date(tx.now * 1000) });
+      }
+    }
+  }
+  return found;
+}
+
+async function tonHolding(url: string, coin: CoinOnNetwork, wallet: string): Promise<bigint> {
+  const owner = parseTonAddress(wallet);
+  if (!owner) throw new TonError("wallet: unreadable");
+  const api = tonApi(url);
+  if (coin.kind === "native") return api.balance(rawTonAddress(owner));
+  let total = 0n;
+  for (const account of await tonReceivers(api, providerOf(url), coin, owner)) total += await api.jettonBalance(account);
+  return total;
 }

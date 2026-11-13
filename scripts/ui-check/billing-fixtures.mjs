@@ -43,6 +43,9 @@ const solanaSignature = seed => draw(BASE58, 88, seed);
 
 export const EVM_WALLET = evmAddress(4101);
 export const SOLANA_WALLET = draw(BASE58, 44, 4102);
+/** A non-bounceable TON address with a valid checksum (the form PAY_TON_ADDRESS is shown in). */
+export const TON_WALLET = "UQA_Pz8_Pz8_Pz8_Pz8_Pz8_oaGhoaGhoaGhoaGhoaGhoWyd";
+const walletOn = info => (info.family === "evm" ? EVM_WALLET : info.family === "ton" ? TON_WALLET : SOLANA_WALLET);
 
 // ---- Time zones (usage buckets are the caller's local hours and days, like the server's) ----
 
@@ -207,7 +210,7 @@ function buildWorld(now, { state, users }) {
       planDays: offer ? offer.days : null, planCreditsPerWindow: offer ? offer.creditsPerWindow : null, planMonths: offer ? 1 : null,
       title: offer ? `${offer.name} · ${offer.days} days` : `API balance · $${topUp}`,
       listUsd: offer ? offer.listUsd : topUp, discountPercent: offer ? offer.discountPercent : 0, priceUsd: offer ? offer.priceUsd : topUp, creditUsd: offer ? null : topUp,
-      network, coin, payAddress: info ? (info.family === "evm" ? EVM_WALLET : SOLANA_WALLET) : null, expectedAmount: amount, quoteUsdPrice: quote,
+      network, coin, payAddress: info ? walletOn(info) : null, expectedAmount: amount, quoteUsdPrice: quote,
       txHash: tx, receivedAmount: received, status, statusDetail: detail, confirmations, requiredConfirmations: required,
       createdAt: at(created), quotedAt: quoted === null ? null : at(quoted), expiresAt: iso(expiresMs),
       submitUntil: info && ["awaiting_payment", "expired", "pending", "review"].includes(status) && lateUntil > now ? iso(lateUntil) : null,
@@ -239,6 +242,11 @@ function buildWorld(now, { state, users }) {
   order({
     code: "CUR-9D5TQ2MC", user: ada, plan: "max", network: "ethereum", coin: "ETH", amount: "0.0023504", quote: 3412.18, status: "awaiting_payment", created: -4, quoted: -3, expires: 27,
     events: [created(-4), issued("0.0023504", "ETH", "ethereum", -3)],
+  });
+  // On TON: USDC is the bridged jUSDC, and a token transfer pays its fee in GRAM (both said on the page).
+  order({
+    code: "CUR-7TNQ4WXE", user: ada, plan: "pro", network: "ton", coin: "USDC", amount: "2.0042", status: "awaiting_payment", created: -3, quoted: -2, expires: 28,
+    events: [created(-3), issued("2.0042", "USDC", "ton", -2)],
   });
   order({
     code: "CUR-2VBN6HJP", user: ada, topUp: 25, network: "polygon", coin: "USDC", amount: "25.0061", status: "pending", detail: "Not on the network yet: a new transaction can take a minute to show up.", created: -16, quoted: -15, expires: 15, submitted: -0.7,
@@ -436,7 +444,7 @@ function buildWorld(now, { state, users }) {
     revenue: { last7dUsd: revenue(7), last30dUsd: revenue(30), totalUsd: revenue(null) },
     subscribers: { pro: Object.values(planOf).filter(plan => plan.id === "pro").length, max: Object.values(planOf).filter(plan => plan.id === "max").length },
     apiBalanceTotalUsd: Object.values(wallets).reduce((sum, entry) => sum + entry.balanceMicros, 0) / MICROS,
-    wallets: { evm: EVM_WALLET, solana: SOLANA_WALLET },
+    wallets: { evm: EVM_WALLET, solana: SOLANA_WALLET, ton: TON_WALLET },
     alerts: false,
     settings,
   });
@@ -444,8 +452,8 @@ function buildWorld(now, { state, users }) {
   const walletBalances = () => ({
     checkedAt: iso(now - 12_000),
     networks: BILLING.networks.map(network => {
-      const address = network.family === "evm" ? EVM_WALLET : SOLANA_WALLET;
-      const held = { ethereum: ["0", "38.0042", "0.0141893"], bnb: ["126.0219", "0", "0.0816486"], polygon: [null, null, null], solana: [null, "152.0288", "1.204381"] }[network.id];
+      const address = walletOn(network);
+      const held = { ethereum: ["0", "38.0042", "0.0141893"], bnb: ["126.0219", "0", "0.0816486"], polygon: [null, null, null], solana: [null, "152.0288", "1.204381"], ton: ["49.8012", "0", "12.408731542"] }[network.id];
       return { network: network.id, label: network.label, address, explorerUrl: `${network.explorer.address}${address}`, coins: network.coins.map((coin, index) => ({ coin: coin.coin, amount: held[index] })), unavailable: network.id === "polygon" };
     }),
   });
@@ -468,7 +476,7 @@ function buildWorld(now, { state, users }) {
     const entry = info?.coins.find(item => item.coin === coin);
     if (!info || !entry) return { status: 400, expected: true, json: { error: "That coin isn't offered on that network.", code: "method_unavailable" } };
     const amount = entry.kind === "stablecoin" ? `${row.customer.priceUsd}.0029` : "0.0012345";
-    return { json: { order: { ...row.customer, network, coin, payAddress: info.family === "evm" ? EVM_WALLET : SOLANA_WALLET, expectedAmount: amount, quotedAt: iso(now), expiresAt: iso(now + BILLING.orderTtlMinutes * MINUTE), submitUntil: iso(now + BILLING.orderTtlMinutes * MINUTE + BILLING.lateSubmitHours * HOUR) } } };
+    return { json: { order: { ...row.customer, network, coin, payAddress: walletOn(info), expectedAmount: amount, quotedAt: iso(now), expiresAt: iso(now + BILLING.orderTtlMinutes * MINUTE), submitUntil: iso(now + BILLING.orderTtlMinutes * MINUTE + BILLING.lateSubmitHours * HOUR) } } };
   };
 
   const routes = [
@@ -581,6 +589,7 @@ function buildWorld(now, { state, users }) {
     { key: "choose", code: "CUR-7K3M9QXA", action: "pick-method" },
     { key: "usdt", code: "CUR-4HW2B8NZ" },
     { key: "eth", code: "CUR-9D5TQ2MC" },
+    { key: "ton", code: "CUR-7TNQ4WXE" },
     { key: "pending", code: "CUR-2VBN6HJP" },
     { key: "confirming", code: "CUR-6YRC4KTD" },
     { key: "review", code: "CUR-3PZQ8WXE" },

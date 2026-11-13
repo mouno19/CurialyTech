@@ -4,6 +4,7 @@ import {
 } from "@shared/billing";
 import { query } from "../db/pg";
 import { isValidEvmAddress, isValidSolanaAddress, toChecksumAddress } from "./evm-address";
+import { friendlyTonAddress, isValidTonAddress, parseTonAddress } from "./ton-address";
 
 // Billing settings: the plans, the launch offer, and whether payments are open and applied by
 // themselves. One app_settings row ('billing') merged over the defaults, cached briefly (the catalog
@@ -94,30 +95,35 @@ export async function saveBillingSettings(patch: BillingPatch, by: string) {
 
 // ---- Receiving wallets ----
 
-let wallets: { evm: string | null; solana: string | null } | null = null;
+let wallets: { evm: string | null; solana: string | null; ton: string | null } | null = null;
 
 /**
- * The receiving wallets from PAY_EVM_ADDRESS and PAY_SOLANA_ADDRESS, checked once. One that is unset
- * or invalid is null and its networks are not offered; the value itself is never logged (a pasted
- * private key must not end up in the journal).
+ * The receiving wallets from PAY_EVM_ADDRESS, PAY_SOLANA_ADDRESS and PAY_TON_ADDRESS, checked once.
+ * One that is unset or invalid is null and its networks are not offered; the value itself is never
+ * logged (a pasted private key must not end up in the journal).
  */
-export function walletConfig(): { evm: string | null; solana: string | null } {
+export function walletConfig(): { evm: string | null; solana: string | null; ton: string | null } {
   if (wallets) return wallets;
   const evm = (process.env.PAY_EVM_ADDRESS ?? "").trim();
   const solana = (process.env.PAY_SOLANA_ADDRESS ?? "").trim();
+  const ton = (process.env.PAY_TON_ADDRESS ?? "").trim();
   const evmOk = isValidEvmAddress(evm);
   const solanaOk = isValidSolanaAddress(solana);
+  const tonOk = isValidTonAddress(ton);
   if (!evm) console.warn("[Curialy Billing] PAY_EVM_ADDRESS is not set: Ethereum, BNB Chain and Polygon payments are off.");
   else if (!evmOk) console.error("[Curialy Billing] PAY_EVM_ADDRESS is not a valid address (0x and 40 hex characters, with a correct EIP-55 checksum when mixed case): Ethereum, BNB Chain and Polygon payments are off.");
   if (!solana) console.warn("[Curialy Billing] PAY_SOLANA_ADDRESS is not set: Solana payments are off.");
   else if (!solanaOk) console.error("[Curialy Billing] PAY_SOLANA_ADDRESS is not a valid Solana wallet (base58, 32 bytes, on the ed25519 curve): Solana payments are off.");
-  // Wallets show addresses checksummed; the payer copies this form.
-  wallets = { evm: evmOk ? toChecksumAddress(evm) : null, solana: solanaOk ? solana : null };
+  if (!ton) console.warn("[Curialy Billing] PAY_TON_ADDRESS is not set: TON payments are off.");
+  else if (!tonOk) console.error("[Curialy Billing] PAY_TON_ADDRESS is not a valid TON wallet (a mainnet address on the basechain, raw or user-friendly with a correct checksum): TON payments are off.");
+  // Wallets show addresses checksummed; the payer copies this form. On TON, the non-bounceable form:
+  // sent bounceable, a transfer to a wallet that has never sent anything (not deployed) comes back.
+  wallets = { evm: evmOk ? toChecksumAddress(evm) : null, solana: solanaOk ? solana : null, ton: tonOk ? friendlyTonAddress(parseTonAddress(ton)!, { bounceable: false }) : null };
   return wallets;
 }
 
 /** The wallet that receives payments on a network, or null when that network is off. */
-export const walletFor = (network: NetworkInfo) => (network.family === "evm" ? walletConfig().evm : walletConfig().solana);
+export const walletFor = (network: NetworkInfo) => (network.family === "evm" ? walletConfig().evm : network.family === "solana" ? walletConfig().solana : walletConfig().ton);
 
 /** The networks a payment can use: those whose wallet is configured. */
 export const offeredNetworks = (): NetworkInfo[] => PAYMENT_NETWORKS.filter(network => walletFor(network) !== null);
