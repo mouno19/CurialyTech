@@ -127,6 +127,8 @@ export type MediaList = { files: MediaFile[]; nextCursor: string | null; matchin
 export type MediaQuery = { kind?: MediaKind; q?: string };
 export type GitHubRepo = { id: number; name: string; full_name: string; private: boolean; default_branch: string; description: string | null; updated_at: string; language: string | null };
 export type GitHubStatus = { configured: boolean; connected: boolean; login: string | null; name: string | null; avatarUrl: string | null; scopes: string[]; missingScopes: string[]; connectedAt: string | null };
+/** needsReconnect: it was connected, but Vercel stopped accepting it (expired or revoked). */
+export type VercelStatus = { configured: boolean; connected: boolean; needsReconnect: boolean; name: string | null; username: string | null; email: string | null; avatarUrl: string | null; scopes: string[]; connectedAt: string | null };
 /** completedWithIssues: completed runs whose outcome had problems (failing checks, review not approved, publish failed). */
 export type TaskStats = { total: number; completed: number; completedWithIssues?: number; failed: number; cancelled: number; interrupted: number; running: number; filesChanged: number; active: number };
 export type TaskDetail = { task: AgentTaskSummary; /** an event channel is open on this server */ live: boolean; /** a run is executing on this server */ running: boolean; /** follow-ups waiting for the run to end */ queue?: TaskQueue };
@@ -275,6 +277,9 @@ export const agentApi = {
   github: () => api<GitHubStatus>("/api/agent/github"),
   githubRepos: () => api<{ login: string; repos: GitHubRepo[] }>("/api/github/repos"),
   disconnectGithub: () => api<{ disconnected: boolean }>("/api/agent/github", { method: "DELETE" }),
+  vercel: () => api<VercelStatus>("/auth/vercel/status"),
+  /** Revokes the grant on Vercel and deletes what is stored for it. */
+  disconnectVercel: () => api<{ ok: boolean; revoked: boolean }>("/auth/vercel/disconnect", { method: "POST", json: {} }),
   linkRepo: (id: string, repo: string, branch?: string) => api<{ repo: string; branch: string; baseSha: string; repoPath: string; url: string; files: number }>(`/api/agent/tasks/${enc(id)}/repo`, { method: "POST", json: { repo, branch } }),
   /** What Export would do (no side effects), for the confirmation dialog. */
   exportPlan: (id: string) => api<ExportPlan>(`/api/agent/tasks/${enc(id)}/export/plan`, { method: "POST", json: {} }),

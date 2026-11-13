@@ -7,7 +7,7 @@ import type { LucideIcon } from "lucide-react";
 import { Activity, BookOpen, ChevronsUpDown, ExternalLink, House, Images, KeyRound, LayoutDashboard, LifeBuoy, LogOut, Menu, MoreHorizontal, PanelLeftClose, PanelLeftOpen, PlugZap, RefreshCw, ShieldCheck, SquareTerminal, Store, Unplug, Wallet, X, Braces } from "lucide-react";
 import { toast } from "sonner";
 import { agentApi, authApi, errorMessage, relativeTime, type ProviderProbe } from "@/lib/api";
-import { needsOperator, useGitHub, useHealth } from "@/lib/appStatus";
+import { needsOperator, useGitHub, useHealth, useVercel } from "@/lib/appStatus";
 import { useAccount } from "@/lib/account";
 import { CreditsMeter } from "./CreditsMeter";
 import { useSupportUnread } from "@/lib/support";
@@ -17,6 +17,7 @@ import { Button } from "@/components/common/Button";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { cx } from "@/components/common/cx";
 import { GitHubMark } from "@/components/common/GitHubMark";
+import { VercelMark } from "@/components/common/VercelMark";
 import { IconButton } from "@/components/common/IconButton";
 import { Spinner } from "@/components/common/Spinner";
 import { StateNotice } from "@/components/common/StateNotice";
@@ -294,6 +295,7 @@ function SidebarBody({ rail, headEnd, onNavigate }: { rail: boolean; headEnd?: R
         <CreditsMeter rail={rail} />
         <HealthStatus rail={rail} />
         <GitHubAccount rail={rail} />
+        <VercelAccount rail={rail} />
         <ThemeItem rail={rail} />
         <HomepageLink rail={rail} />
         <SignOut rail={rail} />
@@ -465,6 +467,101 @@ function GitHubAccount({ rail }: { rail: boolean }) {
       </DropdownMenu.Root>
       <ConfirmDialog open={confirmOpen} onOpenChange={setConfirmOpen} title={`Disconnect ${login}?`} confirmLabel="Disconnect" busyLabel="Disconnecting…" tone="danger" onConfirm={disconnect}>
         Curialy will no longer be able to clone, push to or export to your repositories until you connect again. Your repositories are not changed.
+      </ConfirmDialog>
+    </>
+  );
+}
+
+/** Connect Vercel: the agent reads the account's projects, deployments and build logs (read only). */
+function VercelAccount({ rail }: { rail: boolean }) {
+  // Connecting comes back to this page; reconnecting shows Vercel's consent screen again (to grant other teams or projects).
+  const [here] = useLocation();
+  const next = here && here !== "/" ? `next=${encodeURIComponent(here)}` : "";
+  const connectHref = `/auth/vercel/start${next ? `?${next}` : ""}`;
+  const reconnectHref = `/auth/vercel/start?prompt=consent${next ? `&${next}` : ""}`;
+  const { status, loading, error, refresh } = useVercel();
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const deferred = useDeferredSelect(triggerRef);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const withTip = (label: string, element: ReactElement) => (rail ? <Tip content={label} side="right">{element}</Tip> : element);
+
+  if (!status) {
+    if (loading || !error) {
+      return (
+        <span className="nav-item" data-muted="">
+          <VercelMark />
+          <span className="nav-text">Vercel…</span>
+        </span>
+      );
+    }
+    return withTip(
+      "Couldn't check the Vercel connection. Retry",
+      <button type="button" className="nav-item" onClick={() => void refresh()}>
+        <VercelMark />
+        <span className="nav-text">Vercel · Retry</span>
+      </button>,
+    );
+  }
+  // Not set up on this server: nothing to offer.
+  if (!status.configured) return null;
+  if (!status.connected) {
+    return withTip(
+      status.needsReconnect ? "Vercel stopped accepting the connection (it expired or was revoked). Connect again" : "Let the agent read your Vercel projects, deployments and build logs",
+      <a className="nav-item" href={connectHref}>
+        <VercelMark />
+        <span className="nav-text">{status.needsReconnect ? "Reconnect Vercel" : "Connect Vercel"}</span>
+        {status.needsReconnect && !rail && <span className="dot" data-tone="warning" aria-hidden="true" />}
+      </a>,
+    );
+  }
+
+  const name = status.name ?? status.username ?? "Vercel";
+  const disconnect = async () => {
+    const result = await agentApi.disconnectVercel();
+    toast.success(result.revoked ? "Vercel disconnected." : "Vercel disconnected here. Vercel didn't confirm the revocation, so also remove Curialy's access in your Vercel account settings.");
+    // Refresh after the dialog has closed: the menu is replaced by "Connect Vercel".
+    setTimeout(() => void refresh(), 0);
+  };
+  return (
+    <>
+      <DropdownMenu.Root>
+        {withTip(
+          `Vercel · Connected as ${name}`,
+          <DropdownMenu.Trigger asChild>
+            <button ref={triggerRef} type="button" className="nav-item" aria-label={rail ? `Vercel, connected as ${name}` : undefined}>
+              <VercelMark />
+              <span className="nav-text">Connected as {name}</span>
+            </button>
+          </DropdownMenu.Trigger>,
+        )}
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content className="menu" side={rail ? "right" : "top"} align="start" sideOffset={8} collisionPadding={12} onCloseAutoFocus={deferred.onCloseAutoFocus}>
+            <DropdownMenu.Label className="menu-label">Vercel · {status.username ?? status.email ?? name}</DropdownMenu.Label>
+            <DropdownMenu.Item asChild className="menu-item">
+              <a href="https://vercel.com/dashboard" target="_blank" rel="noopener noreferrer">
+                <ExternalLink size={15} aria-hidden="true" />
+                <span className="menu-item-body">Open Vercel</span>
+              </a>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item asChild className="menu-item">
+              <a href={reconnectHref}>
+                <RefreshCw size={15} aria-hidden="true" />
+                <span className="menu-item-body">
+                  <span>Reconnect</span>
+                  <span className="menu-item-hint">To grant access to other teams or projects</span>
+                </span>
+              </a>
+            </DropdownMenu.Item>
+            <DropdownMenu.Separator className="menu-sep" />
+            <DropdownMenu.Item className="menu-item" data-tone="danger" onSelect={deferred.defer(() => setConfirmOpen(true))}>
+              <Unplug size={15} aria-hidden="true" />
+              <span className="menu-item-body">Disconnect Vercel</span>
+            </DropdownMenu.Item>
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
+      <ConfirmDialog open={confirmOpen} onOpenChange={setConfirmOpen} title="Disconnect Vercel?" confirmLabel="Disconnect" busyLabel="Disconnecting…" tone="danger" onConfirm={disconnect}>
+        Curialy revokes its access on Vercel and deletes the stored connection, so the agent can no longer read your projects, deployments or build logs. Nothing on Vercel is changed.
       </ConfirmDialog>
     </>
   );

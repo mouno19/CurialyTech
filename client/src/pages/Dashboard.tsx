@@ -36,6 +36,15 @@ const GITHUB_NOTICES: Record<string, { tone: "success" | "warning"; text: string
   state_mismatch: { tone: "warning", text: "The GitHub sign-in link expired or was opened in another browser. Start Connect GitHub again from here." },
 };
 
+const VERCEL_NOTICES: Record<string, { tone: "success" | "warning"; text: string }> = {
+  connected: { tone: "success", text: "Vercel connected. The agent can now list your projects and deployments and read their build logs. It can't change anything on Vercel." },
+  denied: { tone: "warning", text: "Vercel sign-in was cancelled, so nothing was connected." },
+  state_mismatch: { tone: "warning", text: "The Vercel sign-in link expired, was opened in another browser, or another account signed in meanwhile. Start Connect Vercel again from here." },
+  no_offline_access: { tone: "warning", text: "Vercel didn't grant lasting access, so the connection couldn't be kept. Connect again and approve every requested permission." },
+  not_configured: { tone: "warning", text: "Vercel isn't set up on this server yet." },
+  busy: { tone: "warning", text: "Too many Vercel sign-in attempts just now. Wait a few minutes and try again." },
+};
+
 const RECENT = 6;
 /** The composer's typing placeholder cycles through these while it is empty and not focused. */
 const EXAMPLES = [
@@ -60,11 +69,17 @@ export default function Dashboard() {
   const account = useAccount().info;
   const [seed, setSeed] = useState<ComposerSeed>();
   const [githubNotice, setGithubNotice] = useState(() => new URLSearchParams(window.location.search).get("github"));
+  // Only a known shape of code is shown (the address bar is anyone's to write).
+  const [vercelNotice, setVercelNotice] = useState(() => {
+    const code = new URLSearchParams(window.location.search).get("vercel");
+    return code === null ? null : /^[a-z_]{1,40}$/.test(code) ? code : "error";
+  });
   const quickRef = useRef<HTMLUListElement>(null);
   useOverflowEdges(quickRef, { revealSelected: false });
 
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).has("github")) window.history.replaceState(null, "", "/");
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("github") || params.has("vercel")) window.history.replaceState(null, "", "/");
   }, []);
 
   const loadStats = useCallback(() => agentApi.stats().then(data => { setStats(data); setStatsFailed(false); }, () => setStatsFailed(true)), []);
@@ -113,7 +128,11 @@ export default function Dashboard() {
     setSeed({ text: task.prompt, mode: "agent", team: task.team ?? false, nonce: Date.now() });
     revealComposer("center");
   };
-  const notice = githubNotice ? GITHUB_NOTICES[githubNotice] ?? { tone: "warning" as const, text: `Connecting GitHub didn't work (${githubNotice}). Try Connect GitHub again; if it keeps failing, the server log has the details.` } : null;
+  const notice = githubNotice
+    ? GITHUB_NOTICES[githubNotice] ?? { tone: "warning" as const, text: `Connecting GitHub didn't work (${githubNotice}). Try Connect GitHub again; if it keeps failing, the server log has the details.` }
+    : vercelNotice
+      ? VERCEL_NOTICES[vercelNotice] ?? { tone: "warning" as const, text: `Connecting Vercel didn't work (${vercelNotice}). Try Connect Vercel again; if it keeps failing, the server log has the details.` }
+      : null;
   const inProgress = list.tasks ? list.tasks.filter(task => isActiveStatus(task.status)).length : activeTasks;
 
   return (
@@ -124,7 +143,7 @@ export default function Dashboard() {
             <div className="notice dash-notice" data-tone={notice.tone} role="status">
               {notice.tone === "success" ? <Check size={16} aria-hidden="true" /> : <TriangleAlert size={16} aria-hidden="true" />}
               <div className="notice-body">{notice.text}</div>
-              <IconButton size="sm" label="Dismiss" icon={X} tooltip={false} onClick={() => setGithubNotice(null)} />
+              <IconButton size="sm" label="Dismiss" icon={X} tooltip={false} onClick={() => { setGithubNotice(null); setVercelNotice(null); }} />
             </div>
           )}
 

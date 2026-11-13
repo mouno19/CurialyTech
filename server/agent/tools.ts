@@ -32,6 +32,7 @@ import { speakExpressive, speakStandard, studioConfigured, transcribe, voiceConf
 import { classify } from "./artifacts";
 import { backgroundAvailable, describeJob, failed, jobKind, MAX_JOBS, SERVER_JOB_SEC, TASK_JOB_SEC, type Job, type JobRegistry } from "./jobs";
 import { commandOutput } from "./output";
+import { runVercelTool, VERCEL_SCHEMAS, VERCEL_TOOLS } from "./vercel-tools";
 
 export type ToolContext = {
   root: string;
@@ -172,6 +173,7 @@ const schemas = {
     publish_path: z.string().max(200).default("."),
     start_command: z.string().max(500).default(""),
   }),
+  ...VERCEL_SCHEMAS,
 };
 
 type ToolName = keyof typeof schemas;
@@ -375,17 +377,19 @@ const GITHUB_TOOLS: ToolDef[] = [
   },
 ];
 
-export function toolsFor(opts: { coding: boolean; web: boolean; eager: boolean; github?: boolean; operator?: boolean }): Anthropic.Tool[] {
+export function toolsFor(opts: { coding: boolean; web: boolean; eager: boolean; github?: boolean; vercel?: boolean; operator?: boolean }): Anthropic.Tool[] {
   const all = toolList(opts);
   const tools = opts.operator === false ? all.filter(tool => !OPERATOR_TOOLS.has(tool.name)) : all;
   return opts.eager ? tools.map(tool => ({ ...tool, eager_input_streaming: true })) : tools;
 }
 
-function toolList(opts: { coding: boolean; web: boolean; github?: boolean }): ToolDef[] {
+function toolList(opts: { coding: boolean; web: boolean; github?: boolean; vercel?: boolean }): ToolDef[] {
   const tools: ToolDef[] = [...INSIGHT_TOOLS];
   if (opts.coding) tools.push(...CODING_TOOLS, ATTACH_TOOL);
   if (opts.coding && backgroundAvailable()) tools.push(...JOB_TOOLS);
   if (opts.github) tools.push(...(opts.coding ? GITHUB_TOOLS : GITHUB_TOOLS.slice(0, 2)), REMEMBER_TOOL);
+  // Read only, so in chat and agent mode alike.
+  if (opts.vercel) tools.push(...VERCEL_TOOLS);
   if (opts.coding && deployConfigured().ok) tools.push(DEPLOY_TOOL);
   if ((opts.web || opts.coding) && browserConfigured()) tools.push(BROWSE_TOOL, ...BROWSER_TOOLS);
   if (opts.coding && PROVIDER_ENV.browserbaseKey && PROVIDER_ENV.browserbaseProject) tools.push(VISUAL_TOOL);
@@ -600,6 +604,11 @@ async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOu
     case "github_commit_and_push":
     case "github_create_pr":
       return runGitHubTool(name, input, ctx);
+    case "vercel_list_projects":
+    case "vercel_list_deployments":
+    case "vercel_get_deployment":
+    case "vercel_build_logs":
+      return runVercelTool(name, input, ctx.sessionId, ctx.signal);
     case "deploy_preview": {
       // A public preview is an external side effect: only when the user asked for one (their Deploy
       // action, or the operator's own message), once per run plus one retry after a failure.

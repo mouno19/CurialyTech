@@ -22,6 +22,7 @@ all state, a Snowflake stage for media. Production layout and operations are in
 | Workspaces | `server/agent/workspaces.ts` | Snapshots to Tiger, restore on follow-up, idle sweep. |
 | Artifacts and attachments | `server/agent/artifacts.ts`, `attachments.ts` | Files produced by a run attached to the chat; uploads staged into the workspace; images sent to vision models. |
 | GitHub | `server/services/github.ts`, `server/auth-github.ts`, `server/agent/repos.ts` | OAuth (token encrypted at rest), clone into an app-owned staging dir, push via the REST API; the token never enters the sandbox. |
+| Vercel | `server/services/vercel.ts`, `server/auth-vercel.ts`, `server/agent/vercel-tools.ts` | Sign in with Vercel per account (PKCE, state bound to the account, nonce in the ID token). Only the refresh token is stored, AES-256-GCM encrypted; it rotates on every refresh, under the row's lock. Read-only agent tools: projects, deployments, deployment status, build logs. |
 | Previews | `server/agent/preview.ts`, `browser.ts`, `deploy.ts` | Signed sandboxed preview route, cloud browser sessions, temporary cloud deploys. |
 | White-label | `shared/brand.ts` | User-facing text never names vendors; `brandText()` scrubs platform messages. |
 | Auth | `server/auth.ts` | Single operator: scrypt password hash, signed session cookie, login rate limit, same-origin checks. |

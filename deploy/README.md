@@ -94,6 +94,7 @@ are used for failover and delegation only.
 8. Build and start: `deploy/deploy.sh` (or `npm run build && sudo systemctl enable --now curialyai`).
 9. Web: install [nginx/curialyai.conf](nginx/curialyai.conf) as a site and run `certbot --nginx -d curialy.tech -d www.curialy.tech`.
 10. GitHub OAuth app: callback `https://curialy.tech/api/auth/callback/github`, scopes `read:user user:email repo`.
+11. Vercel app (Sign in with Vercel): callback `https://curialy.tech/auth/vercel/callback`, grants Authorization Code and Refresh Token, scopes `openid profile email offline_access`, and under Permissions read-only access to Projects and Deployments (the agent's Vercel tools only read). Set `VERCEL_CLIENT_ID`, `VERCEL_CLIENT_SECRET`, `VERCEL_REDIRECT_URI` and `TOKEN_ENCRYPTION_KEY` in `/etc/curialyai.env`.
 
 ## Day-to-day
 

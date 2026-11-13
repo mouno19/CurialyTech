@@ -43,7 +43,8 @@ export function sanitizeOutput(text: string) {
  * A long log as the model needs it: the first lines, the error lines from the middle (with a little
  * context) and the last lines, marking what was left out. Short output comes back whole.
  */
-export function digestOutput(text: string, opts: { head?: number; tail?: number; maxChars?: number } = {}) {
+/** rest: how to get what was left out (for a command: redirect it to a file). */
+export function digestOutput(text: string, opts: { head?: number; tail?: number; maxChars?: number; rest?: string } = {}) {
   const head = opts.head ?? HEAD_LINES;
   const tail = opts.tail ?? TAIL_LINES;
   const maxChars = opts.maxChars ?? 6000;
@@ -65,7 +66,7 @@ export function digestOutput(text: string, opts: { head?: number; tail?: number;
   }
   if (skipped) out.push(`… [${skipped} line${skipped === 1 ? "" : "s"} omitted] …`);
   out.push(...lines.slice(middleEnd));
-  return clip(`[Long output: the first ${head} lines, the lines that look like errors, and the last ${tail}. Redirect it to a file and read_file that for the rest.]\n${out.join("\n")}`, maxChars);
+  return clip(`[Long output: the first ${head} lines, the lines that look like errors, and the last ${tail}. ${opts.rest ?? "Redirect it to a file and read_file that for the rest."}]\n${out.join("\n")}`, maxChars);
 }
 
 /** Commands whose output is the answer (file contents, diffs, listings, searches): kept whole, up to a size. */

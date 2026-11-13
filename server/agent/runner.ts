@@ -19,6 +19,7 @@ import { executeTool, isVerificationCommand, shellQuote, toolsFor, type ToolOutc
 import { materializeWorkspace, snapshotWorkspace, withWorkspaceLock } from "./workspaces";
 import { aiComplete, loadMediaBytes } from "../media/snowflake";
 import { getConnection } from "../services/github";
+import { connectedIdentity, vercelConfigured } from "../services/vercel";
 import { loadProjectMemory } from "./memory";
 import { linkedRepo } from "./repos";
 import { brandText, ENGINE_ALIAS } from "@shared/brand";
@@ -286,6 +287,9 @@ export type RunContext = {
   /** Visual checks in this run, shared with team members: what the harness's design check looks at. */
   designState?: DesignState;
   github: boolean;
+  /** The task's account has Vercel connected: the read-only vercel_* tools, and what they are for (a further system block). */
+  vercel?: boolean;
+  vercelContext?: string;
   /** Short id used to build block and call ids. */
   runId: string;
   /** The run's fencing token (chat_sessions.run_id): every write of run data is conditional on it. */
@@ -1078,7 +1082,7 @@ export function latestRequest(conversation: Record<string, unknown>[]) {
 
 /** System blocks after the static prompt: GitHub context, saved skills, the repository's project memory, the design brief. */
 function extraSystem(ctx: RunContext) {
-  return [ctx.context, ctx.skills, ctx.memory?.text, ctx.designText].filter((text): text is string => Boolean(text));
+  return [ctx.context, ctx.vercelContext, ctx.skills, ctx.memory?.text, ctx.designText].filter((text): text is string => Boolean(text));
 }
 
 /** Load the linked repository's project memory into the shared slot. Announce only when a saved note arrives. */
@@ -1104,6 +1108,22 @@ async function githubContext(taskId: string) {
 - Capabilities: with the github_* tools you can list, inspect, clone, edit, commit, push and open pull requests on ${connection.login}'s repositories. You never see the access token; plain git push inside run_command has no credentials and will fail.
 - If the user mentions a repository by name (e.g. "easyeps"), match it against ${connection.login}'s repositories with github_get_repo${repo ? "" : ", clone it with github_clone_to_workspace,"} and inspect it before answering.
 - Push to the cloned branch only when the user explicitly asks for it; otherwise push to a new branch and open a pull request. Never rewrite history.`,
+  };
+}
+
+async function vercelContext(taskId: string) {
+  const owner = vercelConfigured() ? await taskOwner(taskId) : null;
+  const identity = owner ? await connectedIdentity(owner).catch(() => null) : null;
+  if (!identity) return { vercel: false, context: "" };
+  const who = identity.name && identity.username && identity.name !== identity.username ? `${identity.name} (${identity.username})` : identity.username ?? identity.name ?? "the user";
+  return {
+    vercel: true,
+    context: `User Vercel context:
+- Connected Vercel account: ${who}
+- Capabilities, read only: with the vercel_* tools you can list the account's projects and deployments, check a deployment's status and read its build logs. You never see the access token; the Vercel CLI inside run_command has no credentials.
+- Nothing on Vercel can be changed from here: no redeploys, no environment variable changes, no domain or project settings. If the user asks for one, say it isn't available from Curialy yet and give the exact steps (or the CLI command) for them to do it themselves.
+- For a failed deployment: vercel_get_deployment for its state and error, then vercel_build_logs (errors_only first) for the cause; with a linked GitHub repository, fix it there.
+- A Vercel answer that it isn't allowed (403) means the connection wasn't granted that team or project: tell the user to reconnect Vercel from the sidebar and grant it.`,
   };
 }
 
@@ -1134,6 +1154,7 @@ async function executeRun(handle: RunHandle, conversation: Record<string, unknow
     let restored = 0;
     let existing!: Awaited<ReturnType<typeof getAgentTask>>;
     let gh = { github: false, context: "" };
+    let vc = { vercel: false, context: "" };
     let operator = false;
     let skillText = "";
     let skillNotice = "";
@@ -1141,6 +1162,7 @@ async function executeRun(handle: RunHandle, conversation: Record<string, unknow
       ({ dir: root, restored } = await materializeWorkspace(taskId));
       existing = await getAgentTask(taskId);
       gh = await githubContext(taskId);
+      vc = await vercelContext(taskId);
       operator = await ownerIsOperator(taskId);
       const owner = await taskOwner(taskId);
       const saved = existing?.skillIds?.length && owner ? await loadTaskSkills(owner, existing.skillIds) : [];
@@ -1170,6 +1192,8 @@ async function executeRun(handle: RunHandle, conversation: Record<string, unknow
       memory: { text: "" },
       skills: skillText || undefined,
       github: gh.github,
+      vercel: vc.vercel,
+      vercelContext: vc.context || undefined,
       runId: handle.runId.slice(0, 8),
       runToken: handle.runId,
       root,
@@ -1648,7 +1672,7 @@ async function runAnthropicLoop(ctx: RunContext, conversation: Anthropic.Message
 function contextTools(ctx: RunContext) {
   const coding = ctx.mode === "agent";
   // Eager input streaming lets file bodies stream into the UI as they are generated.
-  const base = toolsFor({ coding, web: ctx.webSearch, eager: ctx.spec.eagerInput && !ctx.flags.noEager, github: ctx.github, operator: ctx.operator });
+  const base = toolsFor({ coding, web: ctx.webSearch, eager: ctx.spec.eagerInput && !ctx.flags.noEager, github: ctx.github, vercel: ctx.vercel, operator: ctx.operator });
   const allowed = ctx.allowedTools;
   const offered = allowed ? base.filter(tool => allowed.has(tool.name)) : base;
   return [...offered, ...Object.values(ctx.virtualTools ?? {}).map(tool => tool.definition)];
@@ -1966,7 +1990,7 @@ function openAITools(tools: Anthropic.Tool[]) {
 
 async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unknown>[]) {
   const coding = ctx.mode === "agent";
-  const tools = openAITools(toolsFor({ coding, web: ctx.webSearch, eager: false, github: ctx.github, operator: ctx.operator }));
+  const tools = openAITools(toolsFor({ coding, web: ctx.webSearch, eager: false, github: ctx.github, vercel: ctx.vercel, operator: ctx.operator }));
   const system = () => ({ role: "system", content: [coding ? AGENT_SYSTEM : CHAT_SYSTEM, ...extraSystem(ctx)].filter(Boolean).join("\n\n") });
   let healIteration = 0;
   let lastText = "";

@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { agentApi, ApiError, errorMessage, type GitHubStatus, type HealthResponse, type ProviderProbe } from "./api";
+import { agentApi, ApiError, errorMessage, type GitHubStatus, type HealthResponse, type ProviderProbe, type VercelStatus } from "./api";
 import { mediaHealth } from "./mediaHealth";
 
 /**
@@ -192,4 +192,43 @@ export const githubStatus = { get: github.get, subscribe: subscribeGitHub, refre
 export function useGitHub() {
   const snapshot = useSyncExternalStore(subscribeGitHub, github.get, github.get);
   return { ...snapshot, refresh: refreshGitHub };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Vercel connection: the same, for Connect Vercel.
+// ---------------------------------------------------------------------------------------------
+
+export type VercelSnapshot = { status: VercelStatus | null; loading: boolean; error: string | null; loadedAt: number | null };
+
+const vercel = createStore<VercelSnapshot>({ status: null, loading: false, error: null, loadedAt: null });
+let vercelInflight: Promise<VercelStatus | null> | null = null;
+
+export function refreshVercel(): Promise<VercelStatus | null> {
+  vercelInflight ??= (async () => {
+    vercel.set({ loading: true });
+    try {
+      const status = await agentApi.vercel();
+      vercel.set({ status, loading: false, error: null, loadedAt: Date.now() });
+      return status;
+    } catch (error) {
+      vercel.set({ loading: false, error: errorMessage(error, "Could not check Vercel."), loadedAt: Date.now() });
+      return vercel.get().status;
+    } finally {
+      vercelInflight = null;
+    }
+  })();
+  return vercelInflight;
+}
+
+function subscribeVercel(listener: () => void) {
+  const unsubscribe = vercel.subscribe(listener);
+  const { loadedAt } = vercel.get();
+  if (!vercelInflight && (!loadedAt || Date.now() - loadedAt > GITHUB_STALE_MS)) void refreshVercel();
+  return unsubscribe;
+}
+
+/** { status, loading, error, refresh }. status is null while loading or when the check failed. */
+export function useVercel() {
+  const snapshot = useSyncExternalStore(subscribeVercel, vercel.get, vercel.get);
+  return { ...snapshot, refresh: refreshVercel };
 }

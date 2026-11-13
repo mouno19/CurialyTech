@@ -565,6 +565,33 @@ const MIGRATIONS: { id: number; sql: string }[] = [
       CREATE INDEX IF NOT EXISTS support_messages_thread_idx ON curialy.support_messages (thread_id, created_at, id);
     `,
   },
+  {
+    id: 20,
+    sql: `
+      -- Sign in with Vercel, one connection per account. Only the refresh token is kept, AES-256-GCM
+      -- encrypted (TOKEN_ENCRYPTION_KEY); it rotates on every use. 'reconnect': it stopped working
+      -- (expired, revoked or already used), so the token columns are cleared until the user signs in again.
+      CREATE TABLE IF NOT EXISTS curialy.vercel_connections (
+        user_id uuid PRIMARY KEY REFERENCES curialy.users(id) ON DELETE CASCADE,
+        vercel_user_id text NOT NULL,
+        username text,
+        name text,
+        email text,
+        avatar_url text,
+        scopes text NOT NULL DEFAULT '',
+        status text NOT NULL DEFAULT 'connected',
+        status_reason text,
+        refresh_ciphertext bytea,
+        refresh_iv bytea,
+        refresh_tag bytea,
+        connected_at timestamptz NOT NULL DEFAULT now(),
+        refreshed_at timestamptz,
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        CONSTRAINT vercel_connections_status CHECK (status IN ('connected', 'reconnect')),
+        CONSTRAINT vercel_connections_token CHECK (status <> 'connected' OR (refresh_ciphertext IS NOT NULL AND refresh_iv IS NOT NULL AND refresh_tag IS NOT NULL))
+      );
+    `,
+  },
 ];
 
 export async function migrate() {
