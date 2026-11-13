@@ -1134,11 +1134,12 @@ export function createFixtures({ now = Date.now(), deployUrls = "vendor" } = {})
   const billing = createBilling({ now, state, users: billingUsers });
   const githubOf = () => (state.account === "operator" ? github : { ...github, login: account().login, name: account().displayName, avatarUrl: null });
   const resetsSoon = new Date(now + 2 * 3_600_000 + 14 * 60_000).toISOString();
-  const balance = (fields, plan = null) => ({ unlimited: false, allowance: 60, used: 0, remaining: 60, bonus: 0, available: 60, resetsAt: null, windowHours: 5, ...fields, plan });
+  // As server/credits.ts answers (shared/credits.ts CreditBalance): no launch boost, and no X reward left to earn.
+  const balance = (fields, plan = null) => ({ unlimited: false, allowance: 60, used: 0, remaining: 60, bonus: 0, available: 60, resetsAt: null, windowHours: 5, boost: null, welcome: true, canEarn: false, ...fields, plan });
   // On Pro: the plan's allowance is larger than the free one, so it applies (shared/credits.ts CreditBalance.plan).
   const freeCredits = balance({ allowance: 6000, used: 1284.5, remaining: 4715.5, bonus: 25, available: 4740.5, resetsAt: resetsSoon }, billing.planOf(billingUsers.free));
   const newcomerCredits = balance({ used: 41.5, remaining: 18.5, bonus: 25, available: 43.5, resetsAt: resetsSoon });
-  const operatorCredits = { unlimited: true, allowance: 60, used: 0, remaining: 60, bonus: 0, available: 60, resetsAt: null, windowHours: 5, plan: null };
+  const operatorCredits = { unlimited: true, allowance: 60, used: 0, remaining: 60, bonus: 0, available: 60, resetsAt: null, windowHours: 5, plan: null, boost: null, welcome: false, canEarn: false };
   const credits = () => (state.account === "free" ? freeCredits : state.account === "newcomer" ? newcomerCredits : operatorCredits);
   const days = n => new Date(now - n * 86_400_000).toISOString();
   const minutesAgo = n => new Date(now - n * 60_000).toISOString();

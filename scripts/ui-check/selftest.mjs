@@ -367,7 +367,7 @@ export async function selfTest(config) {
     const data = fx.data.billing;
     const catalog = asJson(send("GET", "/api/billing/catalog"));
     expect(catalog?.plans?.length === 2 && catalog.plans.every(plan => plan.discountPercent === 90 && plan.priceUsd === Math.round(plan.listUsd * 10) / 100), "catalog: Pro and Max at 90% off");
-    expect(catalog?.networks?.length === 4 && catalog.models?.length === 19, `catalog: 4 networks and 19 models (got ${catalog?.networks?.length} and ${catalog?.models?.length})`);
+    expect(catalog?.networks?.length === 5 && catalog.models?.length === 19, `catalog: 5 networks and 19 models (got ${catalog?.networks?.length} and ${catalog?.models?.length})`);
     if (shared && catalog) {
       for (const model of catalog.models) {
         const list = shared.API_PRICES[model.id];
