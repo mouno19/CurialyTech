@@ -53,7 +53,8 @@ export type RemoteBox = {
   id: string;
   keepAlive: (ms: number) => Promise<void>;
   /** Start a command; resolves once it is running. */
-  start: (command: string, opts: { timeoutMs: number; onStdout: (data: string) => void; onStderr: (data: string) => void }) => Promise<{ wait: () => Promise<number>; kill: () => Promise<void> }>;
+  /** envs: added to the command's environment (the user's secrets for the task; sent to the sandbox, never in its arguments). */
+  start: (command: string, opts: { timeoutMs: number; onStdout: (data: string) => void; onStderr: (data: string) => void; envs?: Record<string, string> }) => Promise<{ wait: () => Promise<number>; kill: () => Promise<void> }>;
   /** Run a short helper command and return its stdout (throws on failure). */
   exec: (command: string, timeoutMs?: number) => Promise<string>;
   write: (files: { path: string; data: Buffer }[]) => Promise<void>;
@@ -106,7 +107,7 @@ let connect: (taskId: string) => Promise<RemoteBox> = async taskId => {
     id: sandbox.sandboxId,
     keepAlive: ms => sandbox.setTimeout(ms),
     start: async (command, opts) => {
-      const handle: CommandHandle = await sandbox.commands.run(command, { background: true, envs: COMMAND_ENV, timeoutMs: opts.timeoutMs, onStdout: opts.onStdout, onStderr: opts.onStderr });
+      const handle: CommandHandle = await sandbox.commands.run(command, { background: true, envs: { ...COMMAND_ENV, ...(opts.envs ?? {}) }, timeoutMs: opts.timeoutMs, onStdout: opts.onStdout, onStderr: opts.onStderr });
       return {
         wait: async () => {
           try {
@@ -470,7 +471,8 @@ async function runRemote(opts: CommandOptions): Promise<CommandResult> {
       const live = await liveBox(taskId, opts.root, (timeout + 120) * 1000, sync !== "none", opts.signal);
       box = live.box;
       for (const line of live.notes) note(line);
-      command = await box.remote.start(`exec setsid --wait bash -c ${q(script)} curialy ${q(opts.command)}`, { timeoutMs: (timeout + 5) * 1000, onStdout: capture("stdout"), onStderr: capture("stderr") });
+      const envs = opts.secrets?.length ? Object.fromEntries(opts.secrets.map(secret => [secret.name, secret.value])) : undefined;
+      command = await box.remote.start(`exec setsid --wait bash -c ${q(script)} curialy ${q(opts.command)}`, { timeoutMs: (timeout + 5) * 1000, onStdout: capture("stdout"), onStderr: capture("stderr"), ...(envs ? { envs } : {}) });
     } catch (error) {
       if (box) {
         box.active--;

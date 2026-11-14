@@ -892,3 +892,23 @@ input[type="checkbox"].vault-check { position: absolute; top: 4px; left: 4px; z-
 .admin-wallet-coins dt { display: inline-flex; align-items: center; gap: var(--s-2); color: var(--text-2); }
 .admin-wallet-coins dd { margin: 0; font-family: var(--font-mono); }
 .admin-wallet-unavailable { margin: 0; display: inline-flex; align-items: center; gap: var(--s-2); color: var(--warning-fg); font-size: var(--fs-sm); }
+
+/* Secrets page */
+.secret-card { display: flex; flex-direction: column; gap: 14px; margin-bottom: 16px; padding: 18px; }
+.secret-card-title { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 15px; font-weight: 600; }
+.secret-count { margin-left: auto; font-size: 12px; font-weight: 500; color: var(--text-3); }
+.secret-form { display: flex; flex-direction: column; gap: 12px; }
+.secret-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.secret-row { display: flex; flex-direction: column; gap: 12px; padding: 12px 0; border-top: 1px solid var(--border); }
+.secret-row:first-child { border-top: 0; padding-top: 0; }
+.secret-row-main { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+.secret-row-main > .lucide { flex: none; margin-top: 3px; color: var(--text-3); }
+.secret-row-text { display: flex; flex: 1 1 auto; flex-direction: column; gap: 2px; min-width: 0; }
+.secret-name { font-size: 13.5px; font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.secret-note { font-size: 13px; color: var(--text-2); overflow-wrap: anywhere; }
+.secret-meta { font-size: 12px; color: var(--text-3); }
+.secret-row-actions { display: flex; flex: none; gap: 6px; }
+@media (max-width: 560px) {
+  .secret-row-main { flex-wrap: wrap; }
+  .secret-row-actions { width: 100%; padding-left: 25px; }
+}

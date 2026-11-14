@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { ArrowUp, Clock, ListPlus, Paperclip, Pencil, Play, RotateCcw, TriangleAlert, X } from "lucide-react";
 import { followUpModelBlocked, getModel, MAX_QUEUED_MESSAGES, type AgentTaskSummary, type QueuedMessage, type TaskQueue, type TaskStatus } from "@shared/agent";
 import { isActiveStatus } from "@shared/taskStatus";
@@ -65,7 +65,7 @@ function writeDraft(taskId: string, text: string) {
  * or switched to) and dictation are available at any time. The text clears at once and comes back
  * if the send fails.
  */
-export function FollowUpComposer({ taskId, task, status, onSend, redeploy = false, queue, queueActions }: {
+export function FollowUpComposer({ taskId, task, status, onSend, redeploy = false, queue, queueActions, above }: {
   taskId: string;
   task: AgentTaskSummary | null;
   status: TaskStatus | null;
@@ -73,6 +73,8 @@ export function FollowUpComposer({ taskId, task, status, onSend, redeploy = fals
   redeploy?: boolean;
   queue: TaskQueue | null;
   queueActions: QueueActions;
+  /** Shown above the queue and the box: what the run waits for the user to answer. */
+  above?: ReactNode;
 }) {
   const [text, setText] = useState(() => readDraft(taskId));
   const [sending, setSending] = useState(false);
@@ -155,6 +157,7 @@ export function FollowUpComposer({ taskId, task, status, onSend, redeploy = fals
   return (
     <div className="convo-foot">
       <div className="convo-foot-inner">
+        {above}
         {items.length > 0 && <QueuedList queue={queue!} active={active} stopping={stopping} currentModel={task?.model ?? null} actions={queueActions} />}
         <div className={cx("composer compact", attachments.dragging && "dragging")} {...attachments.dropProps}>
           <label className="sr-only" htmlFor="follow-up">Follow-up message</label>

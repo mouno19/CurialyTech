@@ -205,6 +205,16 @@ export async function getConnection(userId: string): Promise<(GitHubConnection &
   };
 }
 
+/** The account turned off asking before the agent changes something on GitHub (off by default). */
+export async function githubAutoApprove(userId: string) {
+  const { rows } = await query<{ github_auto_approve: boolean }>("SELECT github_auto_approve FROM curialy.users WHERE id = $1", [userId]);
+  return rows[0]?.github_auto_approve === true;
+}
+
+export async function setGithubAutoApprove(userId: string, on: boolean) {
+  await query("UPDATE curialy.users SET github_auto_approve = $2 WHERE id = $1", [userId, on]);
+}
+
 export async function disconnect(userId: string) {
   const connection = await getConnection(userId).catch(() => null);
   if (connection && process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET) {

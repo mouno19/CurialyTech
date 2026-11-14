@@ -592,6 +592,31 @@ const MIGRATIONS: { id: number; sql: string }[] = [
       );
     `,
   },
+  {
+    id: 21,
+    sql: `
+      -- Secrets an account saves for its tasks (the Secrets page), AES-256-GCM encrypted with
+      -- TOKEN_ENCRYPTION_KEY. A value is never sent back to the browser or shown to the model: a
+      -- task gets it as an environment variable of its commands.
+      CREATE TABLE IF NOT EXISTS curialy.user_secrets (
+        user_id uuid NOT NULL REFERENCES curialy.users(id) ON DELETE CASCADE,
+        name text NOT NULL,
+        note text,
+        ciphertext bytea NOT NULL,
+        iv bytea NOT NULL,
+        tag bytea NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        last_used_at timestamptz,
+        PRIMARY KEY (user_id, name),
+        CONSTRAINT user_secrets_name CHECK (name ~ '^[A-Z][A-Z0-9_]{0,63}$'),
+        CONSTRAINT user_secrets_note_len CHECK (note IS NULL OR char_length(note) <= 200)
+      );
+      -- Changes the agent makes on GitHub (push, pull request, workflow runs) wait for the user's
+      -- approval in the chat, unless the account turned asking off.
+      ALTER TABLE curialy.users ADD COLUMN IF NOT EXISTS github_auto_approve boolean NOT NULL DEFAULT false;
+    `,
+  },
 ];
 
 export async function migrate() {

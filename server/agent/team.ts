@@ -8,6 +8,7 @@ import { renderBrief } from "./design";
 import { AGENT_SYSTEM, describeError, emitText, forkContext, runAgentLoop, type RunContext, type VirtualTool } from "./runner";
 import { getTeamState, saveTeamState, settleTeamWrites } from "./store";
 import { VERCEL_TOOL_NAMES } from "./vercel-tools";
+import { GITHUB_CI_READ_TOOLS } from "./github-ci-tools";
 
 // Dev Team mode: three agents on one workspace.
 //   Architect (read-only) explores and submits a plan.
@@ -22,12 +23,12 @@ const PUBLISH_TURNS = 12;
 
 type TeamState = { architect: Anthropic.MessageParam[]; engineer: Anthropic.MessageParam[]; reviewer: Anthropic.MessageParam[]; cycles: number; plans: TeamPlan[]; reviews: TeamReview[] };
 
-const READ_TOOLS = ["list_files", "read_file", "read_document", "analyze_data", "search_files", "web_fetch", "browse", "browser_click", "browser_type", "browser_scroll", "browser_extract", "browser_screenshot", "browser_close", ...VERCEL_TOOL_NAMES];
+const READ_TOOLS = ["list_files", "read_file", "read_document", "analyze_data", "search_files", "web_fetch", "browse", "browser_click", "browser_type", "browser_scroll", "browser_extract", "browser_screenshot", "browser_close", ...VERCEL_TOOL_NAMES, ...GITHUB_CI_READ_TOOLS];
 // Architect and Reviewer run commands read-only: whatever a command changes in the source is reverted
 // (RunContext.readOnly). Cloning the task's repository is setup, not an edit, so the Architect may.
 const ROLE_TOOLS: Record<TeamRole, string[]> = {
   architect: [...READ_TOOLS, "run_command", "github_list_repos", "github_get_repo", "github_clone_to_workspace", "remember_project", "delegate_research"],
-  engineer: [...READ_TOOLS, "run_command", "command_status", "stop_command", "write_file", "edit_file", "delete_file", "update_plan", "attach_files", "test_preview_visual", "transcribe_audio", "generate_speech", "github_list_repos", "github_get_repo", "github_clone_to_workspace", "github_sync", "remember_project"],
+  engineer: [...READ_TOOLS, "run_command", "command_status", "stop_command", "write_file", "edit_file", "delete_file", "update_plan", "attach_files", "test_preview_visual", "transcribe_audio", "generate_speech", "github_list_repos", "github_get_repo", "github_clone_to_workspace", "github_sync", "remember_project", "request_secret"],
   reviewer: [...READ_TOOLS, "run_command", "test_preview_visual"],
 };
 /** Only after the Reviewer approves. */

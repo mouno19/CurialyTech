@@ -210,6 +210,10 @@ export type PlanStep = { title: string; status: "pending" | "in_progress" | "don
 export type FileChangeKind = "create" | "modify" | "delete";
 
 /** Every event the runtime emits. Persisted with a per-task sequence number and replayed over SSE. */
+export type ApprovalDecision = "approved" | "approved_task" | "denied" | "expired" | "auto" | "task";
+/** from_vault: a secret the account saved on the Secrets page; saved: typed in and saved there too. */
+export type SecretOutcome = "provided" | "saved" | "from_vault" | "declined" | "expired";
+
 export type AgentEventBody =
   | { type: "status"; status: TaskStatus; reason?: StatusReason }
   /** First event of every run: a boundary the UI uses to scope "this run's" output and outcome. */
@@ -258,6 +262,13 @@ export type AgentEventBody =
   | { type: "repo_push"; fullName: string; branch: string; commitSha: string; commitUrl: string; changed: number; deleted: number }
   | { type: "repo_pr"; fullName: string; number: number; url: string; head: string; base: string }
   | { type: "notice"; level: "info" | "warn"; message: string }
+  /** The run waits for the user to approve a change (on GitHub) shown exactly in details. */
+  | { type: "approval_request"; requestId: string; action: string; title: string; details: string[]; expiresAt: string }
+  /** auto: the account turned approvals off; task: approved earlier for the rest of this task. */
+  | { type: "approval_result"; requestId: string; title: string; decision: ApprovalDecision }
+  /** The run waits for the user to type a secret into a masked box (never stored in the log). */
+  | { type: "secret_request"; requestId: string; name: string; reason: string; expiresAt: string; canSave: boolean }
+  | { type: "secret_result"; requestId: string; name: string; outcome: SecretOutcome }
   | { type: "error"; message: string }
   /** Always the last event of a run. */
   | { type: "done"; status: TaskStatus; answer: string; reason?: StatusReason; error?: string; outcome?: RunOutcome };

@@ -18,7 +18,7 @@ const INLINE_SCREENSHOT_LIMIT = 400 * 1024;
 import { createPullRequest, describeGitHubError, getConnection, githubApi, GitHubError, listRepos, repoDetails, resolveRepo, throwIfAborted } from "../services/github";
 import { renderProjectMemory, saveProjectMemory } from "./memory";
 import { taskOwner } from "./store";
-import { cloneIntoWorkspace, commitAndPush, linkedRepo, syncWithRemote } from "./repos";
+import { cloneIntoWorkspace, commitAndPush, computeChanges, linkedRepo, syncWithRemote, type LinkedRepo } from "./repos";
 import { brandText } from "@shared/brand";
 import { storeArtifacts } from "./artifacts";
 import { absoluteAssetWarnings, detectPreviewRoot, previewBaseUrl, registerLiveServer, unregisterLiveServer, waitForPort } from "./preview";
@@ -33,6 +33,9 @@ import { classify } from "./artifacts";
 import { backgroundAvailable, describeJob, failed, jobKind, MAX_JOBS, SERVER_JOB_SEC, TASK_JOB_SEC, type Job, type JobRegistry } from "./jobs";
 import { commandOutput } from "./output";
 import { runVercelTool, VERCEL_SCHEMAS, VERCEL_TOOLS } from "./vercel-tools";
+import { approveOnGitHub, GITHUB_CI_SCHEMAS, GITHUB_CI_TOOLS, runGitHubCiTool, type GitHubCiToolName } from "./github-ci-tools";
+import { askSecret, taskSecrets, type SecretStore } from "./requests";
+import { loadSecret, saveSecret, secretName, secretsConfigured } from "../secrets";
 
 export type ToolContext = {
   root: string;
@@ -77,7 +80,8 @@ export type ToolImage = { mediaType: "image/png" | "image/jpeg"; base64: string 
 /** images: screenshots for the model (vision models only); audit: the visual test's design audit, for the harness. */
 /** baseline: files the tool took from the repository as they are (a sync): its state, not this run's work. */
 /** jobId: the command goes on in the background; its card's result is sent when it ends. */
-export type ToolOutcome = { ok: boolean; content: string; summary: string; exitCode?: number | null; images?: ToolImage[]; audit?: DesignAudit | null; baseline?: string[]; jobId?: string };
+/** declined: the user said no (an approval or a secret), which is not a failure of the tool. */
+export type ToolOutcome = { ok: boolean; content: string; summary: string; exitCode?: number | null; images?: ToolImage[]; audit?: DesignAudit | null; baseline?: string[]; jobId?: string; declined?: boolean };
 
 const VERIFY_PATTERN = /\b(tsc|vitest|jest|pytest|eslint|ruff|mypy|pyright|go (test|vet)|cargo (test|check)|node --test|(npm|pnpm|yarn)( run)? (test|lint|check|typecheck|build))\b/;
 export const isVerificationCommand = (command: string) => VERIFY_PATTERN.test(command);
@@ -174,6 +178,8 @@ const schemas = {
     start_command: z.string().max(500).default(""),
   }),
   ...VERCEL_SCHEMAS,
+  ...GITHUB_CI_SCHEMAS,
+  request_secret: z.object({ name: secretName, reason: z.string().trim().min(3).max(300) }),
 };
 
 type ToolName = keyof typeof schemas;
@@ -344,6 +350,19 @@ const REMEMBER_TOOL: ToolDef = {
   },
 };
 
+const SECRET_TOOL: ToolDef = {
+  name: "request_secret",
+  description: "Get a secret this task needs (an API key, a token, a password) without ever seeing it: one the user saved on their Secrets page, else they type it into a masked box in the chat. Commands then have it as the environment variable $NAME (run_command, background commands and checks); its value is wiped from all output. Never print it or write it into files that get committed. Ask only when the task really needs it, and never ask the user to paste a secret into the chat: always use this tool.",
+  input_schema: {
+    type: "object",
+    properties: {
+      name: { type: "string", description: "Environment variable name: capital letters, digits and _ (like STRIPE_SECRET_KEY)" },
+      reason: { type: "string", description: "One sentence the user sees: what it is for" },
+    },
+    required: ["name", "reason"],
+  },
+};
+
 const GITHUB_TOOLS: ToolDef[] = [
   {
     name: "github_list_repos",
@@ -387,7 +406,8 @@ function toolList(opts: { coding: boolean; web: boolean; github?: boolean; verce
   const tools: ToolDef[] = [...INSIGHT_TOOLS];
   if (opts.coding) tools.push(...CODING_TOOLS, ATTACH_TOOL);
   if (opts.coding && backgroundAvailable()) tools.push(...JOB_TOOLS);
-  if (opts.github) tools.push(...(opts.coding ? GITHUB_TOOLS : GITHUB_TOOLS.slice(0, 2)), REMEMBER_TOOL);
+  if (opts.github) tools.push(...(opts.coding ? GITHUB_TOOLS : GITHUB_TOOLS.slice(0, 2)), REMEMBER_TOOL, ...GITHUB_CI_TOOLS);
+  if (opts.coding) tools.push(SECRET_TOOL);
   // Read only, so in chat and agent mode alike.
   if (opts.vercel) tools.push(...VERCEL_TOOLS);
   if (opts.coding && deployConfigured().ok) tools.push(DEPLOY_TOOL);
@@ -609,6 +629,24 @@ async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOu
     case "vercel_get_deployment":
     case "vercel_build_logs":
       return runVercelTool(name, input, ctx.sessionId, ctx.signal);
+    case "github_list_commits":
+    case "github_get_commit":
+    case "github_check_status":
+    case "github_list_workflows":
+    case "github_list_runs":
+    case "github_get_run":
+    case "github_run_logs":
+    case "github_run_workflow":
+    case "github_rerun":
+    case "github_cancel_run":
+      return runGitHubCiTool(name as GitHubCiToolName, input, ctx);
+    case "request_secret": {
+      const { name: secret, reason } = input as z.infer<typeof schemas.request_secret>;
+      const owner = await taskOwner(ctx.sessionId);
+      const store: SecretStore = owner && secretsConfigured() ? { load: key => loadSecret(owner, key), save: (key, value) => saveSecret(owner, key, value, "Saved from a task") } : null;
+      const answer = await askSecret({ taskId: ctx.sessionId, emit: ctx.emit, signal: ctx.signal }, { name: secret, reason }, store);
+      return { ok: answer.ok, content: answer.message, summary: answer.ok ? `${secret} is set` : `No ${secret}`, ...(answer.ok ? {} : { declined: true }) };
+    }
     case "deploy_preview": {
       // A public preview is an external side effect: only when the user asked for one (their Deploy
       // action, or the operator's own message), once per run plus one retry after a failure.
@@ -816,6 +854,24 @@ async function runGitHubTool(name: ToolName, input: any, ctx: ToolContext): Prom
       const { message, branch } = input as z.infer<typeof schemas.github_commit_and_push>;
       const repo = await linkedRepo(ctx.sessionId);
       if (!repo) return { ok: false, content: "No repository is cloned in this task. Use github_clone_to_workspace first.", summary: "No linked repo" };
+      const changes = await computeChanges(ctx.root, repo, ctx.signal);
+      if (changes.changed.length || changes.deleted.length) {
+        const leaked = filesWithSecrets(ctx.root, repo, changes.changed, taskSecrets(ctx.sessionId));
+        if (leaked.length) return { ok: false, content: `Not pushed: ${leaked.map(entry => `${entry.file} contains ${entry.names.join(", ")}`).join("; ")}. A secret must never be committed: read it from its environment variable instead, remove it from those files, then push again.`, summary: "A secret is in the files" };
+        const target = branch?.trim() || repo.branch;
+        const refused = await approveOnGitHub(ctx, owner!, {
+          action: name,
+          title: `Push ${changes.changed.length + changes.deleted.length} file change(s) to ${repo.fullName} (${target})`,
+          details: [
+            `Repository: ${repo.fullName}`,
+            `Branch: ${target}${target === repo.branch ? " (the branch this task cloned)" : repo.pushed[target] ? " (a branch this task pushed before)" : ` (a new branch from ${repo.branch})`}`,
+            `Commit message: ${message.split("\n")[0].slice(0, 200)}`,
+            changes.changed.length ? `Changed or added (${changes.changed.length}): ${listFiles(changes.changed)}` : "",
+            changes.deleted.length ? `Deleted (${changes.deleted.length}): ${listFiles(changes.deleted)}` : "",
+          ].filter(Boolean),
+        });
+        if (refused) return refused;
+      }
       const result = await commitAndPush({ sessionId: ctx.sessionId, root: ctx.root, repo, token, message, branch, signal: ctx.signal, onOutput: log, scopes: connection.scopes });
       if (result.synced) ctx.onFileChange(".");
       const syncedNote = result.synced ? ` ${repo.fullName}@${repo.branch} had moved on GitHub, so the workspace was brought up to date with it (${result.synced.slice(0, 7)}) first, keeping your edits.` : "";
@@ -845,6 +901,12 @@ async function runGitHubTool(name: ToolName, input: any, ctx: ToolContext): Prom
       if (!head && pushedBranches.length > 1) return { ok: false, content: `This task pushed to several branches (${pushedBranches.join(", ")}): pass head with the one to open the pull request from.`, summary: "Which branch?" };
       const headBranch = head || pushedBranches[0];
       if (!headBranch) return { ok: false, content: "Push your changes to a new branch with github_commit_and_push (branch: ...) before opening a pull request.", summary: "No head branch" };
+      const refused = await approveOnGitHub(ctx, owner!, {
+        action: name,
+        title: `Open a pull request on ${repo.fullName}: ${headBranch} → ${base || repo.branch}`,
+        details: [`Repository: ${repo.fullName}`, `From ${headBranch} into ${base || repo.branch}${draft ? " (as a draft)" : ""}`, `Title: ${title}`, body ? `Description: ${body.slice(0, 400)}${body.length > 400 ? "…" : ""}` : ""].filter(Boolean),
+      });
+      if (refused) return refused;
       throwIfAborted(ctx.signal); // a cancelled run opens no pull request
       const pr = await createPullRequest(token, repo.fullName, { title, body: `${body}\n\n---\nOpened by Curialy AI.`.trim(), head: headBranch, base: base || repo.branch, draft });
       // An already-open pull request is not this run's to report as opened.
@@ -855,6 +917,26 @@ async function runGitHubTool(name: ToolName, input: any, ctx: ToolContext): Prom
     default:
       return { ok: false, content: `Unknown GitHub tool ${name}`, summary: "Unknown tool" };
   }
+}
+
+const listFiles = (files: string[]) => `${files.slice(0, 15).join(", ")}${files.length > 15 ? ` and ${files.length - 15} more` : ""}`;
+
+/** Changed files of the clone that contain one of the task's secrets (never pushed). */
+function filesWithSecrets(root: string, repo: LinkedRepo, files: string[], secrets: { name: string; value: string }[]) {
+  if (!secrets.length) return [];
+  const found: { file: string; names: string[] }[] = [];
+  for (const file of files) {
+    let read: ReturnType<typeof readWorkspaceBytes>;
+    try {
+      read = readWorkspaceBytes(root, repo.repoPath === "." ? file : path.posix.join(repo.repoPath, file));
+    } catch {
+      continue; // not a regular file (pushed as it is on GitHub), or too large to push anyway
+    }
+    if (!read.exists) continue;
+    const names = secrets.filter(secret => read.bytes.includes(Buffer.from(secret.value))).map(secret => secret.name);
+    if (names.length) found.push({ file, names });
+  }
+  return found;
 }
 
 /** Store a screenshot in Curialy Vault (inline in the log while storage is down) and show it in the run. */

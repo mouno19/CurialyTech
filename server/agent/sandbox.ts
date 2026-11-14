@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { redactText, streamRedactor, type SecretValue } from "./redact";
 
 // Each task gets its own directory under WORKSPACE_ROOT. With E2B configured, its commands run in
 // a cloud sandbox of its own (e2b.ts) and the directory keeps only sources and build output;
@@ -235,13 +236,47 @@ export type CommandOptions = {
    * (commands that never touch the workspace, such as a web fetch).
    */
   sync?: "full" | "push" | "none";
+  /** Environment variables the user gave the task as secrets (by default the task's own, found from root). Wiped from the output. */
+  secrets?: SecretValue[];
 };
+
+let commandSecrets: (root: string) => SecretValue[] = () => [];
+
+/** Where a task's secrets come from (requests.ts registers it): every command of the task gets them. */
+export function setCommandSecrets(lookup: (root: string) => SecretValue[]) {
+  commandSecrets = lookup;
+}
+
+/** Only names a shell can export (secret names are checked when they are given). */
+const exportable = (secret: SecretValue) => /^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(secret.name);
 
 // Commands share a single small VPS with production; run them one at a time.
 let commandQueue: Promise<unknown> = Promise.resolve();
 let commandCounter = 0;
 
 export function runCommand(opts: CommandOptions): Promise<CommandResult> {
+  const secrets = (opts.secrets ?? commandSecrets(opts.root)).filter(exportable);
+  return secrets.length ? runWithSecrets({ ...opts, secrets }) : dispatch({ ...opts, secrets: undefined });
+}
+
+/** The output wiped of the values as it streams (one split across chunks included) and as a whole. */
+async function runWithSecrets(opts: CommandOptions & { secrets: SecretValue[] }): Promise<CommandResult> {
+  const streams = { stdout: streamRedactor(opts.secrets), stderr: streamRedactor(opts.secrets) };
+  const result = await dispatch({
+    ...opts,
+    onOutput: (stream, chunk) => {
+      const safe = streams[stream].push(chunk);
+      if (safe) opts.onOutput(stream, safe);
+    },
+  });
+  for (const stream of ["stdout", "stderr"] as const) {
+    const rest = streams[stream].flush();
+    if (rest) opts.onOutput(stream, rest);
+  }
+  return { ...result, output: redactText(result.output, opts.secrets) };
+}
+
+function dispatch(opts: CommandOptions): Promise<CommandResult> {
   if (SANDBOX_MODE === "e2b") {
     return remote ? remote.run(opts) : Promise.resolve({ exitCode: null, timedOut: false, output: "The command sandbox is not available on this server yet.", durationMs: 0 });
   }
@@ -268,11 +303,15 @@ export function runCommand(opts: CommandOptions): Promise<CommandResult> {
 
 const OUTPUT_CAP = 400_000;
 
-function runCommandNow({ root, command, timeoutSec, signal, onOutput, raw }: CommandOptions): Promise<CommandResult> {
+/** A secret as a line bash can eval: export NAME='value' (single quotes escaped). */
+export const exportLine = (secret: SecretValue) => `export ${secret.name}='${secret.value.split("'").join(`'"'"'`)}'\n`;
+
+function runCommandNow({ root, command, timeoutSec, signal, onOutput, raw, secrets }: CommandOptions): Promise<CommandResult> {
   const started = Date.now();
   const timeout = Math.max(5, Math.min(600, Math.round(timeoutSec)));
   const unit = `curialy-agent-${process.pid}-${++commandCounter}-${Date.now()}`;
-  const script = 'umask 002; cd -- "$1" || exit 97; eval "$2"';
+  // Secrets come in on stdin as export lines, never as arguments (the host's process list shows those).
+  const script = `${secrets?.length ? 'eval "$(cat)"; exec </dev/null; ' : ""}umask 002; cd -- "$1" || exit 97; eval "$2"`;
   const shellArgs = ["/usr/bin/timeout", "--kill-after=5", `${timeout}s`, "/bin/bash", "-c", script, "curialy", root, command];
   // Repos fetched by the app are owned by the app user; let the sandbox's git operate on them.
   // Temporary files go into the workspace (swept with it), not the VPS-wide /tmp.
@@ -291,7 +330,11 @@ function runCommandNow({ root, command, timeoutSec, signal, onOutput, raw }: Com
     : ["/usr/bin/env", [...env, ...shellArgs]] as const;
 
   return new Promise(resolve => {
-    const child = spawn(file, [...args], { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(file, [...args], { stdio: [secrets?.length ? "pipe" : "ignore", "pipe", "pipe"] });
+    if (secrets?.length && child.stdin) {
+      child.stdin.on("error", () => undefined);
+      child.stdin.end(secrets.map(exportLine).join(""));
+    }
     let output = "";
     let streamed = 0;
     const capture = (stream: "stdout" | "stderr") => (data: Buffer) => {
@@ -304,8 +347,8 @@ function runCommandNow({ root, command, timeoutSec, signal, onOutput, raw }: Com
         onOutput(stream, chunk);
       }
     };
-    child.stdout.on("data", capture("stdout"));
-    child.stderr.on("data", capture("stderr"));
+    child.stdout!.on("data", capture("stdout"));
+    child.stderr!.on("data", capture("stderr"));
     const stopScope = () => {
       if (SANDBOX_MODE === "systemd") spawn("sudo", ["-n", "systemctl", "stop", `${unit}.scope`], { stdio: "ignore" }).on("error", () => undefined);
       else child.kill("SIGKILL");

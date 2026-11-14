@@ -572,3 +572,27 @@ button.tl-head:focus-visible, .handoff-head:focus-visible, .progress-notes > sum
 /* Audio and video files a run produced (generate_speech and the like). */
 .att-audio { display: block; width: 100%; max-width: 560px; margin: 8px auto; }
 .att-video { display: block; width: 100%; max-height: min(70vh, 640px); border-radius: var(--r-md); background: var(--panel-3); }
+
+/* What a live run waits for, above the composer: an approval or a secret (RequestPanel). */
+.request-stack { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; max-height: min(60vh, 520px); overflow-y: auto; }
+.request-card { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border: 1px solid var(--warning-border); border-radius: var(--r-md); background: var(--surface); box-shadow: 0 1px 0 var(--warning-border); }
+.request-head { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+.request-head > .lucide { flex: none; margin-top: 3px; color: var(--warning-fg, var(--text-2)); }
+.request-head-text { flex: 1 1 auto; min-width: 0; }
+.request-eyebrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; font-size: 12px; font-weight: 600; color: var(--text-2); }
+.request-title { margin: 2px 0 0; font-size: 14px; font-weight: 600; line-height: 1.35; color: var(--text); overflow-wrap: anywhere; }
+.request-reason { margin: 4px 0 0; font-size: 13px; color: var(--text-2); overflow-wrap: anywhere; }
+.request-expiry { flex: none; font-size: 11.5px; color: var(--text-3); white-space: nowrap; }
+.request-details { margin: 0; padding: 8px 10px 8px 26px; border-radius: var(--r-sm, 8px); background: var(--surface-2, var(--hover)); font: 12.5px/1.55 var(--font-mono); color: var(--text); overflow-wrap: anywhere; max-height: 220px; overflow: auto; }
+.request-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.request-sent { font-size: 12.5px; color: var(--text-3); }
+.request-secret { display: flex; flex-direction: column; gap: 8px; }
+.request-secret-field { display: flex; align-items: center; gap: 6px; }
+.request-secret-field > .input { flex: 1 1 auto; min-width: 0; letter-spacing: 0.08em; }
+.request-hint { margin: 0; font-size: 12px; color: var(--text-3); }
+.request-save { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; font-size: 13px; color: var(--text-2); }
+@media (max-width: 520px) {
+  .request-head { flex-wrap: wrap; }
+  .request-expiry { order: 3; width: 100%; padding-left: 26px; }
+  .request-actions > .btn { flex: 1 1 auto; }
+}

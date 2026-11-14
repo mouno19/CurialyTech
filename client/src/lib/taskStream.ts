@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef } from "react";
 import {
-  PHASES, type AgentEvent, type GeneratedSummary, type PhaseId, type PhaseState, type PlanStep, type RunOutcome, type RunTrigger, type StatusReason,
-  type TaskStatus, type TeamRole,
+  PHASES, type AgentEvent, type ApprovalDecision, type GeneratedSummary, type PhaseId, type PhaseState, type PlanStep, type RunOutcome, type RunTrigger, type SecretOutcome,
+  type StatusReason, type TaskStatus, type TeamRole,
 } from "@shared/agent";
 import { isActiveStatus } from "@shared/taskStatus";
 import { agentApi, ApiError, type TaskDetail } from "@/lib/api";
@@ -87,8 +87,15 @@ export type StreamDeployment = { id: string; aliases: string[]; callId?: string;
 export type PhaseInfo = { state: PhaseState; note?: string; since?: string };
 export type SyncInfo = { maxSeq: number; status: TaskStatus | null; statusReason: StatusReason | null; runId: string | null; live: boolean; at: number };
 
+/** What a live run waits for the user to answer: approve a change, or enter a secret. */
+export type OpenRequest =
+  | { kind: "approval"; requestId: string; action: string; title: string; details: string[]; expiresAt: string; seq: number; agent?: TeamRole }
+  | { kind: "secret"; requestId: string; name: string; reason: string; expiresAt: string; canSave: boolean; seq: number; agent?: TeamRole };
+
 export type StreamState = {
   items: TimelineItem[];
+  /** Waiting for the user's answer (only while their run lasts). */
+  requests: OpenRequest[];
   runs: RunInfo[];
   phases: Record<PhaseId, PhaseInfo>;
   plan: PlanStep[];
@@ -136,7 +143,7 @@ const MAX_TOOL_OUTPUT = 256 * 1024;
 export const initialPhases = () => Object.fromEntries(PHASES.map(phase => [phase.id, { state: "pending" as PhaseState }])) as Record<PhaseId, PhaseInfo>;
 
 export const initialStreamState = (): StreamState => ({
-  items: [], runs: [], phases: initialPhases(), plan: [], changes: [], usage: [], deployments: [], browsers: {}, team: {},
+  items: [], requests: [], runs: [], phases: initialPhases(), plan: [], changes: [], usage: [], deployments: [], browsers: {}, team: {},
   status: null, statusReason: null, model: null, previewSeq: 0, events: [], eventCount: 0, lastSeq: 0, replayMark: null,
   connected: false, live: false, ended: false, endedAt: null, missing: false, sync: null, syncedStatus: null,
 });
@@ -179,6 +186,23 @@ type NewItem = DistributiveOmit<TimelineItem, "key" | "seq" | "ts" | "run" | "ag
 function push(state: StreamState, event: AgentEvent, item: NewItem, key = `${item.kind}:${event.seq}`) {
   state.items.push({ ...item, key, seq: event.seq, ts: event.ts, run: Math.max(0, state.runs.length - 1) } as TimelineItem);
 }
+
+const APPROVAL_NOTES: Record<ApprovalDecision, { level: "info" | "warn"; text: string }> = {
+  approved: { level: "info", text: "You approved" },
+  approved_task: { level: "info", text: "You approved this and every further GitHub change in this task" },
+  denied: { level: "warn", text: "You denied, so nothing changed" },
+  expired: { level: "warn", text: "Not answered in time, so nothing changed" },
+  auto: { level: "info", text: "Done without asking (approvals are off)" },
+  task: { level: "info", text: "Approved earlier for this task" },
+};
+
+const SECRET_NOTES: Record<SecretOutcome, { level: "info" | "warn"; text: (name: string) => string }> = {
+  provided: { level: "info", text: name => `You entered ${name}: kept for this task only, never in this chat` },
+  saved: { level: "info", text: name => `You entered ${name} and saved it to your secrets` },
+  from_vault: { level: "info", text: name => `Using your saved secret ${name}` },
+  declined: { level: "warn", text: name => `You didn't provide ${name}` },
+  expired: { level: "warn", text: name => `${name} wasn't entered in time` },
+};
 
 function stoppedNote(status: TaskStatus) {
   if (status === "cancelled") return "Stopped: the run was cancelled";
@@ -306,6 +330,8 @@ function apply(state: StreamState, event: AgentEvent, at: number) {
   const runIndex = Math.max(0, state.runs.length - 1);
   switch (event.type) {
     case "run_start":
+      // An earlier run's questions can no longer be answered.
+      if (state.requests.length) state.requests = [];
       openRun(state, event, { runId: event.runId, attempt: event.attempt, trigger: event.trigger });
       push(state, event, { kind: "run", id: event.runId, runId: event.runId, attempt: event.attempt, trigger: event.trigger });
       break;
@@ -327,6 +353,7 @@ function apply(state: StreamState, event: AgentEvent, at: number) {
       patchRun(state, { status: event.status, reason: event.reason ?? null });
       break;
     case "done": {
+      if (state.requests.length) state.requests = [];
       state.status = event.status;
       state.statusReason = event.reason ?? null;
       const end: RunEnd = { status: event.status, answer: event.answer ?? "", reason: event.reason, error: event.error, outcome: event.outcome, seq: event.seq, ts: event.ts, receivedAt: at };
@@ -437,6 +464,24 @@ function apply(state: StreamState, event: AgentEvent, at: number) {
     case "notice":
       push(state, event, { kind: "notice", id: `n${event.seq}`, level: event.level, message: event.message });
       break;
+    case "approval_request":
+      state.requests = [...state.requests.filter(request => request.requestId !== event.requestId), { kind: "approval", requestId: event.requestId, action: event.action, title: event.title, details: event.details, expiresAt: event.expiresAt, seq: event.seq, agent: event.agent }];
+      break;
+    case "secret_request":
+      state.requests = [...state.requests.filter(request => request.requestId !== event.requestId), { kind: "secret", requestId: event.requestId, name: event.name, reason: event.reason, expiresAt: event.expiresAt, canSave: event.canSave, seq: event.seq, agent: event.agent }];
+      break;
+    case "approval_result": {
+      state.requests = state.requests.filter(request => request.requestId !== event.requestId);
+      const note = APPROVAL_NOTES[event.decision];
+      push(state, event, { kind: "notice", id: `ap${event.seq}`, level: note.level, message: `${note.text}: ${event.title}` });
+      break;
+    }
+    case "secret_result": {
+      state.requests = state.requests.filter(request => request.requestId !== event.requestId);
+      const note = SECRET_NOTES[event.outcome];
+      push(state, event, { kind: "notice", id: `sr${event.seq}`, level: note.level, message: note.text(event.name) });
+      break;
+    }
     case "error":
       push(state, event, { kind: "notice", id: `e${event.seq}`, level: "error", message: event.message });
       patchRun(state, run => ({ errors: [...run.errors, event.message] }));

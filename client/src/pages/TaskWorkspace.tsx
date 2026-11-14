@@ -25,6 +25,7 @@ import { toast } from "sonner";
 import { agentApi, ApiError, errorMessage, type ExportResult } from "@/lib/api";
 import { useGitHub } from "@/lib/appStatus";
 import { useIsDesktop } from "@/lib/breakpoints";
+import { RequestPanel } from "@/components/task/RequestPanel";
 import { conversationRuns, freshestStatus, initialInspectorTab, isReplayed, latestRun, useTaskStream, type InspectorTab, type StatusSnapshot, type TimelineItem } from "@/lib/taskStream";
 import type { PendingAttachment } from "@/lib/useAttachments";
 import { useStickToBottom } from "@/lib/useStickToBottom";
@@ -507,7 +508,7 @@ export default function TaskWorkspace({ id }: { id: string }) {
       streaming={streaming}
       pending={shownPending}
       header={header}
-      composer={<FollowUpComposer taskId={id} task={task} status={status} onSend={sendFollowUp} redeploy={redeploy} queue={queue} queueActions={queueActions} />}
+      composer={<FollowUpComposer taskId={id} task={task} status={status} onSend={sendFollowUp} redeploy={redeploy} queue={queue} queueActions={queueActions} above={<RequestPanel taskId={id} requests={s.requests} />} />}
       scrollRef={bindConvo}
       stick={convo}
       onRetry={redeploy ? openDeploy : retryClick}

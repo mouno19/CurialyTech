@@ -4,7 +4,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Popover from "@radix-ui/react-popover";
 import type { LucideIcon } from "lucide-react";
-import { Activity, BookOpen, ChevronsUpDown, ExternalLink, House, Images, KeyRound, LayoutDashboard, LifeBuoy, LogOut, Menu, MoreHorizontal, PanelLeftClose, PanelLeftOpen, PlugZap, RefreshCw, ShieldCheck, SquareTerminal, Store, Unplug, Wallet, X, Braces } from "lucide-react";
+import { Activity, BookOpen, Check, ChevronsUpDown, ExternalLink, House, Images, KeyRound, LayoutDashboard, LifeBuoy, LockKeyhole, LogOut, Menu, MoreHorizontal, PanelLeftClose, PanelLeftOpen, PlugZap, RefreshCw, ShieldCheck, SquareTerminal, Store, Unplug, Wallet, X, Braces } from "lucide-react";
 import { toast } from "sonner";
 import { agentApi, authApi, errorMessage, relativeTime, type ProviderProbe } from "@/lib/api";
 import { needsOperator, useGitHub, useHealth, useVercel } from "@/lib/appStatus";
@@ -74,6 +74,7 @@ const NAV: { href: string; label: string; icon: LucideIcon; badge?: "tasks" | "s
   { href: "/media", label: "Media Vault", icon: Images },
   { href: "/integrations", label: "System Integrations", icon: PlugZap },
   { href: "/skills", label: "Skill Store", icon: Store },
+  { href: "/secrets", label: "Secrets", icon: LockKeyhole },
   { href: "/developer", label: "Developer API", icon: Braces },
   { href: "/billing", label: "Plans & Billing", icon: Wallet },
   { href: "/support", label: "Support", icon: LifeBuoy, badge: "support" },
@@ -377,6 +378,7 @@ function GitHubAccount({ rail }: { rail: boolean }) {
   const { status, loading, error, refresh } = useGitHub();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const deferred = useDeferredSelect(triggerRef);
+  const [bypassOpen, setBypassOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const withTip = (label: string, element: ReactElement) => (rail ? <Tip content={label} side="right">{element}</Tip> : element);
 
@@ -420,11 +422,21 @@ function GitHubAccount({ rail }: { rail: boolean }) {
 
   const login = status.login ?? "GitHub";
   const missing = status.missingScopes.length > 0;
+  const asking = !status.autoApprove;
   const disconnect = async () => {
     await agentApi.disconnectGithub();
     toast.success("GitHub disconnected.");
     // Refresh after the dialog has closed: the account menu is replaced by "Connect GitHub".
     setTimeout(() => void refresh(), 0);
+  };
+  const setApprovals = async (autoApprove: boolean) => {
+    try {
+      await agentApi.setGithubApprovals(autoApprove);
+      toast.success(autoApprove ? "The agent no longer asks before changing something on GitHub." : "The agent asks before every change on GitHub.");
+      void refresh();
+    } catch (error) {
+      toast.error(errorMessage(error, "Couldn't change the setting."));
+    }
   };
   return (
     <>
@@ -457,6 +469,14 @@ function GitHubAccount({ rail }: { rail: boolean }) {
                 </span>
               </a>
             </DropdownMenu.Item>
+            <DropdownMenu.CheckboxItem className="menu-item" checked={asking} onCheckedChange={checked => (checked ? void setApprovals(false) : deferred.defer(() => setBypassOpen(true))())}>
+              <ShieldCheck size={15} aria-hidden="true" />
+              <span className="menu-item-body">
+                <span>Ask before GitHub changes</span>
+                <span className="menu-item-hint">{asking ? "On: pushes, pull requests and workflow runs wait for your approval" : "Off: the agent changes GitHub without asking"}</span>
+              </span>
+              <DropdownMenu.ItemIndicator className="menu-item-end"><Check size={14} aria-hidden="true" /></DropdownMenu.ItemIndicator>
+            </DropdownMenu.CheckboxItem>
             <DropdownMenu.Separator className="menu-sep" />
             <DropdownMenu.Item className="menu-item" data-tone="danger" onSelect={deferred.defer(() => setConfirmOpen(true))}>
               <Unplug size={15} aria-hidden="true" />
@@ -467,6 +487,9 @@ function GitHubAccount({ rail }: { rail: boolean }) {
       </DropdownMenu.Root>
       <ConfirmDialog open={confirmOpen} onOpenChange={setConfirmOpen} title={`Disconnect ${login}?`} confirmLabel="Disconnect" busyLabel="Disconnecting…" tone="danger" onConfirm={disconnect}>
         Curialy will no longer be able to clone, push to or export to your repositories until you connect again. Your repositories are not changed.
+      </ConfirmDialog>
+      <ConfirmDialog open={bypassOpen} onOpenChange={setBypassOpen} title="Stop asking before GitHub changes?" confirmLabel="Stop asking" busyLabel="Saving…" tone="danger" onConfirm={() => setApprovals(true)}>
+        The agent will push commits, open pull requests and start, rerun or cancel workflows on {login}'s repositories without waiting for your approval. Each change still shows in the task's activity. You can turn asking back on here at any time.
       </ConfirmDialog>
     </>
   );

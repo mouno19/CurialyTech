@@ -126,7 +126,12 @@ export type MediaHealth = { ok: boolean; state: "ok" | "unavailable" | "not_conf
 export type MediaList = { files: MediaFile[]; nextCursor: string | null; matching: number; summary: VaultSummary; quota: VaultQuota; stage: { ok: boolean; detail: string }; storage: MediaHealth };
 export type MediaQuery = { kind?: MediaKind; q?: string };
 export type GitHubRepo = { id: number; name: string; full_name: string; private: boolean; default_branch: string; description: string | null; updated_at: string; language: string | null };
-export type GitHubStatus = { configured: boolean; connected: boolean; login: string | null; name: string | null; avatarUrl: string | null; scopes: string[]; missingScopes: string[]; connectedAt: string | null };
+/** autoApprove: the account turned off asking before the agent changes something on GitHub. */
+export type GitHubStatus = { configured: boolean; connected: boolean; login: string | null; name: string | null; avatarUrl: string | null; scopes: string[]; missingScopes: string[]; connectedAt: string | null; autoApprove?: boolean };
+/** A secret the account saved (never its value). */
+export type SavedSecret = { name: string; note: string | null; createdAt: string; updatedAt: string; lastUsedAt: string | null };
+/** The answer to what a run waits for: an approval, or a secret (value) from the masked box. */
+export type RequestAnswer = { decision: "approved" | "approved_task" | "denied" } | { value: string; save: boolean } | { decline: true };
 /** needsReconnect: it was connected, but Vercel stopped accepting it (expired or revoked). */
 export type VercelStatus = { configured: boolean; connected: boolean; needsReconnect: boolean; name: string | null; username: string | null; email: string | null; avatarUrl: string | null; scopes: string[]; connectedAt: string | null };
 /** completedWithIssues: completed runs whose outcome had problems (failing checks, review not approved, publish failed). */
@@ -280,6 +285,9 @@ export const agentApi = {
   vercel: () => api<VercelStatus>("/auth/vercel/status"),
   /** Revokes the grant on Vercel and deletes what is stored for it. */
   disconnectVercel: () => api<{ ok: boolean; revoked: boolean }>("/auth/vercel/disconnect", { method: "POST", json: {} }),
+  /** Ask before the agent changes something on GitHub (false), or let changes go ahead (true). */
+  setGithubApprovals: (autoApprove: boolean) => api<{ autoApprove: boolean }>("/api/agent/github/approvals", { method: "PUT", json: { autoApprove } }),
+  answerRequest: (taskId: string, requestId: string, answer: RequestAnswer) => api<{ ok: true }>(`/api/agent/tasks/${enc(taskId)}/requests/${enc(requestId)}`, { method: "POST", json: answer }),
   linkRepo: (id: string, repo: string, branch?: string) => api<{ repo: string; branch: string; baseSha: string; repoPath: string; url: string; files: number }>(`/api/agent/tasks/${enc(id)}/repo`, { method: "POST", json: { repo, branch } }),
   /** What Export would do (no side effects), for the confirmation dialog. */
   exportPlan: (id: string) => api<ExportPlan>(`/api/agent/tasks/${enc(id)}/export/plan`, { method: "POST", json: {} }),
@@ -310,6 +318,12 @@ export const agentApi = {
       throw error;
     }
   },
+};
+
+export const secretsApi = {
+  list: () => api<{ configured: boolean; secrets: SavedSecret[]; limits: { max: number; minChars: number } }>("/api/secrets"),
+  save: (name: string, value: string, note?: string) => api<{ saved: true; name: string }>(`/api/secrets/${enc(name)}`, { method: "PUT", json: { value, ...(note ? { note } : {}) } }),
+  remove: (name: string) => api<{ deleted: boolean }>(`/api/secrets/${enc(name)}`, { method: "DELETE" }),
 };
 
 export const authApi = {

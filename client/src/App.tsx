@@ -21,6 +21,7 @@ const Media = lazy(() => import("./pages/Media"));
 const Integrations = lazy(() => import("./pages/Integrations"));
 const Skills = lazy(() => import("./pages/Skills"));
 const ApiKeys = lazy(() => import("./pages/ApiKeys"));
+const Secrets = lazy(() => import("./pages/Secrets"));
 const DeveloperPortal = lazy(() => import("./pages/DeveloperPortal"));
 const Billing = lazy(() => import("./pages/Billing"));
 const Support = lazy(() => import("./pages/Support"));
@@ -136,6 +137,7 @@ function Gate() {
           <Route path="/media" component={Media} />
           <Route path="/integrations" component={Integrations} />
           <Route path="/skills" component={Skills} />
+          <Route path="/secrets" component={Secrets} />
           <Route path="/developer" component={DeveloperPortal} />
           <Route path="/billing" component={Billing} />
           <Route path="/support" component={Support} />

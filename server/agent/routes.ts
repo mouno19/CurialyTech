@@ -31,7 +31,9 @@ import { listWorkspaceTree, removeWorkspace, resolveInWorkspace, SANDBOX_MODE, S
 import { activeRunsOf, agentStats, deleteAgentTask, getAgentTask, lastSeq, listAgentTasks, listEventsAfter, listWorkspaceSnapshot, loadWorkspaceSnapshot, readSnapshotFile, taskOwner } from "./store";
 import { findArchivedBuild, findBuildDirs, isPublishExcluded, isUnbuiltTemplate, materializeWorkspace, readWorkspaceFiles, restoreWorkspace, withWorkspaceLock } from "./workspaces";
 import { adminUserId, query } from "../db/pg";
-import { branchHead, createRepo, describeGitHubError, disconnect, getConnection, GITHUB_SCOPES, githubApi, GitHubError, isValidRepoName, listRepos, oauthConfigured, pushProjectToRepo, RemoteChangedError, workflowFilesBlocked, workflowScopeMessage } from "../services/github";
+import { branchHead, createRepo, describeGitHubError, disconnect, getConnection, GITHUB_SCOPES, githubApi, GitHubError, githubAutoApprove, isValidRepoName, listRepos, oauthConfigured, pushProjectToRepo, RemoteChangedError, setGithubAutoApprove, workflowFilesBlocked, workflowScopeMessage } from "../services/github";
+import { answerRequest } from "./requests";
+import { secretValue } from "../secrets";
 import { cloneIntoWorkspace, commitAndPush, linkedRepo } from "./repos";
 import { absoluteAssetWarnings, detectPreviewRoot, previewBaseUrl } from "./preview";
 import { browse, sessionStatus } from "./browser";
@@ -1026,7 +1028,42 @@ export function agentRouter() {
       scopes: Array.from(granted),
       missingScopes: connection ? GITHUB_SCOPES.filter(scope => !granted.has(scope)) : [],
       connectedAt: connection?.connectedAt ?? null,
+      autoApprove: connection ? await githubAutoApprove(accountOf(req).id) : false,
     });
+  }));
+
+  // Ask before the agent changes something on GitHub (default), or let changes go ahead.
+  router.put("/github/approvals", handle(async (req, res) => {
+    const { autoApprove } = z.object({ autoApprove: z.boolean() }).parse(req.body ?? {});
+    await setGithubAutoApprove(accountOf(req).id, autoApprove);
+    res.json({ autoApprove });
+  }));
+
+  // The user's answer to what a run is waiting for: an approval, or a secret from the masked box.
+  // Only the task's own account answers (never the operator for someone else's task). A secret is
+  // never stored with the task or written to a log; a parse error never repeats it.
+  router.post("/tasks/:id/requests/:requestId", handle(async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const user = accountOf(req);
+    const taskId = String(req.params.id);
+    if ((await taskOwner(taskId)) !== user.id) return res.status(404).json({ error: "Task not found." });
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    let answer: Parameters<typeof answerRequest>[2];
+    if ("decision" in body) {
+      const parsed = z.object({ decision: z.enum(["approved", "approved_task", "denied"]) }).safeParse(body);
+      if (!parsed.success) return res.status(400).json({ error: "Answer approved, approved_task or denied." });
+      answer = parsed.data;
+    } else if (body.decline === true) {
+      answer = { decline: true };
+    } else {
+      const parsed = z.object({ value: secretValue, save: z.boolean().default(false) }).safeParse(body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Enter the secret." });
+      answer = parsed.data;
+    }
+    const result = answerRequest(taskId, String(req.params.requestId), answer);
+    if (result === "not_found") return res.status(410).json({ error: "This request is no longer waiting: it expired or the run stopped." });
+    if (result === "wrong_kind") return res.status(400).json({ error: "That answer doesn't fit this request." });
+    res.json({ ok: true });
   }));
 
   router.delete("/github", handle(async (req, res) => {

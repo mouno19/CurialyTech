@@ -8,6 +8,7 @@ import { serveStatic, setupVite } from "./vite";
 import { loginHandler, logoutHandler, requireUser, sameOriginOnly, sessionsConfigured } from "../auth";
 import { accountRouter, adminRouter } from "../admin";
 import { supportRouter } from "../support";
+import { secretsRouter } from "../secrets";
 import { agentRouter, githubReposHandler } from "../agent/routes";
 import { isBusy, shutdownRuns, startLifecycle } from "../agent/runner";
 import { startWorkspaceSweeper } from "../agent/workspaces";
@@ -87,6 +88,8 @@ async function startServer() {
   app.use("/api/agent", requireUser, agentRouter());
   app.use("/api/account", accountRouter());
   app.use("/api/support", supportRouter());
+  // Secrets an account saves for its tasks: names come back, values never do.
+  app.use("/api/secrets", secretsRouter());
   app.use("/api/keys", keysRouter());
   // Plans, API top-ups and crypto payments (the catalog is public; the rest checks the account itself).
   app.use("/api/billing", billingRouter());

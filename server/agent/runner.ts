@@ -20,6 +20,10 @@ import { materializeWorkspace, snapshotWorkspace, withWorkspaceLock } from "./wo
 import { aiComplete, loadMediaBytes } from "../media/snowflake";
 import { getConnection } from "../services/github";
 import { connectedIdentity, vercelConfigured } from "../services/vercel";
+import { githubAutoApprove } from "../services/github";
+import { savedSecretNames, secretsConfigured } from "../secrets";
+import { redactForTask, taskSecretNames } from "./requests";
+import { GITHUB_CI_WRITE_TOOLS } from "./github-ci-tools";
 import { loadProjectMemory } from "./memory";
 import { linkedRepo } from "./repos";
 import { brandText, ENGINE_ALIAS } from "@shared/brand";
@@ -290,6 +294,8 @@ export type RunContext = {
   /** The task's account has Vercel connected: the read-only vercel_* tools, and what they are for (a further system block). */
   vercel?: boolean;
   vercelContext?: string;
+  /** Agent mode: which secrets exist (names only) and how to ask for one. */
+  secretsContext?: string;
   /** Short id used to build block and call ids. */
   runId: string;
   /** The run's fencing token (chat_sessions.run_id): every write of run data is conditional on it. */
@@ -600,7 +606,7 @@ type RunOptions = {
  * every tool except the GitHub write tools (the preview goes through its own temporary repository).
  */
 function deployRunTools() {
-  const blocked = new Set(["github_commit_and_push", "github_create_pr", "github_clone_to_workspace", "github_sync", "generate_speech"]);
+  const blocked = new Set(["github_commit_and_push", "github_create_pr", "github_clone_to_workspace", "github_sync", "generate_speech", ...GITHUB_CI_WRITE_TOOLS]);
   return new Set(toolsFor({ coding: true, web: true, eager: false, github: true }).map(tool => tool.name).filter(name => !blocked.has(name)));
 }
 
@@ -1082,7 +1088,7 @@ export function latestRequest(conversation: Record<string, unknown>[]) {
 
 /** System blocks after the static prompt: GitHub context, saved skills, the repository's project memory, the design brief. */
 function extraSystem(ctx: RunContext) {
-  return [ctx.context, ctx.vercelContext, ctx.skills, ctx.memory?.text, ctx.designText].filter((text): text is string => Boolean(text));
+  return [ctx.context, ctx.vercelContext, ctx.secretsContext, ctx.skills, ctx.memory?.text, ctx.designText].filter((text): text is string => Boolean(text));
 }
 
 /** Load the linked repository's project memory into the shared slot. Announce only when a saved note arrives. */
@@ -1097,18 +1103,32 @@ async function applyProjectMemory(ctx: RunContext, announce: boolean) {
 async function githubContext(taskId: string) {
   const owner = await taskOwner(taskId);
   const connection = owner ? await getConnection(owner).catch(() => null) : null;
-  if (!connection) return { github: false, context: "" };
+  if (!connection || !owner) return { github: false, context: "" };
   const repo = await linkedRepo(taskId).catch(() => null);
+  const autoApprove = await githubAutoApprove(owner).catch(() => false);
   const active = repo ? `${repo.fullName} (branch ${repo.branch}, cloned ${repo.repoPath === "." ? "at the workspace root" : `in ${repo.repoPath}/`})` : "None selected";
   return {
     github: true,
     context: `User GitHub context:
 - Authenticated GitHub user: ${connection.login}
 - Active repository: ${active}
-- Capabilities: with the github_* tools you can list, inspect, clone, edit, commit, push and open pull requests on ${connection.login}'s repositories. You never see the access token; plain git push inside run_command has no credentials and will fail.
+- Capabilities: with the github_* tools you can list, inspect, clone, edit, commit, push and open pull requests on ${connection.login}'s repositories, and read commits, build statuses and GitHub Actions (workflows, runs, jobs, logs); you can also start, rerun and cancel workflow runs. You never see the access token; plain git push or gh inside run_command has no credentials and will fail.
 - If the user mentions a repository by name (e.g. "easyeps"), match it against ${connection.login}'s repositories with github_get_repo${repo ? "" : ", clone it with github_clone_to_workspace,"} and inspect it before answering.
+- For a failed build: github_list_runs (status failure), github_get_run for the failed step, github_run_logs for the cause; fix it, push, then check the new run.
+- ${autoApprove ? "The user turned off approvals: changes on GitHub go ahead without asking, so do only what they asked for." : "Every change on GitHub (push, pull request, starting, rerunning or cancelling a workflow) shows the user exactly what will change and waits for their approval in the chat. If they deny it, nothing changed: don't retry it or a variation of it unless they ask."}
 - Push to the cloned branch only when the user explicitly asks for it; otherwise push to a new branch and open a pull request. Never rewrite history.`,
   };
+}
+
+/** Secrets the agent can ask for by name (never their values). */
+async function secretsContext(taskId: string) {
+  const owner = secretsConfigured() ? await taskOwner(taskId) : null;
+  const saved = owner ? await savedSecretNames(owner).catch(() => []) : [];
+  const given = taskSecretNames(taskId);
+  // Nothing saved or given: request_secret's description says how to ask, without a further system block.
+  if (!saved.length && !given.length) return "";
+  return `Secrets (names only; values are never shown to you):
+${given.length ? `- Already set for this task: ${given.map(name => `$${name}`).join(", ")} (use them in run_command directly).\n` : ""}${saved.length ? `- Saved by the user: ${saved.join(", ")}. request_secret with one of these names uses it without asking.\n` : ""}- For any other secret use request_secret; never ask for one in a chat message.`;
 }
 
 async function vercelContext(taskId: string) {
@@ -1143,7 +1163,8 @@ async function executeRun(handle: RunHandle, conversation: Record<string, unknow
   const channel = handle.channel!;
   // Each model response is charged to the task's account as it is reported (Dev Team members too).
   const emit: Emit = body => {
-    channel.emit(body);
+    // Every event the run shows or stores, with the task's secrets wiped out.
+    channel.emit(redactForTask(taskId, body));
     if (body.type === "usage") chargeUsage(handle, body.model, body);
   };
   let ctx: RunContext | null = null;
@@ -1155,6 +1176,7 @@ async function executeRun(handle: RunHandle, conversation: Record<string, unknow
     let existing!: Awaited<ReturnType<typeof getAgentTask>>;
     let gh = { github: false, context: "" };
     let vc = { vercel: false, context: "" };
+    let secretsText = "";
     let operator = false;
     let skillText = "";
     let skillNotice = "";
@@ -1163,6 +1185,7 @@ async function executeRun(handle: RunHandle, conversation: Record<string, unknow
       existing = await getAgentTask(taskId);
       gh = await githubContext(taskId);
       vc = await vercelContext(taskId);
+      secretsText = opts.mode === "agent" ? await secretsContext(taskId) : "";
       operator = await ownerIsOperator(taskId);
       const owner = await taskOwner(taskId);
       const saved = existing?.skillIds?.length && owner ? await loadTaskSkills(owner, existing.skillIds) : [];
@@ -1194,6 +1217,7 @@ async function executeRun(handle: RunHandle, conversation: Record<string, unknow
       github: gh.github,
       vercel: vc.vercel,
       vercelContext: vc.context || undefined,
+      secretsContext: secretsText || undefined,
       runId: handle.runId.slice(0, 8),
       runToken: handle.runId,
       root,
@@ -2312,6 +2336,8 @@ async function trackedTool(ctx: RunContext, callId: string, name: string, input:
       if (isVerificationCommand(command)) ctx.agentVerifyCommands.push(command);
     },
   }).finally(() => { if (publishing) ctx.publishing.count--; });
+  // What the model reads (and the conversation stores) never holds a secret's value.
+  outcome.content = redactForTask(ctx.taskId, outcome.content);
   // Anything but looking around may have changed the workspace: a check that passed before it no longer describes it.
   if (!LOOK_TOOLS.has(name)) work.seq++;
   const job = outcome.jobId ? ctx.jobs?.get(outcome.jobId) : undefined;
@@ -2321,7 +2347,8 @@ async function trackedTool(ctx: RunContext, callId: string, name: string, input:
   // issues"; a later success does not clear it, except a deploy's: its allowed second attempt
   // going live replaces the failed first one.
   if (publishing) {
-    if (!outcome.ok) ctx.failedPublishing.add(name);
+    // The user saying no is not a failed publish.
+    if (!outcome.ok && !outcome.declined) ctx.failedPublishing.add(name);
     else if (name === "deploy_preview") ctx.failedPublishing.delete(name);
     ctx.outcome.publish = ctx.failedPublishing.size ? "failed" : "done";
   }
