@@ -276,7 +276,7 @@ export async function selfTest(config) {
     ["GET", "/api/agent/health", 200, null, body => body.providers.some(probe => probe.id === "vault" && !probe.ok) && body.providers.filter(probe => !probe.ok && probe.id !== "vault").length === 1],
     ["GET", "/api/agent/health?deep=1", 200],
     ["GET", "/api/agent/keys", 200, null, body => body.keys.length > 5],
-    ["GET", "/api/agent/stats", 200, null, body => body.total === rows.length && body.active === 3],
+    ["GET", "/api/agent/stats", 200, null, body => body.total === rows.length && body.active === rows.filter(row => ["queued", "running", "cancelling"].includes(row.status)).length],
     ["GET", "/api/agent/tasks", 200, null, body => body.tasks.length === rows.length && body.tasks.every(row => row.answer === undefined)],
     ["POST", "/api/agent/tasks", 201, { prompt: "x", model: "auto", mode: "agent", effort: "high", webSearch: false, attachmentIds: [] }],
     ["GET", `/api/agent/tasks/${id}`, 200, null, body => body.task.id === id && body.live === false && typeof body.task.answer === "string"],
