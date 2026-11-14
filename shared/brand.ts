@@ -14,6 +14,7 @@ export const BRAND = {
   sandbox: "Curialy Sandbox",
   voice: "Curialy Voice",
   voiceStudio: "Curialy Voice Studio",
+  search: "Curialy Search",
 } as const;
 
 // Ordered so multi-word names are replaced before their parts.
@@ -34,10 +35,11 @@ const NAMES: [RegExp, string][] = [
   [/\bEleven ?Labs\b/gi, BRAND.voiceStudio],
   [/\bDeepgram\b/gi, BRAND.voice],
   [/\b(nova-3|aura-2-[a-z]+-en|eleven_[a-z0-9_]+)\b/gi, "voice model"],
+  [/\b(Exa|EXA)\b/g, BRAND.search],
 ];
 
-const VENDOR_HOSTS = /\b(?:https?:\/\/|wss?:\/\/)?[\w.-]*(?:snowflakecomputing\.com|relaystation\.world|browserbase\.com|api\.render\.com|paperinstruments\.com|manus\.(?:ai|im)|tsdb\.cloud\.timescale\.com|timescale\.com|thinkingmachines\.dev|e2b\.(?:app|dev)|deepgram\.com|elevenlabs\.io)(?:[/?#][^\s"'<>)]*)?/gi;
-const VENDOR_ENV = /\b(SNOWFLAKE_[A-Z_]+|RELAY_API_[A-Z_]+|BROWSERBASE_[A-Z_]+|RENDER_[A-Z_]+|PAPER_API_[A-Z_]+|MANUS_[A-Z_]+|TIGER_[A-Z_]+|TINKER_[A-Z_]+|E2B_[A-Z_]+|DEEPGRAM_[A-Z_]+|ELEVENLABS_[A-Z_]+)\b/g;
+const VENDOR_HOSTS = /\b(?:https?:\/\/|wss?:\/\/)?[\w.-]*(?:snowflakecomputing\.com|relaystation\.world|browserbase\.com|api\.render\.com|paperinstruments\.com|manus\.(?:ai|im)|tsdb\.cloud\.timescale\.com|timescale\.com|thinkingmachines\.dev|e2b\.(?:app|dev)|deepgram\.com|elevenlabs\.io|exa\.ai)(?:[/?#][^\s"'<>)]*)?/gi;
+const VENDOR_ENV = /\b(SNOWFLAKE_[A-Z_]+|RELAY_API_[A-Z_]+|BROWSERBASE_[A-Z_]+|RENDER_[A-Z_]+|PAPER_API_[A-Z_]+|MANUS_[A-Z_]+|TIGER_[A-Z_]+|TINKER_[A-Z_]+|E2B_[A-Z_]+|DEEPGRAM_[A-Z_]+|ELEVENLABS_[A-Z_]+|EXA_[A-Z_]+)\b/g;
 
 /**
  * Scrub vendor names, endpoints and credential variable names from text the platform itself

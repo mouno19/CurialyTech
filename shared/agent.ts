@@ -269,9 +269,20 @@ export type AgentEventBody =
   /** The run waits for the user to type a secret into a masked box (never stored in the log). */
   | { type: "secret_request"; requestId: string; name: string; reason: string; expiresAt: string; canSave: boolean }
   | { type: "secret_result"; requestId: string; name: string; outcome: SecretOutcome }
+  /**
+   * A web search the agent ran (web_search): searching, then done (its sources, numbered per task),
+   * empty, or failed (reason: what the user is told; the search did not run or returned nothing usable).
+   */
+  | { type: "web_search"; callId: string; status: "searching" | "done" | "empty" | "failed"; query: string; sources?: WebSource[]; reason?: string; durationMs?: number }
   | { type: "error"; message: string }
   /** Always the last event of a run. */
   | { type: "done"; status: TaskStatus; answer: string; reason?: StatusReason; error?: string; outcome?: RunOutcome };
+
+/**
+ * One web search result. n: its number in the task (the same page keeps its number across
+ * searches; answers cite it as [n](url)); date: when it was published (YYYY-MM-DD), if known.
+ */
+export type WebSource = { n: number; url: string; title: string; source: string; date: string | null; highlights: string[] };
 
 /** Build output left out of the chat attachments: how much and where (see shared/generated.ts). */
 export type GeneratedSummary = { count: number; bytes: number; dirs: { dir: string; count: number }[] };

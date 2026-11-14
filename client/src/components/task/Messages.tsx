@@ -1,5 +1,6 @@
 import { memo } from "react";
 import { FileText, Paperclip, RotateCcw, Rocket } from "lucide-react";
+import type { WebSource } from "@shared/agent";
 import { Markdown } from "@/components/Markdown";
 import { MediaImage, MediaLink } from "@/components/MediaImage";
 import { RoleBadge } from "@/components/deck/Team";
@@ -61,19 +62,20 @@ export function RunDivider({ divider }: { divider: NonNullable<RunView["divider"
 }
 
 /** An interim message (progress), visually distinct from the answer. */
-export const ProgressNote = memo(function ProgressNote({ item, streaming, fresh }: { item: ItemOf<"text">; streaming: boolean; fresh?: boolean }) {
+/** sources: the task's web search results, for citations. */
+export const ProgressNote = memo(function ProgressNote({ item, streaming, fresh, sources }: { item: ItemOf<"text">; streaming: boolean; fresh?: boolean; sources?: WebSource[] }) {
   const live = !item.done && streaming;
   return (
     <div className="msg-note" data-role={item.agent} data-fresh={fresh || undefined}>
       {item.agent && <RoleBadge role={item.agent} />}
-      <Markdown text={item.text || " "} />
+      <Markdown text={item.text || " "} sources={sources} />
       {live && <span className="caret" aria-hidden="true" />}
     </div>
   );
 });
 
 /** After a run ends, its interim messages fold into one disclosure. */
-export function ProgressNotes({ notes, label }: { notes: ItemOf<"text">[]; label?: string }) {
+export function ProgressNotes({ notes, label, sources }: { notes: ItemOf<"text">[]; label?: string; sources?: WebSource[] }) {
   if (!notes.length) return null;
   return (
     <details className="progress-notes">
@@ -82,7 +84,7 @@ export function ProgressNotes({ notes, label }: { notes: ItemOf<"text">[]; label
         {label ?? plural(notes.length, "progress note")}
       </summary>
       <div className="progress-notes-body">
-        {notes.map(note => <ProgressNote key={note.key} item={note} streaming={false} />)}
+        {notes.map(note => <ProgressNote key={note.key} item={note} streaming={false} sources={sources} />)}
       </div>
     </details>
   );

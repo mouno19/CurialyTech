@@ -1,7 +1,7 @@
 import { useId, useState } from "react";
 import { Check, CircleSlash, CircleX, Copy, ExternalLink, Rocket, RotateCcw, ScrollText, TriangleAlert, Unplug } from "lucide-react";
 import { toast } from "sonner";
-import type { RunOutcome, StatusReason, TaskStatus } from "@shared/agent";
+import type { RunOutcome, StatusReason, TaskStatus, WebSource } from "@shared/agent";
 import { outcomeIssues, statusReasonText } from "@shared/taskStatus";
 import { Markdown } from "@/components/Markdown";
 import { Button } from "@/components/common/Button";
@@ -11,6 +11,7 @@ import { runEffects, scrubText, type RunView } from "@/lib/taskStream";
 import { formatClock, fullDate, interruptedCause } from "./format";
 import { ProgressNote } from "./Messages";
 import { ListenButton } from "./ListenButton";
+import { SourcesSection } from "./WebSearch";
 
 export type OutcomeProps = {
   view: RunView;
@@ -33,6 +34,8 @@ export type OutcomeProps = {
   onViewLogs?: () => void;
   onCopied?: (message: string) => void;
   fresh?: boolean;
+  /** The task's web search results: the answer's links to them render as citations. */
+  citations?: WebSource[];
 };
 
 function When({ at }: { at: string | null }) {
@@ -59,7 +62,7 @@ function ErrorSummary({ text }: { text: string }) {
  * any), a danger card for a failed one, what still happened for a cancelled one, and what was
  * kept for an interrupted one. Never success styling for anything but a clean completion.
  */
-export function OutcomeCard({ view, listen, status, reason, error, endedAt, outcome, latest, onRetry, retrying, retryDisabled, retryAs = "retry", onViewLogs, onCopied, fresh }: OutcomeProps) {
+export function OutcomeCard({ view, listen, status, reason, error, endedAt, outcome, latest, onRetry, retrying, retryDisabled, retryAs = "retry", onViewLogs, onCopied, fresh, citations }: OutcomeProps) {
   const titleId = useId();
   const [copied, setCopied] = useState(false);
   const deploy = retryAs === "deploy";
@@ -111,8 +114,9 @@ export function OutcomeCard({ view, listen, status, reason, error, endedAt, outc
           </ul>
         )}
         <div className="outcome-body">
-          {answer.trim() ? <Markdown text={answer} /> : <p className="faint">The run finished without a written answer. Its steps are in the Inspector.</p>}
+          {answer.trim() ? <Markdown text={answer} sources={citations} /> : <p className="faint">The run finished without a written answer. Its steps are in the Inspector.</p>}
         </div>
+        <SourcesSection sources={view.sources} searches={view.searches} docked />
       </section>
     );
   }
@@ -169,7 +173,7 @@ export function OutcomeCard({ view, listen, status, reason, error, endedAt, outc
           <details className="progress-notes" data-variant="partial">
             <summary>Partial output (run cancelled)</summary>
             <div className="progress-notes-body">
-              {view.notes.map(note => <ProgressNote key={note.key} item={note} streaming={false} />)}
+              {view.notes.map(note => <ProgressNote key={note.key} item={note} streaming={false} sources={citations} />)}
             </div>
           </details>
         )}

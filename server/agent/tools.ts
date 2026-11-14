@@ -36,6 +36,7 @@ import { runVercelTool, VERCEL_SCHEMAS, VERCEL_TOOLS } from "./vercel-tools";
 import { CANVA_SCHEMAS, CANVA_TOOLS, runCanvaTool, type CanvaToolName } from "./canva-tools";
 import { runStudioTool, STUDIO_SCHEMAS, STUDIO_TOOLS, type StudioToolName } from "./studio-tools";
 import { studioAvailable } from "./studio";
+import { runWebSearchTool, searchConfigured, WEB_SEARCH_SCHEMAS, WEB_SEARCH_TOOL, type SearchInput } from "./web-search";
 import { approveOnGitHub, GITHUB_CI_SCHEMAS, GITHUB_CI_TOOLS, runGitHubCiTool, type GitHubCiToolName } from "./github-ci-tools";
 import { askSecret, taskSecrets, type SecretStore } from "./requests";
 import { loadSecret, saveSecret, secretName, secretsConfigured } from "../secrets";
@@ -184,6 +185,7 @@ const schemas = {
   ...GITHUB_CI_SCHEMAS,
   ...CANVA_SCHEMAS,
   ...STUDIO_SCHEMAS,
+  ...WEB_SEARCH_SCHEMAS,
   request_secret: z.object({ name: secretName, reason: z.string().trim().min(3).max(300) }),
 };
 
@@ -409,6 +411,8 @@ export function toolsFor(opts: { coding: boolean; web: boolean; eager: boolean; 
 
 function toolList(opts: { coding: boolean; web: boolean; github?: boolean; vercel?: boolean; canva?: boolean }): ToolDef[] {
   const tools: ToolDef[] = [...INSIGHT_TOOLS];
+  // Web search in chat and agent mode alike (the Web toggle is for fetching pages and browsing).
+  if (searchConfigured()) tools.push(WEB_SEARCH_TOOL);
   if (opts.coding) tools.push(...CODING_TOOLS, ATTACH_TOOL);
   if (opts.coding && backgroundAvailable()) tools.push(...JOB_TOOLS);
   if (opts.github) tools.push(...(opts.coding ? GITHUB_TOOLS : GITHUB_TOOLS.slice(0, 2)), REMEMBER_TOOL, ...GITHUB_CI_TOOLS);
@@ -662,6 +666,8 @@ async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOu
     case "create_web_animation":
     case "render_web_animation":
       return runStudioTool(name as StudioToolName, input, ctx);
+    case "web_search":
+      return runWebSearchTool(input as SearchInput, ctx);
     case "request_secret": {
       const { name: secret, reason } = input as z.infer<typeof schemas.request_secret>;
       const owner = await taskOwner(ctx.sessionId);

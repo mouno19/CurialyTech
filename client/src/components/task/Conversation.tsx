@@ -1,5 +1,5 @@
-import { memo, type ReactNode, type RefObject, type Ref } from "react";
-import type { AgentTaskSummary, RunOutcome, StatusReason, TaskStatus } from "@shared/agent";
+import { memo, useMemo, type ReactNode, type RefObject, type Ref } from "react";
+import type { AgentTaskSummary, RunOutcome, StatusReason, TaskStatus, WebSource } from "@shared/agent";
 import { isActiveStatus } from "@shared/taskStatus";
 import { Attachments } from "@/components/Attachments";
 import { LiveBrowser } from "@/components/LiveBrowser";
@@ -8,11 +8,12 @@ import { StateNotice } from "@/components/common/StateNotice";
 import { HandoffCard } from "@/components/deck/Team";
 import { PHASE_SHORT } from "@/components/deck/Timeline";
 import { PHASES } from "@shared/agent";
-import { isReplayed, resolveAnswer, runError, type BrowserState, type RunView, type StreamState, type TimelineItem, type UserAttachment } from "@/lib/taskStream";
+import { isReplayed, resolveAnswer, runError, uniqueSources, type BrowserState, type RunView, type StreamState, type TimelineItem, type UserAttachment } from "@/lib/taskStream";
 import type { StickToBottom } from "@/lib/useStickToBottom";
 import { JumpToLatest } from "./JumpToLatest";
 import { ProgressNote, ProgressNotes, RunDivider, UserBubble } from "./Messages";
 import { OutcomeCard } from "./OutcomeCard";
+import { SearchIndicator, SourcesSection } from "./WebSearch";
 import { useAccount } from "@/lib/account";
 
 export type PendingMessage = { clientMessageId: string; text: string; attachments: UserAttachment[] };
@@ -55,11 +56,13 @@ type Props = Actions & {
 
 const isFresh = (seq: number, mark: number | null) => mark !== null && seq > mark;
 
-function Card({ item, taskId, browsers, taskActive, streamConnected, streaming, mark }: { item: TimelineItem; taskId: string; browsers: Record<string, BrowserState>; taskActive: boolean; streamConnected: boolean; streaming: boolean; mark: number | null }) {
+function Card({ item, taskId, browsers, taskActive, streamConnected, streaming, mark, citations }: { item: TimelineItem; taskId: string; browsers: Record<string, BrowserState>; taskActive: boolean; streamConnected: boolean; streaming: boolean; mark: number | null; citations: WebSource[] }) {
   const fresh = isFresh(item.seq, mark) || undefined;
   switch (item.kind) {
     case "text":
-      return <ProgressNote item={item} streaming={streaming} fresh={fresh} />;
+      return <ProgressNote item={item} streaming={streaming} fresh={fresh} sources={citations} />;
+    case "search":
+      return <div className="convo-card" data-fresh={fresh}><SearchIndicator item={item} live={streaming} /></div>;
     case "user":
       return <UserBubble text={item.text} attachments={item.attachments} ts={item.ts} fresh={fresh} />;
     case "browser":
@@ -85,11 +88,13 @@ type BlockProps = Actions & {
   mark: number | null;
   /** Answers can be read aloud (voice is set up). */
   voice: boolean;
+  /** Every web search result of the task (answers may cite an earlier run's). */
+  citations: WebSource[];
 };
 
 /** One run: what was asked, what happened (live, or folded into notes once over), and how it ended. */
 const RunBlock = memo(function RunBlock(props: BlockProps) {
-  const { view, isLatest, latest, taskId, browsers, taskActive, streamConnected, streaming, mark, voice } = props;
+  const { view, isLatest, latest, taskId, browsers, taskActive, streamConnected, streaming, mark, voice, citations } = props;
   const run = view.run;
   // A run whose log has its done event is over for good (a new run starts with its own run_start).
   // Otherwise the latest run follows the page's status, and an earlier one never finished.
@@ -98,7 +103,7 @@ const RunBlock = memo(function RunBlock(props: BlockProps) {
   // While a follow-up or retry is starting, the previous run keeps its card but offers no actions.
   const actionable = isLatest && !taskActive;
   const live = isLatest && !run.end;
-  const cardProps = { taskId, browsers, taskActive: live && taskActive, streamConnected, streaming: live && streaming, mark };
+  const cardProps = { taskId, browsers, taskActive: live && taskActive, streamConnected, streaming: live && streaming, mark, citations };
 
   if (!over) {
     return (
@@ -119,7 +124,7 @@ const RunBlock = memo(function RunBlock(props: BlockProps) {
       {view.divider && <RunDivider divider={view.divider} />}
       {view.user && <UserBubble text={view.user.text} attachments={view.user.attachments} ts={view.user.ts} fresh={isFresh(view.user.seq, mark)} />}
       {view.entries.filter(item => item.kind === "user").map(item => <Card key={item.key} item={item} {...cardProps} />)}
-      {status !== "cancelled" && <ProgressNotes notes={resolved.notes} />}
+      {status !== "cancelled" && <ProgressNotes notes={resolved.notes} sources={citations} />}
       {others.map(item => <Card key={item.key} item={item} {...cardProps} />)}
       <OutcomeCard
         view={resolved}
@@ -137,7 +142,9 @@ const RunBlock = memo(function RunBlock(props: BlockProps) {
         onViewLogs={props.onViewLogs}
         onCopied={props.onCopied}
         fresh={Boolean(run.end && isFresh(run.end.seq, mark))}
+        citations={citations}
       />
+      {status !== "completed" && <SourcesSection sources={view.sources} searches={view.searches} />}
       {files.map(item => <Card key={item.key} item={item} {...cardProps} />)}
     </div>
   );
@@ -161,6 +168,7 @@ export function Conversation(props: Props) {
   const actions: Actions = { onRetry: props.onRetry, retrying: props.retrying, retryDisabled: props.retryDisabled, retryAs: props.retryAs, onViewLogs: props.onViewLogs, onCopied: props.onCopied };
   // Read once here: the memoized runs get a stable boolean, not every account refresh.
   const voice = Boolean(useAccount().info?.voice?.available);
+  const citations = useMemo(() => uniqueSources(views.flatMap(view => view.sources)), [views]);
 
   return (
     <section className="convo-pane" aria-label="Conversation">
@@ -189,6 +197,7 @@ export function Conversation(props: Props) {
                   streaming={streaming}
                   mark={state.replayMark}
                   voice={voice}
+                  citations={citations}
                   {...actions}
                 />
               ))}

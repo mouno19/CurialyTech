@@ -11,7 +11,7 @@ export const ORIGIN = "https://curialy.test";
 export const LOGIN = "mouno19";
 
 /** Every page is scanned for this, in its visible text and in every attribute value. */
-export const VENDOR_PATTERN = /snowflake|cortex|relaystation|browserbase|onrender|render\.com|manus|tiger|tinker|paper instruments|token=SECRET/i;
+export const VENDOR_PATTERN = /snowflake|cortex|relaystation|browserbase|onrender|render\.com|manus|tiger|tinker|paper instruments|exa\.ai|\bexa\b|token=SECRET/i;
 
 // Leak bait. Legacy logs and deployment rows really carry values like these; the UI must never
 // render them (the scan above looks for them). The fixture self-test skips exactly these values.
@@ -38,6 +38,7 @@ const sid = n => `4e8a1c2f-7b3d-4a6e-9c0d-2f1e3a5b7c${pad(n)}`;
 export const TASK = {
   running: tid(1), interrupted: tid(2), failed: tid(3), completed: tid(4), chat: tid(5), preview: tid(6),
   queued: tid(7), cancelling: tid(8), issues: tid(9), cancelled: tid(10), redeploy: tid(11),
+  search: tid(12), sourced: tid(13),
 };
 
 // ---- Long content ----
@@ -145,6 +146,37 @@ export const FIXTURE_ASSETS = { avatarSvg: AVATAR_SVG, screenshotPng: SCREENSHOT
 
 // ---- Text content ----
 
+/** Web search results, as the server numbers them for one task. */
+const src = (n, url, title, date, highlight) => ({ n, url, title, source: new URL(url).hostname.replace(/^www\./, ""), date, highlights: [highlight] });
+const SEARCH_SOURCES = [
+  src(1, "https://nodejs.org/en/blog/release/v26.13.1", "Node.js v26.13.1 (LTS)", "2026-11-12", "Notable changes: the permission model is stable, require(esm) no longer warns, and the bundled npm moves to 11.6. This release is an Active LTS release line."),
+  src(2, "https://github.com/nodejs/Release", "nodejs/Release: Node.js release schedule and LTS policy", "2026-10-28", "Node.js 26 entered Active LTS in October 2026. Node.js 22 moves to Maintenance LTS and reaches end of life on 2027-04-30."),
+  src(3, "https://nodejs.org/en/about/previous-releases", "Node.js — Node.js Releases", null, "Production applications should only use Active LTS or Maintenance LTS releases. Major versions enter Current release status for six months."),
+  src(4, "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Temporal", "Temporal - JavaScript | MDN", "2026-09-03", "The Temporal object enables date and time management in various scenarios, including built-in time zone and calendar representation."),
+  src(5, "https://en.wikipedia.org/wiki/Node.js", "Node.js - Wikipedia", "2026-11-09", "Node.js is a cross-platform, open-source JavaScript runtime environment that can run on Windows, Linux, Unix, macOS, and more."),
+  src(6, "https://v8.dev/blog/v8-release-14", "V8 release v14.1 · V8", "2026-08-20", "This version of V8 ships Temporal by default, along with faster JSON.parse and improvements to the Maglev compiler."),
+  src(7, "https://github.com/nodejs/node/blob/main/doc/changelogs/CHANGELOG_V26.md", "node/doc/changelogs/CHANGELOG_V26.md at main · nodejs/node", "2026-11-12", "Semver-major commits: remove the deprecated url.parse() fallback for invalid ports; drop support for OpenSSL 1.1.1; require macOS 13.5."),
+  src(8, "https://nodejs.org/en/blog/migrations/v22-to-v26", "Node.js v22 to v26 migration guide", "2026-10-30", "Most applications upgrade without code changes. Check native addons against the new ABI and replace punycode, which now throws."),
+  src(9, "https://dev.to/nodedev/whats-new-in-node-26-a-practical-tour-4k2p", "What's new in Node 26: a practical tour of every change that matters for production services", "2026-10-31", "A walkthrough of the permission model, the new test runner snapshot API, built-in TypeScript type stripping and the faster fetch."),
+  src(10, "https://stackoverflow.com/questions/79811234/upgrading-from-node-22-to-26-native-modules", "Upgrading from Node 22 to 26: native modules fail to load", "2026-11-02", "You need to rebuild native modules for the new NODE_MODULE_VERSION; run npm rebuild after switching versions."),
+];
+const TEMPORAL_SOURCES = [
+  src(1, "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Temporal", "Temporal - JavaScript | MDN", "2026-09-03", "Browser compatibility: Chrome 144, Edge 144, Firefox 139 and Safari 26.2 support Temporal without a flag."),
+  src(2, "https://tc39.es/proposal-temporal/docs/", "Temporal documentation", null, "Temporal is a Stage 4 proposal: it is part of ECMAScript 2026. Use Temporal.Now, Temporal.PlainDate and Temporal.ZonedDateTime."),
+  src(3, "https://nodejs.org/en/blog/release/v26.0.0", "Node.js 26.0.0 (Current)", "2026-04-22", "V8 14.1 brings Temporal to Node.js without a flag."),
+  src(4, "https://caniuse.com/temporal", "Temporal API | Can I use... Support tables for HTML5, CSS3, etc", "2026-11-10", "Global usage: 87.4% of users have a browser with full support."),
+  src(5, "https://v8.dev/blog/v8-release-14", "V8 release v14.1 · V8", "2026-08-20", "This version of V8 ships Temporal by default."),
+];
+const DENO_SOURCE = src(6, "https://deno.com/blog/v2.6", "Deno 2.6: Temporal stable, faster npm installs", "2026-10-15", "Temporal is now stable in Deno and no longer needs the --unstable-temporal flag.");
+const SOURCED_ANSWER = [
+  "Temporal ships natively in all current browser engines and in Node.js 26 [1](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Temporal) [4](https://caniuse.com/temporal).",
+  "",
+  "- **Browsers:** Chrome and Edge 144, Firefox 139 and Safari 26.2 enable it without a flag [1](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Temporal).",
+  "- **Node.js:** from 26.0, through V8 14.1 [3](https://nodejs.org/en/blog/release/v26.0.0) ([V8 release notes](https://v8.dev/blog/v8-release-14)).",
+  "- **The spec:** Temporal is Stage 4, part of ECMAScript 2026 [2](https://tc39.es/proposal-temporal/docs/).",
+  "- **Bun:** I couldn't check: the search for Bun's support didn't run, so this is unverified [9](https://bun.sh/docs/temporal).",
+].join("\n");
+
 const PROMPTS = {
   running: [
     "Refactor the billing dashboard so it stays fast for large accounts.",
@@ -157,6 +189,8 @@ const PROMPTS = {
   interrupted: "Audit the checkout flow on the staging shop: run the end-to-end suite, open the checkout page in the live browser, find out why the Pay button stays disabled for saved cards, and write up the root cause with a proposed fix. Keep a log of every step so the payments team can reproduce it on their machines.",
   failed: "Add a revenue chart to the analytics overview: monthly revenue for the last 12 months as a bar chart, with a currency switcher (EUR/USD/GBP) and a tooltip that shows the exact amount and the month-over-month change. Use the existing formatCurrency helper and make sure npm run build passes.",
   completed: "Build a small analytics dashboard in frontend/ (React + Vite + TypeScript): a revenue chart, a table of the top 20 customers with sorting and search, and a quarterly reconciliation report exported as PDF. Write a README with the setup steps, run the build, and attach the report and screenshots of the dashboard at desktop and phone widths.",
+  search: "What changed in the latest Node.js LTS release, and should we upgrade our API services from Node 22 now or wait?",
+  sourced: "Which JavaScript runtimes and browsers support the Temporal API natively today?",
   chat: "Compare the five server-sent events client libraries we shortlisted (native EventSource, eventsource-parser, @microsoft/fetch-event-source, sse.js and eventsource-client) as one table with every column we discussed: version, license, size, reconnect behaviour, Last-Event-ID support, custom headers, retry backoff, Node support, browser support, TypeScript types and notes. Then recommend one for our agent log stream.",
   preview: "Dev Team: build the Q4 launch landing page (hero, three feature cards, a pricing table with a monthly/yearly toggle, an FAQ accordion and a signup form with validation). It must score 95+ on Lighthouse accessibility, work at 360px wide, and pass npm test and npm run build.",
   queued: "Upgrade the monorepo from Node 20 to Node 22: update .nvmrc, the engines fields, the CI images and the Dockerfile, then fix whatever breaks in the test suite.",
@@ -721,6 +755,99 @@ export function createFixtures({ now = Date.now(), deployUrls = "vendor" } = {})
     });
   }
 
+  // (12) Web search, live: one search found its sources (the model moved on), one did not run, one
+  // is being reviewed (its results are back) and one is still out (searching, then finding).
+  {
+    const id = TASK.search;
+    const L = makeLog();
+    const web = (callId, input, end, gap = 1800) => {
+      L.add({ type: "tool_start", callId, name: "web_search" }, 400);
+      L.add({ type: "tool_call", callId, name: "web_search", input }, 200);
+      L.add({ type: "web_search", callId, status: "searching", query: input.query }, 100);
+      if (end) L.add({ type: "web_search", callId, query: input.query, ...end }, gap);
+      if (end) L.add({ type: "tool_result", callId, ok: end.status !== "failed", summary: end.status === "failed" ? end.reason : `${end.sources.length} sources`, durationMs: gap }, 50);
+    };
+    L.add({ type: "run_start", runId: rid(12), attempt: 1, trigger: "prompt" }, 0);
+    L.add({ type: "user_message", text: PROMPTS.search, clientMessageId: "m-ui-check-12" }, 40);
+    L.add({ type: "status", status: "queued", reason: "prompt" }, 40);
+    L.add({ type: "status", status: "running" }, 600);
+    L.add({ type: "dispatch", model: "claude-opus-5-5", provider: "core", reason: "Agent mode" }, 100);
+    L.add({ type: "turn_start", turn: 1, model: "claude-opus-5-5" }, 100);
+    L.think("th-1", "The current LTS line and what changed matter more than my memory here: search for the release notes and Node 22's end-of-life date first.", 1800);
+    web("s-1", { query: "Node.js 26 LTS release notes", num_results: 6 }, { status: "done", sources: SEARCH_SOURCES.slice(0, 6), durationMs: 2140 }, 2140);
+    web("s-2", { query: "Node.js 22 end of life date", category: "news" }, { status: "failed", reason: "The search timed out", durationMs: 15_000 }, 15_000);
+    L.add({ type: "turn_start", turn: 2, model: "claude-opus-5-5" }, 300);
+    L.add({ type: "tool_start", callId: "s-3", name: "web_search" }, 400);
+    const liveFrom = L.add({ type: "tool_start", callId: "s-4", name: "web_search" }, 100);
+    L.add({ type: "tool_call", callId: "s-3", name: "web_search", input: { query: "Node.js 26 breaking changes" } }, 100);
+    L.add({ type: "tool_call", callId: "s-4", name: "web_search", input: { query: "Node.js 22 maintenance LTS end date April 2027" } }, 100);
+    L.add({ type: "web_search", callId: "s-3", status: "searching", query: "Node.js 26 breaking changes" }, 100);
+    L.add({ type: "web_search", callId: "s-3", status: "done", query: "Node.js 26 breaking changes", sources: SEARCH_SOURCES.slice(6, 10), durationMs: 1650 }, 1650);
+    L.add({ type: "tool_result", callId: "s-3", ok: true, summary: "4 sources", durationMs: 1650 }, 50);
+    L.add({ type: "web_search", callId: "s-4", status: "searching", query: "Node.js 22 maintenance LTS end date April 2027" }, 100);
+    const events = L.finish(now - 3000);
+    add({
+      key: "search", title: "Web search: found, unavailable, reviewing, searching", live: true, liveFrom, events,
+      row: baseRow(id, {
+        prompt: PROMPTS.search, status: "running", statusReason: "prompt", phase: "implementation",
+        usage: { inputTokens: 18_210, outputTokens: 640, thinkingTokens: 410 },
+        runId: rid(12), attempt: 1, startedAt: events[0].ts, statusChangedAt: events[3].ts, createdAt: events[0].ts, updatedAt: lastTs(events),
+      }),
+      browsers: {},
+      preview: { available: false, workspace: false, archived: false, build: null, restorable: false, running: false },
+      deployments: [],
+      exportPlan: { target: { kind: "new", owner: LOGIN, suggestedName: "curialy-what-changed-in-the-latest-node-js-lts" }, files: 0, bytes: 0, excluded: [], login: LOGIN },
+      tree: { source: "archived", files: [] },
+    });
+  }
+
+  // (13) A sourced chat answer: citations to its search results (one written with its title), one
+  // number that isn't a result, a search that didn't run; then a follow-up cancelled after it searched.
+  {
+    const id = TASK.sourced;
+    const L = makeLog();
+    L.add({ type: "run_start", runId: rid(13), attempt: 1, trigger: "prompt" }, 0);
+    L.add({ type: "user_message", text: PROMPTS.sourced, clientMessageId: "m-ui-check-13" }, 40);
+    L.add({ type: "status", status: "queued", reason: "prompt" }, 40);
+    L.add({ type: "status", status: "running" }, 600);
+    L.add({ type: "dispatch", model: "claude-sonnet-5-5", provider: "core", reason: "Chat mode" }, 100);
+    L.add({ type: "turn_start", turn: 1, model: "claude-sonnet-5-5" }, 100);
+    L.tool("q-1", "web_search", { query: "Temporal API native support browsers runtimes 2026" });
+    L.add({ type: "web_search", callId: "q-1", status: "searching", query: "Temporal API native support browsers runtimes 2026" }, 100);
+    L.add({ type: "web_search", callId: "q-1", status: "done", query: "Temporal API native support browsers runtimes 2026", sources: TEMPORAL_SOURCES, durationMs: 2380 }, 2380);
+    L.add({ type: "tool_result", callId: "q-1", ok: true, summary: "5 sources", durationMs: 2380 }, 50);
+    L.tool("q-2", "web_search", { query: "Bun Temporal support", include_domains: ["bun.sh"] });
+    L.add({ type: "web_search", callId: "q-2", status: "searching", query: "Bun Temporal support" }, 100);
+    L.add({ type: "web_search", callId: "q-2", status: "failed", query: "Bun Temporal support", reason: "The search service is busy", durationMs: 420 }, 420);
+    L.add({ type: "tool_result", callId: "q-2", ok: false, summary: "The search service is busy", durationMs: 420 }, 50);
+    L.say("tx-1", SOURCED_ANSWER, { size: 160 });
+    L.add({ type: "usage", turn: 1, model: "claude-sonnet-5-5", inputTokens: 6120, outputTokens: 910, thinkingTokens: 0, cacheReadTokens: 0 }, 100);
+    L.add({ type: "done", status: "completed", answer: SOURCED_ANSWER, outcome: { verification: "none" } }, 100);
+    L.add({ type: "run_start", runId: rid(19), attempt: 1, trigger: "follow_up" }, 60_000);
+    L.add({ type: "user_message", text: "And Deno? Check its release notes too.", clientMessageId: "m-ui-check-13b" }, 40);
+    L.add({ type: "status", status: "running" }, 600);
+    L.tool("q-3", "web_search", { query: "Deno Temporal stable release notes" });
+    L.add({ type: "web_search", callId: "q-3", status: "searching", query: "Deno Temporal stable release notes" }, 100);
+    L.add({ type: "web_search", callId: "q-3", status: "done", query: "Deno Temporal stable release notes", sources: [TEMPORAL_SOURCES[2], DENO_SOURCE], durationMs: 1720 }, 1720);
+    L.add({ type: "tool_result", callId: "q-3", ok: true, summary: "2 sources", durationMs: 1720 }, 50);
+    L.add({ type: "done", status: "cancelled", answer: "", reason: "user_cancel" }, 4000);
+    const events = L.finish(now - 12 * 60_000);
+    add({
+      key: "sourced", title: "Sourced answer: citations, Sources, a failed search", live: false, events,
+      row: baseRow(id, {
+        prompt: PROMPTS.sourced, status: "cancelled", statusReason: "user_cancel", mode: "chat", model: "claude-sonnet-5-5", effort: "medium",
+        usage: { inputTokens: 6120, outputTokens: 910, thinkingTokens: 0 }, answer: SOURCED_ANSWER,
+        runId: rid(19), attempt: 1, outcome: { verification: "none" },
+        startedAt: events[0].ts, finishedAt: lastTs(events), statusChangedAt: lastTs(events), createdAt: events[0].ts, updatedAt: lastTs(events),
+      }),
+      browsers: {},
+      preview: { available: false, workspace: false, archived: false, build: null, restorable: false, running: false },
+      deployments: [],
+      exportPlan: { target: { kind: "new", owner: LOGIN, suggestedName: "curialy-which-javascript-runtimes-support-temporal" }, files: 0, bytes: 0, excluded: [], login: LOGIN },
+      tree: { source: "archived", files: [] },
+    });
+  }
+
   // (6) Not in the brief's list, added on purpose: a clean Dev Team success with an available
   // workspace preview and a live cloud preview. It is the only scenario that reaches the Preview
   // tab default, the preview frame and a live deployment (white-label: its href/src).
@@ -991,6 +1118,8 @@ export function createFixtures({ now = Date.now(), deployUrls = "vendor" } = {})
       return { json: { providers: query.get("deep") === "1" ? listed.map(probe => (probe.id === "gemini" ? { ...probe, latencyMs: 1840, detail: "Live completion OK (6 tokens)" } : probe)) : listed, activeTasks: stats.active } };
     }],
     ["GET", "/api/agent/keys", () => ({ json: { keys } })],
+    // The follow-up composer's saved skills (none here).
+    ["GET", "/api/agent/skills", () => ({ json: { skills: [] } })],
     ["GET", "/api/agent/stats", () => ({ json: stats })],
 
     ["GET", "/api/agent/tasks", () => ({ json: { tasks: listRows() } })],

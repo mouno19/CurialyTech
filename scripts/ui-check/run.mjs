@@ -233,6 +233,14 @@ async function act(page, check, record) {
       const span = check.action === "range-24h" ? "24 hours" : "30 days";
       await page.getByRole("radio", { name: span, exact: true }).first().click({ timeout: 6000 });
       await page.locator(`figure.chart[aria-label$="last ${span}"]`).first().waitFor({ state: "visible", timeout: 6000 });
+    } else if (check.action === "sources-open") {
+      // An answer's Sources, opened: every result with its number, site and date.
+      await page.locator("details.sources > summary").first().click({ timeout: 6000 });
+      await page.locator("details.sources[open] .source-item").first().waitFor({ state: "visible", timeout: 5000 });
+    } else if (check.action === "search-list") {
+      // A live search's full list of what it found.
+      await page.getByRole("button", { name: /view all/i }).first().click({ timeout: 6000 });
+      await page.locator(".search-live-list .source-item").first().waitFor({ state: "visible", timeout: 5000 });
     } else if (check.action === "analytics-usage") {
       // The Analytics page's second tab: use and its estimated cost.
       await page.getByRole("tab", { name: "Usage and cost" }).first().click({ timeout: 6000 });

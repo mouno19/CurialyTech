@@ -119,7 +119,7 @@ export function buildPlan(fx, { viewports = VIEWPORTS, only = null } = {}) {
   }
   // The dark theme (the device asks for it: the page follows): every kind of page once wide and once
   // on a phone, and the theme menu itself (opened, never changed: a check never stores a theme).
-  const DARK = new Set(["dashboard", "tasks", "task-completed", "task-running", "sandbox", "media", "media-pro", "media-full", "media-select", "media-delete-all",
+  const DARK = new Set(["dashboard", "tasks", "task-completed", "task-running", "task-search", "task-sourced", "sandbox", "media", "media-pro", "media-full", "media-select", "media-delete-all",
     "integrations", "skills", "support", "keys", "admin", "login", "home", "not-found", "billing", "pay-usdt", "pay-review", "developer", "admin-payments", "admin-order", "credits-dialog"]);
   const darkPages = [...pages, ...vault, ...billing].filter(page => DARK.has(page.id));
   const darkViewports = [viewports.find(viewport => viewport.width >= 1440) ?? viewports[0], viewports.find(viewport => viewport.width > 360 && viewport.width <= PHONE_MAX) ?? viewports[viewports.length - 1]];
@@ -144,6 +144,11 @@ export function buildPlan(fx, { viewports = VIEWPORTS, only = null } = {}) {
     checks.push({ id: "dashboard-starters", path: "/", viewport, phone, action: "starters" });
     // A free account: the credits meter and the dashboard's credits line.
     checks.push({ id: "dashboard-free", path: "/", viewport, phone, account: "free" });
+    // Web search: an answer's Sources opened, and a live search's full list.
+    const sourced = fx.scenarios.find(scenario => scenario.key === "sourced");
+    const searching = fx.scenarios.find(scenario => scenario.key === "search");
+    if (sourced) checks.push({ id: "task-sourced-open", path: `/tasks/${sourced.id}`, scenario: "sourced", task: true, viewport, phone, action: "sources-open" });
+    if (searching) checks.push({ id: "task-search-list", path: `/tasks/${searching.id}`, scenario: "search", live: true, task: true, viewport, phone, action: "search-list" });
   }
   const selected = only ? checks.filter(check => only.test(`${check.id}@${vp(check.viewport)}`)) : checks;
   const width = String(selected.length).length < 2 ? 2 : String(selected.length).length;

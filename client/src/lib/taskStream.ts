@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef } from "react";
 import {
   PHASES, type AgentEvent, type ApprovalDecision, type GeneratedSummary, type PhaseId, type PhaseState, type PlanStep, type RunOutcome, type RunTrigger, type SecretOutcome,
-  type StatusReason, type TaskStatus, type TeamRole,
+  type StatusReason, type TaskStatus, type TeamRole, type WebSource,
 } from "@shared/agent";
 import { isActiveStatus } from "@shared/taskStatus";
 import { agentApi, ApiError, type TaskDetail } from "@/lib/api";
@@ -17,6 +17,13 @@ export type UserAttachment = NonNullable<Extract<AgentEvent, { type: "user_messa
 export type OutputSegment = { stream: "stdout" | "stderr"; text: string };
 /** settled: no result ever arrived, the run ended without it ("stopped") or its worker went away ("interrupted"). */
 export type ToolResult = { ok: boolean; summary: string; exitCode?: number | null; durationMs: number; settled?: "stopped" | "interrupted" };
+
+/**
+ * A web search, as the chat shows it: searching (the request is out), reviewing (results are back
+ * and the model is reading them), found (the model moved on), empty, unavailable (it did not run:
+ * reason says why), or stopped (the run ended before the results came back).
+ */
+export type SearchState = "searching" | "reviewing" | "found" | "empty" | "unavailable" | "stopped";
 
 /** key: unique per item (React key); id: the block/call id events refer to; run: index into StreamState.runs. */
 type ItemBase = { key: string; id: string; seq: number; ts: string; run: number; agent?: TeamRole };
@@ -38,6 +45,7 @@ export type TimelineItem = ItemBase & (
   | { kind: "attachments"; files: Attachment[]; auto: boolean; more: number; skipped: string[]; generated?: GeneratedSummary; partial?: boolean }
   | { kind: "media"; mediaId: string | null; filename: string; mimeType: string; caption: string; inlineDataUrl?: string; unavailable: boolean }
   | { kind: "handoff"; from: TeamRole; to: TeamRole | "user"; handoff: "plan" | "review" | "fixes" | "report"; title: string; content: string; round?: number }
+  | { kind: "search"; query: string; state: SearchState; sources: WebSource[]; reason?: string; durationMs?: number }
 );
 export type ItemOf<K extends TimelineItem["kind"]> = Extract<TimelineItem, { kind: K }>;
 
@@ -226,6 +234,8 @@ function settleOpen(state: StreamState, status: TaskStatus, ts: string) {
       state.items[index] = { ...item, done: true, ms: item.ms ?? elapsed(item.ts, ts) };
     } else if (item.kind === "text" && !item.done) {
       state.items[index] = { ...item, done: true };
+    } else if (item.kind === "search" && (item.state === "searching" || item.state === "reviewing")) {
+      state.items[index] = { ...item, state: item.state === "reviewing" ? "found" : "stopped" };
     }
   }
   let phases: StreamState["phases"] | null = null;
@@ -325,6 +335,16 @@ function appendOutput(item: ItemOf<"tool">, stream: "stdout" | "stderr", chunk: 
   return { ...item, output, outputBytes: bytes };
 }
 
+/** The model moved on (it writes, or calls another tool): the results it was reading are found. */
+function settleReviews(state: StreamState) {
+  const run = Math.max(0, state.runs.length - 1);
+  for (let index = state.items.length - 1; index >= 0; index--) {
+    const item = state.items[index];
+    if (item.run !== run) break;
+    if (item.kind === "search" && item.state === "reviewing") state.items[index] = { ...item, state: "found" };
+  }
+}
+
 function apply(state: StreamState, event: AgentEvent, at: number) {
   ensureRun(state, event);
   const runIndex = Math.max(0, state.runs.length - 1);
@@ -387,6 +407,7 @@ function apply(state: StreamState, event: AgentEvent, at: number) {
       break;
     }
     case "text_start": {
+      settleReviews(state);
       const found = findItem(state, "text", event.blockId);
       if (!found || found.item.done || found.item.run !== runIndex) push(state, event, { kind: "text", id: event.blockId, text: "", done: false });
       break;
@@ -403,6 +424,7 @@ function apply(state: StreamState, event: AgentEvent, at: number) {
       break;
     }
     case "tool_start": {
+      settleReviews(state);
       const found = findItem(state, "tool", event.callId);
       if (!found || found.item.result) push(state, event, { kind: "tool", id: event.callId, name: event.name, inputPartial: "", output: [], outputBytes: 0, changes: [] });
       break;
@@ -437,6 +459,19 @@ function apply(state: StreamState, event: AgentEvent, at: number) {
     case "plan":
       state.plan = event.steps;
       break;
+    case "web_search": {
+      const update: Pick<ItemOf<"search">, "state" | "sources" | "reason" | "durationMs"> = event.status === "searching"
+        ? { state: "searching", sources: [] }
+        : event.status === "done" && event.sources?.length
+          ? { state: "reviewing", sources: event.sources, durationMs: event.durationMs }
+          : event.status === "failed"
+            ? { state: "unavailable", sources: [], reason: event.reason, durationMs: event.durationMs }
+            : { state: "empty", sources: [], durationMs: event.durationMs };
+      const found = findItem(state, "search", event.callId);
+      if (found) state.items[found.index] = { ...found.item, ...update };
+      else push(state, event, { kind: "search", id: event.callId, query: event.query, ...update });
+      break;
+    }
     case "verify_start":
       push(state, event, { kind: "verify", id: `v${event.iteration}`, iteration: event.iteration, commands: event.commands, results: [] });
       break;
@@ -560,7 +595,7 @@ function applyBatch(state: StreamState, events: AgentEvent[], at: number): Strea
       const member = next.team[event.agent];
       if (event.type === "tool_call" && member && member.status === "working") {
         const input = event.input as Record<string, unknown>;
-        const target = [input.command, input.path, input.url, input.pattern, input.repo].find(value => typeof value === "string") as string | undefined;
+        const target = [input.command, input.path, input.url, input.pattern, input.query, input.repo].find(value => typeof value === "string") as string | undefined;
         next.team = { ...next.team, [event.agent]: { ...member, activity: `${event.name.replace(/_/g, " ")}${target ? `: ${target.slice(0, 80)}` : ""}`, updatedAt: event.ts } };
       }
     }
@@ -636,13 +671,17 @@ export type RunView = {
   answerSources: ItemOf<"text">[];
   /** Assistant messages that are not the answer. */
   notes: ItemOf<"text">[];
+  /** The run's web searches, in order (each also in entries while the run is live). */
+  searches: ItemOf<"search">[];
+  /** Every page those searches found, once each, by number: the run's Sources. */
+  sources: WebSource[];
 };
 
 export function conversationRuns(state: Pick<StreamState, "runs" | "items">): RunView[] {
   const views: RunView[] = state.runs.map(run => ({
     run,
     divider: run.trigger === "retry" || run.trigger === "deploy" ? { trigger: run.trigger, attempt: run.attempt, ts: run.ts, key: `divider:${run.seq}` } : null,
-    user: null, texts: [], cards: [], entries: [], answer: "", answerSources: [], notes: [],
+    user: null, texts: [], cards: [], entries: [], answer: "", answerSources: [], notes: [], searches: [], sources: [],
   }));
   for (const item of state.items) {
     const view = views[item.run];
@@ -657,6 +696,9 @@ export function conversationRuns(state: Pick<StreamState, "runs" | "items">): Ru
     } else if (item.kind === "browser" || item.kind === "attachments" || (item.kind === "handoff" && item.handoff !== "report")) {
       view.cards.push(item);
       view.entries.push(item);
+    } else if (item.kind === "search") {
+      view.searches.push(item);
+      view.entries.push(item);
     }
   }
   for (const view of views) {
@@ -668,8 +710,16 @@ export function conversationRuns(state: Pick<StreamState, "runs" | "items">): Ru
       view.answerSources = given ? answerSources(view.texts, given) : last ? [last] : [];
     }
     view.notes = view.texts.filter(text => !view.answerSources.includes(text) && text.text.trim());
+    view.sources = uniqueSources(view.searches.flatMap(search => search.sources));
   }
   return views;
+}
+
+/** Sources once each (by URL), in number order. */
+export function uniqueSources(sources: WebSource[]) {
+  const byUrl = new Map<string, WebSource>();
+  for (const source of sources) if (!byUrl.has(source.url)) byUrl.set(source.url, source);
+  return [...byUrl.values()].sort((a, b) => a.n - b.n);
 }
 
 /**
@@ -747,7 +797,7 @@ export function reconnectDelay(attempt: number, random: () => number = Math.rand
  * bundle carries only FNV-1a hashes of their registrable domains (white-label: no vendor names in
  * the client), checked against the last two labels of a URL's host.
  */
-const VENDOR_DOMAIN_HASHES = new Set([0x89f16f33, 0x84db9c7a, 0xce9c6599, 0x5fa45b64, 0x8d6221d4, 0x8feb80aa, 0x2821c035, 0x040dffd1, 0xeee06d07, 0xe8d03542, 0x62055b6d, 0x59a310c2]);
+const VENDOR_DOMAIN_HASHES = new Set([0x89f16f33, 0x84db9c7a, 0xce9c6599, 0x5fa45b64, 0x8d6221d4, 0x8feb80aa, 0x2821c035, 0x040dffd1, 0xeee06d07, 0xe8d03542, 0x62055b6d, 0x59a310c2, 0x095d44e9]);
 const URL_IN_TEXT = /\b(?:https?|wss?):\/\/[^\s"'<>)\]]+/gi;
 
 function fnv1a(text: string) {

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AgentEvent, AgentEventBody } from "@shared/agent";
 import {
   conversationRuns, freshestStatus, initialInspectorTab, initialStreamState, isVendorUrl, latestRun, maskPreviewToken, mergeDeployment, reconnectDelay,
-  resolveAnswer, runEffects, runError, scrubText, streamReducer, type ItemOf, type StreamState,
+  resolveAnswer, runEffects, runError, scrubText, streamReducer, uniqueSources, type ItemOf, type StreamState,
 } from "./taskStream";
 
 const T0 = Date.parse("2026-10-27T10:00:00.000Z");
@@ -359,5 +359,63 @@ describe("helpers", () => {
     expect(scrubText("[deploy:live] Live https://curialy-preview-ab12.onrender.com and https://example.com/a")).toBe("[deploy:live] Live [link hidden] and https://example.com/a");
     expect(scrubText("wss://connect.browserbase.com/x?signingKey=abc")).toBe("[link hidden]");
     expect(maskPreviewToken("/api/workspace/preview/123e4567/tok.en-123/?dir=dist")).toBe("/api/workspace/preview/123e4567/…/?dir=dist");
+  });
+});
+
+describe("web search", () => {
+  const source = (n: number, url: string) => ({ n, url, title: `Page ${n}`, source: new URL(url).hostname, date: null, highlights: [`About page ${n}`] });
+  const searching = (seq: number, callId: string, query = "node lts") => ev(seq, { type: "web_search", callId, status: "searching", query });
+  const searchOf = (state: StreamState, callId: string) => state.items.find((item): item is ItemOf<"search"> => item.kind === "search" && item.id === callId)!;
+
+  it("searching, then reviewing the results, then found once the model writes or calls another tool", () => {
+    let state = run([startOf(1), ev(2, { type: "tool_start", callId: "s1", name: "web_search" }), searching(3, "s1")]);
+    expect(searchOf(state, "s1")).toMatchObject({ state: "searching", query: "node lts", sources: [] });
+    state = feed(state, [ev(4, { type: "web_search", callId: "s1", status: "done", query: "node lts", sources: [source(1, "https://nodejs.org/a"), source(2, "https://github.com/b")], durationMs: 1800 })]);
+    expect(searchOf(state, "s1")).toMatchObject({ state: "reviewing", durationMs: 1800 });
+    // Thinking about the results is still reviewing them.
+    state = feed(state, [ev(5, { type: "tool_result", callId: "s1", ok: true, summary: "2 sources", durationMs: 1800 }), ev(6, { type: "thinking_start", blockId: "t1" })]);
+    expect(searchOf(state, "s1").state).toBe("reviewing");
+    state = feed(state, [ev(7, { type: "text_start", blockId: "b1" })]);
+    expect(searchOf(state, "s1").state).toBe("found");
+
+    let next = run([startOf(1), searching(2, "s2"), ev(3, { type: "web_search", callId: "s2", status: "done", query: "q", sources: [source(1, "https://a.dev/")] }), ev(4, { type: "tool_start", callId: "c9", name: "web_fetch" })]);
+    expect(searchOf(next, "s2").state).toBe("found");
+    next = run([startOf(1), searching(2, "s3"), ev(3, { type: "web_search", callId: "s3", status: "done", query: "q", sources: [source(1, "https://a.dev/")] }), ev(4, { type: "done", status: "completed", answer: "x" })]);
+    expect(searchOf(next, "s3").state).toBe("found");
+  });
+
+  it("nothing found, unavailable with its reason, and stopped when the run ends first", () => {
+    const state = run([
+      startOf(1), searching(2, "e1"), ev(3, { type: "web_search", callId: "e1", status: "empty", query: "node lts", durationMs: 900 }),
+      searching(4, "f1"), ev(5, { type: "web_search", callId: "f1", status: "failed", query: "node lts", reason: "The search timed out", durationMs: 15000 }),
+      searching(6, "x1"), ev(7, { type: "done", status: "cancelled", answer: "", reason: "user_cancel" }),
+    ]);
+    expect(searchOf(state, "e1")).toMatchObject({ state: "empty", sources: [] });
+    expect(searchOf(state, "f1")).toMatchObject({ state: "unavailable", reason: "The search timed out", sources: [] });
+    expect(searchOf(state, "x1").state).toBe("stopped");
+    // A newer run starting also closes what the previous one left open.
+    expect(searchOf(feed(run([startOf(1), searching(2, "y1")]), [startOf(3, RUN_B, "follow_up")]), "y1").state).toBe("stopped");
+  });
+
+  it("each run's sources, once each and by number, and the searches in the live entries", () => {
+    const state = run([
+      startOf(1), ev(2, { type: "user_message", text: "what's new in node?" }), searching(3, "a", "node"),
+      ev(4, { type: "web_search", callId: "a", status: "done", query: "node", sources: [source(1, "https://nodejs.org/a"), source(2, "https://github.com/b")] }),
+      searching(5, "b", "node 26"),
+      ev(6, { type: "web_search", callId: "b", status: "done", query: "node 26", sources: [source(3, "https://example.com/c"), source(2, "https://github.com/b")] }),
+      ev(7, { type: "done", status: "completed", answer: "Node 26 [1](https://nodejs.org/a)." }),
+      startOf(8, RUN_B, "follow_up"), ev(9, { type: "user_message", text: "and bun?" }),
+    ]);
+    const [first, second] = conversationRuns(state);
+    expect(first.searches.map(search => search.query)).toEqual(["node", "node 26"]);
+    expect(first.sources.map(item => item.n)).toEqual([1, 2, 3]);
+    expect(first.entries.filter(item => item.kind === "search")).toHaveLength(2);
+    expect(second.sources).toEqual([]);
+    expect(uniqueSources([source(5, "https://x.dev/"), source(1, "https://y.dev/"), source(5, "https://x.dev/")]).map(item => item.n)).toEqual([1, 5]);
+  });
+
+  it("keeps a team member's search with that member", () => {
+    const state = run([startOf(1), ev(2, { type: "web_search", callId: "t1", status: "searching", query: "q" }, { agent: "architect" })]);
+    expect(searchOf(state, "t1").agent).toBe("architect");
   });
 });
