@@ -26,6 +26,8 @@ import { savedSecretNames, secretsConfigured } from "../secrets";
 import { redactForTask, taskSecretNames } from "./requests";
 import { GITHUB_CI_WRITE_TOOLS } from "./github-ci-tools";
 import { recordAgentUsage } from "../analytics/usage";
+import { studioAvailable } from "./studio";
+import { studioContext } from "./studio-tools";
 import { loadProjectMemory } from "./memory";
 import { linkedRepo } from "./repos";
 import { brandText, ENGINE_ALIAS } from "@shared/brand";
@@ -301,6 +303,8 @@ export type RunContext = {
   canvaContext?: string;
   /** Agent mode: which secrets exist (names only) and how to ask for one. */
   secretsContext?: string;
+  /** Agent mode, when the Animation Studio is set up: its skills and the rule to load one first. */
+  studioContext?: string;
   /** Short id used to build block and call ids. */
   runId: string;
   /** The run's fencing token (chat_sessions.run_id): every write of run data is conditional on it. */
@@ -1095,7 +1099,7 @@ export function latestRequest(conversation: Record<string, unknown>[]) {
 
 /** System blocks after the static prompt: GitHub context, saved skills, the repository's project memory, the design brief. */
 function extraSystem(ctx: RunContext) {
-  return [ctx.context, ctx.vercelContext, ctx.canvaContext, ctx.secretsContext, ctx.skills, ctx.memory?.text, ctx.designText].filter((text): text is string => Boolean(text));
+  return [ctx.context, ctx.vercelContext, ctx.canvaContext, ctx.secretsContext, ctx.studioContext, ctx.skills, ctx.memory?.text, ctx.designText].filter((text): text is string => Boolean(text));
 }
 
 /** Load the linked repository's project memory into the shared slot. Announce only when a saved note arrives. */
@@ -1199,6 +1203,7 @@ async function executeRun(handle: RunHandle, conversation: Record<string, unknow
     let vc = { vercel: false, context: "" };
     let cv = { canva: false, context: "" };
     let secretsText = "";
+    let studioText = "";
     let operator = false;
     let skillText = "";
     let skillNotice = "";
@@ -1209,6 +1214,7 @@ async function executeRun(handle: RunHandle, conversation: Record<string, unknow
       vc = await vercelContext(taskId);
       cv = await canvaContext(taskId);
       secretsText = opts.mode === "agent" ? await secretsContext(taskId) : "";
+      studioText = opts.mode === "agent" && studioAvailable() ? studioContext() : "";
       operator = await ownerIsOperator(taskId);
       const owner = await taskOwner(taskId);
       const saved = existing?.skillIds?.length && owner ? await loadTaskSkills(owner, existing.skillIds) : [];
@@ -1243,6 +1249,7 @@ async function executeRun(handle: RunHandle, conversation: Record<string, unknow
       canva: cv.canva,
       canvaContext: cv.context || undefined,
       secretsContext: secretsText || undefined,
+      studioContext: studioText || undefined,
       runId: handle.runId.slice(0, 8),
       runToken: handle.runId,
       root,
