@@ -1,4 +1,5 @@
 import { Router, type NextFunction, type Request, type Response } from "express";
+import { trafficReport, usageAnalytics } from "./analytics/reports";
 import { z } from "zod";
 import { microsToUsd } from "@shared/billing";
 import { ACTIVE_STATUSES } from "@shared/taskStatus";
@@ -101,6 +102,8 @@ function freeAllowanceInfo(row: AccountRow) {
 }
 
 const uuid = z.string().uuid("Unknown account.");
+
+const analyticsQuery = z.object({ range: z.enum(["24h", "7d", "30d", "90d"]).default("7d"), tz: z.string().max(64).optional() });
 
 export function adminRouter() {
   const router = Router();
@@ -208,6 +211,18 @@ export function adminRouter() {
       for (const task of rows) await requestCancel(task.id).then(() => { stopped++; }, error => console.error(`[admin] stop ${task.id}:`, error instanceof Error ? error.message : error));
     }
     res.json({ banned, stopped });
+  }));
+
+  // The Analytics page: page views, and use with its estimated cost. range: 24h, 7d, 30d or 90d; tz: the viewer's zone.
+  router.get("/analytics/traffic", handle(async (req, res) => {
+    const { range, tz } = analyticsQuery.parse(req.query);
+    res.setHeader("Cache-Control", "no-store");
+    res.json(await trafficReport(range, tz ?? "UTC"));
+  }));
+  router.get("/analytics/usage", handle(async (req, res) => {
+    const { range, tz } = analyticsQuery.parse(req.query);
+    res.setHeader("Cache-Control", "no-store");
+    res.json(await usageAnalytics(range, tz ?? "UTC"));
   }));
 
   router.get("/promo-codes", handle(async (_req, res) => res.json({ codes: await listPromoCodes() })));

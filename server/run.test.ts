@@ -12,7 +12,7 @@ process.env.AGENT_SANDBOX = "none";
 
 type Session = Record<string, any>;
 type Logged = { seq: number; type: string; data: Record<string, any>; created_at: Date };
-const fake = vi.hoisted(() => ({ rows: new Map<string, Session>(), logs: new Map<string, Logged[]>(), unexpected: [] as string[], messages: [] as string[], role: "admin", available: 0, queue: [] as Record<string, any>[], skills: [] as { id: string; user_id: string; name: string; body: string; updated_at: Date }[] }));
+const fake = vi.hoisted(() => ({ rows: new Map<string, Session>(), logs: new Map<string, Logged[]>(), unexpected: [] as string[], messages: [] as string[], usage: [] as any[][], role: "admin", available: 0, queue: [] as Record<string, any>[], skills: [] as { id: string; user_id: string; name: string; body: string; updated_at: Date }[] }));
 const ACTIVE = ["queued", "running", "cancelling"];
 
 /** curialy.queued_followups (queue.ts), statement by statement. */
@@ -175,6 +175,8 @@ function answer(text: string, values: any[]): { rows: any[]; rowCount?: number }
   if (text.includes("type = 'browser_session' GROUP BY 1")) return { rows: [] };
   if (text.includes("github_mode = 'linked'")) return { rows: [] };
   if (text.startsWith("INSERT INTO curialy.messages")) { fake.messages.push(`${values[1]}: ${values[2]}`); return { rows: [], rowCount: 1 }; }
+  // The Analytics ledger: one row per model turn.
+  if (text.startsWith("INSERT INTO curialy.agent_usage")) { fake.usage.push(values); return { rows: [], rowCount: 1 }; }
   // Every task here is the operator's.
   if (text.startsWith("SELECT user_id FROM curialy.chat_sessions WHERE id = $1")) return { rows: row ? [{ user_id: "admin" }] : [] };
   if (text.includes("FROM curialy.user_skills")) {
@@ -1041,6 +1043,9 @@ describe("design brief and design check", () => {
     await runner.retryTask(other);
     await finished(other);
     expect(model.systems[0]).toHaveLength(1);
+    // Each model turn lands in the usage ledger, the operator's too (never charged).
+    expect(fake.usage.filter(values => values[0] === other).length).toBeGreaterThan(0);
+    expect(fake.usage.find(values => values[0] === other)?.[8]).toBe(true);
     expect(fake.unexpected).toEqual([]);
   });
 

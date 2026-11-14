@@ -642,6 +642,60 @@ const MIGRATIONS: { id: number; sql: string }[] = [
       );
     `,
   },
+  {
+    id: 23,
+    sql: `
+      -- Page views for the operator's Analytics page. No IP address or cookie is kept: visitor is a
+      -- keyed hash of the address and browser that changes every day; country comes from the
+      -- browser's time zone. operator: the operator's own browsing (left out of the reports).
+      CREATE TABLE IF NOT EXISTS curialy.page_views (
+        id bigserial PRIMARY KEY,
+        at timestamptz NOT NULL DEFAULT now(),
+        view_id text NOT NULL,
+        visitor text NOT NULL,
+        repeat_visitor boolean NOT NULL DEFAULT false,
+        entry boolean NOT NULL DEFAULT false,
+        user_id uuid REFERENCES curialy.users(id) ON DELETE SET NULL,
+        operator boolean NOT NULL DEFAULT false,
+        path text NOT NULL,
+        page text NOT NULL,
+        source text,
+        referrer_host text,
+        utm_medium text,
+        utm_campaign text,
+        country text,
+        device text,
+        browser text,
+        os text,
+        language text,
+        duration_ms integer
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS page_views_view_idx ON curialy.page_views (view_id);
+      CREATE INDEX IF NOT EXISTS page_views_at_idx ON curialy.page_views (at);
+      -- Every model turn of the agent, kept when its task is deleted: tokens, credits charged (none
+      -- for the operator), an estimate at the model's list price (null: no list price) and the
+      -- account's plan at the time. source_key: a turn copied from the task logs (never twice).
+      CREATE TABLE IF NOT EXISTS curialy.agent_usage (
+        id bigserial PRIMARY KEY,
+        at timestamptz NOT NULL DEFAULT now(),
+        user_id uuid REFERENCES curialy.users(id) ON DELETE SET NULL,
+        task_id uuid,
+        model text NOT NULL,
+        input_tokens bigint NOT NULL DEFAULT 0,
+        output_tokens bigint NOT NULL DEFAULT 0,
+        cache_read_tokens bigint NOT NULL DEFAULT 0,
+        cache_write_tokens bigint NOT NULL DEFAULT 0,
+        credits numeric(12,2) NOT NULL DEFAULT 0,
+        list_micros bigint,
+        plan_id text,
+        operator boolean NOT NULL DEFAULT false,
+        source_key text
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS agent_usage_source_idx ON curialy.agent_usage (source_key);
+      CREATE INDEX IF NOT EXISTS agent_usage_at_idx ON curialy.agent_usage (at);
+      CREATE INDEX IF NOT EXISTS api_usage_at_idx ON curialy.api_usage (created_at);
+    `,
+  },
 ];
 
 export async function migrate() {

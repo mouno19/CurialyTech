@@ -46,7 +46,7 @@ export function reportTimeZone(tz: unknown): string {
  * the clock changes). Hours step in absolute time from the start of the current local hour, so a
  * day the clock changes has no doubled or missing hour.
  */
-function bucketSql(bucket: "hour" | "day", column: string) {
+export function bucketSql(bucket: "hour" | "day", column: string) {
   const clock = "clock AS (SELECT $4::timestamptz AS now, $4::timestamptz AT TIME ZONE $2 AS local)";
   if (bucket === "hour") {
     const current = "clock.now - (clock.local - date_trunc('hour', clock.local))";
@@ -70,7 +70,7 @@ function bucketSql(bucket: "hour" | "day", column: string) {
 /** The database's zone list can lag the browser's: a zone it doesn't know is reported in UTC instead. */
 const unknownZone = (error: unknown) => (error as { code?: string })?.code === "22023" && /time zone/i.test(String((error as Error)?.message));
 
-async function inZone<T>(tz: string, run: (zone: string) => Promise<T>): Promise<[string, T]> {
+export async function inZone<T>(tz: string, run: (zone: string) => Promise<T>): Promise<[string, T]> {
   const zone = reportTimeZone(tz);
   try {
     return [zone, await run(zone)];

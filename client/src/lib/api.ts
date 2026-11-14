@@ -3,6 +3,8 @@ import type { SavedSkill } from "@shared/skills";
 import type { ApiKeyInfo } from "@shared/gateway";
 import type { CreditBalance, CreditSettings, RewardsState } from "@shared/credits";
 import type { DeploymentState } from "@shared/taskStatus";
+import type { UsageRange } from "@shared/billing";
+import type { TrafficReport, UsageAnalytics } from "@shared/analytics";
 import { UPLOADS_AT_ONCE, type MediaDeleteResult, type MediaKind, type VaultQuota, type VaultSummary } from "@shared/media";
 import { markStorageUnavailable } from "./mediaHealth";
 import { limiter, whileBusy } from "./uploads";
@@ -415,6 +417,9 @@ export type PromoCode = {
 export type AdminOverview = { users: number; newToday: number; activeToday: number; activeRuns: number; creditsUsedToday: number; activePromoCodes: number; settings: CreditSettings };
 
 export const adminApi = {
+  /** The Analytics page: page views, and use with its estimated cost. tz: the viewer's zone. */
+  analyticsTraffic: (range: UsageRange, tz: string) => api<TrafficReport>(`/api/admin/analytics/traffic?range=${range}&tz=${enc(tz)}`),
+  analyticsUsage: (range: UsageRange, tz: string) => api<UsageAnalytics>(`/api/admin/analytics/usage?range=${range}&tz=${enc(tz)}`),
   overview: () => api<AdminOverview>("/api/admin/overview"),
   users: (q = "", offset = 0) => api<{ users: AdminUser[]; more: boolean }>(`/api/admin/users?q=${encodeURIComponent(q)}&offset=${offset}`),
   history: (id: string) => api<{ credits: CreditBalance; history: CreditEvent[] }>(`/api/admin/users/${id}/credits`),

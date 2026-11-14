@@ -9,6 +9,7 @@ import { loginHandler, logoutHandler, requireUser, sameOriginOnly, sessionsConfi
 import { accountRouter, adminRouter } from "../admin";
 import { supportRouter } from "../support";
 import { secretsRouter } from "../secrets";
+import { analyticsCollectRouter, startAnalyticsSweep } from "../analytics/track";
 import { agentRouter, githubReposHandler } from "../agent/routes";
 import { isBusy, shutdownRuns, startLifecycle } from "../agent/runner";
 import { startWorkspaceSweeper } from "../agent/workspaces";
@@ -38,6 +39,8 @@ async function startServer() {
   await startLifecycle();
   // Submitted payments are checked on-chain and applied; unpaid orders expire.
   const stopPaymentWatcher = startPaymentWatcher();
+  // Page views older than the retention are deleted daily.
+  startAnalyticsSweep();
   if (!sessionsConfigured()) console.warn("[auth] SESSION_SECRET missing: nobody can sign in until it is set.");
   // Agent commands run in a cloud sandbox per task when it is configured, never on this server.
   if (SANDBOX_MODE === "e2b") startCloudSandbox();
@@ -93,6 +96,8 @@ async function startServer() {
   app.use("/api/support", supportRouter());
   // Secrets an account saves for its tasks: names come back, values never do.
   app.use("/api/secrets", secretsRouter());
+  // Page views the site's script reports (no cookie, no IP address kept), for the Analytics page.
+  app.use("/api/analytics", analyticsCollectRouter());
   app.use("/api/keys", keysRouter());
   // Plans, API top-ups and crypto payments (the catalog is public; the rest checks the account itself).
   app.use("/api/billing", billingRouter());

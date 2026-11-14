@@ -9,6 +9,7 @@ import { AppToaster } from "@/components/common/Toaster";
 import { TooltipProvider } from "@/components/common/Tooltip";
 import { AppShell, rescueFocusOnNextShell } from "@/components/shell/AppShell";
 import { trpc } from "@/lib/trpc";
+import { trackPage } from "@/lib/analytics";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Tasks from "./pages/Tasks";
@@ -22,6 +23,7 @@ const Integrations = lazy(() => import("./pages/Integrations"));
 const Skills = lazy(() => import("./pages/Skills"));
 const ApiKeys = lazy(() => import("./pages/ApiKeys"));
 const Secrets = lazy(() => import("./pages/Secrets"));
+const Analytics = lazy(() => import("./pages/Analytics"));
 const DeveloperPortal = lazy(() => import("./pages/DeveloperPortal"));
 const Billing = lazy(() => import("./pages/Billing"));
 const Support = lazy(() => import("./pages/Support"));
@@ -61,7 +63,11 @@ export default function App() {
 
 function Gate() {
   const me = trpc.auth.me.useQuery(undefined, { retry: false, refetchOnWindowFocus: false });
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
+  // Each page opened, for the operator's Analytics page (once the session is known).
+  useEffect(() => {
+    if (!me.isLoading) trackPage(location);
+  }, [location, me.isLoading]);
 
   // Login waits for this, so it never sits on "Signing in…" when the session didn't take.
   const signedIn = useCallback(async () => {
@@ -148,6 +154,7 @@ function Gate() {
           {/* The operator's pages: other accounts land on the dashboard. */}
           <Route path="/keys">{admin ? <ApiKeys /> : <Redirect to="/" />}</Route>
           <Route path="/admin">{admin ? <Admin /> : <Redirect to="/" />}</Route>
+          <Route path="/analytics">{admin ? <Analytics /> : <Redirect to="/" />}</Route>
           <Route component={NotFound} />
         </Switch>
       </Suspense>

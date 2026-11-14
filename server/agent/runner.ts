@@ -25,6 +25,7 @@ import { githubAutoApprove } from "../services/github";
 import { savedSecretNames, secretsConfigured } from "../secrets";
 import { redactForTask, taskSecretNames } from "./requests";
 import { GITHUB_CI_WRITE_TOOLS } from "./github-ci-tools";
+import { recordAgentUsage } from "../analytics/usage";
 import { loadProjectMemory } from "./memory";
 import { linkedRepo } from "./repos";
 import { brandText, ENGINE_ALIAS } from "@shared/brand";
@@ -544,6 +545,8 @@ function chargeUsage(handle: RunHandle, model: string, usage: { inputTokens: num
   const amount = creditsFor(model, { inputTokens: input, outputTokens: usage.outputTokens });
   handle.lastTurnCredits = amount;
   chargeCredits(handle, amount, `${model}: ${usage.inputTokens} in, ${usage.outputTokens} out${usage.thinkingTokens ? ` (${usage.thinkingTokens} thinking)` : ""}`);
+  // The Analytics page's ledger: every turn, the operator's (not charged) included.
+  void recordAgentUsage(handle.taskId, model, usage, amount, Boolean(handle.operator)).catch(error => console.error("[analytics] usage not recorded:", error instanceof Error ? error.message : error));
 }
 
 /** Charge the task's account (never the operator's); a run whose account has nothing left stops. */

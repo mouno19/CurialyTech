@@ -187,3 +187,12 @@
 /* The sample wraps instead of scrolling sideways on phones. */
 .api-errors-body .code-block { white-space: pre-wrap; overflow-wrap: anywhere; }
 @container page (max-width: 640px) { .api-errors > div { grid-template-columns: minmax(0, 1fr); } }
+
+/* Analytics (operator) */
+.analytics { display: grid; gap: 16px; }
+.analytics-body { display: grid; gap: 16px; }
+.analytics-body:focus-visible { outline: none; }
+.analytics-table-card .table-wrap { max-height: 520px; overflow: auto; }
+.analytics-table-card td[data-tone="danger"] { color: var(--danger-fg); }
+.analytics-table-card td[data-tone="success"] { color: var(--success-fg, var(--text)); }
+.analytics .card-sub { font-size: 12px; color: var(--text-3); text-align: right; }
