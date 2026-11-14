@@ -89,7 +89,7 @@ export type SyncInfo = { maxSeq: number; status: TaskStatus | null; statusReason
 
 /** What a live run waits for the user to answer: approve a change, or enter a secret. */
 export type OpenRequest =
-  | { kind: "approval"; requestId: string; action: string; title: string; details: string[]; expiresAt: string; seq: number; agent?: TeamRole }
+  | { kind: "approval"; requestId: string; action: string; title: string; details: string[]; expiresAt: string; service: string; once: boolean; seq: number; agent?: TeamRole }
   | { kind: "secret"; requestId: string; name: string; reason: string; expiresAt: string; canSave: boolean; seq: number; agent?: TeamRole };
 
 export type StreamState = {
@@ -189,7 +189,7 @@ function push(state: StreamState, event: AgentEvent, item: NewItem, key = `${ite
 
 const APPROVAL_NOTES: Record<ApprovalDecision, { level: "info" | "warn"; text: string }> = {
   approved: { level: "info", text: "You approved" },
-  approved_task: { level: "info", text: "You approved this and every further GitHub change in this task" },
+  approved_task: { level: "info", text: "You approved this and every further change of this kind in this task" },
   denied: { level: "warn", text: "You denied, so nothing changed" },
   expired: { level: "warn", text: "Not answered in time, so nothing changed" },
   auto: { level: "info", text: "Done without asking (approvals are off)" },
@@ -465,7 +465,7 @@ function apply(state: StreamState, event: AgentEvent, at: number) {
       push(state, event, { kind: "notice", id: `n${event.seq}`, level: event.level, message: event.message });
       break;
     case "approval_request":
-      state.requests = [...state.requests.filter(request => request.requestId !== event.requestId), { kind: "approval", requestId: event.requestId, action: event.action, title: event.title, details: event.details, expiresAt: event.expiresAt, seq: event.seq, agent: event.agent }];
+      state.requests = [...state.requests.filter(request => request.requestId !== event.requestId), { kind: "approval", requestId: event.requestId, action: event.action, title: event.title, details: event.details, expiresAt: event.expiresAt, service: event.service ?? "GitHub", once: event.once === true, seq: event.seq, agent: event.agent }];
       break;
     case "secret_request":
       state.requests = [...state.requests.filter(request => request.requestId !== event.requestId), { kind: "secret", requestId: event.requestId, name: event.name, reason: event.reason, expiresAt: event.expiresAt, canSave: event.canSave, seq: event.seq, agent: event.agent }];

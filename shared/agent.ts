@@ -263,7 +263,7 @@ export type AgentEventBody =
   | { type: "repo_pr"; fullName: string; number: number; url: string; head: string; base: string }
   | { type: "notice"; level: "info" | "warn"; message: string }
   /** The run waits for the user to approve a change (on GitHub) shown exactly in details. */
-  | { type: "approval_request"; requestId: string; action: string; title: string; details: string[]; expiresAt: string }
+  | { type: "approval_request"; requestId: string; action: string; title: string; details: string[]; expiresAt: string; /** default GitHub */ service?: string; /** only Approve or Deny: no "approve all in this task" */ once?: boolean }
   /** auto: the account turned approvals off; task: approved earlier for the rest of this task. */
   | { type: "approval_result"; requestId: string; title: string; decision: ApprovalDecision }
   /** The run waits for the user to type a secret into a masked box (never stored in the log). */

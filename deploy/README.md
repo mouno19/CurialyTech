@@ -95,6 +95,7 @@ are used for failover and delegation only.
 9. Web: install [nginx/curialyai.conf](nginx/curialyai.conf) as a site and run `certbot --nginx -d curialy.tech -d www.curialy.tech`.
 10. GitHub OAuth app: callback `https://curialy.tech/api/auth/callback/github`, scopes `read:user user:email repo`.
 11. Vercel app (Sign in with Vercel): callback `https://curialy.tech/auth/vercel/callback`, grants Authorization Code and Refresh Token, scopes `openid profile email offline_access`, and under Permissions read-only access to Projects and Deployments (the agent's Vercel tools only read). Set `VERCEL_CLIENT_ID`, `VERCEL_CLIENT_SECRET`, `VERCEL_REDIRECT_URI` and `TOKEN_ENCRYPTION_KEY` in `/etc/curialyai.env`. `TOKEN_ENCRYPTION_KEY` also encrypts the secrets accounts save on the Secrets page: changing it makes them unreadable (they have to be saved again).
+12. Canva app (Developer Portal, public integration): redirect URL `https://curialy.tech/auth/canva/callback`, scopes `design:content:read design:content:write design:meta:read folder:read asset:read asset:write profile:read`. Set `CANVA_CLIENT_ID`, `CANVA_CLIENT_SECRET` and `CANVA_REDIRECT_URI` in `/etc/curialyai.env` (it shares `TOKEN_ENCRYPTION_KEY`).
 
 ## Day-to-day
 

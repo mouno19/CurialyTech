@@ -617,6 +617,31 @@ const MIGRATIONS: { id: number; sql: string }[] = [
       ALTER TABLE curialy.users ADD COLUMN IF NOT EXISTS github_auto_approve boolean NOT NULL DEFAULT false;
     `,
   },
+  {
+    id: 22,
+    sql: `
+      -- Connect Canva, one connection per account. Only the refresh token is kept, AES-256-GCM
+      -- encrypted (TOKEN_ENCRYPTION_KEY); it rotates on every use. 'reconnect': it stopped working,
+      -- so the token columns are cleared until the user connects again.
+      CREATE TABLE IF NOT EXISTS curialy.canva_connections (
+        user_id uuid PRIMARY KEY REFERENCES curialy.users(id) ON DELETE CASCADE,
+        canva_user_id text NOT NULL,
+        canva_team_id text,
+        display_name text,
+        scopes text NOT NULL DEFAULT '',
+        status text NOT NULL DEFAULT 'connected',
+        status_reason text,
+        refresh_ciphertext bytea,
+        refresh_iv bytea,
+        refresh_tag bytea,
+        connected_at timestamptz NOT NULL DEFAULT now(),
+        refreshed_at timestamptz,
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        CONSTRAINT canva_connections_status CHECK (status IN ('connected', 'reconnect')),
+        CONSTRAINT canva_connections_token CHECK (status <> 'connected' OR (refresh_ciphertext IS NOT NULL AND refresh_iv IS NOT NULL AND refresh_tag IS NOT NULL))
+      );
+    `,
+  },
 ];
 
 export async function migrate() {

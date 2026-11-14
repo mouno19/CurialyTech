@@ -33,7 +33,7 @@ table { border-collapse: collapse; }
 
 /* Tailwind's preflight makes every svg display:block (icons stacked over labels) and flex items
    shrink: icons sit on the text baseline and keep their size in flex rows. */
-.lucide, .github-mark, .vercel-mark { display: inline-block; vertical-align: -0.125em; flex: none; }
+.lucide, .github-mark, .vercel-mark, .canva-mark { display: inline-block; vertical-align: -0.125em; flex: none; }
 
 ::selection { background: var(--vermilion); color: var(--on-vermilion); }
 

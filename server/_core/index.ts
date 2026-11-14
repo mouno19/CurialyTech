@@ -16,6 +16,7 @@ import { startDeploymentSweeper } from "../agent/deploy";
 import { closeDb, migrate } from "../db/pg";
 import { registerGitHubAuth } from "../auth-github";
 import { registerVercelAuth } from "../auth-vercel";
+import { registerCanvaAuth } from "../auth-canva";
 import { previewHandler } from "../agent/preview";
 import { servePublishedPreview } from "../agent/deploy-proxy";
 import { SANDBOX_MODE } from "../agent/sandbox";
@@ -84,6 +85,8 @@ async function startServer() {
   registerGitHubAuth(app);
   // Connect Vercel: /auth/vercel/start, /callback (the redirect URI registered on the Vercel app), /status and /disconnect.
   registerVercelAuth(app);
+  // Connect Canva: /auth/canva/start, /callback (the redirect URL registered for the Canva app), /status and /disconnect.
+  registerCanvaAuth(app);
   // Every account reaches the agent; each route checks that the task, file or repository is its own.
   app.use("/api/agent", requireUser, agentRouter());
   app.use("/api/account", accountRouter());

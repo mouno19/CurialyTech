@@ -7,7 +7,7 @@ import type { LucideIcon } from "lucide-react";
 import { Activity, BookOpen, Check, ChevronsUpDown, ExternalLink, House, Images, KeyRound, LayoutDashboard, LifeBuoy, LockKeyhole, LogOut, Menu, MoreHorizontal, PanelLeftClose, PanelLeftOpen, PlugZap, RefreshCw, ShieldCheck, SquareTerminal, Store, Unplug, Wallet, X, Braces } from "lucide-react";
 import { toast } from "sonner";
 import { agentApi, authApi, errorMessage, relativeTime, type ProviderProbe } from "@/lib/api";
-import { needsOperator, useGitHub, useHealth, useVercel } from "@/lib/appStatus";
+import { needsOperator, useCanva, useGitHub, useHealth, useVercel } from "@/lib/appStatus";
 import { useAccount } from "@/lib/account";
 import { CreditsMeter } from "./CreditsMeter";
 import { useSupportUnread } from "@/lib/support";
@@ -18,6 +18,7 @@ import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { cx } from "@/components/common/cx";
 import { GitHubMark } from "@/components/common/GitHubMark";
 import { VercelMark } from "@/components/common/VercelMark";
+import { CanvaMark } from "@/components/common/CanvaMark";
 import { IconButton } from "@/components/common/IconButton";
 import { Spinner } from "@/components/common/Spinner";
 import { StateNotice } from "@/components/common/StateNotice";
@@ -297,6 +298,7 @@ function SidebarBody({ rail, headEnd, onNavigate }: { rail: boolean; headEnd?: R
         <HealthStatus rail={rail} />
         <GitHubAccount rail={rail} />
         <VercelAccount rail={rail} />
+        <CanvaAccount rail={rail} />
         <ThemeItem rail={rail} />
         <HomepageLink rail={rail} />
         <SignOut rail={rail} />
@@ -585,6 +587,94 @@ function VercelAccount({ rail }: { rail: boolean }) {
       </DropdownMenu.Root>
       <ConfirmDialog open={confirmOpen} onOpenChange={setConfirmOpen} title="Disconnect Vercel?" confirmLabel="Disconnect" busyLabel="Disconnecting…" tone="danger" onConfirm={disconnect}>
         Curialy revokes its access on Vercel and deletes the stored connection, so the agent can no longer read your projects, deployments or build logs. Nothing on Vercel is changed.
+      </ConfirmDialog>
+    </>
+  );
+}
+
+/** Connect Canva: the agent lists and reads the account's designs and folders, and creates designs the user approves. */
+function CanvaAccount({ rail }: { rail: boolean }) {
+  const [here] = useLocation();
+  const connectHref = `/auth/canva/start${here && here !== "/" ? `?next=${encodeURIComponent(here)}` : ""}`;
+  const { status, loading, error, refresh } = useCanva();
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const deferred = useDeferredSelect(triggerRef);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const withTip = (label: string, element: ReactElement) => (rail ? <Tip content={label} side="right">{element}</Tip> : element);
+
+  if (!status) {
+    if (loading || !error) {
+      return (
+        <span className="nav-item" data-muted="">
+          <CanvaMark />
+          <span className="nav-text">Canva…</span>
+        </span>
+      );
+    }
+    return withTip(
+      "Couldn't check the Canva connection. Retry",
+      <button type="button" className="nav-item" onClick={() => void refresh()}>
+        <CanvaMark />
+        <span className="nav-text">Canva · Retry</span>
+      </button>,
+    );
+  }
+  // Not set up on this server: nothing to offer.
+  if (!status.configured) return null;
+  if (!status.connected) {
+    return withTip(
+      status.needsReconnect ? "Canva stopped accepting the connection (it expired or was revoked). Connect again" : "Let the agent find your Canva designs and create new ones you approve",
+      <a className="nav-item" href={connectHref}>
+        <CanvaMark />
+        <span className="nav-text">{status.needsReconnect ? "Reconnect Canva" : "Connect Canva"}</span>
+        {status.needsReconnect && !rail && <span className="dot" data-tone="warning" aria-hidden="true" />}
+      </a>,
+    );
+  }
+
+  const name = status.name ?? "Canva";
+  const disconnect = async () => {
+    const result = await agentApi.disconnectCanva();
+    toast.success(result.revoked ? "Canva disconnected." : "Canva disconnected here. Canva didn't confirm the revocation, so also remove Curialy's access in your Canva settings.");
+    setTimeout(() => void refresh(), 0);
+  };
+  return (
+    <>
+      <DropdownMenu.Root>
+        {withTip(
+          `Canva · Connected as ${name}`,
+          <DropdownMenu.Trigger asChild>
+            <button ref={triggerRef} type="button" className="nav-item" aria-label={rail ? `Canva, connected as ${name}` : undefined}>
+              <CanvaMark />
+              <span className="nav-text">Connected as {name}</span>
+            </button>
+          </DropdownMenu.Trigger>,
+        )}
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content className="menu" side={rail ? "right" : "top"} align="start" sideOffset={8} collisionPadding={12} onCloseAutoFocus={deferred.onCloseAutoFocus}>
+            <DropdownMenu.Label className="menu-label">Canva · {name}</DropdownMenu.Label>
+            <DropdownMenu.Item asChild className="menu-item">
+              <a href="https://www.canva.com/projects" target="_blank" rel="noopener noreferrer">
+                <ExternalLink size={15} aria-hidden="true" />
+                <span className="menu-item-body">Open Canva</span>
+              </a>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item asChild className="menu-item">
+              <a href={connectHref}>
+                <RefreshCw size={15} aria-hidden="true" />
+                <span className="menu-item-body">Reconnect</span>
+              </a>
+            </DropdownMenu.Item>
+            <DropdownMenu.Separator className="menu-sep" />
+            <DropdownMenu.Item className="menu-item" data-tone="danger" onSelect={deferred.defer(() => setConfirmOpen(true))}>
+              <Unplug size={15} aria-hidden="true" />
+              <span className="menu-item-body">Disconnect Canva</span>
+            </DropdownMenu.Item>
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
+      <ConfirmDialog open={confirmOpen} onOpenChange={setConfirmOpen} title="Disconnect Canva?" confirmLabel="Disconnect" busyLabel="Disconnecting…" tone="danger" onConfirm={disconnect}>
+        Curialy revokes its access on Canva and deletes the stored connection, so the agent can no longer see or create designs. Your designs are not changed.
       </ConfirmDialog>
     </>
   );

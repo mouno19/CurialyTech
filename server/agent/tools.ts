@@ -33,6 +33,7 @@ import { classify } from "./artifacts";
 import { backgroundAvailable, describeJob, failed, jobKind, MAX_JOBS, SERVER_JOB_SEC, TASK_JOB_SEC, type Job, type JobRegistry } from "./jobs";
 import { commandOutput } from "./output";
 import { runVercelTool, VERCEL_SCHEMAS, VERCEL_TOOLS } from "./vercel-tools";
+import { CANVA_SCHEMAS, CANVA_TOOLS, runCanvaTool, type CanvaToolName } from "./canva-tools";
 import { approveOnGitHub, GITHUB_CI_SCHEMAS, GITHUB_CI_TOOLS, runGitHubCiTool, type GitHubCiToolName } from "./github-ci-tools";
 import { askSecret, taskSecrets, type SecretStore } from "./requests";
 import { loadSecret, saveSecret, secretName, secretsConfigured } from "../secrets";
@@ -179,6 +180,7 @@ const schemas = {
   }),
   ...VERCEL_SCHEMAS,
   ...GITHUB_CI_SCHEMAS,
+  ...CANVA_SCHEMAS,
   request_secret: z.object({ name: secretName, reason: z.string().trim().min(3).max(300) }),
 };
 
@@ -396,13 +398,13 @@ const GITHUB_TOOLS: ToolDef[] = [
   },
 ];
 
-export function toolsFor(opts: { coding: boolean; web: boolean; eager: boolean; github?: boolean; vercel?: boolean; operator?: boolean }): Anthropic.Tool[] {
+export function toolsFor(opts: { coding: boolean; web: boolean; eager: boolean; github?: boolean; vercel?: boolean; canva?: boolean; operator?: boolean }): Anthropic.Tool[] {
   const all = toolList(opts);
   const tools = opts.operator === false ? all.filter(tool => !OPERATOR_TOOLS.has(tool.name)) : all;
   return opts.eager ? tools.map(tool => ({ ...tool, eager_input_streaming: true })) : tools;
 }
 
-function toolList(opts: { coding: boolean; web: boolean; github?: boolean; vercel?: boolean }): ToolDef[] {
+function toolList(opts: { coding: boolean; web: boolean; github?: boolean; vercel?: boolean; canva?: boolean }): ToolDef[] {
   const tools: ToolDef[] = [...INSIGHT_TOOLS];
   if (opts.coding) tools.push(...CODING_TOOLS, ATTACH_TOOL);
   if (opts.coding && backgroundAvailable()) tools.push(...JOB_TOOLS);
@@ -410,6 +412,8 @@ function toolList(opts: { coding: boolean; web: boolean; github?: boolean; verce
   if (opts.coding) tools.push(SECRET_TOOL);
   // Read only, so in chat and agent mode alike.
   if (opts.vercel) tools.push(...VERCEL_TOOLS);
+  // In chat and agent mode alike: creating a design waits for the user's approval.
+  if (opts.canva) tools.push(...CANVA_TOOLS);
   if (opts.coding && deployConfigured().ok) tools.push(DEPLOY_TOOL);
   if ((opts.web || opts.coding) && browserConfigured()) tools.push(BROWSE_TOOL, ...BROWSER_TOOLS);
   if (opts.coding && PROVIDER_ENV.browserbaseKey && PROVIDER_ENV.browserbaseProject) tools.push(VISUAL_TOOL);
@@ -640,6 +644,11 @@ async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOu
     case "github_rerun":
     case "github_cancel_run":
       return runGitHubCiTool(name as GitHubCiToolName, input, ctx);
+    case "canva_list_designs":
+    case "canva_get_design":
+    case "canva_list_folder":
+    case "canva_create_design":
+      return runCanvaTool(name as CanvaToolName, input, ctx);
     case "request_secret": {
       const { name: secret, reason } = input as z.infer<typeof schemas.request_secret>;
       const owner = await taskOwner(ctx.sessionId);

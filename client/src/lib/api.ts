@@ -128,6 +128,8 @@ export type MediaQuery = { kind?: MediaKind; q?: string };
 export type GitHubRepo = { id: number; name: string; full_name: string; private: boolean; default_branch: string; description: string | null; updated_at: string; language: string | null };
 /** autoApprove: the account turned off asking before the agent changes something on GitHub. */
 export type GitHubStatus = { configured: boolean; connected: boolean; login: string | null; name: string | null; avatarUrl: string | null; scopes: string[]; missingScopes: string[]; connectedAt: string | null; autoApprove?: boolean };
+/** needsReconnect: it was connected, but Canva stopped accepting it (expired or revoked). */
+export type CanvaStatus = { configured: boolean; connected: boolean; needsReconnect: boolean; name: string | null; scopes: string[]; connectedAt: string | null };
 /** A secret the account saved (never its value). */
 export type SavedSecret = { name: string; note: string | null; createdAt: string; updatedAt: string; lastUsedAt: string | null };
 /** The answer to what a run waits for: an approval, or a secret (value) from the masked box. */
@@ -285,6 +287,9 @@ export const agentApi = {
   vercel: () => api<VercelStatus>("/auth/vercel/status"),
   /** Revokes the grant on Vercel and deletes what is stored for it. */
   disconnectVercel: () => api<{ ok: boolean; revoked: boolean }>("/auth/vercel/disconnect", { method: "POST", json: {} }),
+  canva: () => api<CanvaStatus>("/auth/canva/status"),
+  /** Revokes the grant on Canva and deletes what is stored for it. */
+  disconnectCanva: () => api<{ ok: boolean; revoked: boolean }>("/auth/canva/disconnect", { method: "POST", json: {} }),
   /** Ask before the agent changes something on GitHub (false), or let changes go ahead (true). */
   setGithubApprovals: (autoApprove: boolean) => api<{ autoApprove: boolean }>("/api/agent/github/approvals", { method: "PUT", json: { autoApprove } }),
   answerRequest: (taskId: string, requestId: string, answer: RequestAnswer) => api<{ ok: true }>(`/api/agent/tasks/${enc(taskId)}/requests/${enc(requestId)}`, { method: "POST", json: answer }),

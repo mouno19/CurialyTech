@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { agentApi, ApiError, errorMessage, type GitHubStatus, type HealthResponse, type ProviderProbe, type VercelStatus } from "./api";
+import { agentApi, ApiError, errorMessage, type CanvaStatus, type GitHubStatus, type HealthResponse, type ProviderProbe, type VercelStatus } from "./api";
 import { mediaHealth } from "./mediaHealth";
 
 /**
@@ -231,4 +231,43 @@ function subscribeVercel(listener: () => void) {
 export function useVercel() {
   const snapshot = useSyncExternalStore(subscribeVercel, vercel.get, vercel.get);
   return { ...snapshot, refresh: refreshVercel };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Canva connection: the same, for Connect Canva.
+// ---------------------------------------------------------------------------------------------
+
+export type CanvaSnapshot = { status: CanvaStatus | null; loading: boolean; error: string | null; loadedAt: number | null };
+
+const canva = createStore<CanvaSnapshot>({ status: null, loading: false, error: null, loadedAt: null });
+let canvaInflight: Promise<CanvaStatus | null> | null = null;
+
+export function refreshCanva(): Promise<CanvaStatus | null> {
+  canvaInflight ??= (async () => {
+    canva.set({ loading: true });
+    try {
+      const status = await agentApi.canva();
+      canva.set({ status, loading: false, error: null, loadedAt: Date.now() });
+      return status;
+    } catch (error) {
+      canva.set({ loading: false, error: errorMessage(error, "Could not check Canva."), loadedAt: Date.now() });
+      return canva.get().status;
+    } finally {
+      canvaInflight = null;
+    }
+  })();
+  return canvaInflight;
+}
+
+function subscribeCanva(listener: () => void) {
+  const unsubscribe = canva.subscribe(listener);
+  const { loadedAt } = canva.get();
+  if (!canvaInflight && (!loadedAt || Date.now() - loadedAt > GITHUB_STALE_MS)) void refreshCanva();
+  return unsubscribe;
+}
+
+/** { status, loading, error, refresh }. status is null while loading or when the check failed. */
+export function useCanva() {
+  const snapshot = useSyncExternalStore(subscribeCanva, canva.get, canva.get);
+  return { ...snapshot, refresh: refreshCanva };
 }

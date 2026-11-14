@@ -20,6 +20,7 @@ import { materializeWorkspace, snapshotWorkspace, withWorkspaceLock } from "./wo
 import { aiComplete, loadMediaBytes } from "../media/snowflake";
 import { getConnection } from "../services/github";
 import { connectedIdentity, vercelConfigured } from "../services/vercel";
+import { canvaConfigured, connectedIdentity as canvaIdentity } from "../services/canva";
 import { githubAutoApprove } from "../services/github";
 import { savedSecretNames, secretsConfigured } from "../secrets";
 import { redactForTask, taskSecretNames } from "./requests";
@@ -294,6 +295,9 @@ export type RunContext = {
   /** The task's account has Vercel connected: the read-only vercel_* tools, and what they are for (a further system block). */
   vercel?: boolean;
   vercelContext?: string;
+  /** The task's account has Canva connected: the canva_* tools, and what they can do (a further system block). */
+  canva?: boolean;
+  canvaContext?: string;
   /** Agent mode: which secrets exist (names only) and how to ask for one. */
   secretsContext?: string;
   /** Short id used to build block and call ids. */
@@ -606,7 +610,7 @@ type RunOptions = {
  * every tool except the GitHub write tools (the preview goes through its own temporary repository).
  */
 function deployRunTools() {
-  const blocked = new Set(["github_commit_and_push", "github_create_pr", "github_clone_to_workspace", "github_sync", "generate_speech", ...GITHUB_CI_WRITE_TOOLS]);
+  const blocked = new Set(["github_commit_and_push", "github_create_pr", "github_clone_to_workspace", "github_sync", "generate_speech", ...GITHUB_CI_WRITE_TOOLS, "canva_create_design"]);
   return new Set(toolsFor({ coding: true, web: true, eager: false, github: true }).map(tool => tool.name).filter(name => !blocked.has(name)));
 }
 
@@ -1088,7 +1092,7 @@ export function latestRequest(conversation: Record<string, unknown>[]) {
 
 /** System blocks after the static prompt: GitHub context, saved skills, the repository's project memory, the design brief. */
 function extraSystem(ctx: RunContext) {
-  return [ctx.context, ctx.vercelContext, ctx.secretsContext, ctx.skills, ctx.memory?.text, ctx.designText].filter((text): text is string => Boolean(text));
+  return [ctx.context, ctx.vercelContext, ctx.canvaContext, ctx.secretsContext, ctx.skills, ctx.memory?.text, ctx.designText].filter((text): text is string => Boolean(text));
 }
 
 /** Load the linked repository's project memory into the shared slot. Announce only when a saved note arrives. */
@@ -1117,6 +1121,20 @@ async function githubContext(taskId: string) {
 - For a failed build: github_list_runs (status failure), github_get_run for the failed step, github_run_logs for the cause; fix it, push, then check the new run.
 - ${autoApprove ? "The user turned off approvals: changes on GitHub go ahead without asking, so do only what they asked for." : "Every change on GitHub (push, pull request, starting, rerunning or cancelling a workflow) shows the user exactly what will change and waits for their approval in the chat. If they deny it, nothing changed: don't retry it or a variation of it unless they ask."}
 - Push to the cloned branch only when the user explicitly asks for it; otherwise push to a new branch and open a pull request. Never rewrite history.`,
+  };
+}
+
+async function canvaContext(taskId: string) {
+  const owner = canvaConfigured() ? await taskOwner(taskId) : null;
+  const identity = owner ? await canvaIdentity(owner).catch(() => null) : null;
+  if (!identity) return { canva: false, context: "" };
+  return {
+    canva: true,
+    context: `User Canva context:
+- Connected Canva account: ${identity.name ?? "the user's account"}
+- With the canva_* tools you can list and search the user's designs, read a design's details and links, list folders, and create new blank designs. You never see the access token.
+- Creating a design shows the user its exact title, type and size and waits for their approval; if they deny, nothing is created: don't retry unless they ask. After creating one, give them the edit link.
+- The API creates a blank design (optionally with one image from their uploads). It can't add or edit text, shapes or pages: say so, and point them to the edit link to add content in Canva.${identity.scopes.includes("folder:write") ? "" : "\n- It can't put a design in a folder (that needs the folder:write permission): new designs go to the top of their Projects."}`,
   };
 }
 
@@ -1176,6 +1194,7 @@ async function executeRun(handle: RunHandle, conversation: Record<string, unknow
     let existing!: Awaited<ReturnType<typeof getAgentTask>>;
     let gh = { github: false, context: "" };
     let vc = { vercel: false, context: "" };
+    let cv = { canva: false, context: "" };
     let secretsText = "";
     let operator = false;
     let skillText = "";
@@ -1185,6 +1204,7 @@ async function executeRun(handle: RunHandle, conversation: Record<string, unknow
       existing = await getAgentTask(taskId);
       gh = await githubContext(taskId);
       vc = await vercelContext(taskId);
+      cv = await canvaContext(taskId);
       secretsText = opts.mode === "agent" ? await secretsContext(taskId) : "";
       operator = await ownerIsOperator(taskId);
       const owner = await taskOwner(taskId);
@@ -1217,6 +1237,8 @@ async function executeRun(handle: RunHandle, conversation: Record<string, unknow
       github: gh.github,
       vercel: vc.vercel,
       vercelContext: vc.context || undefined,
+      canva: cv.canva,
+      canvaContext: cv.context || undefined,
       secretsContext: secretsText || undefined,
       runId: handle.runId.slice(0, 8),
       runToken: handle.runId,
@@ -1696,7 +1718,7 @@ async function runAnthropicLoop(ctx: RunContext, conversation: Anthropic.Message
 function contextTools(ctx: RunContext) {
   const coding = ctx.mode === "agent";
   // Eager input streaming lets file bodies stream into the UI as they are generated.
-  const base = toolsFor({ coding, web: ctx.webSearch, eager: ctx.spec.eagerInput && !ctx.flags.noEager, github: ctx.github, vercel: ctx.vercel, operator: ctx.operator });
+  const base = toolsFor({ coding, web: ctx.webSearch, eager: ctx.spec.eagerInput && !ctx.flags.noEager, github: ctx.github, vercel: ctx.vercel, canva: ctx.canva, operator: ctx.operator });
   const allowed = ctx.allowedTools;
   const offered = allowed ? base.filter(tool => allowed.has(tool.name)) : base;
   return [...offered, ...Object.values(ctx.virtualTools ?? {}).map(tool => tool.definition)];
@@ -2014,7 +2036,7 @@ function openAITools(tools: Anthropic.Tool[]) {
 
 async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unknown>[]) {
   const coding = ctx.mode === "agent";
-  const tools = openAITools(toolsFor({ coding, web: ctx.webSearch, eager: false, github: ctx.github, vercel: ctx.vercel, operator: ctx.operator }));
+  const tools = openAITools(toolsFor({ coding, web: ctx.webSearch, eager: false, github: ctx.github, vercel: ctx.vercel, canva: ctx.canva, operator: ctx.operator }));
   const system = () => ({ role: "system", content: [coding ? AGENT_SYSTEM : CHAT_SYSTEM, ...extraSystem(ctx)].filter(Boolean).join("\n\n") });
   let healIteration = 0;
   let lastText = "";

@@ -56,35 +56,44 @@ export type ApprovalRequest = {
   title: string;
   /** Exactly what will change, one fact per line. */
   details: string[];
+  /** Where the change happens (the card says so): "GitHub" by default. Approving "for this task" covers this service only. */
+  service?: string;
 };
 
 /**
  * Ask before a change. autoApprove: the account turned asking off (it still shows in the log).
  * Resolves approved or not, with what to tell the model when not; throws when the run stops.
  */
-export async function askApproval(ctx: RequestContext, request: ApprovalRequest, opts: { autoApprove: boolean; ttlMs?: number }): Promise<{ approved: boolean; message: string }> {
+export async function askApproval(ctx: RequestContext, request: ApprovalRequest, opts: { autoApprove: boolean; ttlMs?: number; once?: boolean }): Promise<{ approved: boolean; message: string }> {
   const requestId = randomUUID();
+  const service = request.service ?? "GitHub";
+  const key = `${ctx.taskId}\u0000${service}`;
   const result = (decision: ApprovalDecision) => ctx.emit({ type: "approval_result", requestId, title: request.title, decision });
   if (opts.autoApprove) {
     result("auto");
     return { approved: true, message: "" };
   }
-  const earlier = approvedTasks.get(ctx.taskId);
+  // once: every change of this kind is approved on its own (no "approve all in this task").
+  const earlier = opts.once ? undefined : approvedTasks.get(key);
   if (earlier && Date.now() - earlier < TASK_APPROVAL_MS) {
     result("task");
     return { approved: true, message: "" };
   }
   const ttlMs = opts.ttlMs ?? REQUEST_TTL_MS;
-  ctx.emit({ type: "approval_request", requestId, action: request.action, title: request.title, details: request.details.slice(0, 40).map(line => line.slice(0, 500)), expiresAt: new Date(Date.now() + ttlMs).toISOString() });
+  ctx.emit({
+    type: "approval_request", requestId, action: request.action, title: request.title, details: request.details.slice(0, 40).map(line => line.slice(0, 500)),
+    expiresAt: new Date(Date.now() + ttlMs).toISOString(), ...(request.service ? { service } : {}), ...(opts.once ? { once: true } : {}),
+  });
   const answer = await wait(ctx, requestId, "approval", ttlMs);
   if (!answer || !("decision" in answer)) {
     result("expired");
     stopped(ctx);
     return { approved: false, message: `The user didn't answer the approval request within ${Math.round(ttlMs / 60_000)} minutes, so nothing was changed. Tell them what you were about to do and that it waits for their approval; don't try again unless they ask.` };
   }
-  result(answer.decision);
-  if (answer.decision === "denied") return { approved: false, message: "The user denied this, so nothing was changed. Don't try it again, or a variation of it, unless they ask: tell them what you would have done." };
-  if (answer.decision === "approved_task") approvedTasks.set(ctx.taskId, Date.now());
+  const decision = opts.once && answer.decision === "approved_task" ? "approved" : answer.decision;
+  result(decision);
+  if (decision === "denied") return { approved: false, message: "The user denied this, so nothing was changed. Don't try it again, or a variation of it, unless they ask: tell them what you would have done." };
+  if (decision === "approved_task") approvedTasks.set(key, Date.now());
   return { approved: true, message: "" };
 }
 
@@ -171,7 +180,7 @@ export function redactForTask<T>(taskId: string, value: T): T {
 
 export function forgetTask(taskId: string) {
   secrets.delete(taskId);
-  approvedTasks.delete(taskId);
+  for (const key of approvedTasks.keys()) if (key.startsWith(`${taskId}\u0000`)) approvedTasks.delete(key);
 }
 
 /** Tests. */
@@ -185,7 +194,7 @@ export function resetRequests() {
 const sweep = setInterval(() => {
   const now = Date.now();
   for (const [taskId, entry] of secrets) if (now - entry.usedAt > SECRET_IDLE_MS) secrets.delete(taskId);
-  for (const [taskId, at] of approvedTasks) if (now - at > TASK_APPROVAL_MS) approvedTasks.delete(taskId);
+  for (const [key, at] of approvedTasks) if (now - at > TASK_APPROVAL_MS) approvedTasks.delete(key);
 }, 10 * 60_000);
 sweep.unref?.();
 

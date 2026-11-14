@@ -45,6 +45,15 @@ const VERCEL_NOTICES: Record<string, { tone: "success" | "warning"; text: string
   busy: { tone: "warning", text: "Too many Vercel sign-in attempts just now. Wait a few minutes and try again." },
 };
 
+const CANVA_NOTICES: Record<string, { tone: "success" | "warning"; text: string }> = {
+  connected: { tone: "success", text: "Canva connected. The agent can now find your designs and folders, and create new designs after you approve each one." },
+  denied: { tone: "warning", text: "Canva sign-in was cancelled, so nothing was connected." },
+  state_mismatch: { tone: "warning", text: "The Canva sign-in link expired, was opened in another browser, or another account signed in meanwhile. Start Connect Canva again from here." },
+  no_refresh_token: { tone: "warning", text: "Canva didn't grant lasting access, so the connection couldn't be kept. Connect again." },
+  not_configured: { tone: "warning", text: "Canva isn't set up on this server yet." },
+  busy: { tone: "warning", text: "Too many Canva sign-in attempts just now. Wait a few minutes and try again." },
+};
+
 const RECENT = 6;
 /** The composer's typing placeholder cycles through these while it is empty and not focused. */
 const EXAMPLES = [
@@ -70,6 +79,10 @@ export default function Dashboard() {
   const [seed, setSeed] = useState<ComposerSeed>();
   const [githubNotice, setGithubNotice] = useState(() => new URLSearchParams(window.location.search).get("github"));
   // Only a known shape of code is shown (the address bar is anyone's to write).
+  const [canvaNotice, setCanvaNotice] = useState(() => {
+    const code = new URLSearchParams(window.location.search).get("canva");
+    return code === null ? null : /^[a-z_]{1,40}$/.test(code) ? code : "error";
+  });
   const [vercelNotice, setVercelNotice] = useState(() => {
     const code = new URLSearchParams(window.location.search).get("vercel");
     return code === null ? null : /^[a-z_]{1,40}$/.test(code) ? code : "error";
@@ -79,7 +92,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.has("github") || params.has("vercel")) window.history.replaceState(null, "", "/");
+    if (params.has("github") || params.has("vercel") || params.has("canva")) window.history.replaceState(null, "", "/");
   }, []);
 
   const loadStats = useCallback(() => agentApi.stats().then(data => { setStats(data); setStatsFailed(false); }, () => setStatsFailed(true)), []);
@@ -132,7 +145,9 @@ export default function Dashboard() {
     ? GITHUB_NOTICES[githubNotice] ?? { tone: "warning" as const, text: `Connecting GitHub didn't work (${githubNotice}). Try Connect GitHub again; if it keeps failing, the server log has the details.` }
     : vercelNotice
       ? VERCEL_NOTICES[vercelNotice] ?? { tone: "warning" as const, text: `Connecting Vercel didn't work (${vercelNotice}). Try Connect Vercel again; if it keeps failing, the server log has the details.` }
-      : null;
+      : canvaNotice
+        ? CANVA_NOTICES[canvaNotice] ?? { tone: "warning" as const, text: `Connecting Canva didn't work (${canvaNotice}). Try Connect Canva again; if it keeps failing, the server log has the details.` }
+        : null;
   const inProgress = list.tasks ? list.tasks.filter(task => isActiveStatus(task.status)).length : activeTasks;
 
   return (
@@ -143,7 +158,7 @@ export default function Dashboard() {
             <div className="notice dash-notice" data-tone={notice.tone} role="status">
               {notice.tone === "success" ? <Check size={16} aria-hidden="true" /> : <TriangleAlert size={16} aria-hidden="true" />}
               <div className="notice-body">{notice.text}</div>
-              <IconButton size="sm" label="Dismiss" icon={X} tooltip={false} onClick={() => { setGithubNotice(null); setVercelNotice(null); }} />
+              <IconButton size="sm" label="Dismiss" icon={X} tooltip={false} onClick={() => { setGithubNotice(null); setVercelNotice(null); setCanvaNotice(null); }} />
             </div>
           )}
 

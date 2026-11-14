@@ -50,7 +50,7 @@ function ApprovalCard({ taskId, request }: { taskId: string; request: Extract<Op
       <header className="request-head">
         <ShieldAlert size={16} aria-hidden="true" />
         <div className="request-head-text">
-          <p className="request-eyebrow">Approve this change on GitHub?{request.agent && <RoleBadge role={request.agent} />}</p>
+          <p className="request-eyebrow">Approve this change on {request.service}?{request.agent && <RoleBadge role={request.agent} />}</p>
           <h3 id={titleId} className="request-title">{request.title}</h3>
         </div>
         <Expiry expiresAt={request.expiresAt} />
@@ -60,7 +60,7 @@ function ApprovalCard({ taskId, request }: { taskId: string; request: Extract<Op
       </ul>
       <div className="request-actions">
         <Button variant="primary" size="sm" icon={Check} busy={isBusy("approved")} disabled={sent} onClick={() => void answer("approved")}>Approve</Button>
-        <Button size="sm" icon={CheckCheck} busy={isBusy("approved_task")} disabled={sent} onClick={() => void answer("approved_task")}>Approve all in this task</Button>
+        {!request.once && <Button size="sm" icon={CheckCheck} busy={isBusy("approved_task")} disabled={sent} onClick={() => void answer("approved_task")}>Approve all in this task</Button>}
         <Button variant="danger" size="sm" icon={X} busy={isBusy("denied")} disabled={sent} onClick={() => void answer("denied")}>Deny</Button>
         {sent && <span className="request-sent" role="status">Sent</span>}
       </div>
