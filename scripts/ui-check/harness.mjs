@@ -66,6 +66,9 @@ export function buildPlan(fx, { viewports = VIEWPORTS, only = null } = {}) {
     { id: "keys", path: "/keys" },
     // The operator's dashboard (accounts, promo codes, settings).
     { id: "admin", path: "/admin" },
+    // The operator's Analytics: visitors, and use with its estimated cost.
+    { id: "analytics", path: "/analytics", tall: true },
+    { id: "analytics-usage", path: "/analytics", tall: true, action: "analytics-usage" },
     { id: "login", path: "/login", signedOut: true },
     // The public homepage: scrolled through first (every reveal fires), then captured whole.
     { id: "home", path: "/", signedOut: true, fullPage: true, action: "scroll-through" },

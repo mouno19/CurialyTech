@@ -1165,6 +1165,14 @@ export function createFixtures({ now = Date.now(), deployUrls = "vendor" } = {})
     ["POST", "/api/agent/tasks/:id/speech", () => ({ contentType: "audio/mpeg", body: "" })],
     ["GET", "/api/account/credits", () => ({ json: { credits: credits(), history: [] } })],
     ["GET", "/api/admin/overview", () => ({ json: { users: adminUsers.length, newToday: 1, activeToday: 5, activeRuns: 2, creditsUsedToday: 2318.25, activePromoCodes: 1, settings: { creditsPerWindow: 60, windowHours: 5, signupsOpen: true } } })],
+    // The Analytics page (operator): visitors, and use with its estimated cost.
+    ["GET", "/api/admin/analytics/traffic", ({ query }) => ({ json: analyticsTraffic(query.get("range") ?? "7d") })],
+    ["GET", "/api/admin/analytics/usage", ({ query }) => ({ json: analyticsUsage(query.get("range") ?? "7d") })],
+    ["POST", "/api/analytics/hit", () => ({ status: 204, body: "" })],
+    ["POST", "/api/analytics/leave", () => ({ status: 204, body: "" })],
+    // Integrations not set up in this world: their sidebar items stay hidden.
+    ["GET", "/auth/vercel/status", () => ({ json: { configured: false, connected: false, needsReconnect: false, name: null, username: null, email: null, avatarUrl: null, scopes: [], connectedAt: null } })],
+    ["GET", "/auth/canva/status", () => ({ json: { configured: false, connected: false, needsReconnect: false, name: null, scopes: [], connectedAt: null } })],
     ["GET", "/api/admin/users", () => ({ json: { users: adminUsers, more: false } })],
     ["GET", "/api/admin/promo-codes", () => ({ json: { codes: promoCodes } })],
     ["GET", "/api/admin/settings", () => ({ json: { settings: { creditsPerWindow: 60, windowHours: 5, signupsOpen: true } } })],
@@ -1233,5 +1241,94 @@ export function createFixtures({ now = Date.now(), deployUrls = "vendor" } = {})
       // Orders' countdowns and deadlines are relative to the check that is starting.
       billing.refresh(Date.now());
     },
+  };
+}
+
+// ---- Analytics (operator) ----
+
+const ANALYTICS_COUNT = { "24h": 24, "7d": 7, "30d": 30, "90d": 90 };
+/** The range's bucket starts (UTC), oldest first, and a steady made-up wave for each. */
+function analyticsBuckets(range) {
+  const count = ANALYTICS_COUNT[range] ?? 7;
+  const hour = range === "24h";
+  const step = hour ? 3_600_000 : 86_400_000;
+  const end = Math.floor(Date.now() / step) * step;
+  return { bucket: hour ? "hour" : "day", starts: Array.from({ length: count }, (_, index) => new Date(end - (count - 1 - index) * step).toISOString()), wave: (index, size) => Math.max(0, Math.round(size * (0.55 + 0.35 * Math.sin(index * 0.8) + 0.12 * ((index * 7) % 5) / 4))) };
+}
+const row = (key, label, views, visitors) => ({ key, label, views, visitors });
+
+function analyticsTraffic(range) {
+  const { bucket, starts, wave } = analyticsBuckets(range);
+  const size = bucket === "hour" ? 14 : 120;
+  const buckets = starts.map((start, index) => {
+    const signedIn = wave(index, size * 0.35);
+    const anonymous = wave(index + 3, size * 0.65);
+    return { start, signedIn, anonymous, visitors: Math.round((signedIn + anonymous) * 0.42) };
+  });
+  const views = buckets.reduce((sum, b) => sum + b.signedIn + b.anonymous, 0);
+  const visitors = buckets.reduce((sum, b) => sum + b.visitors, 0);
+  const visits = Math.round(views / 2.6);
+  return {
+    range, timeZone: "UTC", bucket,
+    totals: { visits, visitors, newVisitors: Math.round(visitors * 0.38), views, accounts: Math.max(1, Math.round(visitors / 9)), signups: Math.max(1, Math.round(visitors / 40)), avgDurationMs: 74_000 },
+    buckets,
+    pages: [row("/", "/", Math.round(views * 0.31), Math.round(visitors * 0.6)), row("/tasks/:id", "/tasks/:id", Math.round(views * 0.22), Math.round(visitors * 0.2)), row("/docs", "/docs", Math.round(views * 0.12), Math.round(visitors * 0.18)), row("/billing", "/billing", Math.round(views * 0.08), Math.round(visitors * 0.1)), row("/developer", "/developer", Math.round(views * 0.06), Math.round(visitors * 0.07)), row("/pay/:code", "/pay/:code", Math.round(views * 0.03), Math.round(visitors * 0.03))],
+    sources: [row("direct", "Direct (no referrer)", Math.round(visits * 0.41), Math.round(visitors * 0.35)), row("Google", "Google", Math.round(visits * 0.24), Math.round(visitors * 0.22)), row("X", "X", Math.round(visits * 0.14), Math.round(visitors * 0.13)), row("GitHub", "GitHub", Math.round(visits * 0.09), Math.round(visitors * 0.08)), row("ref:MOUNO19", "Referral code MOUNO19", Math.round(visits * 0.05), Math.round(visitors * 0.05)), row("newsletter", "newsletter", Math.round(visits * 0.03), Math.round(visitors * 0.03))],
+    countries: [row("BD", "Bangladesh", Math.round(visits * 0.36), Math.round(visitors * 0.34)), row("US", "United States", Math.round(visits * 0.21), Math.round(visitors * 0.2)), row("IN", "India", Math.round(visits * 0.13), Math.round(visitors * 0.12)), row("GB", "Britain (UK)", Math.round(visits * 0.07), Math.round(visitors * 0.07)), row("DE", "Germany", Math.round(visits * 0.05), Math.round(visitors * 0.05)), row("?", "Unknown", Math.round(visits * 0.04), Math.round(visitors * 0.04))],
+    devices: [row("Desktop", "Desktop", Math.round(visits * 0.62), Math.round(visitors * 0.6)), row("Mobile", "Mobile", Math.round(visits * 0.34), Math.round(visitors * 0.36)), row("Tablet", "Tablet", Math.round(visits * 0.04), Math.round(visitors * 0.04))],
+    browsers: [row("Chrome", "Chrome", Math.round(visits * 0.64), Math.round(visitors * 0.63)), row("Safari", "Safari", Math.round(visits * 0.18), Math.round(visitors * 0.19)), row("Edge", "Edge", Math.round(visits * 0.09), Math.round(visitors * 0.09)), row("Firefox", "Firefox", Math.round(visits * 0.07), Math.round(visitors * 0.07))],
+    systems: [row("Windows", "Windows", Math.round(visits * 0.41), Math.round(visitors * 0.4)), row("Android", "Android", Math.round(visits * 0.24), Math.round(visitors * 0.25)), row("macOS", "macOS", Math.round(visits * 0.17), Math.round(visitors * 0.17)), row("iOS", "iOS", Math.round(visits * 0.12), Math.round(visitors * 0.12)), row("Linux", "Linux", Math.round(visits * 0.06), Math.round(visitors * 0.06))],
+    languages: [row("en", "en", Math.round(visits * 0.71), Math.round(visitors * 0.7)), row("bn", "bn", Math.round(visits * 0.19), Math.round(visitors * 0.19)), row("de", "de", Math.round(visits * 0.05), Math.round(visitors * 0.05))],
+    recent: Array.from({ length: 12 }, (_, index) => ({
+      at: new Date(Date.now() - index * 7 * 60_000).toISOString(), page: ["/", "/tasks/:id", "/docs", "/billing", "/developer", "/pay/:code"][index % 6],
+      source: index % 3 === 0 ? ["Google", "Direct (no referrer)", "X", "GitHub"][index % 4] : null, country: ["Bangladesh", "United States", "India", "Germany"][index % 4],
+      device: index % 2 ? "Mobile" : "Desktop", browser: index % 2 ? "Safari" : "Chrome", account: index % 4 === 1 ? "Ada Lovelace" : null, durationMs: index % 5 === 4 ? null : 12_000 + index * 9_000, entry: index % 3 === 0,
+    })),
+  };
+}
+
+function analyticsUsage(range) {
+  const { bucket, starts, wave } = analyticsBuckets(range);
+  const scale = bucket === "hour" ? 1 / 18 : 1;
+  const buckets = starts.map((start, index) => {
+    const agentTokens = Math.round(wave(index, 48_000_000) * scale);
+    const apiTokens = Math.round(wave(index + 2, 1_900_000) * scale);
+    return { start, agentTokens, apiTokens, credits: Math.round(agentTokens / 9_200) , listMicros: Math.round(agentTokens * 3.6 + apiTokens * 2.4), activeAccounts: Math.max(1, Math.round(wave(index + 1, 9) * (bucket === "hour" ? 0.4 : 1))) };
+  });
+  const sum = key => buckets.reduce((total, b) => total + b[key], 0);
+  const agent = sum("agentTokens");
+  const api = sum("apiTokens");
+  const list = sum("listMicros");
+  const credits = sum("credits");
+  const apiList = Math.round(api * 2.4);
+  return {
+    range, timeZone: "UTC", bucket,
+    totals: {
+      activeAccounts: 14, turns: Math.round(agent / 105_000), inputTokens: Math.round(agent * 0.993), outputTokens: Math.round(agent * 0.007), cacheReadTokens: 0, cacheWriteTokens: 0,
+      credits, listMicros: list - apiList, unpricedTokens: Math.round(agent * 0.004),
+      api: { requests: Math.round(api / 14_000), inputTokens: Math.round(api * 0.9), outputTokens: Math.round(api * 0.1), cacheReadTokens: 0, cacheWriteTokens: 0, listMicros: apiList, chargedMicros: Math.round(apiList * 0.8) },
+      planRevenueUsd: range === "24h" ? 0 : 16,
+    },
+    buckets,
+    models: [
+      { model: "claude-opus-5-5", source: "agent", turns: 4762, tokens: Math.round(agent * 0.62), listMicros: Math.round((list - apiList) * 0.72) },
+      { model: "claude-sonnet-5-5", source: "agent", turns: 3618, tokens: Math.round(agent * 0.3), listMicros: Math.round((list - apiList) * 0.21) },
+      { model: "claude-opus-5", source: "agent", turns: 866, tokens: Math.round(agent * 0.06), listMicros: Math.round((list - apiList) * 0.06) },
+      { model: "claude-sonnet-5-5", source: "api", turns: 96, tokens: Math.round(api * 0.8), listMicros: Math.round(apiList * 0.8) },
+      { model: "kimi-k3", source: "agent", turns: 87, tokens: Math.round(agent * 0.006), listMicros: Math.round((list - apiList) * 0.01) },
+      { model: "r/gemini-3.8-flash", source: "agent", turns: 91, tokens: Math.round(agent * 0.004), listMicros: null },
+    ],
+    accounts: [
+      { userId: "u1", name: "Ada Lovelace", plan: "pro", turns: 2210, tokens: Math.round(agent * 0.31), credits: Math.round(credits * 0.38), listMicros: Math.round(list * 0.31) },
+      { userId: "u2", name: "Operator", plan: "operator", turns: 1800, tokens: Math.round(agent * 0.24), credits: 0, listMicros: Math.round(list * 0.24) },
+      { userId: "u3", name: "Grace Hopper", plan: "pro", turns: 1300, tokens: Math.round(agent * 0.18), credits: Math.round(credits * 0.24), listMicros: Math.round(list * 0.18) },
+      { userId: "u4", name: "Radia Perlman", plan: "free", turns: 640, tokens: Math.round(agent * 0.09), credits: Math.round(credits * 0.12), listMicros: Math.round(list * 0.09) },
+      { userId: "u5", name: "Hedy Lamarr", plan: "free", turns: 410, tokens: Math.round(agent * 0.05), credits: Math.round(credits * 0.07), listMicros: Math.round(list * 0.05) },
+    ],
+    plans: [
+      { plan: "pro", name: "Pro", accounts: 3, turns: 3744, tokens: Math.round(agent * 0.57), credits: Math.round(credits * 0.78), listMicros: Math.round((list - apiList) * 0.57), revenueUsd: range === "24h" ? 0 : 16 },
+      { plan: "free", name: "Free (no plan)", accounts: 11, turns: 3702, tokens: Math.round(agent * 0.2), credits: Math.round(credits * 0.22), listMicros: Math.round((list - apiList) * 0.2), revenueUsd: 0 },
+      { plan: "operator", name: "Operator (not charged)", accounts: 1, turns: 2348, tokens: Math.round(agent * 0.23), credits: 0, listMicros: Math.round((list - apiList) * 0.23), revenueUsd: 0 },
+    ],
   };
 }

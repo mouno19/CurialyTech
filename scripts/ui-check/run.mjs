@@ -233,6 +233,10 @@ async function act(page, check, record) {
       const span = check.action === "range-24h" ? "24 hours" : "30 days";
       await page.getByRole("radio", { name: span, exact: true }).first().click({ timeout: 6000 });
       await page.locator(`figure.chart[aria-label$="last ${span}"]`).first().waitFor({ state: "visible", timeout: 6000 });
+    } else if (check.action === "analytics-usage") {
+      // The Analytics page's second tab: use and its estimated cost.
+      await page.getByRole("tab", { name: "Usage and cost" }).first().click({ timeout: 6000 });
+      await page.getByText("Agent use by plan").first().waitFor({ state: "visible", timeout: 6000 });
     } else if (check.action === "add-balance") {
       await page.getByRole("button", { name: "Add balance", exact: true }).first().click({ timeout: 6000 });
       await page.getByRole("dialog", { name: "Add balance" }).getByRole("radio", { name: "$25" }).first().waitFor({ state: "visible", timeout: 5000 });
