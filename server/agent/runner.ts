@@ -2346,9 +2346,9 @@ async function trackedTool(ctx: RunContext, callId: string, name: string, input:
   // A push, pull request or deploy that failed (or was refused) makes the run "completed with
   // issues"; a later success does not clear it, except a deploy's: its allowed second attempt
   // going live replaces the failed first one.
-  if (publishing) {
-    // The user saying no is not a failed publish.
-    if (!outcome.ok && !outcome.declined) ctx.failedPublishing.add(name);
+  // The user saying no is neither a failed publish nor a done one: nothing was attempted.
+  if (publishing && !outcome.declined) {
+    if (!outcome.ok) ctx.failedPublishing.add(name);
     else if (name === "deploy_preview") ctx.failedPublishing.delete(name);
     ctx.outcome.publish = ctx.failedPublishing.size ? "failed" : "done";
   }
