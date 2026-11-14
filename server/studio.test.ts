@@ -163,6 +163,25 @@ describe("Remotion", () => {
   });
 });
 
+describe("what the model sees of a render", () => {
+  it("a still as it is, a video as three frames, nothing for what can't be read", async () => {
+    const { previewFrames } = await import("./agent/studio-tools");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "curialy-preview-"));
+    const video = path.join(dir, "clip.mp4");
+    const { execFileSync } = await import("node:child_process");
+    execFileSync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=320x180:d=2", "-pix_fmt", "yuv420p", video]);
+    const frames = previewFrames(video);
+    expect(frames).toHaveLength(3);
+    expect(frames.every(frame => frame.mediaType === "image/jpeg" && frame.base64.length > 100)).toBe(true);
+    const still = path.join(dir, "still.png");
+    execFileSync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=blue:s=64x64", "-frames:v", "1", still]);
+    expect(previewFrames(still)).toEqual([{ mediaType: "image/png", base64: fs.readFileSync(still).toString("base64") }]);
+    fs.writeFileSync(path.join(dir, "broken.mp4"), "not a video");
+    expect(previewFrames(path.join(dir, "broken.mp4"))).toEqual([]);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+});
+
 describe("Manim", () => {
   it("writes a scene (checking the code it is given), loads the skill, and renders it", async () => {
     expect(await tool("generate_manim_scene", { name: "waves", scene: "Waves", code: "print('no manim')" })).toMatchObject({ ok: false });

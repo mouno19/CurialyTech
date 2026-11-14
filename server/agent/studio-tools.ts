@@ -1,4 +1,6 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import type Anthropic from "@anthropic-ai/sdk";
 import { diffLines } from "diff";
@@ -10,7 +12,7 @@ import { digestOutput } from "./output";
 import { resolveInWorkspace } from "./sandbox";
 import { taskOwner } from "./store";
 import { collectProject, hasLoaded, loadedSkills, markLoaded, MAX_OUTPUT_BYTES, outputPath, readSkill, RenderError, renderInStudio, skillCatalog, STUDIO_DIR, type RenderJob } from "./studio";
-import type { ToolContext, ToolOutcome } from "./tools";
+import type { ToolContext, ToolImage, ToolOutcome } from "./tools";
 
 // The agent's Animation Studio tools. Skills first: load_skill reads a SKILL.md (or one of its
 // files); the create_* tools scaffold a project and load the matching skill as they do; the render_*
@@ -207,7 +209,7 @@ const ext = (format: string) => (format === "png" ? "png" : format);
 /** The skills a web page uses, from what it imports. */
 const PAGE_LIBRARIES: [RegExp, string][] = [[/from\s+["']animejs["']/, "animejs"], [/from\s+["']three["']|three\/addons/, "threejs"], [/from\s+["']lottie-web["']/, "lottie"], [/from\s+["']konva["']/, "konva"], [/from\s+["']two\.js["']/, "twojs"], [/@tweenjs\/tween\.js|@createjs\/tweenjs/, "tweenjs"], [/@babylonjs\/core/, "babylonjs"], [/proton-engine/, "proton"]];
 
-type Ctx = Pick<ToolContext, "sessionId" | "root" | "emit" | "callId" | "signal" | "onFileChange">;
+type Ctx = Pick<ToolContext, "sessionId" | "root" | "emit" | "callId" | "signal" | "onFileChange"> & { vision?: boolean };
 
 /** A file a scaffold wrote, shown in the run like the file tools' writes. */
 function wrote(ctx: Ctx, file: string, before: string | null, after: string) {
@@ -221,7 +223,34 @@ function wrote(ctx: Ctx, file: string, before: string | null, after: string) {
   ctx.onFileChange(file);
 }
 
-/** Keep the file, attach it to the chat, and say where it is. */
+/**
+ * What the model sees of a render (vision models): a still as it is, a video or GIF as three frames
+ * (15%, 50% and 85% of it), taken with ffmpeg here, small (a short decode). Empty when it can't be read.
+ */
+export function previewFrames(file: string): ToolImage[] {
+  if (/\.png$/i.test(file)) {
+    const size = fs.statSync(file).size;
+    return size <= 4 * 1024 * 1024 ? [{ mediaType: "image/png", base64: fs.readFileSync(file).toString("base64") }] : [];
+  }
+  try {
+    const duration = Number(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", file], { encoding: "utf8", timeout: 15_000 }).trim());
+    if (!(duration > 0)) return [];
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "studio-preview-"));
+    try {
+      return [0.15, 0.5, 0.85].flatMap((at, index) => {
+        const frame = path.join(dir, `${index}.jpg`);
+        execFileSync("ffmpeg", ["-v", "error", "-y", "-ss", (duration * at).toFixed(2), "-i", file, "-frames:v", "1", "-vf", "scale='min(960,iw)':-2", "-q:v", "4", frame], { timeout: 20_000 });
+        return fs.existsSync(frame) ? [{ mediaType: "image/jpeg" as const, base64: fs.readFileSync(frame).toString("base64") }] : [];
+      });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  } catch {
+    return [];
+  }
+}
+
+/** Keep the file, attach it to the chat, and say where it is (and show it to a vision model). */
 async function deliver(ctx: Ctx, bytes: Buffer, filename: string, what: string, seconds: number): Promise<ToolOutcome> {
   const saved = outputPath(ctx.sessionId, filename);
   fs.writeFileSync(saved, bytes);
@@ -239,7 +268,9 @@ async function deliver(ctx: Ctx, bytes: Buffer, filename: string, what: string, 
   } else {
     attached = " It is over 25 MB, so it isn't attached to the chat: render it shorter or smaller to share it here.";
   }
-  return { ok: true, content: `Rendered ${what} in ${seconds} s: ${saved} (${(bytes.length / 1024 / 1024).toFixed(2)} MB).${attached}`, summary: `${filename} (${(bytes.length / 1024 / 1024).toFixed(1)} MB)` };
+  const images = ctx.vision ? previewFrames(saved) : [];
+  const shown = images.length ? ` ${images.length === 1 ? "The still is" : `${images.length} frames of it (at 15%, 50% and 85%) are`} below: check them before you call it done.` : "";
+  return { ok: true, content: `Rendered ${what} in ${seconds} s: ${saved} (${(bytes.length / 1024 / 1024).toFixed(2)} MB).${attached}${shown}`, summary: `${filename} (${(bytes.length / 1024 / 1024).toFixed(1)} MB)`, ...(images.length ? { images } : {}) };
 }
 
 async function render(ctx: Ctx, job: Omit<RenderJob, "taskId" | "signal" | "onOutput">, filename: string, what: string, sandbox?: RenderJob["sandbox"]): Promise<ToolOutcome> {
