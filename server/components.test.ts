@@ -137,6 +137,17 @@ describe("the test scenarios", () => {
   });
 });
 
+describe("frameworks", () => {
+  it("a need that exists only in another framework is offered to port, not reported as missing", () => {
+    const { plan } = compose({ request: "dashboard", needs: ["sidebar navigation", "revenue over time chart"], framework: "react" });
+    const sidebar = plan.needs.find(need => need.need === "sidebar navigation")!;
+    expect(sidebar).toMatchObject({ status: "adapt", component: { id: "nav-sidebar" } });
+    expect(sidebar.note).toMatch(/exists as html, not react: port it/);
+    expect(plan.needs.find(need => need.need === "revenue over time chart")!.status).toBe("matched");
+    expect(plan.components.map(component => component.id)).toContain("nav-sidebar");
+  });
+});
+
 describe("the user's tools", () => {
   it("are respected: a need whose components belong to an unselected tool is flagged, not used", () => {
     const { plan } = chosen("Create a premium AI model analytics dashboard where users can compare Claude, GPT, Gemini, and other models, monitor API usage, track spending, and analyze latency.", ["web-design"]);

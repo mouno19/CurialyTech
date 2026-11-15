@@ -198,6 +198,10 @@ export function compose(input: ComposeInput): Composition {
   const hits = new Map<string, Hit[]>();
   const needs: PlanNeed[] = [];
   let considered = 0;
+  /** A good match in a framework other than the one asked for (only when one was asked for). */
+  const portable = (text: string) => (frameworks
+    ? search(index, text, {}, 6).find(hit => hit.score >= MATCH_SCORE && !hit.entry.frameworks.some(item => frameworks.includes(item)) && (!limited || hit.entry.compatible_tools.some(tool => selected.includes(tool))))
+    : undefined);
   for (const requirement of intent.requirements) {
     // Design consistency: the look the request asks for, and the family already chosen, rank a little higher.
     const families = new Map<string, number>();
@@ -215,12 +219,19 @@ export function compose(input: ComposeInput): Composition {
       && !(hit.entry.variant_of && chosen.has(hit.entry.variant_of)) && ![...chosen.values()].some(entry => entry.variant_of === hit.entry.id));
     const best = all[0];
     const alternatives = allowed.filter(hit => hit !== pick && hit.score >= ADAPT_SCORE).slice(0, 2).map(hit => ({ id: hit.entry.id, name: hit.entry.name, score: hit.score }));
+    let port: Hit | undefined;
     const why = (hit: Hit) => [hit.concepts.length ? `about ${hit.concepts.join(", ")}` : "", hit.matched.length ? `matches ${hit.matched.slice(0, 5).join(", ")}` : ""].filter(Boolean).join("; ");
     if (pick && pick.score >= MATCH_SCORE) {
       needs.push({ need: requirement.text, implied: requirement.implied || undefined, status: "matched", component: { id: pick.entry.id, name: pick.entry.name, score: pick.score, why: why(pick) }, alternatives });
     } else if (limited && best && best.score >= MATCH_SCORE && !best.entry.compatible_tools.some(tool => selected.includes(tool))) {
       const tool = best.entry.compatible_tools[0];
       needs.push({ need: requirement.text, implied: requirement.implied || undefined, status: "needs-tool", tool, component: { id: best.entry.id, name: best.entry.name, score: best.score, why: why(best) }, note: `${best.entry.name} would fit, but it belongs to ${best.entry.compatible_tools.map(toolLabel).join(" / ")}, which isn't selected` });
+      continue;
+    } else if (frameworks && (port = portable(requirement.text)) && (!pick || port.score > pick.score + 0.1)) {
+      // Not (or only weakly) in the framework asked for, but the library has it in another: port it rather than start over.
+      needs.push({ need: requirement.text, implied: requirement.implied || undefined, status: "adapt", component: { id: port.entry.id, name: port.entry.name, score: port.score, why: why(port) }, note: `exists as ${port.entry.frameworks.join("/")}, not ${frameworks.join("/")}: port it (add_components copies it as it is)` });
+      if (!chosen.has(port.entry.id)) chosen.set(port.entry.id, port.entry);
+      covers.set(port.entry.id, [...(covers.get(port.entry.id) ?? []), requirement.text]);
       continue;
     } else if (pick) {
       needs.push({ need: requirement.text, implied: requirement.implied || undefined, status: "adapt", component: { id: pick.entry.id, name: pick.entry.name, score: pick.score, why: why(pick) }, alternatives, note: "closest match: adapt it, or build this part" });
