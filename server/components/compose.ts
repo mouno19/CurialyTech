@@ -200,7 +200,7 @@ export function compose(input: ComposeInput): Composition {
   let considered = 0;
   /** A good match in a framework other than the one asked for (only when one was asked for). */
   const portable = (text: string) => (frameworks
-    ? search(index, text, {}, 6).find(hit => hit.score >= MATCH_SCORE && !hit.entry.frameworks.some(item => frameworks.includes(item)) && (!limited || hit.entry.compatible_tools.some(tool => selected.includes(tool))))
+    ? search(index, text, {}, 6).find(hit => hit.score >= MATCH_SCORE && !hit.entry.frameworks.some(item => (frameworks as string[]).includes(item)) && (!limited || hit.entry.compatible_tools.some(tool => selected.includes(tool))))
     : undefined);
   for (const requirement of intent.requirements) {
     // Design consistency: the look the request asks for, and the family already chosen, rank a little higher.
