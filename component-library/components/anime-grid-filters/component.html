@@ -64,7 +64,8 @@ const anime=[
       ["Delicious in Dungeon",2024,8.6,24,"TV","Completed",["Fantasy","Adventure","Comedy"],"A dungeon party turns monster encounters into an imaginative culinary quest.","#68754a","#c09c58","#e4d29b","食",75]
     ].map((a,i)=>({id:i,title:a[0],year:a[1],rating:a[2],episodes:a[3],format:a[4],status:a[5],genres:a[6],description:a[7],colors:a.slice(8,11),glyph:a[11],popularity:a[12]}));
 const state={category:"All",search:"",genres:new Set(),formats:new Set(),statuses:new Set(),year:"all",rating:0,sort:"popular",page:1};
-const perPage=10,$=id=>document.getElementById(id);
+const perPage=10;
+const $=id=>document.getElementById(id);
 function iconRefresh(){if(window.lucide)lucide.createIcons()}
 function makeChecks(id,items,key){$(id).innerHTML=items.map(x=>`<label class="check-row"><input type="checkbox" data-filter="${key}" value="${x}"><span>${x}</span><small>${anime.filter(a=>key==="genres"?a.genres.includes(x):a[key]===x).length}</small></label>`).join("")}
 function filtered(){let list=anime.filter(a=>{let q=state.search.toLowerCase();return (!q||[a.title,a.description,...a.genres].some(t=>t.toLowerCase().includes(q)))&&(!state.genres.size||[...state.genres].some(g=>a.genres.includes(g)))&&(!state.formats.size||state.formats.has(a.format))&&(!state.statuses.size||state.statuses.has(a.status))&&(state.year==="all"||(state.year==="2020s"?a.year>=2020:state.year==="2010s"?a.year>=2010&&a.year<2020:a.year<2010))&&a.rating>=state.rating&&(state.category==="All"||state.category==="Trending"&&a.popularity>=84||state.category==="Top Rated"&&a.rating>=8.9||state.category==="New Releases"&&a.year>=2023)});

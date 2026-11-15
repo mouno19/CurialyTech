@@ -1,0 +1,62 @@
+<!-- Dual collection banners (Hyperanime) · anime-hyper-collections: from the Anime archetype: Hyperanime (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/anime-cyberpop-hyperanime.css, and an ancestor with class="cx-anime-cyberpop-hyperanime". -->
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+<div class="cx-anime-cyberpop-hyperanime">
+<section id="collections" class="section">
+      <div class="section-head">
+       <div>
+        <p class="kicker">Find your world</p>
+        <h2>Featured <span>collections.</span></h2>
+       </div>
+      </div>
+      <div class="collections">
+       <div class="collection">
+        <img id="collection-image-1" src="https://images.pexels.com/photos/8107903/pexels-photo-8107903.jpeg" alt="A futuristic woman in a cyberpunk outfit with neon lights and eyewear." loading="lazy">
+        <div class="collection-content">
+         <small>Curated collection · 12 titles</small>
+         <h3>Into the Neon Unknown</h3><a href="#recommendations" data-collection="Sci-Fi">Explore collection →</a>
+        </div>
+       </div>
+       <div class="collection">
+        <img id="collection-image-2" src="https://images.pexels.com/photos/38780517/pexels-photo-38780517.jpeg" alt="A striking fantasy cosplay portrait featuring a character with white hair and costume, shot outdoors." loading="lazy">
+        <div class="collection-content">
+         <small>Curated collection · 8 titles</small>
+         <h3>Magic After Dark</h3><a href="#recommendations" data-collection="Fantasy">Explore collection →</a>
+        </div>
+       </div>
+      </div>
+     </section>
+<!-- Used by this block's script (elsewhere on the page it came from): -->
+<div id="recommendation-grid" class="card-grid"></div>
+<input id="search" type="search" placeholder="Search anime..." aria-label="Search anime">
+<dialog id="details-dialog" aria-labelledby="modal-title">
+   <button id="modal-close" class="modal-close" aria-label="Close details"><i data-lucide="x"></i></button>
+   <img id="modal-image" class="modal-image" src="https://images.pexels.com/photos/40883748/pexels-photo-40883748.jpeg" alt="Series artwork" loading="lazy">
+   <div class="modal-body">
+    <div id="modal-meta" class="modal-meta"></div>
+    <h2 id="modal-title"></h2>
+    <p id="modal-description"></p><a id="modal-link" class="primary-btn modal-link" href="https://www.google.com/search?q=anime" target="_blank" rel="noopener noreferrer"><i data-lucide="search"></i> Search for this series</a>
+   </div>
+  </dialog>
+<p id="empty-message" class="empty">No titles found. Try another search or genre.</p>
+</div>
+<script>
+lucide.createIcons();
+const titles=[
+      {name:"Neon Reverie",genre:"Sci-Fi",sub:"Sci-Fi · Adventure",rating:"9.8",tag:"TOP PICK",image:"https://images.pexels.com/photos/8107903/pexels-photo-8107903.jpeg",alt:"A futuristic woman in a cyberpunk outfit with neon lights and eyewear.",description:"In a city where memories can be rewritten, one rebel follows a signal that could change everything."},
+      {name:"Crimson Eclipse",genre:"Action",sub:"Action · Supernatural",rating:"9.6",tag:"HOT",image:"https://images.pexels.com/photos/31403466/pexels-photo-31403466.jpeg",alt:"A striking anime-inspired cosplay portrait featuring intricate hand placement and character styling.",description:"When a rare eclipse awakens forgotten powers, a reluctant fighter must decide what is worth protecting."},
+      {name:"Moonlit Kingdom",genre:"Fantasy",sub:"Fantasy · Drama",rating:"9.4",tag:"NEW",image:"https://images.pexels.com/photos/38780517/pexels-photo-38780517.jpeg",alt:"A striking fantasy cosplay portrait featuring a character with white hair and costume, shot outdoors.",description:"Beyond the moonlit gates lies a kingdom of ancient promises, mysterious magic, and impossible choices."},
+      {name:"Electric Hearts",genre:"Romance",sub:"Romance · Slice of Life",rating:"9.2",tag:"POPULAR",image:"https://images.pexels.com/photos/13327113/pexels-photo-13327113.jpeg",alt:"A woman with pink hair poses in vibrant neon lighting, wearing anime art shirt.",description:"Two strangers cross paths under the city lights and discover that even the smallest moments can change a life."},
+      {name:"Afterlight Zero",genre:"Sci-Fi",sub:"Sci-Fi · Mystery",rating:"9.5",tag:"TRENDING",image:"https://images.pexels.com/photos/8108472/pexels-photo-8108472.jpeg",alt:"A stylish duo in futuristic cyberpunk attire and neon lighting, exuding a cool, edgy vibe.",description:"A pair of unlikely allies chase the truth through a dazzling future that seems to be coming apart."},
+      {name:"Starlight Protocol",genre:"Action",sub:"Action · Sci-Fi",rating:"9.3",tag:"NEW",image:"https://images.pexels.com/photos/40883748/pexels-photo-40883748.jpeg",alt:"A vibrant portrait of a cosplayer in neon-lit setting, showcasing colorful attire and accessories.",description:"A fearless courier carries a secret across the galaxy while powerful forces close in from every direction."},
+      {name:"Dreambound",genre:"Fantasy",sub:"Fantasy · Adventure",rating:"9.1",tag:"FAN FAVORITE",image:"https://images.pexels.com/photos/39185216/pexels-photo-39185216.jpeg",alt:"Cosplayer in vibrant costume and pink wig at Jakarta anime event. Vibrant and engaging.",description:"A dreamer steps into a painted world where every wish has a consequence and every friendship matters."}
+    ];
+let currentGenre="All";
+const grid=document.getElementById("recommendation-grid");
+const search=document.getElementById("search");
+const dialog=document.getElementById("details-dialog");
+function card(t){const b=document.createElement("button");b.className="anime-card";b.type="button";b.innerHTML=`<div class="poster"><img src="${t.image}" alt="${t.alt}" loading="lazy"><span class="poster-tag ${t.tag==="NEW"?"blue":t.tag==="HOT"?"orange":""}">${t.tag}</span><span class="poster-rating">★ ${t.rating}</span></div><div class="card-title">${t.name}</div><div class="card-sub">${t.sub}</div>`;b.querySelector("img").id="poster-"+t.name.toLowerCase().replaceAll(" ","-");b.addEventListener("click",()=>openDetails(t));return b}
+function render(){const q=search.value.trim().toLowerCase();const results=titles.filter(t=>(currentGenre==="All"||t.genre===currentGenre)&&(!q||(`${t.name} ${t.sub} ${t.description}`).toLowerCase().includes(q)));grid.replaceChildren(...results.map(card));document.getElementById("empty-message").style.display=results.length?"none":"block"}
+function openDetails(t){const image=document.getElementById("modal-image");image.src=t.image;image.alt=t.alt;document.getElementById("modal-title").textContent=t.name;document.getElementById("modal-meta").textContent=`★ ${t.rating}  ·  ${t.sub}`;document.getElementById("modal-description").textContent=t.description;document.getElementById("modal-link").href="https://www.google.com/search?q="+encodeURIComponent(t.name+" anime");dialog.showModal();lucide.createIcons()}
+document.querySelectorAll("[data-collection]").forEach(link=>link.addEventListener("click",()=>{currentGenre=link.dataset.collection;document.querySelectorAll(".filter").forEach(x=>{const active=x.dataset.genre===currentGenre;x.classList.toggle("active",active);x.setAttribute("aria-pressed",String(active))});search.value="";render()}));
+</script>

@@ -35,10 +35,13 @@ const details={
       slow:{title:"Slow Sunday Mornings",category:"Relaxing collection",description:"Unhurried stories for cups of tea, open windows, and the luxury of having nowhere else to be. Featuring gentle romance, friendship, and everyday adventures.",note:"5 gentle stories to explore",image:"https://images.pexels.com/photos/15124864/pexels-photo-15124864.jpeg",alt:"A cozy indoor scene with a rustic table, potted plants, and a cup of tea, creating a warm atmosphere."},
       rainy:{title:"Rainy Day Comforts",category:"Relaxing collection",description:"A little warmth for grey skies: café conversations, unexpected friendships, and endings that feel like coming in from the rain.",note:"6 cozy stories to explore",image:"https://images.pexels.com/photos/30775114/pexels-photo-30775114.jpeg",alt:"Charming street cafe in Istanbul with warm lighting on a rainy night."}
     };
-const backdrop=document.getElementById("details-backdrop"),closeButton=document.getElementById("modal-close");
+const backdrop=document.getElementById("details-backdrop");
+const closeButton=document.getElementById("modal-close");
 let previousFocus;
 function openDetails(key){const d=details[key];if(!d)return;previousFocus=document.activeElement;document.getElementById("modal-title").textContent=d.title;document.getElementById("modal-category").textContent=d.category;document.getElementById("modal-description").textContent=d.description;document.getElementById("modal-note").textContent=d.note;const image=document.getElementById("modal-image");image.src=d.image;image.alt=d.alt;backdrop.classList.add("open");backdrop.setAttribute("aria-hidden","false");closeButton.focus()}
 document.getElementById("tonight-shortcut").addEventListener("click",()=>openDetails("lights"));
 const cards=[...document.querySelectorAll(".series-card")],search=document.getElementById("search-input");
 const menuToggle=document.getElementById("menu-toggle"),nav=document.getElementById("main-nav");
+menuToggle.addEventListener("click",()=>{const open=nav.classList.toggle("open");menuToggle.setAttribute("aria-expanded",String(open));menuToggle.setAttribute("aria-label",open?"Close menu":"Open menu")});
+nav.querySelectorAll("a").forEach(link=>link.addEventListener("click",()=>{nav.classList.remove("open");menuToggle.setAttribute("aria-expanded","false");menuToggle.setAttribute("aria-label","Open menu")}));
 </script>

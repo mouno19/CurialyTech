@@ -21,6 +21,7 @@
     "series5": "#393134"
   },
   "aliases": {},
+  "replaced": {},
   "fonts": {
     "display": "\"Barlow Condensed\", system-ui, sans-serif",
     "sans": "\"DM Sans\", system-ui, sans-serif"

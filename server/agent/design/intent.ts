@@ -93,8 +93,11 @@ const any = (text: string, words: string[]) => words.some(word => mentions(text,
 
 // ---- Negation ----------------------------------------------------------------
 
-/** Words that start a "don't" ("no", "avoid", "without", "instead of"); their scope runs to the end of the clause. */
-const NEGATION = /(?:^|[^a-z])(no|not|without|avoid|avoiding|don'?t|do not|never|drop|remove|ditch|stop|less|skip|nothing like|instead of|rather than|get rid of|lose the|kill the)(?![a-z])/g;
+/**
+ * Words that start a "don't" ("no", "avoid", "without", "instead of"); their scope runs to the end of the clause.
+ * "Drop" only as a verb ("drop the gradient"), not the noun ("an NFT drop", "a drop shadow").
+ */
+const NEGATION = /(?:^|[^a-z])(no|not|without|avoid|avoiding|don'?t|do not|never|drop(?=\s+(?:the|all|any|those|these|that|this|its|their|our|my)\b)|remove|ditch|stop|less|skip|nothing like|instead of|rather than|get rid of|lose the|kill the)(?![a-z])/g;
 /** A clause ends at a sentence mark, a turn ("but", "instead"), or a comma followed by a new instruction ("..., use flat colors"). */
 const SCOPE_END = /[.;!?\n]|(?:^|[^a-z])(?:but|however|instead|rather|except)(?![a-z])|,\s*(?:use|make|add|go|keep|want|with|do|try|give|set|prefer|i'd|i would)(?![a-z])/;
 
@@ -240,6 +243,6 @@ export function allowedLooks(intent: DesignIntent) {
   if (has(["marquee", "ticker"])) allowed.add("marquee");
   if (has(["cream", "paper", "serif", "editorial", "newspaper", "earthy", "vintage", "print", "letterpress"])) allowed.add("tasteful");
   // Looks the chosen style archetypes are built on (the audit keys among them).
-  for (const look of intent.granted ?? []) if (["violet", "glass", "marquee", "tasteful", "eyebrow"].includes(look)) allowed.add(look);
+  for (const look of intent.granted ?? []) if (["violet", "gradient-text", "glass", "marquee", "tasteful", "eyebrow"].includes(look)) allowed.add(look);
   return [...allowed].sort();
 }

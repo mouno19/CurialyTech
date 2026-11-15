@@ -143,7 +143,7 @@ const titles=[
       {title:"Lanterns of Kyoto",hero:"Lanterns of <em>Kyoto</em>",year:"2025",genre:"Mystery · Folklore",format:"10 Episodes",collection:"Myths & Memory",tag:"Kuro Original",image:"https://images.pexels.com/photos/36834637/pexels-photo-36834637.jpeg",alt:"Atmospheric night view of a traditional Japanese temple and a street vendor stall, illuminated warmly.",description:"Every lantern holds a story. Some stories have been waiting centuries to be told.",synopsis:"Returning to Kyoto after years away, a young artist finds that the lanterns at her family's old shrine illuminate moments from lives long past. As the city prepares for its annual festival, she follows a trail of beautiful, unsettling visions toward a truth hidden in her own family history.",episodes:[["The First Light","A return home brings an unexpected encounter with a familiar stranger."],["Paper Wishes","An old festival tradition reveals a secret preserved across generations."],["The Unlit Path","The final lantern points toward a place absent from every map."]]}
     ];
 const $=id=>document.getElementById(id);
-let featured=0,selected=0;
+let selected=0;
 function iconRefresh(){lucide.createIcons()}
 function renderCards(filter=""){
       const matches=titles.filter(t=>(t.title+" "+t.genre+" "+t.collection).toLowerCase().includes(filter.toLowerCase()));

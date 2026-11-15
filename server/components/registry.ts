@@ -57,6 +57,10 @@ export const componentSchema = z.object({
 export type TokenSet = {
   id: string; name: string; mode: "light" | "dark"; source?: string;
   colors: Record<string, string>; fonts: Record<string, string>; radius?: Record<string, string>; spacing?: string;
+  /** A family's own colours with no role of their own, mapped to the role they adapt as. */
+  aliases?: Record<string, string>;
+  /** Colours of the source the library copy replaced with a text-safe shade (source → shade). */
+  replaced?: Record<string, string>;
 };
 
 export type Concept = { id: string; tools: string[]; role: string; terms: string[] };

@@ -1,0 +1,67 @@
+<!-- Discussion feed (Anime Live) · anime-live-discussions: from the Anime archetype: Anime Live (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/anime-community-anime-live.css, and an ancestor with class="cx-anime-community-anime-live". -->
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+<div class="cx-anime-community-anime-live">
+<section id="discussions" aria-labelledby="discussion-title">
+     <div class="section-heading">
+      <div>
+       <h2 id="discussion-title">The conversation continues</h2>
+       <p>Hot takes, theories, and the moments we can't stop talking about.</p>
+      </div><span style="font-size:11px;color:#9b98a5">💬 &nbsp; 128 new posts today</span>
+     </div>
+     <div class="tabs" role="tablist" aria-label="Discussion categories">
+      <button class="tab active" role="tab" aria-selected="true" data-filter="all">For you</button><button class="tab" role="tab" aria-selected="false" data-filter="trending">Trending</button><button class="tab" role="tab" aria-selected="false" data-filter="theories">Fan theories</button>
+     </div>
+     <div id="discussion-list">
+      <article class="discussion searchable" data-category="trending" data-search="neon city nights ending scene discussion">
+       <span class="avatar" style="background:#694d8a">AK</span>
+       <div class="discussion-content">
+        <div class="discussion-top">
+         <strong>akira.mp4</strong><span>· 12 min ago</span>
+        </div>
+        <h3>Can we talk about that ending scene in Neon City Nights?!</h3>
+        <p>I need approximately three business days to recover from what just happened...</p>
+        <div class="discussion-meta">
+         <span><i data-lucide="heart"></i> 284</span><span><i data-lucide="message-circle"></i> 47 replies</span>
+        </div>
+       </div><span class="topic-tag">Neon City Nights</span>
+      </article>
+      <article class="discussion searchable" data-category="theories" data-search="starfall academy theory opening credits">
+       <span class="avatar" style="background:#537e79">MI</span>
+       <div class="discussion-content">
+        <div class="discussion-top">
+         <strong>mika_theories</strong><span>· 38 min ago</span>
+        </div>
+        <h3>My theory about the hidden clue in the Starfall opening</h3>
+        <p>Look closely at the constellation at 0:42. I think they told us everything already.</p>
+        <div class="discussion-meta">
+         <span><i data-lucide="heart"></i> 196</span><span><i data-lucide="message-circle"></i> 31 replies</span>
+        </div>
+       </div><span class="topic-tag">Fan theory</span>
+      </article>
+      <article class="discussion searchable" data-category="trending" data-search="blade of dawn soundtrack episode">
+       <span class="avatar" style="background:#a46664">RE</span>
+       <div class="discussion-content">
+        <div class="discussion-top">
+         <strong>ren.draws</strong><span>· 1 hr ago</span>
+        </div>
+        <h3>The Blade of Dawn soundtrack has no business being this good</h3>
+        <p>That piano theme during the last scene? Immediate replay.</p>
+        <div class="discussion-meta">
+         <span><i data-lucide="heart"></i> 143</span><span><i data-lucide="message-circle"></i> 22 replies</span>
+        </div>
+       </div><span class="topic-tag">Blade of Dawn</span>
+      </article>
+     </div>
+    </section>
+<!-- Used by this block's script (elsewhere on the page it came from): -->
+<input id="site-search" type="search" placeholder="Search the community..." aria-label="Search premieres and discussions">
+<p id="search-empty" class="empty">No premieres or discussions match your search.</p>
+</div>
+<script>
+lucide.createIcons();
+let activeFilter='all';
+const search=document.getElementById('site-search');
+function updateCards(){const q=search.value.trim().toLowerCase();let count=0;document.querySelectorAll('.searchable').forEach(card=>{const category=card.dataset.category;const visible=(!category||activeFilter==='all'||category===activeFilter)&&(!q||card.dataset.search.includes(q)||card.textContent.toLowerCase().includes(q));card.style.display=visible?'':'none';if(visible)count++});document.getElementById('search-empty').style.display=count?'none':'block'}
+document.querySelectorAll('.tab').forEach(tab=>tab.addEventListener('click',()=>{activeFilter=tab.dataset.filter;document.querySelectorAll('.tab').forEach(t=>{t.classList.toggle('active',t===tab);t.setAttribute('aria-selected',String(t===tab))});updateCards()}));
+</script>

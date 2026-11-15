@@ -54,7 +54,7 @@
     .cx-anime-luxury-kuro-cinema .hero-counter strong{font-size:26px;color:var(--gold-light);font-weight:400}
     .cx-anime-luxury-kuro-cinema .hero-controls{display:flex;gap:8px}
     .cx-anime-luxury-kuro-cinema .hero-controls button{width:43px;height:43px;border:1px solid #a79b7770;background:#0a0b0a7a;color:var(--white);display:grid;place-items:center}
-    .cx-anime-luxury-kuro-cinema .hero-controls button:hover{background:var(--gold);color:#111}
+    .cx-anime-luxury-kuro-cinema .hero-controls button:hover{background:var(--gold);color:#111111}
     .cx-anime-luxury-kuro-cinema .hero-controls svg{width:17px;height:17px}
     .cx-anime-luxury-kuro-cinema .section{padding-top:100px;padding-bottom:30px}
     .cx-anime-luxury-kuro-cinema .section-heading{display:flex;justify-content:space-between;align-items:end;gap:20px;margin-bottom:32px}
@@ -208,7 +208,8 @@ const titles=[
       {title:"Lanterns of Kyoto",hero:"Lanterns of <em>Kyoto</em>",year:"2025",genre:"Mystery · Folklore",format:"10 Episodes",collection:"Myths & Memory",tag:"Kuro Original",image:"https://images.pexels.com/photos/36834637/pexels-photo-36834637.jpeg",alt:"Atmospheric night view of a traditional Japanese temple and a street vendor stall, illuminated warmly.",description:"Every lantern holds a story. Some stories have been waiting centuries to be told.",synopsis:"Returning to Kyoto after years away, a young artist finds that the lanterns at her family's old shrine illuminate moments from lives long past. As the city prepares for its annual festival, she follows a trail of beautiful, unsettling visions toward a truth hidden in her own family history.",episodes:[["The First Light","A return home brings an unexpected encounter with a familiar stranger."],["Paper Wishes","An old festival tradition reveals a secret preserved across generations."],["The Unlit Path","The final lantern points toward a place absent from every map."]]}
     ];
 const $=id=>document.getElementById(id);
-let featured=0,selected=0;
+let featured=0;
+let selected=0;
 function iconRefresh(){lucide.createIcons()}
 function showEpisode(i){
       selected=i;const t=titles[currentDetail];const e=t.episodes[i];

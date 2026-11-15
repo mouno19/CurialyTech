@@ -22,6 +22,7 @@
     "series6": "#f8f5ff"
   },
   "aliases": {},
+  "replaced": {},
   "fonts": {
     "display": "\"Press Start 2P\", system-ui, sans-serif",
     "sans": "\"DM Sans\", system-ui, sans-serif"

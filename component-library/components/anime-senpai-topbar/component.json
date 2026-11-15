@@ -1,0 +1,105 @@
+{
+  "id": "anime-senpai-topbar",
+  "name": "Celestial topbar (Senpai+)",
+  "description": "Celestial topbar: wordmark, links and a membership action. From the Senpai+ archetype (Celestial dark luxury streaming); re-skin it to the design's tokens and mix it with blocks of other archetypes, never the whole template.",
+  "category": "navigation",
+  "batch": "anime-celestial-senpai-plus",
+  "collection": "Anime archetype: Senpai+",
+  "kind": "component",
+  "role": "header",
+  "tags": [
+    "anime",
+    "entertainment",
+    "media",
+    "dark",
+    "celestial",
+    "orbit",
+    "planetary",
+    "astral",
+    "subscription tiers",
+    "pricing tiers",
+    "premium-saas",
+    "subscription-platform",
+    "dark-mode-portal",
+    "membership-site",
+    "topbar",
+    "wordmark",
+    "links",
+    "membership",
+    "action",
+    "bar-chart",
+    "comparison",
+    "ranking",
+    "categorical",
+    "area-chart",
+    "trend",
+    "time-series",
+    "volume",
+    "network",
+    "relationships",
+    "graph",
+    "api-monitoring",
+    "usage",
+    "text-analytics",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "interactive",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "lucide",
+      "version": "0.577.0"
+    },
+    {
+      "type": "stylesheet",
+      "id": "anime-celestial-senpai-plus"
+    },
+    {
+      "type": "tokens",
+      "id": "anime-celestial-senpai-plus"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "header",
+    "span": "full"
+  },
+  "style": {
+    "tokens": "anime-celestial-senpai-plus",
+    "mode": "dark",
+    "colors": {}
+  },
+  "source": {
+    "file": "anime-templates/11_senpai_plus_celestial_streaming.html",
+    "ref": "header class=\"topbar shell\" #0"
+  },
+  "archetype": "anime-celestial-senpai-plus",
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "f396203807ded35f",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

@@ -1,0 +1,132 @@
+<!-- Heritage header with view switcher (Anime Vault) · anime-vault-header: from the Anime archetype: Anime Vault (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/anime-archive-anime-vault.css, and an ancestor with class="cx-anime-archive-anime-vault". -->
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+<div class="cx-anime-archive-anime-vault">
+<header class="site-header">
+   <div class="shell header-inner"><a href="#" id="brand-link" class="brand" aria-label="Anime Vault home"><span class="brand-mark"><span> A </span></span><span><span class="brand-name">ANIME <em>VAULT</em></span><span class="brand-sub">THE LIVING ARCHIVE</span></span></a>
+    <nav class="main-nav" aria-label="Main navigation"><button id="nav-discover" class="nav-link active" type="button"><i data-lucide="layout-grid"></i> Discover</button> <button id="nav-watchlist" class="nav-link" type="button"><i data-lucide="bookmark"></i> My watchlist</button>
+    </nav>
+    <div class="header-right">
+     ARCHIVE EDITION <span>VOL. 001 / 2025</span>
+    </div>
+   </div>
+  </header>
+<!-- Used by this block's script (elsewhere on the page it came from): -->
+<div id="status" class="status hidden" role="status" aria-live="polite"></div>
+<div id="detail-overlay" class="detail-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="detail-title">
+   <article class="detail-panel"><button id="detail-close" class="detail-close" type="button" aria-label="Close details"><i data-lucide="x"></i></button> <img id="detail-image" class="detail-image" src="https://images.pexels.com/photos/29356751/pexels-photo-29356751.jpeg" alt="A vivid night scene in Tokyo showcasing neon-lit stores and reflections, capturing the urban nightlife." loading="lazy">
+    <div class="detail-content">
+     <div id="detail-index" class="section-kicker"></div>
+     <h2 id="detail-title" class="detail-title"></h2>
+     <div id="detail-japanese" class="detail-japanese"></div>
+     <p id="detail-description" class="detail-description"></p>
+     <div id="detail-meta" class="detail-meta"></div>
+     <h3 class="detail-subhead">Filed under</h3>
+     <div id="detail-tags" class="tags"></div>
+     <div class="detail-actions">
+      <div>
+       <label class="field-label" for="detail-collection">YOUR COLLECTION</label><select id="detail-collection" class="field-input"><option value="Plan to Watch">Plan to Watch</option><option value="Watching">Watching</option><option value="Completed">Completed</option></select>
+      </div><button id="detail-save" class="primary-btn" type="button"></button><button id="detail-remove" class="outline-btn hidden" type="button">Remove from watchlist</button>
+     </div>
+    </div>
+   </article>
+  </div>
+<section id="workspace" class="workspace shell">
+    <div class="section-top">
+     <div>
+      <div id="section-kicker" class="section-kicker">
+       THE CATALOGUE / 001
+      </div>
+      <h2 id="section-title" class="section-title">Explore the archive</h2>
+     </div>
+     <div id="section-count" class="section-count">
+      08 CURATED ENTRIES
+     </div>
+    </div>
+    <div id="discover-view" class="browse-layout">
+     <aside class="filters" aria-label="Discovery filters">
+      <div class="filter-heading">
+       <strong>Refine your search</strong><i data-lucide="sliders-horizontal"></i>
+      </div>
+      <div class="filter-field">
+       <label class="field-label" for="search-input">SEARCH THE ARCHIVE</label><input id="search-input" class="field-input" type="search" placeholder="Title, studio, theme...">
+      </div>
+      <div class="filter-field">
+       <label class="field-label" for="genre-filter">GENRE</label><select id="genre-filter" class="field-input"><option value="">All genres</option></select>
+      </div>
+      <div class="filter-field">
+       <label class="field-label" for="year-filter">RELEASE PERIOD</label><select id="year-filter" class="field-input"><option value="">All years</option><option value="2020">2020s</option><option value="2010">2010s</option><option value="2000">2000s</option><option value="1990">Before 2000</option></select>
+      </div>
+      <div class="filter-field">
+       <label class="field-label" for="studio-filter">STUDIO</label><select id="studio-filter" class="field-input"><option value="">All studios</option></select>
+      </div>
+      <div class="filter-field">
+       <label class="field-label" for="rating-filter">MINIMUM RATING</label><select id="rating-filter" class="field-input"><option value="0">Any rating</option><option value="9">9.0 and above</option><option value="8.5">8.5 and above</option><option value="8">8.0 and above</option></select>
+      </div><button id="reset-filters" class="reset-btn" type="button">Reset all filters ↗</button>
+     </aside>
+     <div>
+      <div class="catalog-toolbar">
+       <div id="result-label" class="catalog-note">
+        Showing <strong>8 titles</strong> in the archive
+       </div>
+       <div class="sort-wrap">
+        <label for="sort-select">SORT BY</label><select id="sort-select" class="field-input"><option value="featured">Curated order</option><option value="rating">Highest rated</option><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="title">Title A–Z</option></select>
+       </div>
+      </div>
+      <div id="catalog-grid" class="card-grid"></div>
+      <div id="catalog-empty" class="empty hidden">
+       <i data-lucide="search-x"></i>
+       <h3>No entries found</h3>
+       <p>Try broadening your filters to uncover more of the archive.</p>
+      </div>
+     </div>
+    </div>
+    <div id="watchlist-view" class="hidden">
+     <div id="collection-tabs" class="collection-tabs"></div>
+     <div id="watchlist-grid" class="card-grid"></div>
+     <div id="watchlist-empty" class="empty hidden">
+      <i data-lucide="bookmark"></i>
+      <h3>Your collection begins here</h3>
+      <p>Save a title from the archive to start building your watchlist.</p><button id="empty-explore" class="outline-btn" type="button">Browse the archive <i data-lucide="arrow-right"></i></button>
+     </div>
+    </div>
+   </section>
+</div>
+<script>
+const anime=[
+      {id:"frieren",title:"Frieren: Beyond Journey's End",jp:"葬送のフリーレン",year:2023,studio:"Madhouse",genres:["Fantasy","Adventure","Drama"],episodes:28,rating:9.4,format:"TV SERIES",summary:"An elf mage follows the echoes of a journey already ended.",description:"Decades after her party defeats the Demon King, the long-lived mage Frieren begins to understand the fleeting lives of her former companions. A reflective journey through memory, friendship, and the passage of time.",image:"https://images.pexels.com/photos/28587525/pexels-photo-28587525.jpeg",alt:"A moody and atmospheric mountain landscape with dark clouds and trees in the foreground."},
+      {id:"vinland",title:"Vinland Saga",jp:"ヴィンランド・サガ",year:2019,studio:"Wit Studio / MAPPA",genres:["Adventure","Drama","Historical"],episodes:48,rating:9.1,format:"TV SERIES",summary:"A sweeping tale of vengeance, violence, and the search for peace.",description:"Set amid the Viking age, Thorfinn's journey moves from a childhood shaped by revenge toward a difficult reckoning with what it means to be a true warrior.",image:"https://images.pexels.com/photos/27204021/pexels-photo-27204021.jpeg",alt:"A towering cumulonimbus cloud dominating the sky, casting a dramatic weather scene at sunset."},
+      {id:"bebop",title:"Cowboy Bebop",jp:"カウボーイビバップ",year:1998,studio:"Sunrise",genres:["Sci-Fi","Action","Drama"],episodes:26,rating:9.0,format:"TV SERIES",summary:"Spacefaring bounty hunters drift between past and present.",description:"Across a stylish, jazz-inflected solar system, the crew of the Bebop chase bounties while the histories they hoped to leave behind continue to follow them.",image:"https://images.pexels.com/photos/29356751/pexels-photo-29356751.jpeg",alt:"A vivid night scene in Tokyo showcasing neon-lit stores and reflections, capturing the urban nightlife."},
+      {id:"spirited",title:"Spirited Away",jp:"千と千尋の神隠し",year:2001,studio:"Studio Ghibli",genres:["Fantasy","Adventure","Drama"],episodes:1,rating:9.2,format:"FEATURE FILM",summary:"A young girl enters a mysterious world of spirits.",description:"When Chihiro's family wanders into an otherworldly bathhouse, she must find her courage and identity to save her parents and find her way home.",image:"https://images.pexels.com/photos/15971283/pexels-photo-15971283.png",alt:"Explore a tranquil Japanese street at night, showcasing traditional architecture and soft lighting."},
+      {id:"attack",title:"Attack on Titan",jp:"進撃の巨人",year:2013,studio:"Wit Studio / MAPPA",genres:["Action","Drama","Fantasy"],episodes:89,rating:9.0,format:"TV SERIES",summary:"Humanity confronts the terrifying world beyond its walls.",description:"Within enormous walls built against monstrous Titans, a generation of soldiers uncovers a history far more complex than the one they inherited.",image:"https://images.pexels.com/photos/38737032/pexels-photo-38737032.jpeg",alt:"Cityscape view in Tokyo, Japan with power lines and clouds against a blue sky."},
+      {id:"yourname",title:"Your Name",jp:"君の名は。",year:2016,studio:"CoMix Wave Films",genres:["Romance","Fantasy","Drama"],episodes:1,rating:8.9,format:"FEATURE FILM",summary:"Two strangers are connected across distance and time.",description:"Mitsuha and Taki find their lives inexplicably intertwined. As they search for one another, a luminous story unfolds about memory, fate, and the people we cannot forget.",image:"https://images.pexels.com/photos/13825479/pexels-photo-13825479.jpeg",alt:"Peaceful city street scene under a dramatic sunset sky, capturing urban life."},
+      {id:"violet",title:"Violet Evergarden",jp:"ヴァイオレット・エヴァーガーデン",year:2018,studio:"Kyoto Animation",genres:["Drama","Fantasy","Slice of Life"],episodes:13,rating:8.8,format:"TV SERIES",summary:"A former soldier learns the language of human feeling.",description:"As an Auto Memory Doll writing letters for others, Violet travels through stories of love and loss, slowly discovering the meaning of words once spoken to her.",image:"https://images.pexels.com/photos/356269/pexels-photo-356269.jpeg",alt:"Delicate cherry blossom branch with a traditional Japanese roof in the background during spring."},
+      {id:"demon",title:"Demon Slayer",jp:"鬼滅の刃",year:2019,studio:"ufotable",genres:["Action","Fantasy","Adventure"],episodes:63,rating:8.7,format:"TV SERIES",summary:"A brother's resolve carries him into a world of demons.",description:"After tragedy strikes his family, Tanjiro joins the Demon Slayer Corps, seeking a way to restore his sister while facing a succession of formidable enemies.",image:"https://images.pexels.com/photos/3250576/pexels-photo-3250576.jpeg",alt:"A beautifully lit pagoda framed by cherry blossoms, showcasing intricate details at night."}
+    ];
+const $=id=>document.getElementById(id);
+let records=[];
+let ready=false;
+let view="discover";
+let collection="All saved";
+let selected=null;
+let lastFocus=null;
+let statusTimer;
+const collections=["All saved","Plan to Watch","Watching","Completed"];
+function icon(){lucide.createIcons()}
+function notice(message,error=false){const el=$("status");el.textContent=message;el.className="status"+(error?" error":"");clearTimeout(statusTimer);statusTimer=setTimeout(()=>el.classList.add("hidden"),5000)}
+function recordFor(id){return records.find(r=>r.anime_id===id)}
+function setPending(btn,on,text){btn.disabled=on;if(on){btn.dataset.original=btn.textContent;btn.textContent=text||"Saving…"}else if(btn.dataset.original){btn.textContent=btn.dataset.original;delete btn.dataset.original}}
+function matching(){const q=$("search-input").value.trim().toLowerCase(),genre=$("genre-filter").value,period=$("year-filter").value,studio=$("studio-filter").value,min=Number($("rating-filter").value);let items=anime.filter(a=>(!q||[a.title,a.jp,a.studio,...a.genres,a.summary].join(" ").toLowerCase().includes(q))&&(!genre||a.genres.includes(genre))&&(!studio||a.studio===studio)&&a.rating>=min&&(!period||(period==="1990"?a.year<2000:Math.floor(a.year/10)*10===Number(period))));switch($("sort-select").value){case"rating":items.sort((a,b)=>b.rating-a.rating);break;case"newest":items.sort((a,b)=>b.year-a.year);break;case"oldest":items.sort((a,b)=>a.year-b.year);break;case"title":items.sort((a,b)=>a.title.localeCompare(b.title))}return items}
+function card(a){let r=recordFor(a.id),n=String(anime.indexOf(a)+1).padStart(2,"0");const article=document.createElement("article");article.className="anime-card";article.innerHTML=`<div class="card-image-wrap"><img id="card-image-${a.id}" class="card-image" src="${a.image}" alt="${a.alt}" loading="lazy"><span class="card-number">AV / ${n}</span><span class="card-rating"><i data-lucide="star"></i> ${a.rating.toFixed(1)}</span></div><div class="card-body"><div class="card-topline"><span>${a.format}</span><span>${a.year}</span></div><h3 class="card-title">${a.title}</h3><p class="card-summary">${a.summary}</p><div class="card-meta"><div><span class="meta-label">STUDIO</span><span class="meta-value">${a.studio}</span></div><div><span class="meta-label">EPISODES</span><span class="meta-value">${a.episodes===1?"01 · FILM":String(a.episodes).padStart(2,"0")+" EPISODES"}</span></div><div><span class="meta-label">GENRES</span><span class="meta-value">${a.genres.join(" / ")}</span></div><div><span class="meta-label">RATING</span><span class="meta-value">${a.rating.toFixed(1)} / 10</span></div></div><div class="card-footer"><button class="card-action detail-trigger" type="button">View dossier <i data-lucide="arrow-up-right"></i></button><button class="card-action save-trigger ${r?"saved":""}" type="button" aria-label="${r?"Remove "+a.title+" from watchlist":"Add "+a.title+" to watchlist"}"><i data-lucide="${r?"bookmark-check":"bookmark-plus"}"></i></button></div></div>`;article.querySelector(".detail-trigger").onclick=()=>openDetail(a.id);article.querySelector(".save-trigger").onclick=e=>r?removeTitle(a.id,e.currentTarget):saveTitle(a.id,"Plan to Watch",e.currentTarget);return article}
+function renderGrid(el,items){el.replaceChildren(...items.map(card));icon()}
+function render(){const items=matching();renderGrid($("catalog-grid"),items);$("catalog-empty").classList.toggle("hidden",items.length>0);$("result-label").innerHTML=`Showing <strong>${items.length} ${items.length===1?"title":"titles"}</strong> in the archive`;let saved=anime.filter(a=>recordFor(a.id)&& (collection==="All saved"||recordFor(a.id).collection===collection));renderGrid($("watchlist-grid"),saved);$("watchlist-empty").classList.toggle("hidden",saved.length>0);$("watchlist-empty").querySelector("p").textContent=!ready?"Loading your saved titles…":collection==="All saved"?"Save a title from the archive to start building your watchlist.":"No titles in "+collection+" yet. Explore the archive to add one.";renderTabs();$("section-count").textContent=view==="discover"?`${String(items.length).padStart(2,"0")} CURATED ENTRIES`:`${String(records.length).padStart(2,"0")} SAVED ENTRIES`;if(selected)updateDetailActions()}
+function renderTabs(){const box=$("collection-tabs");box.replaceChildren(...collections.map(c=>{const b=document.createElement("button");b.className="collection-tab"+(collection===c?" active":"");b.type="button";b.textContent=c+"  /  "+records.filter(r=>c==="All saved"||r.collection===c).length;b.onclick=()=>{collection=c;render()};return b}))}
+function openDetail(id){const a=anime.find(x=>x.id===id);if(!a)return;selected=id;lastFocus=document.activeElement;$("detail-image").src=a.image;$("detail-image").alt=a.alt;$("detail-index").textContent="ARCHIVE ENTRY / "+String(anime.indexOf(a)+1).padStart(3,"0");$("detail-title").textContent=a.title;$("detail-japanese").textContent=a.jp;$("detail-description").textContent=a.description;$("detail-meta").innerHTML=`<div><span class="meta-label">RELEASE</span><span class="meta-value">${a.year}</span></div><div><span class="meta-label">STUDIO</span><span class="meta-value">${a.studio}</span></div><div><span class="meta-label">EPISODES</span><span class="meta-value">${a.episodes===1?"Feature film":a.episodes+" episodes"}</span></div><div><span class="meta-label">ARCHIVE RATING</span><span class="meta-value">★ ${a.rating.toFixed(1)} / 10</span></div>`;$("detail-tags").replaceChildren(...a.genres.map(g=>{const s=document.createElement("span");s.className="tag";s.textContent=g;return s}));$("detail-collection").value=recordFor(id)?.collection||"Plan to Watch";updateDetailActions();$("detail-overlay").classList.remove("hidden");document.body.style.overflow="hidden";$("detail-close").focus()}
+function updateDetailActions(){const r=recordFor(selected);$("detail-save").textContent=r?"Update collection":"Add to watchlist";$("detail-remove").classList.toggle("hidden",!r)}
+async function saveTitle(id,group,btn){if(!ready)return notice("Your watchlist is still loading. Please try again shortly.",true);if(records.length>=999)return notice("The collection has reached its 999-entry limit.",true);if(recordFor(id))return notice("This title is already in your watchlist.");setPending(btn,true,"Saving…");try{const result=await window.dataSdk.create({anime_id:id,collection:group,added_at:new Date().toISOString()});if(!result.isOk)notice("Could not confirm the save. Refresh before trying again.",true);else notice("Added to "+group+".")}catch(e){notice("Could not confirm the save. Refresh before trying again.",true)}finally{setPending(btn,false)}}
+async function removeTitle(id,btn){const r=recordFor(id);if(!r)return notice("This title is no longer available. Refresh and try again.",true);setPending(btn,true,"Removing…");try{const result=await window.dataSdk.delete(r);if(!result.isOk)notice("Could not confirm removal. Refresh before trying again.",true);else notice("Removed from your watchlist.")}catch(e){notice("Could not confirm removal. Refresh before trying again.",true)}finally{setPending(btn,false)}}
+function switchView(next){view=next;$("discover-view").classList.toggle("hidden",next!=="discover");$("watchlist-view").classList.toggle("hidden",next!=="watchlist");$("nav-discover").classList.toggle("active",next==="discover");$("nav-watchlist").classList.toggle("active",next==="watchlist");$("section-title").textContent=next==="discover"?"Explore the archive":"Your watchlist";$("section-kicker").textContent=next==="discover"?"THE CATALOGUE / 001":"PERSONAL COLLECTION / 002";render();$("workspace").scrollIntoView({behavior:"smooth",block:"start"})}
+$("nav-discover").onclick=()=>switchView("discover");
+$("nav-watchlist").onclick=()=>switchView("watchlist");
+$("brand-link").onclick=e=>{e.preventDefault();switchView("discover")};
+</script>

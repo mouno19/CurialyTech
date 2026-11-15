@@ -208,19 +208,33 @@ const ANIME_MARKERS = {
   "anime-sakura-popular": ['<section id="popular"', 0], "anime-sakura-recent": ['<section id="recent"', 0], "anime-sakura-mobile-dock": ['<nav class="mobile-nav"', 0, { previewWidth: 390 }],
   "anime-kitsune-sidebar": ['<aside class="sidebar"', 0], "anime-kitsune-topbar": ['<header class="topbar"', 0], "anime-kitsune-featured": ['<section id="featured"', 0],
   "anime-kitsune-seasonal": ['<section id="seasonal"', 0], "anime-kitsune-collection": ['<section id="collection"', 0],
+  "anime-senpai-topbar": ['<header class="topbar shell"', 0], "anime-senpai-hero": ['<section class="hero"', 0], "anime-senpai-discover": ['<section class="section shell" id="discover"', 0],
+  "anime-senpai-exclusives": ['<section class="shell" id="exclusives"', 0], "anime-senpai-watchlist": ['<section class="section shell" id="watchlist"', 0],
+  "anime-senpai-pricing": ['<section class="section shell membership"', 0], "anime-senpai-account": ['<section class="account shell"', 0],
+  "anime-live-sidebar": ['<aside id="sidebar"', 0], "anime-live-topbar": ['<header class="topbar"', 0], "anime-live-intro": ['<section class="intro"', 0],
+  "anime-live-party": ['<section id="live"', 0], "anime-live-premieres": ['<section id="premieres"', 0], "anime-live-discussions": ['<section id="discussions"', 0],
+  "anime-live-rail": ['<aside id="watchlists"', 0],
+  "anime-minimal-header": ['<header class="site-header"', 0], "anime-minimal-hero": ['<section class="hero shell"', 0], "anime-minimal-genres": ['<section id="genres"', 0],
+  "anime-minimal-catalog": ['<section id="catalog"', 0], "anime-minimal-manifesto": ['<section id="about"', 0], "anime-minimal-detail": ['<div id="detail-overlay"', 0, { previewRun: "openDetail(0)" }],
+  "anime-vault-header": ['<header class="site-header"', 0], "anime-vault-hero": ['<section class="hero"', 0], "anime-vault-filters": ['<aside class="filters"', 0],
+  "anime-vault-archive": ['<div id="discover-view"', 0], "anime-vault-watchlist": ['<div id="watchlist-view"', 0, { removeClass: "hidden" }],
+  "anime-vault-dossier": ['<div id="detail-overlay"', 0, { previewRun: "openDetail(anime[0].id)" }],
+  "anime-hyper-header": ['<header class="site-header"', 0], "anime-hyper-hero": ['<section class="hero"', 0], "anime-hyper-for-you": ['<section id="recommendations"', 0],
+  "anime-hyper-trending": ['<section id="trending"', 0], "anime-hyper-releases": ['<section id="releases"', 0], "anime-hyper-collections": ['<section id="collections"', 0],
 };
 
 /** A block's place in the library, from what it is. */
 function placeOf(name) {
   if (/footer|status line/i.test(name)) return { category: "navigation", role: "content" };
-  if (/filter|mood/i.test(name)) return { category: "data-management", role: "filters" };
+  if (/filter|mood|genre grid/i.test(name)) return { category: "data-management", role: "filters" };
+  if (/chat|discussion/i.test(name)) return { category: "community", role: "content" };
   if (/pagination/i.test(name)) return { category: "navigation", role: "filters" };
   if (/sidebar|dock|nav\b|navigation/i.test(name)) return { category: "navigation", role: "navigation" };
   if (/header|topbar|masthead|status bar/i.test(name)) return { category: "navigation", role: "header" };
   if (/hero|cover|featured|intro/i.test(name)) return { category: "layout", role: "header" };
-  if (/detail|episode|spotlight/i.test(name)) return { category: "media-detail", role: "content" };
-  if (/continue|player hub|tonight|membership|perks|status line/i.test(name)) return { category: "engagement", role: "insight" };
-  if (/critic|review|banner|philosophy/i.test(name)) return { category: "editorial", role: "insight" };
+  if (/detail|episode|spotlight|dossier/i.test(name)) return { category: "media-detail", role: "content" };
+  if (/continue|player hub|tonight|membership|perks|pricing|account|my list|watchlist|status line/i.test(name)) return { category: "engagement", role: "insight" };
+  if (/critic|review|banner|philosophy|manifesto/i.test(name)) return { category: "editorial", role: "insight" };
   return { category: "media-browsing", role: "content" };
 }
 

@@ -21,6 +21,7 @@
     "series5": "#36362f"
   },
   "aliases": {},
+  "replaced": {},
   "fonts": {
     "display": "\"Playfair Display\", serif",
     "sans": "\"DM Sans\", system-ui, sans-serif"

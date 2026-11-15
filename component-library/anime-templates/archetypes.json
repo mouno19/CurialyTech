@@ -618,5 +618,344 @@
         "how": "split section with an authentic seal badge"
       }
     ]
+  },
+  {
+    "id": "anime-celestial-senpai-plus",
+    "name": "Senpai+",
+    "style": "Celestial dark luxury streaming",
+    "file": "11_senpai_plus_celestial_streaming.html",
+    "mode": "dark",
+    "concept": "A night sky over a premium service: deep navy, violet and silver, a planetary orb, abstract vector art instead of photos, clear tiers.",
+    "fits": [
+      "premium saas",
+      "subscription platform",
+      "dark mode portal",
+      "membership site",
+      "streaming service",
+      "saas pricing page"
+    ],
+    "signals": [
+      "celestial",
+      "orbit",
+      "planetary",
+      "astral",
+      "subscription tiers",
+      "pricing tiers",
+      "dark luxury",
+      "premium streaming"
+    ],
+    "blocks": [
+      {
+        "id": "anime-senpai-topbar",
+        "name": "Celestial topbar",
+        "how": "wordmark, links and a membership action"
+      },
+      {
+        "id": "anime-senpai-hero",
+        "name": "Planetary orb hero",
+        "how": "vector orb, orbit ring and a figure behind one featured title",
+        "looks": [
+          "violet"
+        ]
+      },
+      {
+        "id": "anime-senpai-discover",
+        "name": "Vector poster grid",
+        "how": "recommendations with abstract vector poster art in eight palettes"
+      },
+      {
+        "id": "anime-senpai-exclusives",
+        "name": "Exclusive premieres band",
+        "how": "a wide band with a giant S+ watermark"
+      },
+      {
+        "id": "anime-senpai-watchlist",
+        "name": "My List panel",
+        "how": "saved titles with a live counter"
+      },
+      {
+        "id": "anime-senpai-pricing",
+        "name": "Tiered pricing cards",
+        "how": "Essential, Plus and Ultra tiers with feature lists and one recommended tier"
+      },
+      {
+        "id": "anime-senpai-account",
+        "name": "Account overview",
+        "how": "a public account preview box with plan and usage"
+      }
+    ]
+  },
+  {
+    "id": "anime-community-anime-live",
+    "name": "Anime Live",
+    "style": "Community watch party, live social platform",
+    "file": "12_anime_live_watch_party_community.html",
+    "mode": "dark",
+    "concept": "A watch party: three columns (dock, live feed, activity rail), a LIVE NOW badge with viewer counts, schedules with who is going, chat.",
+    "fits": [
+      "social community",
+      "creator watch party",
+      "live webinar",
+      "discord-like app",
+      "live events",
+      "online classes",
+      "fan community",
+      "creator platform"
+    ],
+    "signals": [
+      "watch party",
+      "watch-party",
+      "livestream",
+      "live stream",
+      "live chat",
+      "community",
+      "discord",
+      "webinar",
+      "viewers",
+      "chat rail",
+      "watch parties"
+    ],
+    "blocks": [
+      {
+        "id": "anime-live-sidebar",
+        "name": "Navigation dock",
+        "how": "a left app dock with sections and the user"
+      },
+      {
+        "id": "anime-live-topbar",
+        "name": "Community topbar",
+        "how": "breadcrumbs and community search; on phones its menu button opens the navigation dock, which comes with it"
+      },
+      {
+        "id": "anime-live-intro",
+        "name": "Community intro",
+        "how": "a short welcome with the next event"
+      },
+      {
+        "id": "anime-live-party",
+        "name": "Live watch-party hero",
+        "how": "a LIVE NOW badge, viewer count (1.2k watching) and a join action",
+        "looks": [
+          "marquee"
+        ]
+      },
+      {
+        "id": "anime-live-premieres",
+        "name": "Premiere schedule",
+        "how": "cards with attendee avatar stacks (+348 going) and remind-me buttons"
+      },
+      {
+        "id": "anime-live-discussions",
+        "name": "Discussion feed",
+        "how": "posts with tabs (For you, Trending, Fan theories)"
+      },
+      {
+        "id": "anime-live-rail",
+        "name": "Activity rail with live chat",
+        "how": "a right rail: chat preview with colour-coded users, popular watchlists (01-03) and friends online",
+        "looks": [
+          "numerals"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "anime-minimal-swiss-editorial",
+    "name": "Minimal Otaku",
+    "style": "Ultra-minimal Swiss and brutalist editorial",
+    "file": "13_minimal_otaku_swiss_editorial.html",
+    "mode": "light",
+    "concept": "Swiss rigour: white paper, black ink, one red, giant type, a strict grid, numbered buttons, colour only in the posters.",
+    "fits": [
+      "swiss design portfolio",
+      "brutalist architecture",
+      "design studio",
+      "minimalist blog",
+      "creative agency",
+      "typography portfolio",
+      "architecture firm"
+    ],
+    "signals": [
+      "swiss",
+      "brutalist",
+      "brutalism",
+      "minimalist",
+      "international style",
+      "grid system",
+      "stark",
+      "monochrome",
+      "helvetica"
+    ],
+    "blocks": [
+      {
+        "id": "anime-minimal-header",
+        "name": "Minimal header",
+        "how": "a wordmark and plain text links on a rule"
+      },
+      {
+        "id": "anime-minimal-hero",
+        "name": "Giant type hero",
+        "how": "one oversized statement (Anime, considered.) and a line of text"
+      },
+      {
+        "id": "anime-minimal-genres",
+        "name": "Numbered genre grid",
+        "how": "a 4x2 grid of genre buttons with 01-08 sub-labels",
+        "looks": [
+          "numerals"
+        ]
+      },
+      {
+        "id": "anime-minimal-catalog",
+        "name": "Colour poster catalog",
+        "how": "search with a live count and flat colour posters with angled watermarks"
+      },
+      {
+        "id": "anime-minimal-manifesto",
+        "name": "Manifesto",
+        "how": "a statement section (Less scrolling. More discovering.)"
+      },
+      {
+        "id": "anime-minimal-detail",
+        "name": "Slide-in detail with episode list",
+        "how": "a detail dialog with stats and an episode guide"
+      }
+    ]
+  },
+  {
+    "id": "anime-archive-anime-vault",
+    "name": "Anime Vault",
+    "style": "Dark heritage archive, studio museum vault",
+    "file": "14_anime_vault_heritage_archive.html",
+    "mode": "dark",
+    "concept": "A museum's vault after hours: slate and old gold, catalogue numbers, metadata like museum labels, a dossier for each work.",
+    "fits": [
+      "digital archive",
+      "museum collection",
+      "research repository",
+      "university library",
+      "luxury registry",
+      "wine vault",
+      "watch collection",
+      "auction house",
+      "digital library"
+    ],
+    "signals": [
+      "archive",
+      "archival",
+      "heritage",
+      "vault",
+      "registry",
+      "provenance",
+      "repository"
+    ],
+    "blocks": [
+      {
+        "id": "anime-vault-header",
+        "name": "Heritage header with view switcher",
+        "how": "a gold topline, heritage mark and a Discover / My Watchlist switch"
+      },
+      {
+        "id": "anime-vault-hero",
+        "name": "Curated hero with collection index",
+        "how": "a curated statement with a 01-08 collection index",
+        "looks": [
+          "numerals"
+        ]
+      },
+      {
+        "id": "anime-vault-filters",
+        "name": "Facet filter sidebar",
+        "how": "search, genre, release period, studio and rating facets"
+      },
+      {
+        "id": "anime-vault-archive",
+        "name": "Archive browser",
+        "how": "the facet sidebar with archive cards whose metadata grid lists studio, episodes and genres"
+      },
+      {
+        "id": "anime-vault-watchlist",
+        "name": "Collection status watchlist",
+        "how": "Plan to watch, Watching and Completed tabs over saved cards"
+      },
+      {
+        "id": "anime-vault-dossier",
+        "name": "Dossier modal",
+        "how": "a work's dossier: Japanese title, synopsis, metadata and its collection status"
+      }
+    ]
+  },
+  {
+    "id": "anime-cyberpop-hyperanime",
+    "name": "Hyperanime",
+    "style": "Hyper-vibrant cyber-pop, multiverse streaming",
+    "file": "15_hyperanime_cyberpop_multiverse.html",
+    "mode": "dark",
+    "concept": "A neon pop multiverse: deep purple-black, hot pink, cyan and orange, a gradient wordmark, glowing tags, rank numerals.",
+    "fits": [
+      "web3 gaming",
+      "nft drop",
+      "esports festival",
+      "youth entertainment",
+      "music festival",
+      "streetwear drop",
+      "creator merch"
+    ],
+    "signals": [
+      "cyberpop",
+      "cyber-pop",
+      "hyperpop",
+      "multiverse",
+      "vibrant",
+      "y2k",
+      "holographic",
+      "electric",
+      "neon pop"
+    ],
+    "blocks": [
+      {
+        "id": "anime-hyper-header",
+        "name": "Gradient wordmark header",
+        "how": "a gradient wordmark with a glowing pulse badge",
+        "looks": [
+          "gradient-text"
+        ]
+      },
+      {
+        "id": "anime-hyper-hero",
+        "name": "Neon hero with live counter",
+        "how": "radial neon glow behind one title and a live watch counter",
+        "looks": [
+          "violet",
+          "glass"
+        ]
+      },
+      {
+        "id": "anime-hyper-for-you",
+        "name": "For You cards with neon tags",
+        "how": "handpicked cards tagged HOT, NEW and TOP PICK",
+        "looks": [
+          "violet"
+        ]
+      },
+      {
+        "id": "anime-hyper-trending",
+        "name": "Trending with rank numerals",
+        "how": "cards over giant 01-03 ranking numerals",
+        "looks": [
+          "numerals"
+        ]
+      },
+      {
+        "id": "anime-hyper-releases",
+        "name": "New releases list",
+        "how": "a horizontal list with episode status pills"
+      },
+      {
+        "id": "anime-hyper-collections",
+        "name": "Dual collection banners",
+        "how": "two collection banners side by side"
+      }
+    ]
   }
 ]

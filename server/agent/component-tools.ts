@@ -257,7 +257,7 @@ export async function runComponentTool(name: ComponentToolName, rawInput: unknow
       const css = stylesheet(id);
       if (!css) { skipped.push(`stylesheet ${id} (missing)`); continue; }
       const family = snapshot.tokens.get(id);
-      const adapted = family ? adaptSource(css, { style: { tokens: id, colors: Object.fromEntries(Object.entries(family.colors).map(([role, hex]) => [hex, role])) } }, theme) : { source: css, swapped: 0 };
+      const adapted = family ? adaptSource(css, { style: { tokens: id, colors: { ...family.aliases, ...Object.fromEntries(Object.entries(family.colors).map(([role, hex]) => [hex, role])) } } }, theme) : { source: css, swapped: 0 };
       if (put(`${dir}/styles/${id}.css`, adapted.source)) lines.push(`- ${dir}/styles/${id}.css: styles the ${id} blocks (load it once; they sit inside class="cx-${id}")`);
     }
     if (theme) {

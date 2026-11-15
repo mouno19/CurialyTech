@@ -1,0 +1,33 @@
+{
+  "id": "anime-community-anime-live",
+  "name": "Anime Live (dark)",
+  "mode": "dark",
+  "source": "anime-templates/12_anime_live_watch_party_community.html",
+  "colors": {
+    "background": "#101014",
+    "surface": "#1b1b22",
+    "surface2": "#22222b",
+    "border": "#303039",
+    "text": "#f6f4f8",
+    "muted": "#9998a7",
+    "accent": "#a88aff",
+    "positive": "#59d9a9",
+    "negative": "#ff746f",
+    "warning": "#ff746f",
+    "series1": "#a88aff",
+    "series2": "#ff746f",
+    "series3": "#59d9a9",
+    "series4": "#9998a7",
+    "series5": "#f6f4f8",
+    "series6": "#303039"
+  },
+  "aliases": {},
+  "replaced": {},
+  "fonts": {
+    "display": "\"Space Grotesk\", system-ui, sans-serif",
+    "sans": "\"DM Sans\", system-ui, sans-serif"
+  },
+  "radius": {
+    "card": "5-12px; round avatars"
+  }
+}

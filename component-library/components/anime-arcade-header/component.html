@@ -14,7 +14,6 @@
   </header>
 <!-- Used by this block's script (elsewhere on the page it came from): -->
 <div id="anime-grid" class="grid"></div>
-<div id="filters" class="filters" role="group" aria-label="Filter anime by category"></div>
 <p id="result-count" class="result-count" aria-live="polite"></p>
 <div id="empty-state" class="empty">
      <strong class="pixel">NO MATCH FOUND</strong>Try a different title or pick another category.
@@ -36,8 +35,9 @@ const shows=[
       {title:"Midnight Dungeon Radio",type:"Original",genre:"Fantasy",tags:["Fantasy","Mystery"],rating:"8.8",year:"2025",episodes:"8 episodes",icon:"📻",colors:["#8960c7","#253b80"],short:"Tune in. The dungeon is listening.",description:"A mysterious radio host guides adventurers through a shifting labyrinth, but every broadcast reveals another clue about the world outside. An original fantasy mystery."},
       {title:"My Neighbor Totoro",type:"Anime",genre:"Cozy",tags:["Cozy","Fantasy"],rating:"9.3",year:"1988",episodes:"Film",icon:"🌱",colors:["#83b98c","#537b9d"],short:"A magical friendship blooms in the countryside.",description:"Two sisters settle into a new home and encounter wondrous forest spirits in this beloved, gentle animated film."}
     ];
-let featureIndex=0,activeFilter="All",query="",lastFocus=null;
-const grid=document.getElementById("anime-grid"),filters=document.getElementById("filters");
+let activeFilter="All";
+let query="";
+const grid=document.getElementById("anime-grid");
 function escapeHTML(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function renderGrid(){const visible=shows.filter(s=>(activeFilter==="All"||s.tags.includes(activeFilter))&&(`${s.title} ${s.genre} ${s.tags.join(" ")} ${s.short} ${s.description}`.toLowerCase().includes(query)));grid.innerHTML=visible.map(s=>{const i=shows.indexOf(s);return `<article class="anime-card"><div class="cover" style="background:linear-gradient(145deg,${s.colors[0]},${s.colors[1]})"><span class="cover-badge pixel">${s.type==="Original"?"ORIGINAL":"ANIME"}</span><span class="cover-icon" aria-hidden="true">${s.icon}</span><span class="cover-title pixel">${escapeHTML(s.title)}</span></div><div class="card-body"><div class="card-top"><h3>${escapeHTML(s.title)}</h3><span class="rating">★ ${s.rating}</span></div><p>${escapeHTML(s.short)}</p><div class="card-bottom"><span class="genre">${escapeHTML(s.genre)} · ${escapeHTML(s.year)}</span><button class="explore" type="button" data-show="${i}" aria-label="Explore ${escapeHTML(s.title)}">EXPLORE →</button></div></div></article>`}).join("");document.getElementById("result-count").textContent=`${visible.length} ${visible.length===1?"series":"series"} found`;document.getElementById("empty-state").style.display=visible.length?"none":"block"}
 document.getElementById("search-input").addEventListener("input",e=>{query=e.target.value.trim().toLowerCase();renderGrid()});

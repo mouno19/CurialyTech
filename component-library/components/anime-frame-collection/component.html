@@ -83,7 +83,8 @@ const stories={
       paper:{title:"Paper Moons",genre:"Fantasy / Adventure",format:"8 episodes",description:"A young bookbinder discovers that unfinished stories have been escaping their pages. To bring them home, she must travel through landscapes shaped by abandoned ideas, accompanied by a curious paper bird.",note:"The editor’s note: An imaginative, wistful fable about finding courage in things that are not yet complete."},
       midnight:{title:"Midnight Lines",genre:"Drama",format:"Film",description:"On the final service of a city tram line, four strangers find their journeys unexpectedly intertwined. Through missed stops and unplanned conversations, each begins to imagine a different way forward.",note:"The editor’s note: A beautifully restrained portrait of connection in a city always rushing past itself."}
     };
-const storyOverlay=document.getElementById("story-overlay"),searchOverlay=document.getElementById("search-overlay");
+const storyOverlay=document.getElementById("story-overlay");
+const searchOverlay=document.getElementById("search-overlay");
 let lastFocus=null;
 function openOverlay(el){lastFocus=document.activeElement;el.classList.add("open");el.setAttribute("aria-hidden","false");document.body.style.overflow="hidden";el.querySelector("button, input").focus()}
 function showStory(key){const s=stories[key];if(!s)return;document.getElementById("dialog-kicker").textContent="FRAME / Story profile";document.getElementById("dialog-title").textContent=s.title;document.getElementById("dialog-description").textContent=s.description;document.getElementById("dialog-note").textContent=s.note;document.getElementById("dialog-details").textContent=s.genre+"  /  "+s.format;closeSearchIfOpen();openOverlay(storyOverlay)}

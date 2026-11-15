@@ -1,0 +1,96 @@
+{
+  "id": "anime-minimal-genres",
+  "name": "Numbered genre grid (Minimal Otaku)",
+  "description": "Numbered genre grid: a 4x2 grid of genre buttons with 01-08 sub-labels. From the Minimal Otaku archetype (Ultra-minimal Swiss and brutalist editorial); re-skin it to the design's tokens and mix it with blocks of other archetypes, never the whole template.",
+  "category": "data-management",
+  "batch": "anime-minimal-swiss-editorial",
+  "collection": "Anime archetype: Minimal Otaku",
+  "kind": "component",
+  "role": "filters",
+  "tags": [
+    "anime",
+    "entertainment",
+    "media",
+    "light",
+    "swiss",
+    "brutalist",
+    "brutalism",
+    "minimalist",
+    "international style",
+    "grid system",
+    "swiss-design-portfolio",
+    "brutalist-architecture",
+    "design-studio",
+    "minimalist-blog",
+    "numbered",
+    "genre",
+    "grid",
+    "buttons",
+    "heatmap",
+    "matrix",
+    "density",
+    "network",
+    "relationships",
+    "graph",
+    "api-monitoring",
+    "usage",
+    "sparkline",
+    "compact",
+    "light-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "interactive",
+    "keyboard",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "stylesheet",
+      "id": "anime-minimal-swiss-editorial"
+    },
+    {
+      "type": "tokens",
+      "id": "anime-minimal-swiss-editorial"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "filters",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "anime-minimal-swiss-editorial",
+    "mode": "light",
+    "colors": {}
+  },
+  "source": {
+    "file": "anime-templates/13_minimal_otaku_swiss_editorial.html",
+    "ref": "section id=\"genres\" #0"
+  },
+  "archetype": "anime-minimal-swiss-editorial",
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "3a59f81e0fe2bb08",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

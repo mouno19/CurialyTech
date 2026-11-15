@@ -40,11 +40,24 @@ export function references(node, out = new Set()) {
   return out;
 }
 
-/** Top-level declarations of a script: name → { node, text, refs, pageBound }. */
-export function declarations(code) {
+/**
+ * Top-level declarations of a script: name → { node, text, refs, pageBound }. With `split`, each
+ * declarator of a statement that declares several is its own entry (const grid = …, dialog = …:
+ * what needs the dialog doesn't get the grid).
+ */
+export function declarations(code, { split = false } = {}) {
   const ast = parse(code, { sourceType: "script", plugins: ["jsx"], errorRecovery: false });
   const byName = new Map();
   for (const node of ast.program.body) {
+    if (split && node.type === "VariableDeclaration" && node.declarations.length > 1) {
+      for (const d of node.declarations) {
+        if (d.id.type !== "Identifier") continue;
+        const text = `${node.kind} ${code.slice(d.start, d.end)};`;
+        const deferred = !!d.init && /^(ArrowFunctionExpression|FunctionExpression)$/.test(d.init.type);
+        byName.set(d.id.name, { node: d, text, start: d.start, refs: references(d), pageBound: !deferred && PAGE_BOUND.test(text) });
+      }
+      continue;
+    }
     const names = node.type === "FunctionDeclaration" || node.type === "ClassDeclaration" ? [node.id.name]
       : node.type === "VariableDeclaration" ? node.declarations.flatMap(d => (d.id.type === "Identifier" ? [d.id.name] : [])) : [];
     if (!names.length) continue;

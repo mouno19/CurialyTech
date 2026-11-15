@@ -2,7 +2,7 @@
   "id": "anime-otaku-archive",
   "name": "Archive of dossier cards (Otaku OS)",
   "description": "Archive of dossier cards: cards numbered as files (01 / FILE). From the Otaku OS archetype (Cyberpunk terminal, futuristic desktop OS); re-skin it to the design's tokens and mix it with blocks of other archetypes, never the whole template. (In the source: \"No matching signals\".)",
-  "category": "media-browsing",
+  "category": "media-detail",
   "batch": "anime-terminal-otaku-os",
   "collection": "Anime archetype: Otaku OS",
   "kind": "component",
@@ -38,6 +38,7 @@
   "capabilities": [
     "responsive",
     "interactive",
+    "keyboard",
     "accessible"
   ],
   "dependencies": [
@@ -89,7 +90,7 @@
     "compiled": true,
     "rendered": true,
     "notes": [],
-    "hash": "887a1c74a5d8402e",
+    "hash": "207764615c37c402",
     "checked_at": "2026-11-15"
   },
   "generated_by": "atlas-import",

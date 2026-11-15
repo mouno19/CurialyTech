@@ -32,7 +32,7 @@ const series = [
       {id:"moon",title:"Moonlit Wanderer",jp:"月夜の旅人",genre:"Drama",secondary:"Adventure",episodes:11,image:"https://images.pexels.com/photos/31403466/pexels-photo-31403466.jpeg",alt:"A striking anime-inspired cosplay portrait featuring intricate hand placement and character styling.",description:"A young traveler follows a trail of old letters across the country, uncovering a family story hidden in plain sight."}
     ];
 const seasonal = series.slice(1);
-let activeFilter = "All", lastTrigger = null;
+let activeFilter = "All";
 const cards = document.getElementById("cards"), search = document.getElementById("search-input");
 function renderCards(){
       const q=search.value.trim().toLowerCase();
@@ -47,5 +47,6 @@ document.querySelectorAll(".filter").forEach(btn=>btn.addEventListener("click",(
       document.querySelectorAll(".filter").forEach(b=>{b.classList.toggle("active",b===btn);b.setAttribute("aria-pressed",String(b===btn))});
       renderCards();
     }));
+search.addEventListener("input",renderCards);
 renderCards();
 </script>

@@ -1,0 +1,108 @@
+<!-- Tiered pricing cards (Senpai+) · anime-senpai-pricing: from the Anime archetype: Senpai+ (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/anime-celestial-senpai-plus.css, and an ancestor with class="cx-anime-celestial-senpai-plus". -->
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+<div class="cx-anime-celestial-senpai-plus">
+<section class="section shell membership" id="membership" aria-labelledby="membership-title">
+    <div class="section-head">
+     <div>
+      <p class="kicker">The experience, your way</p>
+      <h2 id="membership-title">Find your perfect tier.</h2>
+      <p class="section-desc">Compare the membership experience. Select a tier to preview it below.</p>
+     </div>
+    </div>
+    <div class="plans">
+     <article class="plan">
+      <h3>Essential</h3>
+      <div class="price">
+       $7.99 <span>/ month</span>
+      </div>
+      <p>All the anime you love, beautifully within reach.</p>
+      <ul>
+       <li><i data-lucide="check"></i>Full streaming library</li>
+       <li><i data-lucide="check"></i>HD streaming</li>
+       <li><i data-lucide="check"></i>Watch on 1 screen</li>
+       <li><i data-lucide="check"></i>Personalized discovery</li>
+      </ul><button class="secondary plan-button" data-plan="Essential">Preview Essential</button>
+     </article>
+     <article class="plan featured">
+      <span class="plan-tag">MOST POPULAR</span>
+      <h3>Plus</h3>
+      <div class="price">
+       $11.99 <span>/ month</span>
+      </div>
+      <p>More ways to immerse yourself in every story.</p>
+      <ul>
+       <li><i data-lucide="check"></i>Everything in Essential</li>
+       <li><i data-lucide="check"></i>Full HD streaming</li>
+       <li><i data-lucide="check"></i>Watch on 2 screens</li>
+       <li><i data-lucide="check"></i>Exclusive premieres</li>
+      </ul><button class="primary plan-button" data-plan="Plus">Preview Plus</button>
+     </article>
+     <article class="plan">
+      <h3>Ultra</h3>
+      <div class="price">
+       $15.99 <span>/ month</span>
+      </div>
+      <p>The definitive home for the devoted fan.</p>
+      <ul>
+       <li><i data-lucide="check"></i>Everything in Plus</li>
+       <li><i data-lucide="check"></i>4K UHD where available</li>
+       <li><i data-lucide="check"></i>Watch on 4 screens</li>
+       <li><i data-lucide="check"></i>Early access to originals</li>
+      </ul><button class="secondary plan-button" data-plan="Ultra">Preview Ultra</button>
+     </article>
+    </div>
+    <p class="fine-print">Memberships shown are concept previews. Selecting a tier does not start a subscription or charge you.</p>
+   </section>
+<!-- Used by this block's script (elsewhere on the page it came from): -->
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="grid" id="recommendation-grid"></div>
+<div class="grid" id="exclusive-grid"></div>
+<button class="secondary" id="hero-save" data-title-id="astral-veil"><i data-lucide="plus" width="17" height="17"></i><span>My List</span></button>
+<div class="watch-panel" id="watch-panel">
+     <div class="watch-empty">
+      <i data-lucide="bookmark" width="26" height="26"></i>
+      <div>
+       <strong>Loading your list…</strong><span>Just a moment.</span>
+      </div>
+     </div>
+    </div>
+<div class="status" id="data-status" role="status" aria-live="polite"></div>
+<strong id="selected-tier">Plus</strong>
+</div>
+<script>
+const titles=[
+      {id:"astral-veil",title:"Astral Veil",genre:"Fantasy",detail:"2025 · 12 Episodes",rating:"9.4",art:"p1",symbol:"✦",exclusive:true},
+      {id:"neon-horizon",title:"Neon Horizon",genre:"Sci-Fi",detail:"2025 · 10 Episodes",rating:"9.2",art:"p2",symbol:"◈",exclusive:false},
+      {id:"afterglow",title:"Afterglow Letters",genre:"Romance",detail:"2024 · 12 Episodes",rating:"9.1",art:"p3",symbol:"✳",exclusive:false},
+      {id:"verdant-oath",title:"The Verdant Oath",genre:"Fantasy",detail:"2025 · 16 Episodes",rating:"9.0",art:"p4",symbol:"❋",exclusive:true},
+      {id:"violet-reign",title:"Violet Reign",genre:"Action",detail:"2025 · 8 Episodes",rating:"9.3",art:"p5",symbol:"✧",exclusive:true},
+      {id:"emberline",title:"Emberline",genre:"Action",detail:"2024 · 12 Episodes",rating:"8.9",art:"p6",symbol:"✺",exclusive:false},
+      {id:"blue-signal",title:"Blue Signal",genre:"Sci-Fi",detail:"2025 · 10 Episodes",rating:"9.1",art:"p7",symbol:"◇",exclusive:true},
+      {id:"silver-moon",title:"Silver Moon Diary",genre:"Romance",detail:"2024 · 13 Episodes",rating:"8.8",art:"p8",symbol:"☾",exclusive:false}
+    ];
+let backendRecords=[];
+let ready=false;
+let filter="All";
+let loadTimer;
+let toastTimer;
+const $=id=>document.getElementById(id);
+function icon(){lucide.createIcons()}
+function toast(message){const el=$("toast");el.textContent=message;el.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove("show"),4000)}
+function saved(id){return backendRecords.some(r=>r.title_id===id)}
+function card(t){return `<article class="show-card" data-genre="${t.genre}"><div class="poster ${t.art}"><div class="poster-art"></div>${t.exclusive?'<span class="badge">SENPAI+ ORIGINAL</span>':''}<span class="poster-symbol" aria-hidden="true">${t.symbol}</span></div><div class="card-info"><h3>${t.title}</h3><p>${t.detail} · ${t.genre}</p><div class="card-bottom"><span class="rating">★ ${t.rating}</span><button class="small-btn ${saved(t.id)?'saved':''}" data-title-id="${t.id}" ${!ready?'disabled':''}><i data-lucide="${saved(t.id)?'check':'plus'}" width="13" height="13"></i><span>${saved(t.id)?'In My List':'My List'}</span></button></div></div></article>`}
+function renderCards(){$("recommendation-grid").innerHTML=titles.filter(t=>filter==="All"||t.genre===filter).slice(0,4).map(card).join("");$("exclusive-grid").innerHTML=titles.filter(t=>t.exclusive).map(card).join("");const hero=$("hero-save");hero.disabled=!ready;hero.querySelector("span").textContent=saved("astral-veil")?"In My List":"My List";hero.querySelector("i")?.setAttribute("data-lucide",saved("astral-veil")?"check":"plus");icon()}
+function renderList(){const panel=$("watch-panel");if(!ready)return;if(!backendRecords.length){panel.innerHTML='<div class="watch-empty"><i data-lucide="bookmark" width="26" height="26"></i><div><strong>Your list starts here.</strong><span>Add a title above to build your collection.</span></div></div>'}else{panel.innerHTML='<div class="watch-list">'+backendRecords.map(r=>`<div class="watch-item"><span>${escapeHtml(r.title)}</span><button class=" remove-button" data-record-id="${escapeHtml(r.__backendId)}" aria-label="Remove ${escapeHtml(r.title)} from My List"><i data-lucide="x" width="15" height="15"></i></button></div>`).join("")+'</div>'}icon()}
+function escapeHtml(v){return String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function status(text){$("data-status").textContent=text}
+const handler={onDataChanged(data){clearTimeout(loadTimer);backendRecords=data;ready=true;status(backendRecords.length>=950?`${backendRecords.length} of 999 saved titles used.`:"");renderCards();renderList()}};
+async function initialize(){clearTimeout(loadTimer);loadTimer=setTimeout(()=>{if(!ready)loadError("Your list could not be loaded.")},8000);try{const result=await window.dataSdk.init(handler);if(!result.isOk){clearTimeout(loadTimer);loadError("Your list could not be initialized.")}}catch(e){clearTimeout(loadTimer);loadError("Your list could not be initialized.")}}
+function loadError(message){ready=false;renderCards();$("watch-panel").innerHTML=`<div class="watch-empty"><div><strong>${message}</strong><span>Please try again. <button class="retry" id="retry-load">Retry loading</button></span></div></div>`;status(message)}
+document.addEventListener("click",async e=>{
+      const retry=e.target.closest("#retry-load");if(retry){$("watch-panel").innerHTML='<div class="watch-empty">Loading your list…</div>';status("");initialize();return}
+      const filterBtn=e.target.closest(".filter");if(filterBtn){filter=filterBtn.dataset.filter;document.querySelectorAll(".filter").forEach(b=>{b.classList.toggle("active",b===filterBtn);b.setAttribute("aria-pressed",String(b===filterBtn))});renderCards();return}
+      const plan=e.target.closest(".plan-button");if(plan){$("selected-tier").textContent=plan.dataset.plan;document.querySelectorAll(".plan-button").forEach(b=>b.textContent="Preview "+b.dataset.plan);plan.textContent="Selected for preview";toast(plan.dataset.plan+" tier selected for preview. No subscription started.");return}
+      const remove=e.target.closest(".remove-button");if(remove){const record=backendRecords.find(r=>r.__backendId===remove.dataset.recordId);if(!record)return;remove.disabled=true;try{const result=await window.dataSdk.delete(record);if(!result.isOk)toast("Could not confirm removal. Refresh before trying again.");else{remove.closest(".watch-item")?.remove();toast("Removed from My List.")}}catch(err){toast("Could not confirm removal. Refresh before trying again.")}finally{remove.disabled=false}return}
+      const add=e.target.closest("[data-title-id]");if(add){if(!ready){toast("Please wait for your list to load.");return}const title=titles.find(t=>t.id===add.dataset.titleId);if(!title)return;if(saved(title.id)){toast("Already in My List.");return}if(backendRecords.length>=999){toast("My List has reached its 999-title limit.");return}add.disabled=true;try{const result=await window.dataSdk.create({title_id:title.id,title:title.title,added_at:new Date().toISOString()});if(!result.isOk)toast("Could not confirm the save. Refresh before trying again.");else toast(title.title+" added to My List.")}catch(err){toast("Could not confirm the save. Refresh before trying again.")}finally{add.disabled=false}}
+    });
+</script>

@@ -1,0 +1,34 @@
+<!-- Community topbar (Anime Live) · anime-live-topbar: from the Anime archetype: Anime Live (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/anime-community-anime-live.css, and an ancestor with class="cx-anime-community-anime-live". -->
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+<div class="cx-anime-community-anime-live">
+<header class="topbar">
+     <button id="mobile-menu" class="mobile-menu" aria-label="Open menu" aria-expanded="false"><i data-lucide="menu"></i></button>
+     <div class="breadcrumbs">
+      Community <b>/ &nbsp; Home</b>
+     </div><label class="search" for="site-search"><i data-lucide="search"></i><input id="site-search" type="search" placeholder="Search the community..." aria-label="Search premieres and discussions"></label>
+    </header>
+<!-- Used by this block's script (elsewhere on the page it came from): -->
+<aside id="sidebar" class="sidebar" aria-label="Main navigation"><a class="brand" href="#home"><span class="brand-icon"><i data-lucide="play" style="width:17px;fill:currentColor"></i></span><span>ANIME <em>LIVE</em></span></a>
+    <nav aria-label="Explore">
+     <p class="nav-label">Discover</p><a href="#home" class="nav-link active"><i data-lucide="layout-dashboard"></i> Home</a> <a href="#live" class="nav-link"><i data-lucide="radio"></i> Live now <span class="nav-badge">1</span></a> <a href="#premieres" class="nav-link"><i data-lucide="calendar-days"></i> Schedule</a> <a href="#discussions" class="nav-link"><i data-lucide="messages-square"></i> Discussions</a> <a href="#watchlists" class="nav-link"><i data-lucide="list-video"></i> Watchlists</a>
+    </nav>
+    <div class="sidebar-bottom">
+     <div class="club-card">
+      <div class="sparkle">
+       ✦
+      </div><strong>Your people. Your anime.</strong>
+      <p>Discover new stories with a community that gets it.</p><a href="#discussions">Explore discussions <i data-lucide="arrow-up-right" style="width:12px"></i></a>
+     </div>
+     <div class="profile-mini">
+      <span class="avatar">Y</span><span><strong>You, the explorer</strong><small>Community guest</small></span><i data-lucide="chevron-down"></i>
+     </div>
+    </div>
+   </aside>
+</div>
+<script>
+lucide.createIcons();
+const sidebar=document.getElementById('sidebar'),menu=document.getElementById('mobile-menu');
+menu.addEventListener('click',()=>{const open=sidebar.classList.toggle('open');menu.setAttribute('aria-expanded',String(open))});
+const search=document.getElementById('site-search');
+</script>

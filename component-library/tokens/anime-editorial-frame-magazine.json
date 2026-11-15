@@ -19,8 +19,9 @@
     "series3": "#6d6e68",
     "series4": "#d4d3cb"
   },
-  "aliases": {
-    "#777872": "series2"
+  "aliases": {},
+  "replaced": {
+    "#777872": "#6d6e68"
   },
   "fonts": {
     "display": "\"Playfair Display\", serif",

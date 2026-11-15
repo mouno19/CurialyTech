@@ -1,0 +1,34 @@
+<!-- Gradient wordmark header (Hyperanime) · anime-hyper-header: from the Anime archetype: Hyperanime (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/anime-cyberpop-hyperanime.css, and an ancestor with class="cx-anime-cyberpop-hyperanime". -->
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+<div class="cx-anime-cyberpop-hyperanime">
+<header class="site-header"><a class="brand" href="#top" aria-label="Hyperanime home">HYPER<span>ANIME</span><span style="color:#ff71b6;background:none">.</span></a>
+    <nav id="main-nav" class="nav" aria-label="Main navigation"><a class="active" href="#top">Home</a><a href="#recommendations">Discover</a><a href="#trending">Trending</a><a href="#releases">New Releases</a>
+    </nav>
+    <div class="header-actions"><label class="search-box" for="search"><i data-lucide="search"></i><input id="search" type="search" placeholder="Search anime..." aria-label="Search anime"></label>
+     <div class="avatar" aria-label="Guest profile">
+      H
+     </div>
+    </div><button id="menu-toggle" class="mobile-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="main-nav"><i data-lucide="menu"></i></button>
+   </header>
+<!-- Used by this block's script (elsewhere on the page it came from): -->
+<div id="recommendation-grid" class="card-grid"></div>
+<dialog id="details-dialog" aria-labelledby="modal-title">
+   <button id="modal-close" class="modal-close" aria-label="Close details"><i data-lucide="x"></i></button>
+   <img id="modal-image" class="modal-image" src="https://images.pexels.com/photos/40883748/pexels-photo-40883748.jpeg" alt="Series artwork" loading="lazy">
+   <div class="modal-body">
+    <div id="modal-meta" class="modal-meta"></div>
+    <h2 id="modal-title"></h2>
+    <p id="modal-description"></p><a id="modal-link" class="primary-btn modal-link" href="https://www.google.com/search?q=anime" target="_blank" rel="noopener noreferrer"><i data-lucide="search"></i> Search for this series</a>
+   </div>
+  </dialog>
+</div>
+<script>
+lucide.createIcons();
+const grid=document.getElementById("recommendation-grid"),search=document.getElementById("search"),dialog=document.getElementById("details-dialog");
+document.getElementById("modal-close").addEventListener("click",()=>dialog.close());
+dialog.addEventListener("click",e=>{if(e.target===dialog)dialog.close()});
+const toggle=document.getElementById("menu-toggle"),nav=document.getElementById("main-nav");
+toggle.addEventListener("click",()=>{const open=nav.classList.toggle("open");toggle.setAttribute("aria-expanded",String(open));toggle.setAttribute("aria-label",open?"Close menu":"Open menu")});
+nav.querySelectorAll("a").forEach(a=>a.addEventListener("click",()=>{nav.classList.remove("open");toggle.setAttribute("aria-expanded","false");toggle.setAttribute("aria-label","Open menu")}));
+</script>

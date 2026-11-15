@@ -1,0 +1,96 @@
+{
+  "id": "anime-minimal-manifesto",
+  "name": "Manifesto (Minimal Otaku)",
+  "description": "Manifesto: a statement section (Less scrolling. More discovering.). From the Minimal Otaku archetype (Ultra-minimal Swiss and brutalist editorial); re-skin it to the design's tokens and mix it with blocks of other archetypes, never the whole template.",
+  "category": "editorial",
+  "batch": "anime-minimal-swiss-editorial",
+  "collection": "Anime archetype: Minimal Otaku",
+  "kind": "component",
+  "role": "insight",
+  "tags": [
+    "anime",
+    "entertainment",
+    "media",
+    "light",
+    "swiss",
+    "brutalist",
+    "brutalism",
+    "minimalist",
+    "international style",
+    "grid system",
+    "swiss-design-portfolio",
+    "brutalist-architecture",
+    "design-studio",
+    "minimalist-blog",
+    "manifesto",
+    "statement",
+    "section",
+    "less",
+    "scrolling",
+    "more",
+    "radial",
+    "circular",
+    "network",
+    "relationships",
+    "graph",
+    "api-monitoring",
+    "usage",
+    "sparkline",
+    "compact",
+    "light-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "stylesheet",
+      "id": "anime-minimal-swiss-editorial"
+    },
+    {
+      "type": "tokens",
+      "id": "anime-minimal-swiss-editorial"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "insight",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "anime-minimal-swiss-editorial",
+    "mode": "light",
+    "colors": {}
+  },
+  "source": {
+    "file": "anime-templates/13_minimal_otaku_swiss_editorial.html",
+    "ref": "section id=\"about\" #0"
+  },
+  "archetype": "anime-minimal-swiss-editorial",
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "f8e818ebdc88b77c",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

@@ -1,0 +1,33 @@
+{
+  "id": "anime-archive-anime-vault",
+  "name": "Anime Vault (dark)",
+  "mode": "dark",
+  "source": "anime-templates/14_anime_vault_heritage_archive.html",
+  "colors": {
+    "background": "#0b1119",
+    "surface": "#111b25",
+    "surface2": "#17232e",
+    "border": "#2b3945",
+    "text": "#ece9df",
+    "muted": "#9ba8ae",
+    "accent": "#c7a86c",
+    "positive": "#e0c58d",
+    "negative": "#ff6b6b",
+    "warning": "#c7a86c",
+    "series1": "#c7a86c",
+    "series2": "#e0c58d",
+    "series3": "#9ba8ae",
+    "series4": "#ece9df",
+    "series5": "#2b3945"
+  },
+  "aliases": {},
+  "replaced": {},
+  "fonts": {
+    "display": "\"Playfair Display\", serif",
+    "sans": "\"DM Sans\", system-ui, sans-serif",
+    "extra": "\"DM Mono\", system-ui, sans-serif"
+  },
+  "radius": {
+    "card": "none; a thin gold topline"
+  }
+}

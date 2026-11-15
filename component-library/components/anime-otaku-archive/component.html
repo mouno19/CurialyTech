@@ -24,6 +24,18 @@
      </div>
     </section>
 <!-- Used by this block's script (elsewhere on the page it came from): -->
+<div class="modal" id="detail-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-hidden="true">
+   <div class="modal-panel"><button type="button" class="modal-close" id="modal-close" aria-label="Close dossier"><i data-lucide="x"></i></button> <img id="modal-image" class="modal-image" src="https://images.pexels.com/photos/31971485/pexels-photo-31971485.jpeg" alt="A person in neon cyberpunk costume poses dramatically at night." loading="lazy">
+    <div class="modal-content">
+     <div class="eyebrow">
+      ARCHIVE / TITLE DOSSIER
+     </div>
+     <h2 id="modal-title"></h2>
+     <div class="modal-info" id="modal-info"></div>
+     <p id="modal-description"></p>
+    </div>
+   </div>
+  </div>
 <input id="search" type="search" aria-label="Search the anime archive" placeholder="Search the archive by title, genre, or keyword..." autocomplete="off">
 <button class="clear-search" id="clear-search" type="button" aria-label="Clear search"><i data-lucide="x"></i></button>
 </div>
@@ -38,7 +50,8 @@ const titles=[
       {id:"signal",title:"Signal//Lost",genre:"Mystery",rating:"9.0",year:"2025",tag:"NEW DROP",image:"https://images.pexels.com/photos/19758432/pexels-photo-19758432.jpeg",alt:"A narrow, neon-lit alleyway in Tokyo, Japan, showcasing urban night life with glowing signs and street lights.",description:"A transmission from a vanished friend draws a radio engineer into the city's most forbidden frequency."},
       {id:"starlight",title:"Starlight Arcade",genre:"Slice of Life",rating:"8.6",year:"2023",tag:"COMFORT WATCH",image:"https://images.pexels.com/photos/5795416/pexels-photo-5795416.jpeg",alt:"Collection of different figurines placed on shelf near glass wall with neon light",description:"A small neighborhood arcade becomes a home for dreamers, rivals, and the stories they share between games."}
     ];
-let genre="All",lastFocus=null;
+let genre="All";
+let lastFocus=null;
 function render(){
       const q=search.value.trim().toLowerCase();
       const shown=titles.filter(t=>(genre==="All"||t.genre===genre)&&`${t.title} ${t.genre} ${t.description}`.toLowerCase().includes(q));
@@ -47,6 +60,11 @@ function render(){
       empty.style.display=shown.length?"none":"block";clear.style.display=q?"grid":"none";
       lucide.createIcons();
     }
+const modal=document.getElementById("detail-modal");
+function closeModal(){if(!modal.classList.contains("open"))return;modal.classList.remove("open");modal.setAttribute("aria-hidden","true");if(lastFocus)lastFocus.focus()}
 const cards=document.getElementById("cards"),search=document.getElementById("search"),count=document.getElementById("result-count"),empty=document.getElementById("empty"),clear=document.getElementById("clear-search");
 document.querySelectorAll(".filter").forEach(btn=>btn.addEventListener("click",()=>{genre=btn.dataset.filter;document.querySelectorAll(".filter").forEach(b=>{b.classList.toggle("active",b===btn);b.setAttribute("aria-pressed",String(b===btn))});render()}));
+search.addEventListener("input",render);
+clear.addEventListener("click",()=>{search.value="";search.focus();render()});
+document.addEventListener("keydown",e=>{if(e.key==="/"&&document.activeElement!==search&&!document.getElementById("detail-modal").classList.contains("open")){e.preventDefault();search.focus()}if(e.key==="Escape")closeModal()});
 </script>

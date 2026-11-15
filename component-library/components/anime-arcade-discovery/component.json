@@ -42,6 +42,7 @@
   ],
   "capabilities": [
     "responsive",
+    "interactive",
     "accessible",
     "animated"
   ],
@@ -89,7 +90,7 @@
     "compiled": true,
     "rendered": true,
     "notes": [],
-    "hash": "89e22c2774bca40c",
+    "hash": "e7d11e7a53dc04e6",
     "checked_at": "2026-11-15"
   },
   "generated_by": "atlas-import",

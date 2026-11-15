@@ -16,10 +16,7 @@
      <p class="empty">No titles match your search.</p>
     </section>
 <!-- Used by this block's script (elsewhere on the page it came from): -->
-<button id="search-toggle" class="icon-button" aria-label="Search titles" aria-expanded="false"><i data-lucide="search"></i></button>
-<div id="search-wrap" class="search-wrap">
-    <label for="search-input" style="position:absolute;left:-9999px">Search anime titles</label><input id="search-input" type="search" placeholder="Search the nebula…">
-   </div>
+<input id="search-input" type="search" placeholder="Search the nebula…">
 </div>
 <script>
 const titles={
@@ -33,7 +30,7 @@ const titles={
       paper:{name:"Paper Moon Tokyo",image:"mural",genre:"Slice of Life · Drama",year:"2024",label:"EP 07",description:"Art, friendship, and second chances collide under the lights of Osaka."},
       after:{name:"Afterglow 2099",image:"diner",genre:"Cyberpunk · Mystery",year:"2025",label:"NEW",description:"A neon-lit diner becomes the unlikely meeting point for people caught between two realities."}
     };
-const searchToggle=document.getElementById("search-toggle"),searchWrap=document.getElementById("search-wrap"),searchInput=document.getElementById("search-input");
+const searchInput=document.getElementById("search-input");
 document.querySelectorAll("[data-scroll]").forEach(button=>button.addEventListener("click",()=>{
       const row=document.getElementById(button.dataset.scroll);
       row.scrollBy({left:Number(button.dataset.direction)*(row.querySelector(".anime-card").getBoundingClientRect().width+17)*2,behavior:"smooth"});

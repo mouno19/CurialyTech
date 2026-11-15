@@ -575,7 +575,11 @@
         "model filters",
         "filterable",
         "filter sidebar",
-        "genre filters"
+        "genre filters",
+        "genre grid",
+        "genre buttons",
+        "facet filters",
+        "faceted search"
       ]
     },
     {
@@ -789,7 +793,18 @@
         "catalog",
         "catalogue",
         "filterable catalog",
-        "title catalog"
+        "title catalog",
+        "for you",
+        "recommended for you",
+        "handpicked",
+        "exclusives",
+        "exclusive premieres",
+        "ranked",
+        "ranking",
+        "rankings",
+        "top 10",
+        "poster catalog",
+        "archive cards"
       ]
     },
     {
@@ -809,7 +824,10 @@
         "synopsis",
         "season list",
         "chapters",
-        "ongoing episodes"
+        "ongoing episodes",
+        "dossier",
+        "detail panel",
+        "slide-in detail"
       ]
     },
     {
@@ -828,7 +846,11 @@
         "watchlist",
         "watch list",
         "up next",
-        "reading progress"
+        "reading progress",
+        "my list",
+        "saved titles",
+        "plan to watch",
+        "collection status"
       ]
     },
     {
@@ -864,7 +886,13 @@
         "vip",
         "premium plan",
         "members club",
-        "club perks"
+        "club perks",
+        "pricing tiers",
+        "subscription tiers",
+        "membership tiers",
+        "tiered pricing",
+        "plan tiers",
+        "account overview"
       ]
     },
     {
@@ -980,7 +1008,108 @@
         "obsidian and gold",
         "shonen",
         "cozy",
-        "editorial magazine"
+        "editorial magazine",
+        "celestial",
+        "swiss",
+        "brutalist",
+        "heritage",
+        "cyberpop",
+        "cyber-pop",
+        "y2k",
+        "holographic",
+        "multiverse"
+      ]
+    },
+    {
+      "id": "community",
+      "tools": [
+        "web-design",
+        "ui-ux-design"
+      ],
+      "role": "content",
+      "terms": [
+        "community",
+        "live chat",
+        "chat rail",
+        "discussion feed",
+        "discussions",
+        "forum",
+        "fan theories",
+        "friends online",
+        "activity rail",
+        "discord"
+      ]
+    },
+    {
+      "id": "watch-party",
+      "tools": [
+        "web-design",
+        "ui-ux-design"
+      ],
+      "role": "header",
+      "terms": [
+        "watch party",
+        "watch-party",
+        "livestream",
+        "live stream",
+        "live viewers",
+        "webinar",
+        "watch parties",
+        "live now",
+        "watch together",
+        "viewer count"
+      ]
+    },
+    {
+      "id": "schedule",
+      "tools": [
+        "web-design",
+        "ui-ux-design"
+      ],
+      "role": "content",
+      "terms": [
+        "premiere schedule",
+        "release schedule",
+        "event schedule",
+        "schedule",
+        "upcoming premieres",
+        "attendees",
+        "remind me",
+        "rsvp"
+      ]
+    },
+    {
+      "id": "archive",
+      "tools": [
+        "web-design",
+        "ui-ux-design"
+      ],
+      "role": "content",
+      "terms": [
+        "archive",
+        "archives",
+        "digital archive",
+        "collection index",
+        "catalogue number",
+        "metadata",
+        "provenance",
+        "museum collection",
+        "registry",
+        "repository"
+      ]
+    },
+    {
+      "id": "manifesto",
+      "tools": [
+        "web-design",
+        "ui-ux-design"
+      ],
+      "role": "insight",
+      "terms": [
+        "manifesto",
+        "brand manifesto",
+        "philosophy section",
+        "statement section"
       ]
     },
     {
@@ -1113,7 +1242,10 @@
         "manga reader",
         "video platform",
         "watch site",
-        "webtoon site"
+        "webtoon site",
+        "anime community",
+        "anime archive",
+        "anime platform"
       ],
       "implies": [
         "top navigation",
@@ -1125,6 +1257,27 @@
       ],
       "prefer": [
         "entertainment"
+      ]
+    },
+    {
+      "id": "community-platform",
+      "match": [
+        "community platform",
+        "community site",
+        "watch party",
+        "fan community",
+        "discord-like",
+        "creator community",
+        "live webinar"
+      ],
+      "implies": [
+        "navigation sidebar",
+        "live watch party",
+        "discussion feed",
+        "live chat rail"
+      ],
+      "prefer": [
+        "community"
       ]
     }
   ]

@@ -37,5 +37,6 @@ function card(item,index){return `<article class="anime-card"><div class="card-i
 let filter="All";
 function render(){const query=search.value.trim().toLowerCase();const matches=series.filter(item=>(filter==="All"||item.genre.includes(filter)||filter==="Ongoing"&&item.status==="Ongoing")&&(!query||`${item.title} ${item.genre} ${item.description}`.toLowerCase().includes(query)));grid.innerHTML=matches.map(card).join("");empty.style.display=matches.length?"none":"block";lucide.createIcons()}
 const search=document.getElementById("search"),grid=document.getElementById("discover-grid"),empty=document.getElementById("empty-state");
+search.addEventListener("input",render);
 document.querySelectorAll(".filter-btn").forEach(btn=>btn.addEventListener("click",()=>{filter=btn.dataset.filter;document.querySelectorAll(".filter-btn").forEach(b=>{b.classList.toggle("active",b===btn);b.setAttribute("aria-pressed",String(b===btn))});render()}));
 </script>

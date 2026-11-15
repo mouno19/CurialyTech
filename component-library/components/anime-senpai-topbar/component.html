@@ -1,0 +1,17 @@
+<!-- Celestial topbar (Senpai+) · anime-senpai-topbar: from the Anime archetype: Senpai+ (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/anime-celestial-senpai-plus.css, and an ancestor with class="cx-anime-celestial-senpai-plus". -->
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+<div class="cx-anime-celestial-senpai-plus">
+<header class="topbar shell" id="top"><a class="logo" href="#top" aria-label="SENPAI+ home">SENPAI<span>+</span></a>
+   <nav class="nav" id="main-nav" aria-label="Main navigation"><a href="#discover">Discover</a><a href="#exclusives">Exclusives</a><a href="#membership">Membership</a><a href="#account">Account</a>
+   </nav>
+   <div class="top-actions">
+    <span class="member-pill">THE PREMIUM EXPERIENCE</span><a href="#account" class="avatar" aria-label="Go to account">S+</a><button class="menu-btn" id="menu-toggle" aria-label="Toggle menu" aria-expanded="false"><i data-lucide="menu"></i></button>
+   </div>
+  </header>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+$("menu-toggle").addEventListener("click",()=>{const nav=$("main-nav");const open=nav.classList.toggle("open");$("menu-toggle").setAttribute("aria-expanded",String(open))});
+$("main-nav").addEventListener("click",e=>{if(e.target.closest("a")){$("main-nav").classList.remove("open");$("menu-toggle").setAttribute("aria-expanded","false")}});
+</script>

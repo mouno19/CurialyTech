@@ -83,7 +83,9 @@ describe("the test scenarios", () => {
   it("A: a landing page uses web design components (and says what the library lacks), never charts", () => {
     const { plan } = chosen("Create a modern landing page.");
     expect(plan.product).toBe("landing-page");
-    expect(plan.components.every(component => ["navigation", "layout"].includes(component.category))).toBe(true);
+    // Web design blocks only (the pricing section takes the library's tiered pricing cards), never a chart.
+    expect(plan.components.every(component => ["navigation", "layout", "engagement"].includes(component.category))).toBe(true);
+    expect(plan.components.some(component => ["data-visualization", "analytics", "dashboard"].includes(component.category))).toBe(false);
     expect(plan.components.map(component => component.id)).toContain("nav-topbar");
     expect(plan.needs.filter(need => need.status === "build").map(need => need.need)).toEqual(expect.arrayContaining(["call to action"]));
   });

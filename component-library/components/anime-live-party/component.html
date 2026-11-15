@@ -1,0 +1,39 @@
+<!-- Live watch-party hero (Anime Live) · anime-live-party: from the Anime archetype: Anime Live (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/anime-community-anime-live.css, and an ancestor with class="cx-anime-community-anime-live". -->
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+<div class="cx-anime-community-anime-live">
+<section id="live" aria-labelledby="live-title">
+     <div class="hero">
+      <img id="live-hero-image" src="https://images.pexels.com/photos/27082677/pexels-photo-27082677.jpeg" alt="Vibrant mural on a building wall in urban Osaka, Japan, at night. A blend of art and culture." loading="lazy">
+      <div class="hero-content">
+       <span class="live-badge"><span class="dot"></span> LIVE NOW</span>
+       <div class="hero-spacer"></div>
+       <div class="hero-kicker">
+        COMMUNITY WATCH PARTY · EPISODE 08
+       </div>
+       <h2 id="live-title">Neon City Nights</h2>
+       <p>The plot twist everyone's been waiting for. Jump in, react together, and stay for the after-show.</p>
+       <div class="hero-actions">
+        <button class="primary-btn event-open" data-title="Neon City Nights" data-time="Live now · Episode 08" data-description="Join the community watch party and catch the conversation around tonight’s episode. This preview shows event details; video playback is not available here."><i data-lucide="play" style="fill:currentColor"></i> View live event</button><span class="viewer-count"><i data-lucide="users"></i> 1.2k watching</span>
+       </div>
+      </div>
+     </div>
+    </section>
+<!-- Used by this block's script (elsewhere on the page it came from): -->
+<div id="event-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-hidden="true">
+   <div class="modal">
+    <button id="modal-close" class="modal-close" aria-label="Close event details"><i data-lucide="x"></i></button><span class="live-badge" style="display:inline-flex"><span class="dot"></span> COMMUNITY EVENT</span>
+    <h2 id="modal-title"></h2>
+    <p id="modal-description"></p>
+    <div class="modal-detail">
+     <i data-lucide="clock-3"></i><span id="modal-time"></span>
+    </div><button id="modal-done" class="primary-btn">Back to community</button>
+   </div>
+  </div>
+</div>
+<script>
+lucide.createIcons();
+const modal=document.getElementById('event-modal');
+let previousFocus;
+document.querySelectorAll('.event-open').forEach(button=>button.addEventListener('click',()=>{previousFocus=button;document.getElementById('modal-title').textContent=button.dataset.title;document.getElementById('modal-time').textContent=button.dataset.time;document.getElementById('modal-description').textContent=button.dataset.description;modal.classList.add('open');modal.setAttribute('aria-hidden','false');document.getElementById('modal-close').focus()}));
+</script>

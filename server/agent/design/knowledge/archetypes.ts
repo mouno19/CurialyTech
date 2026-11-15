@@ -1,4 +1,4 @@
-// Style archetypes: ten complete visual systems taken from the staged anime and entertainment
+// Style archetypes: fifteen complete visual systems taken from the staged anime and entertainment
 // templates (component-library/anime-templates). Built for anime and media sites, but each one's
 // type, colour, layout and interaction language fits other subjects with the same character
 // (`fits`). They are never used whole: a design takes its base from one and borrows blocks and
@@ -6,10 +6,11 @@
 //
 // Tokens are the templates' own (:root custom properties). Where a template's muted or accent
 // colour is under 4.5:1 as text on its own background, `textSafe` gives the nearest shade that
-// passes on both the background and the raised surface (the template colour stays for fills).
+// passes on both the background and the raised surface (the template colour stays for fills,
+// unless a label on it fails too: then the shade is the fill as well).
 
 /** Looks an archetype is built on: choosing it deliberately lifts the matching "generic tell" warnings and audit findings. */
-export type GrantedLook = "violet" | "glass" | "marquee" | "tasteful" | "eyebrow" | "reflex-type" | "numerals";
+export type GrantedLook = "violet" | "gradient-text" | "glass" | "marquee" | "tasteful" | "eyebrow" | "reflex-type" | "numerals";
 
 export type ArchetypeTokens = {
   bg: string; surface: string; surface2: string; line: string; text: string; muted: string;
@@ -256,6 +257,114 @@ export const ARCHETYPES: Archetype[] = [
     grants: ["tasteful"],
     avoid: "Fake Japanese (use real, correct Japanese text or none), red everywhere (the seal is the accent).",
   },
+  {
+    id: "anime-celestial-senpai-plus", name: "Senpai+", style: "Celestial dark luxury streaming", file: "11_senpai_plus_celestial_streaming.html", mode: "dark",
+    concept: "A night sky over a premium service: deep navy, violet and silver, a planetary orb, abstract vector art instead of photos, clear tiers.",
+    fonts: { display: "Space Grotesk", text: "DM Sans", use: "Space Grotesk 600-700 for headlines and tier names, DM Sans for text and features; tabular numbers for prices." },
+    tokens: { bg: "#080d1d", surface: "#111a30", surface2: "#17213a", line: "#2a3550", text: "#f4f6ff", muted: "#9aa7c0", accent: "#a58bff", accent2: "#d9e0f0", onAccent: "#080d1d" },
+    radius: "14px cards, 30px pills, round orbs",
+    blocks: [
+      { id: "anime-senpai-topbar", name: "Celestial topbar", how: "wordmark, links and a membership action" },
+      { id: "anime-senpai-hero", name: "Planetary orb hero", how: "vector orb, orbit ring and a figure behind one featured title", looks: ["violet"] },
+      { id: "anime-senpai-discover", name: "Vector poster grid", how: "recommendations with abstract vector poster art in eight palettes" },
+      { id: "anime-senpai-exclusives", name: "Exclusive premieres band", how: "a wide band with a giant S+ watermark" },
+      { id: "anime-senpai-watchlist", name: "My List panel", how: "saved titles with a live counter" },
+      { id: "anime-senpai-pricing", name: "Tiered pricing cards", how: "Essential, Plus and Ultra tiers with feature lists and one recommended tier" },
+      { id: "anime-senpai-account", name: "Account overview", how: "a public account preview box with plan and usage" },
+    ],
+    layout: "Hero, then alternating grids and wide bands; pricing as three columns on desktop, stacked on phones.",
+    motion: "Calm: a slow orbit, hover lifts on posters; nothing loops under reduced motion.",
+    fits: ["premium saas", "subscription platform", "dark mode portal", "membership site", "streaming service", "saas pricing page"],
+    signals: ["celestial", "orbit", "planetary", "astral", "subscription tiers", "pricing tiers", "dark luxury", "premium streaming"],
+    grants: ["violet", "reflex-type"],
+    avoid: "Photographic clutter (the art is abstract vector), more than one glowing orb.",
+  },
+  {
+    id: "anime-community-anime-live", name: "Anime Live", style: "Community watch party, live social platform", file: "12_anime_live_watch_party_community.html", mode: "dark",
+    concept: "A watch party: three columns (dock, live feed, activity rail), a LIVE NOW badge with viewer counts, schedules with who is going, chat.",
+    fonts: { display: "Space Grotesk", text: "DM Sans", use: "Space Grotesk for titles and counts, DM Sans for chat, feed and labels." },
+    tokens: { bg: "#101014", surface: "#1b1b22", surface2: "#22222b", line: "#303039", text: "#f6f4f8", muted: "#9998a7", accent: "#a88aff", accent2: "#ff746f", onAccent: "#101014" },
+    radius: "5-12px; round avatars",
+    blocks: [
+      { id: "anime-live-sidebar", name: "Navigation dock", how: "a left app dock with sections and the user" },
+      { id: "anime-live-topbar", name: "Community topbar", how: "breadcrumbs and community search; on phones its menu button opens the navigation dock, which comes with it" },
+      { id: "anime-live-intro", name: "Community intro", how: "a short welcome with the next event" },
+      { id: "anime-live-party", name: "Live watch-party hero", how: "a LIVE NOW badge, viewer count (1.2k watching) and a join action", looks: ["marquee"] },
+      { id: "anime-live-premieres", name: "Premiere schedule", how: "cards with attendee avatar stacks (+348 going) and remind-me buttons" },
+      { id: "anime-live-discussions", name: "Discussion feed", how: "posts with tabs (For you, Trending, Fan theories)" },
+      { id: "anime-live-rail", name: "Activity rail with live chat", how: "a right rail: chat preview with colour-coded users, popular watchlists (01-03) and friends online", looks: ["numerals"] },
+    ],
+    layout: "App shell: dock 220-260px, main feed, activity rail 300-340px; the rail drops below the feed under 1100px.",
+    motion: "Live but small: a pulsing live dot, new chat lines sliding in; static under reduced motion.",
+    fits: ["social community", "creator watch party", "live webinar", "discord-like app", "live events", "online classes", "fan community", "creator platform"],
+    signals: ["watch party", "watch-party", "livestream", "live stream", "live chat", "community", "discord", "webinar", "viewers", "chat rail", "watch parties"],
+    grants: ["reflex-type", "numerals"],
+    avoid: "A chat that hides the main content; fake live numbers presented as real.",
+  },
+  {
+    id: "anime-minimal-swiss-editorial", name: "Minimal Otaku", style: "Ultra-minimal Swiss and brutalist editorial", file: "13_minimal_otaku_swiss_editorial.html", mode: "light",
+    concept: "Swiss rigour: white paper, black ink, one red, giant type, a strict grid, numbered buttons, colour only in the posters.",
+    fonts: { display: "Space Grotesk", text: "DM Sans", use: "Space Grotesk 700 at very large sizes with tight leading for the hero and numbers, DM Sans for text." },
+    tokens: { bg: "#ffffff", surface: "#f5f5f2", surface2: "#ededea", line: "#dededb", text: "#161616", muted: "#777777", accent: "#df452f", accent2: "#161616", onAccent: "#ffffff" },
+    textSafe: { muted: "#6f6f6f", accent: "#cd3520" },
+    radius: "none; circles only as markers",
+    blocks: [
+      { id: "anime-minimal-header", name: "Minimal header", how: "a wordmark and plain text links on a rule" },
+      { id: "anime-minimal-hero", name: "Giant type hero", how: "one oversized statement (Anime, considered.) and a line of text" },
+      { id: "anime-minimal-genres", name: "Numbered genre grid", how: "a 4x2 grid of genre buttons with 01-08 sub-labels", looks: ["numerals"] },
+      { id: "anime-minimal-catalog", name: "Colour poster catalog", how: "search with a live count and flat colour posters with angled watermarks" },
+      { id: "anime-minimal-manifesto", name: "Manifesto", how: "a statement section (Less scrolling. More discovering.)" },
+      { id: "anime-minimal-detail", name: "Slide-in detail with episode list", how: "a detail dialog with stats and an episode guide" },
+    ],
+    layout: "A 12-column grid with hard rules; asymmetry by type size, not by decoration.",
+    motion: "None beyond instant state changes; the detail panel slides in once.",
+    fits: ["swiss design portfolio", "brutalist architecture", "design studio", "minimalist blog", "creative agency", "typography portfolio", "architecture firm"],
+    signals: ["swiss", "brutalist", "brutalism", "minimalist", "international style", "grid system", "stark", "monochrome", "helvetica"],
+    grants: ["reflex-type", "numerals", "eyebrow"],
+    avoid: "Shadows, rounded cards and gradients; colour outside the posters and the one red.",
+  },
+  {
+    id: "anime-archive-anime-vault", name: "Anime Vault", style: "Dark heritage archive, studio museum vault", file: "14_anime_vault_heritage_archive.html", mode: "dark",
+    concept: "A museum's vault after hours: slate and old gold, catalogue numbers, metadata like museum labels, a dossier for each work.",
+    fonts: { display: "Playfair Display", text: "DM Sans", extra: "DM Mono", use: "Playfair Display for titles, DM Mono for catalogue numbers, years and studios, DM Sans for text." },
+    tokens: { bg: "#0b1119", surface: "#111b25", surface2: "#17232e", line: "#2b3945", text: "#ece9df", muted: "#9ba8ae", accent: "#c7a86c", accent2: "#e0c58d", onAccent: "#0b1119" },
+    radius: "none; a thin gold topline",
+    blocks: [
+      { id: "anime-vault-header", name: "Heritage header with view switcher", how: "a gold topline, heritage mark and a Discover / My Watchlist switch" },
+      { id: "anime-vault-hero", name: "Curated hero with collection index", how: "a curated statement with a 01-08 collection index", looks: ["numerals"] },
+      { id: "anime-vault-filters", name: "Facet filter sidebar", how: "search, genre, release period, studio and rating facets" },
+      { id: "anime-vault-archive", name: "Archive browser", how: "the facet sidebar with archive cards whose metadata grid lists studio, episodes and genres" },
+      { id: "anime-vault-watchlist", name: "Collection status watchlist", how: "Plan to watch, Watching and Completed tabs over saved cards" },
+      { id: "anime-vault-dossier", name: "Dossier modal", how: "a work's dossier: Japanese title, synopsis, metadata and its collection status" },
+    ],
+    layout: "Catalogue rhythm: sidebar 260px plus a card grid; every card carries a label-like metadata block.",
+    motion: "Slow fades; the dossier opens without bounce.",
+    fits: ["digital archive", "museum collection", "research repository", "university library", "luxury registry", "wine vault", "watch collection", "auction house", "digital library"],
+    signals: ["archive", "archival", "heritage", "vault", "registry", "provenance", "repository"],
+    grants: ["eyebrow", "numerals"],
+    avoid: "Bright colour, playful motion, rounded friendly cards.",
+  },
+  {
+    id: "anime-cyberpop-hyperanime", name: "Hyperanime", style: "Hyper-vibrant cyber-pop, multiverse streaming", file: "15_hyperanime_cyberpop_multiverse.html", mode: "dark",
+    concept: "A neon pop multiverse: deep purple-black, hot pink, cyan and orange, a gradient wordmark, glowing tags, rank numerals.",
+    fonts: { display: "Space Grotesk", text: "DM Sans", use: "Space Grotesk 700 uppercase for headlines and ranks, DM Sans for text; gradient fill only on the wordmark." },
+    tokens: { bg: "#100b20", surface: "#1a1430", surface2: "#211a35", line: "#383049", text: "#fffafc", muted: "#aaa3bc", accent: "#ff4a9b", accent2: "#65eaff", onAccent: "#100b20" },
+    radius: "14-22px cards, pills for tags",
+    blocks: [
+      { id: "anime-hyper-header", name: "Gradient wordmark header", how: "a gradient wordmark with a glowing pulse badge", looks: ["gradient-text"] },
+      { id: "anime-hyper-hero", name: "Neon hero with live counter", how: "radial neon glow behind one title and a live watch counter", looks: ["violet", "glass"] },
+      { id: "anime-hyper-for-you", name: "For You cards with neon tags", how: "handpicked cards tagged HOT, NEW and TOP PICK", looks: ["violet"] },
+      { id: "anime-hyper-trending", name: "Trending with rank numerals", how: "cards over giant 01-03 ranking numerals", looks: ["numerals"] },
+      { id: "anime-hyper-releases", name: "New releases list", how: "a horizontal list with episode status pills" },
+      { id: "anime-hyper-collections", name: "Dual collection banners", how: "two collection banners side by side" },
+    ],
+    layout: "Big hero, then sections of cards with strong rank and tag cues; dense and loud, with one calm row per screen.",
+    motion: "Glows and quick hover pops; all still under reduced motion.",
+    fits: ["web3 gaming", "nft drop", "esports festival", "youth entertainment", "music festival", "streetwear drop", "creator merch"],
+    signals: ["cyberpop", "cyber-pop", "hyperpop", "multiverse", "vibrant", "y2k", "holographic", "electric", "neon pop"],
+    grants: ["violet", "gradient-text", "glass", "reflex-type", "numerals"],
+    avoid: "Gradient text beyond the wordmark; four neon colours in one component.",
+  },
 ];
 
 /**
@@ -265,5 +374,5 @@ export const ARCHETYPES: Archetype[] = [
 export const ENTERTAINMENT_WORDS = [
   "anime", "manga", "manhwa", "webtoon", "donghua", "otaku", "cosplay", "vtuber", "fandom", "fan site", "fansite", "streaming site", "streaming platform",
   "watchlist", "watch list", "episode guide", "episodes", "k-drama", "kdrama", "tv show", "tv series", "movies", "cinema", "anime club", "studio ghibli",
-  "light novel", "visual novel", "j-pop", "jpop", "idol group", "entertainment site", "entertainment platform",
+  "light novel", "visual novel", "j-pop", "jpop", "idol group", "entertainment site", "entertainment platform", "watch party", "watch parties",
 ];

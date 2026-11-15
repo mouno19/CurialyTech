@@ -26,7 +26,8 @@ const shows=[
       {id:'starlight',title:'Starlight Postcards',genre:'Fantasy',year:'2024',rating:'4.8',tag:'FAN FAVORITE',image:'https://images.pexels.com/photos/31419072/pexels-photo-31419072.jpeg',alt:'Colorful neon-lit Osaka street at night',description:'A wandering postcard collector follows a trail of stars to a forgotten seaside town.'},
       {id:'summer',title:'Summer After Rain',genre:'Romance',year:'2024',rating:'4.7',tag:'HEARTWARMING',image:'https://images.pexels.com/photos/978344/pexels-photo-978344.jpeg',alt:'Warm sunset over the ocean in Fujisawa, Japan',description:'An unexpected summer friendship becomes a beautiful new beginning.'}
     ];
-let genre='All',query='',previousFocus=null;
+let genre='All';
+let query='';
 const image=s=>`<img src="${s.image}" alt="${s.alt}" loading="lazy">`;
 function card(s){return `<button type="button" class="anime-card" data-show="${s.id}" aria-label="Read about ${s.title}"><div class="poster">${image(s)}<span class="poster-tag">${s.tag}</span><span class="poster-number">✿</span></div><div class="card-info"><h3>${s.title}</h3><div class="meta"><span>${s.genre}</span><span>·</span><span>${s.year}</span><span class="rating">★ ${s.rating}</span></div></div></button>`}
 function smallCard(s){return `<button type="button" class="popular-card" data-show="${s.id}" aria-label="Read about ${s.title}"><div class="thumb">${image(s)}</div><div><h3>${s.title}</h3><p>${s.genre} · ${s.year}</p><span class="meta"><span class="rating">★ ${s.rating}</span> &nbsp; Reader favorite</span></div></button>`}

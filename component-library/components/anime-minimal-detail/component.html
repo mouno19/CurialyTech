@@ -1,0 +1,51 @@
+<!-- Slide-in detail with episode list (Minimal Otaku) · anime-minimal-detail: from the Anime archetype: Minimal Otaku (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/anime-minimal-swiss-editorial.css, and an ancestor with class="cx-anime-minimal-swiss-editorial". -->
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+<div class="cx-anime-minimal-swiss-editorial">
+<div id="detail-overlay" class="overlay" role="presentation">
+   <section id="detail-panel" class="detail" role="dialog" aria-modal="true" aria-labelledby="detail-title" tabindex="-1"><button id="close-detail" class="close-btn" type="button" aria-label="Close details"><i data-lucide="x"></i></button>
+    <div id="detail-art" class="detail-art">
+     <strong id="detail-art-name"></strong>
+    </div>
+    <div class="detail-body">
+     <div id="detail-tag" class="detail-tag"></div>
+     <h2 id="detail-title"></h2>
+     <div id="detail-stats" class="detail-stats"></div>
+     <p id="detail-description" class="detail-description"></p>
+     <div class="episode-heading">
+      Episode guide / a place to begin
+     </div>
+     <ol id="episode-list" class="episode-list"></ol><a id="watch-link" class="watch-link" href="https://www.crunchyroll.com/search" target="_blank" rel="noopener noreferrer">Find where to watch <i data-lucide="arrow-up-right"></i></a>
+    </div>
+   </section>
+  </div>
+<!-- Used by this block's script (elsewhere on the page it came from): -->
+<div id="genre-grid" class="genre-grid" role="group" aria-label="Filter by genre"></div>
+<div id="card-grid" class="card-grid"></div>
+<input id="search-input" type="search" placeholder="Search the collection" aria-label="Search anime titles">
+</div>
+<script>
+lucide.createIcons();
+const titles=[
+      {name:"Frieren: Beyond Journey's End",art:"Frieren",year:2023,genres:["Fantasy","Drama"],episodes:"28 episodes",color:"cream",summary:"Long after the heroes save the world, an elven mage begins to understand the fleeting lives of the people she traveled with.",guide:["The Journey's End","It Didn't Have to Be Magic","Killing Magic"]},
+      {name:"Jujutsu Kaisen",art:"Jujutsu",year:2020,genres:["Action","Fantasy"],episodes:"47 episodes",color:"red",summary:"A high school student enters the dangerous world of sorcery after becoming the host of a powerful curse.",guide:["Ryomen Sukuna","For Myself","Girl of Steel"]},
+      {name:"Blue Period",art:"Blue Period",year:2021,genres:["Drama","Slice of Life"],episodes:"12 episodes",color:"blue",summary:"A restless student discovers painting and throws himself into the demanding pursuit of art.",guide:["Awakening to the Joy of Painting","He's Not Tanned at All","Prep School Debut of the Dead"]},
+      {name:"Cowboy Bebop",art:"Bebop",year:1998,genres:["Sci-Fi","Action"],episodes:"26 episodes",color:"dark",summary:"A crew of bounty hunters drifts through the solar system, carrying the weight of lives they cannot leave behind.",guide:["Asteroid Blues","Stray Dog Strut","Honky Tonk Women"]},
+      {name:"Spy × Family",art:"Spy × Family",year:2022,genres:["Comedy","Action"],episodes:"37 episodes",color:"yellow",summary:"A spy, an assassin, and a telepath form an unlikely family, each hiding a secret from the others.",guide:["Operation Strix","Secure a Wife","Prepare for the Interview"]},
+      {name:"Your Lie in April",art:"Your Lie",year:2014,genres:["Romance","Drama"],episodes:"22 episodes",color:"pink",summary:"A young pianist finds his way back to music after meeting a free-spirited violinist.",guide:["Monotone / Colorful","Friend A","Inside Spring"]},
+      {name:"Haikyu!!",art:"Haikyu",year:2014,genres:["Comedy","Drama"],episodes:"85 episodes",color:"green",summary:"A determined young player joins a high school volleyball team and learns how far teamwork can take him.",guide:["The End and the Beginning","Karasuno High School Volleyball Club","The Formidable Ally"]},
+      {name:"Violet Evergarden",art:"Violet",year:2018,genres:["Drama","Fantasy"],episodes:"13 episodes",color:"purple",summary:"A former soldier becomes a letter writer, searching for the meaning of words once spoken to her.",guide:["I Love You and Auto Memory Dolls","Never Coming Back","May You Be an Exemplary Auto Memory Doll"]},
+      {name:"Kaguya-sama: Love Is War",art:"Love Is War",year:2019,genres:["Romance","Comedy"],episodes:"37 episodes",color:"red",summary:"Two brilliant students turn their mutual affection into an elaborate contest of pride and strategy.",guide:["I Want to Make You Invite Me to a Movie","Kaguya Wants to Exchange Contact Info","Miyuki Shirogane Still Hasn't Done It"]},
+      {name:"Steins;Gate",art:"Steins Gate",year:2011,genres:["Sci-Fi","Drama"],episodes:"24 episodes",color:"cream",summary:"An eccentric inventor's accidental discovery sends him into a suspenseful struggle with time and consequence.",guide:["Turning Point","Time Travel Paranoia","Parallel World Paranoia"]},
+      {name:"Mob Psycho 100",art:"Mob Psycho",year:2016,genres:["Action","Comedy"],episodes:"37 episodes",color:"blue",summary:"A quiet boy with overwhelming psychic power tries to grow into himself beyond his abilities.",guide:["Self-Proclaimed Psychic: Reigen Arataka","Doubts About Youth","An Invitation to a Meeting"]},
+      {name:"The Apothecary Diaries",art:"Apothecary",year:2023,genres:["Drama","Mystery"],episodes:"24 episodes",color:"green",summary:"A sharp-witted apothecary solves mysteries within the imperial palace using keen observation and medical knowledge.",guide:["Maomao","Chilly Apothecary","The Unsettling Matter of the Spirit"]},
+    ];
+let lastFocus=null;
+function closeDetail(){overlay.classList.remove("open");document.body.style.overflow="";if(lastFocus)lastFocus.focus()}
+const genreGrid=document.getElementById("genre-grid"),cardGrid=document.getElementById("card-grid"),search=document.getElementById("search-input"),overlay=document.getElementById("detail-overlay");
+cardGrid.addEventListener("click",e=>{const b=e.target.closest("[data-index]");if(b)openDetail(Number(b.dataset.index),b)});
+function openDetail(index,trigger){const t=titles[index];lastFocus=trigger;const art=document.getElementById("detail-art");art.className="detail-art "+t.color;document.getElementById("detail-art-name").textContent=t.art;document.getElementById("detail-tag").textContent=t.genres.join(" / ");document.getElementById("detail-title").textContent=t.name;document.getElementById("detail-stats").textContent=`${t.year}   /   ${t.episodes}   /   Series`;document.getElementById("detail-description").textContent=t.summary;document.getElementById("episode-list").innerHTML=t.guide.map((ep,i)=>`<li><span>${String(i+1).padStart(2,"0")}</span>${ep}</li>`).join("");document.getElementById("watch-link").href="https://www.crunchyroll.com/search?q="+encodeURIComponent(t.name);overlay.classList.add("open");document.body.style.overflow="hidden";document.getElementById("close-detail").focus();}
+document.getElementById("close-detail").addEventListener("click",closeDetail);
+overlay.addEventListener("click",e=>{if(e.target===overlay)closeDetail()});
+document.addEventListener("keydown",e=>{if(!overlay.classList.contains("open"))return;if(e.key==="Escape")closeDetail();if(e.key==="Tab"){const focusable=[...document.getElementById("detail-panel").querySelectorAll("button,a[href]")];const first=focusable[0],last=focusable[focusable.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}}});
+</script>

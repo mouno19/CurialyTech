@@ -20,8 +20,9 @@
     "series4": "#221d2b",
     "series5": "#eae5e4"
   },
-  "aliases": {
-    "#827d86": "series2"
+  "aliases": {},
+  "replaced": {
+    "#827d86": "#736e76"
   },
   "fonts": {
     "display": "\"DM Serif Display\", serif",

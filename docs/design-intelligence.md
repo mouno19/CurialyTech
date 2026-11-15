@@ -126,30 +126,39 @@ Entries live in `server/agent/design/knowledge/*.ts`. Each entry is one object:
 
 ## Style archetypes and synthesis
 
-Ten complete visual systems from the staged anime and entertainment templates
-(`component-library/anime-templates/`) are in `server/agent/design/knowledge/archetypes.ts`: Slice
-of Life, Kuro Cinema, Anime Arcade, Frame Anime, Shonen Hub, Nebula Anime, Anime Grid, Otaku OS,
-Sakura Stream and Kitsune Flix. Each has the template's own tokens (with a text-safe shade where a
-template's muted or accent colour is under 4.5:1 as text), its font pairing, its signature blocks,
-layout and motion, the subjects it suits beyond anime (`fits`: Kuro for premium SaaS and fashion,
-Otaku OS for developer portals, Anime Grid for catalogs and job boards…), request signals, and the
-looks it is built on (`grants`).
+Fifteen complete visual systems from the staged anime and entertainment templates
+(`component-library/anime-templates/`, two batches) are in `server/agent/design/knowledge/archetypes.ts`:
+Slice of Life, Kuro Cinema, Anime Arcade, Frame Anime, Shonen Hub, Nebula Anime, Anime Grid, Otaku OS,
+Sakura Stream, Kitsune Flix, and Senpai+, Anime Live, Minimal Otaku, Anime Vault and Hyperanime.
+Each has the template's own tokens (with a text-safe shade where a template's muted or accent colour
+is under 4.5:1 as text; where a label on the accent fails too, as with Minimal Otaku's red, the shade
+is the accent fill as well), its font pairing, its signature blocks, layout and motion, the subjects
+it suits beyond anime (`fits`: Kuro for fashion, Otaku OS for developer portals, Anime Grid for job
+boards, Senpai+ for premium SaaS tiers, Anime Live for communities and live webinars, Minimal Otaku
+for Swiss portfolios and brutalist architecture, Anime Vault for museum archives, research
+repositories and luxury registries, Hyperanime for NFT drops and esports festivals…), request
+signals, and the looks it is built on (`grants`).
 
 `synthesis.ts` decides when they apply and how they mix: anime or entertainment work (unambiguous
 words: anime, manga, streaming site, episodes…), or a subject or style that clearly fits one (two
-signals or a fit). A design is never one template: the base archetype gives tokens, type, layout and
-motion; one or two partners lend named blocks (what the request asks for, else their signature
-block) rebuilt in the base's language; at most half of one archetype's blocks. The brief gets a
+signals or a fit; on equal points a phrase that names the subject beats a single word). A design is
+never one template: the base archetype gives tokens, type, layout and motion; two partners (three
+when the request names a block only another archetype has) lend named blocks (what the request asks
+for, from the base while it has room beside its hero, else from the mixture, the base's complements
+or any archetype; otherwise their signature block, never their chrome) rebuilt in the base's
+language; at most half of one archetype's blocks. The brief gets a
 "Style synthesis" section with the one token set (`--bg`, `--surface`, `--line`, `--text`,
 `--muted`, `--accent`, `--on-accent`, radius, fonts), the blocks to combine, and the rules. The
-looks the base and the borrowed blocks are built on (violet, glass, marquee, tasteful, eyebrow,
-reflex type, numerals) are deliberate there, so the matching generic-tell rules (`look` on a rule)
+looks the base and the borrowed blocks are built on (violet, gradient text, glass, marquee, tasteful,
+eyebrow, reflex type, numerals) are deliberate there, so the matching generic-tell rules (`look` on a rule)
 and audit notes are dropped. A refused look ("no neon") rules out the archetypes built on it.
 
 Their blocks are registered in the component library (`anime-*` ids, `archetype` in the metadata)
 with one token set per archetype (`component-library/tokens/anime-*.json`, written by
 `scripts/components/export-archetypes.mts` from archetypes.ts), so `add_components` re-skins blocks
-of several archetypes to one theme, and a plan that leans on one archetype says to mix.
+of several archetypes to one theme, and a plan that leans on one archetype says to mix. The library
+copies are text-safe in their own theme too: the importer writes shorthand colours in full and puts
+the token set's `replaced` shades in place of the template colours that fail.
 
 ## What the benchmark changed
 

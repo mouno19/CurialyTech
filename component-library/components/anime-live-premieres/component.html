@@ -1,0 +1,80 @@
+<!-- Premiere schedule (Anime Live) · anime-live-premieres: from the Anime archetype: Anime Live (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/anime-community-anime-live.css, and an ancestor with class="cx-anime-community-anime-live". -->
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+<div class="cx-anime-community-anime-live">
+<section id="premieres" aria-labelledby="premiere-title">
+     <div class="section-heading">
+      <div>
+       <h2 id="premiere-title">Coming up next <span style="color:#ae8aff">✦</span></h2>
+       <p>Set a reminder and show up with the crew.</p>
+      </div><button class="text-btn" id="schedule-more">View schedule <i data-lucide="arrow-right"></i></button>
+     </div>
+     <div class="events">
+      <article class="event-card searchable" data-search="starfall academy season premiere fantasy">
+       <div class="event-image">
+        <img id="event-image-1" src="https://images.pexels.com/photos/10109585/pexels-photo-10109585.jpeg" alt="Surreal abstract landscape featuring vibrant colors, digital render of mountains and sea." loading="lazy"><span class="time-tag">TODAY · 8:00 PM</span>
+       </div>
+       <div class="event-body">
+        <div class="event-type">
+         Season premiere
+        </div>
+        <h3>Starfall Academy</h3>
+        <p>Episode 01 · The first spark</p>
+        <div class="event-footer">
+         <div class="mini-stack">
+          <span>🌸</span><span>✨</span><span>🌙</span><span class="attending">+348 going</span>
+         </div><button class="remind" aria-pressed="false">Remind me</button>
+        </div>
+       </div>
+      </article>
+      <article class="event-card searchable" data-search="blade of dawn episode drop action">
+       <div class="event-image">
+        <img id="event-image-2" src="https://images.pexels.com/photos/33638916/pexels-photo-33638916.jpeg" alt="Striking cosplay featuring a character with a katana in a lush outdoor setting." loading="lazy"><span class="time-tag">TOMORROW · 6:30 PM</span>
+       </div>
+       <div class="event-body">
+        <div class="event-type">
+         Episode drop
+        </div>
+        <h3>Blade of Dawn</h3>
+        <p>Episode 12 · Final stand</p>
+        <div class="event-footer">
+         <div class="mini-stack">
+          <span>🔥</span><span>⚡</span><span>💜</span><span class="attending">+216 going</span>
+         </div><button class="remind" aria-pressed="false">Remind me</button>
+        </div>
+       </div>
+      </article>
+      <article class="event-card searchable" data-search="afterglow stories community rewatch cozy">
+       <div class="event-image">
+        <img id="event-image-3" src="https://images.pexels.com/photos/35418284/pexels-photo-35418284.jpeg" alt="Vibrant neon artwork depicting the Little Prince with beautiful glowing colors perfect for artistic themes." loading="lazy"><span class="time-tag">FRIDAY · 9:00 PM</span>
+       </div>
+       <div class="event-body">
+        <div class="event-type">
+         Community rewatch
+        </div>
+        <h3>Afterglow Stories</h3>
+        <p>Episodes 04–06 · Cozy night</p>
+        <div class="event-footer">
+         <div class="mini-stack">
+          <span>🌼</span><span>💫</span><span>🧡</span><span class="attending">+182 going</span>
+         </div><button class="remind" aria-pressed="false">Remind me</button>
+        </div>
+       </div>
+      </article>
+     </div>
+     <p id="search-empty" class="empty">No premieres or discussions match your search.</p>
+    </section>
+<!-- Used by this block's script (elsewhere on the page it came from): -->
+<div id="toast" class="toast" role="status"></div>
+<input id="site-search" type="search" placeholder="Search the community..." aria-label="Search premieres and discussions">
+</div>
+<script>
+lucide.createIcons();
+let toastTimer;
+function showToast(message){const t=document.getElementById('toast');t.textContent=message;t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2600)}
+let activeFilter='all';
+const search=document.getElementById('site-search');
+document.querySelectorAll('.remind').forEach(button=>button.addEventListener('click',()=>{const on=button.getAttribute('aria-pressed')!=='true';button.setAttribute('aria-pressed',String(on));button.classList.toggle('on',on);button.textContent=on?'✓ Reminded':'Remind me';showToast(on?'Reminder added for this visit':'Reminder removed')}));
+function updateCards(){const q=search.value.trim().toLowerCase();let count=0;document.querySelectorAll('.searchable').forEach(card=>{const category=card.dataset.category;const visible=(!category||activeFilter==='all'||category===activeFilter)&&(!q||card.dataset.search.includes(q)||card.textContent.toLowerCase().includes(q));card.style.display=visible?'':'none';if(visible)count++});document.getElementById('search-empty').style.display=count?'none':'block'}
+document.getElementById('schedule-more').addEventListener('click',()=>showToast('You’re viewing all upcoming community events'));
+</script>

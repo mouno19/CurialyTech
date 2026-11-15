@@ -1,0 +1,57 @@
+<!-- Dossier modal (Anime Vault) · anime-vault-dossier: from the Anime archetype: Anime Vault (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/anime-archive-anime-vault.css, and an ancestor with class="cx-anime-archive-anime-vault". -->
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+<div class="cx-anime-archive-anime-vault">
+<div id="detail-overlay" class="detail-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="detail-title">
+   <article class="detail-panel"><button id="detail-close" class="detail-close" type="button" aria-label="Close details"><i data-lucide="x"></i></button> <img id="detail-image" class="detail-image" src="https://images.pexels.com/photos/29356751/pexels-photo-29356751.jpeg" alt="A vivid night scene in Tokyo showcasing neon-lit stores and reflections, capturing the urban nightlife." loading="lazy">
+    <div class="detail-content">
+     <div id="detail-index" class="section-kicker"></div>
+     <h2 id="detail-title" class="detail-title"></h2>
+     <div id="detail-japanese" class="detail-japanese"></div>
+     <p id="detail-description" class="detail-description"></p>
+     <div id="detail-meta" class="detail-meta"></div>
+     <h3 class="detail-subhead">Filed under</h3>
+     <div id="detail-tags" class="tags"></div>
+     <div class="detail-actions">
+      <div>
+       <label class="field-label" for="detail-collection">YOUR COLLECTION</label><select id="detail-collection" class="field-input"><option value="Plan to Watch">Plan to Watch</option><option value="Watching">Watching</option><option value="Completed">Completed</option></select>
+      </div><button id="detail-save" class="primary-btn" type="button"></button><button id="detail-remove" class="outline-btn hidden" type="button">Remove from watchlist</button>
+     </div>
+    </div>
+   </article>
+  </div>
+<!-- Used by this block's script (elsewhere on the page it came from): -->
+<div id="status" class="status hidden" role="status" aria-live="polite"></div>
+</div>
+<script>
+const anime=[
+      {id:"frieren",title:"Frieren: Beyond Journey's End",jp:"葬送のフリーレン",year:2023,studio:"Madhouse",genres:["Fantasy","Adventure","Drama"],episodes:28,rating:9.4,format:"TV SERIES",summary:"An elf mage follows the echoes of a journey already ended.",description:"Decades after her party defeats the Demon King, the long-lived mage Frieren begins to understand the fleeting lives of her former companions. A reflective journey through memory, friendship, and the passage of time.",image:"https://images.pexels.com/photos/28587525/pexels-photo-28587525.jpeg",alt:"A moody and atmospheric mountain landscape with dark clouds and trees in the foreground."},
+      {id:"vinland",title:"Vinland Saga",jp:"ヴィンランド・サガ",year:2019,studio:"Wit Studio / MAPPA",genres:["Adventure","Drama","Historical"],episodes:48,rating:9.1,format:"TV SERIES",summary:"A sweeping tale of vengeance, violence, and the search for peace.",description:"Set amid the Viking age, Thorfinn's journey moves from a childhood shaped by revenge toward a difficult reckoning with what it means to be a true warrior.",image:"https://images.pexels.com/photos/27204021/pexels-photo-27204021.jpeg",alt:"A towering cumulonimbus cloud dominating the sky, casting a dramatic weather scene at sunset."},
+      {id:"bebop",title:"Cowboy Bebop",jp:"カウボーイビバップ",year:1998,studio:"Sunrise",genres:["Sci-Fi","Action","Drama"],episodes:26,rating:9.0,format:"TV SERIES",summary:"Spacefaring bounty hunters drift between past and present.",description:"Across a stylish, jazz-inflected solar system, the crew of the Bebop chase bounties while the histories they hoped to leave behind continue to follow them.",image:"https://images.pexels.com/photos/29356751/pexels-photo-29356751.jpeg",alt:"A vivid night scene in Tokyo showcasing neon-lit stores and reflections, capturing the urban nightlife."},
+      {id:"spirited",title:"Spirited Away",jp:"千と千尋の神隠し",year:2001,studio:"Studio Ghibli",genres:["Fantasy","Adventure","Drama"],episodes:1,rating:9.2,format:"FEATURE FILM",summary:"A young girl enters a mysterious world of spirits.",description:"When Chihiro's family wanders into an otherworldly bathhouse, she must find her courage and identity to save her parents and find her way home.",image:"https://images.pexels.com/photos/15971283/pexels-photo-15971283.png",alt:"Explore a tranquil Japanese street at night, showcasing traditional architecture and soft lighting."},
+      {id:"attack",title:"Attack on Titan",jp:"進撃の巨人",year:2013,studio:"Wit Studio / MAPPA",genres:["Action","Drama","Fantasy"],episodes:89,rating:9.0,format:"TV SERIES",summary:"Humanity confronts the terrifying world beyond its walls.",description:"Within enormous walls built against monstrous Titans, a generation of soldiers uncovers a history far more complex than the one they inherited.",image:"https://images.pexels.com/photos/38737032/pexels-photo-38737032.jpeg",alt:"Cityscape view in Tokyo, Japan with power lines and clouds against a blue sky."},
+      {id:"yourname",title:"Your Name",jp:"君の名は。",year:2016,studio:"CoMix Wave Films",genres:["Romance","Fantasy","Drama"],episodes:1,rating:8.9,format:"FEATURE FILM",summary:"Two strangers are connected across distance and time.",description:"Mitsuha and Taki find their lives inexplicably intertwined. As they search for one another, a luminous story unfolds about memory, fate, and the people we cannot forget.",image:"https://images.pexels.com/photos/13825479/pexels-photo-13825479.jpeg",alt:"Peaceful city street scene under a dramatic sunset sky, capturing urban life."},
+      {id:"violet",title:"Violet Evergarden",jp:"ヴァイオレット・エヴァーガーデン",year:2018,studio:"Kyoto Animation",genres:["Drama","Fantasy","Slice of Life"],episodes:13,rating:8.8,format:"TV SERIES",summary:"A former soldier learns the language of human feeling.",description:"As an Auto Memory Doll writing letters for others, Violet travels through stories of love and loss, slowly discovering the meaning of words once spoken to her.",image:"https://images.pexels.com/photos/356269/pexels-photo-356269.jpeg",alt:"Delicate cherry blossom branch with a traditional Japanese roof in the background during spring."},
+      {id:"demon",title:"Demon Slayer",jp:"鬼滅の刃",year:2019,studio:"ufotable",genres:["Action","Fantasy","Adventure"],episodes:63,rating:8.7,format:"TV SERIES",summary:"A brother's resolve carries him into a world of demons.",description:"After tragedy strikes his family, Tanjiro joins the Demon Slayer Corps, seeking a way to restore his sister while facing a succession of formidable enemies.",image:"https://images.pexels.com/photos/3250576/pexels-photo-3250576.jpeg",alt:"A beautifully lit pagoda framed by cherry blossoms, showcasing intricate details at night."}
+    ];
+const $=id=>document.getElementById(id);
+let records=[];
+let ready=false;
+let selected=null;
+let lastFocus=null;
+let statusTimer;
+function notice(message,error=false){const el=$("status");el.textContent=message;el.className="status"+(error?" error":"");clearTimeout(statusTimer);statusTimer=setTimeout(()=>el.classList.add("hidden"),5000)}
+function recordFor(id){return records.find(r=>r.anime_id===id)}
+function setPending(btn,on,text){btn.disabled=on;if(on){btn.dataset.original=btn.textContent;btn.textContent=text||"Saving…"}else if(btn.dataset.original){btn.textContent=btn.dataset.original;delete btn.dataset.original}}
+async function saveTitle(id,group,btn){if(!ready)return notice("Your watchlist is still loading. Please try again shortly.",true);if(records.length>=999)return notice("The collection has reached its 999-entry limit.",true);if(recordFor(id))return notice("This title is already in your watchlist.");setPending(btn,true,"Saving…");try{const result=await window.dataSdk.create({anime_id:id,collection:group,added_at:new Date().toISOString()});if(!result.isOk)notice("Could not confirm the save. Refresh before trying again.",true);else notice("Added to "+group+".")}catch(e){notice("Could not confirm the save. Refresh before trying again.",true)}finally{setPending(btn,false)}}
+async function updateTitle(id,group,btn){const r=recordFor(id);if(!r)return notice("This title is no longer available. Refresh and try again.",true);if(r.collection===group)return notice("Already filed under "+group+".");setPending(btn,true,"Saving…");try{const result=await window.dataSdk.update({...r,collection:group});if(!result.isOk)notice("Could not confirm the update. Refresh before trying again.",true);else notice("Moved to "+group+".")}catch(e){notice("Could not confirm the update. Refresh before trying again.",true)}finally{setPending(btn,false)}}
+async function removeTitle(id,btn){const r=recordFor(id);if(!r)return notice("This title is no longer available. Refresh and try again.",true);setPending(btn,true,"Removing…");try{const result=await window.dataSdk.delete(r);if(!result.isOk)notice("Could not confirm removal. Refresh before trying again.",true);else notice("Removed from your watchlist.")}catch(e){notice("Could not confirm removal. Refresh before trying again.",true)}finally{setPending(btn,false)}}
+function openDetail(id){const a=anime.find(x=>x.id===id);if(!a)return;selected=id;lastFocus=document.activeElement;$("detail-image").src=a.image;$("detail-image").alt=a.alt;$("detail-index").textContent="ARCHIVE ENTRY / "+String(anime.indexOf(a)+1).padStart(3,"0");$("detail-title").textContent=a.title;$("detail-japanese").textContent=a.jp;$("detail-description").textContent=a.description;$("detail-meta").innerHTML=`<div><span class="meta-label">RELEASE</span><span class="meta-value">${a.year}</span></div><div><span class="meta-label">STUDIO</span><span class="meta-value">${a.studio}</span></div><div><span class="meta-label">EPISODES</span><span class="meta-value">${a.episodes===1?"Feature film":a.episodes+" episodes"}</span></div><div><span class="meta-label">ARCHIVE RATING</span><span class="meta-value">★ ${a.rating.toFixed(1)} / 10</span></div>`;$("detail-tags").replaceChildren(...a.genres.map(g=>{const s=document.createElement("span");s.className="tag";s.textContent=g;return s}));$("detail-collection").value=recordFor(id)?.collection||"Plan to Watch";updateDetailActions();$("detail-overlay").classList.remove("hidden");document.body.style.overflow="hidden";$("detail-close").focus()}
+function updateDetailActions(){const r=recordFor(selected);$("detail-save").textContent=r?"Update collection":"Add to watchlist";$("detail-remove").classList.toggle("hidden",!r)}
+function closeDetail(){$("detail-overlay").classList.add("hidden");document.body.style.overflow="";selected=null;if(lastFocus&&lastFocus.isConnected)lastFocus.focus()}
+$("detail-close").onclick=closeDetail;
+$("detail-overlay").onclick=e=>{if(e.target===$("detail-overlay"))closeDetail()};
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("detail-overlay").classList.contains("hidden"))closeDetail()});
+$("detail-save").onclick=e=>{const group=$("detail-collection").value;if(recordFor(selected))updateTitle(selected,group,e.currentTarget);else saveTitle(selected,group,e.currentTarget)};
+$("detail-remove").onclick=e=>removeTitle(selected,e.currentTarget);
+</script>

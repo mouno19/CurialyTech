@@ -69,11 +69,14 @@ vocabulary or orchestration change is needed. Minimal example:
 
 ## The anime style archetypes
 
-`anime-templates/` holds ten complete anime and entertainment site templates. They are the source
-of the design intelligence's style archetypes (server/agent/design/knowledge/archetypes.ts) and of
-54 blocks registered here (`anime-*`, with `archetype` set): headers, heroes, shelves, filter
-sidebars, episode guides, streak trackers, critics' scores, seals and more. A design mixes blocks of
-several archetypes on one token set (`tokens/anime-*.json`); a whole template is never reproduced.
+`anime-templates/` holds fifteen complete anime and entertainment site templates (two batches). They
+are the source of the design intelligence's style archetypes (server/agent/design/knowledge/archetypes.ts)
+and of 86 blocks registered here (`anime-*`, with `archetype` set): headers, heroes, shelves, filter
+sidebars, episode guides, streak trackers, critics' scores, seals, tiered pricing, watch parties,
+live chat rails, discussion feeds, numbered genre grids, archive dossiers, rank numerals and more. A
+design mixes blocks of several archetypes on one token set (`tokens/anime-*.json`); a whole template
+is never reproduced. The library copies use the token set's text-safe shades (`replaced`) where a
+template's colour fails contrast.
 After changing archetypes.ts run `node node_modules/tsx/dist/cli.mjs scripts/components/export-archetypes.mts`,
 then the importer.
 

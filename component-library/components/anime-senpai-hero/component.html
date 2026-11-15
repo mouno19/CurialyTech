@@ -1,0 +1,56 @@
+<!-- Planetary orb hero (Senpai+) · anime-senpai-hero: from the Anime archetype: Senpai+ (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/anime-celestial-senpai-plus.css, and an ancestor with class="cx-anime-celestial-senpai-plus". -->
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+<div class="cx-anime-celestial-senpai-plus">
+<section class="hero" aria-labelledby="hero-title">
+    <div class="hero-art" aria-hidden="true">
+     <div class="orb"></div>
+     <div class="orbit"></div>
+     <div class="figure">
+      <div class="head"></div>
+      <div class="hair"></div>
+      <div class="body"></div>
+      <div class="sash"></div>
+     </div><span class="star s1">✦</span><span class="star s2">✧</span><span class="star s3">✦</span>
+    </div>
+    <div class="shell hero-inner">
+     <div class="hero-copy">
+      <div class="eyebrow">
+       SENPAI+ ORIGINAL
+      </div>
+      <h1 id="hero-title">Beyond the<br><em>ordinary.</em></h1>
+      <p class="hero-sub">A universe of extraordinary stories. Discover anime worth staying up for, curated for the way you watch.</p>
+      <div class="meta">
+       <span>2025</span><span>Fantasy · Adventure</span><span>4K UHD</span>
+      </div>
+      <div class="hero-buttons">
+       <a href="#discover" class="primary"><i data-lucide="compass" width="17" height="17"></i> Explore titles</a><button class="secondary" id="hero-save" data-title-id="astral-veil"><i data-lucide="plus" width="17" height="17"></i><span>My List</span></button>
+      </div>
+     </div>
+    </div>
+   </section>
+<!-- Used by this block's script (elsewhere on the page it came from): -->
+<div class="grid" id="recommendation-grid"></div>
+<div class="grid" id="exclusive-grid"></div>
+</div>
+<script>
+const titles=[
+      {id:"astral-veil",title:"Astral Veil",genre:"Fantasy",detail:"2025 · 12 Episodes",rating:"9.4",art:"p1",symbol:"✦",exclusive:true},
+      {id:"neon-horizon",title:"Neon Horizon",genre:"Sci-Fi",detail:"2025 · 10 Episodes",rating:"9.2",art:"p2",symbol:"◈",exclusive:false},
+      {id:"afterglow",title:"Afterglow Letters",genre:"Romance",detail:"2024 · 12 Episodes",rating:"9.1",art:"p3",symbol:"✳",exclusive:false},
+      {id:"verdant-oath",title:"The Verdant Oath",genre:"Fantasy",detail:"2025 · 16 Episodes",rating:"9.0",art:"p4",symbol:"❋",exclusive:true},
+      {id:"violet-reign",title:"Violet Reign",genre:"Action",detail:"2025 · 8 Episodes",rating:"9.3",art:"p5",symbol:"✧",exclusive:true},
+      {id:"emberline",title:"Emberline",genre:"Action",detail:"2024 · 12 Episodes",rating:"8.9",art:"p6",symbol:"✺",exclusive:false},
+      {id:"blue-signal",title:"Blue Signal",genre:"Sci-Fi",detail:"2025 · 10 Episodes",rating:"9.1",art:"p7",symbol:"◇",exclusive:true},
+      {id:"silver-moon",title:"Silver Moon Diary",genre:"Romance",detail:"2024 · 13 Episodes",rating:"8.8",art:"p8",symbol:"☾",exclusive:false}
+    ];
+let backendRecords=[];
+let ready=false;
+let filter="All";
+const $=id=>document.getElementById(id);
+function icon(){lucide.createIcons()}
+function saved(id){return backendRecords.some(r=>r.title_id===id)}
+function card(t){return `<article class="show-card" data-genre="${t.genre}"><div class="poster ${t.art}"><div class="poster-art"></div>${t.exclusive?'<span class="badge">SENPAI+ ORIGINAL</span>':''}<span class="poster-symbol" aria-hidden="true">${t.symbol}</span></div><div class="card-info"><h3>${t.title}</h3><p>${t.detail} · ${t.genre}</p><div class="card-bottom"><span class="rating">★ ${t.rating}</span><button class="small-btn ${saved(t.id)?'saved':''}" data-title-id="${t.id}" ${!ready?'disabled':''}><i data-lucide="${saved(t.id)?'check':'plus'}" width="13" height="13"></i><span>${saved(t.id)?'In My List':'My List'}</span></button></div></div></article>`}
+function renderCards(){$("recommendation-grid").innerHTML=titles.filter(t=>filter==="All"||t.genre===filter).slice(0,4).map(card).join("");$("exclusive-grid").innerHTML=titles.filter(t=>t.exclusive).map(card).join("");const hero=$("hero-save");hero.disabled=!ready;hero.querySelector("span").textContent=saved("astral-veil")?"In My List":"My List";hero.querySelector("i")?.setAttribute("data-lucide",saved("astral-veil")?"check":"plus");icon()}
+renderCards();
+</script>

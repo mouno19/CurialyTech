@@ -1,0 +1,94 @@
+{
+  "id": "anime-minimal-header",
+  "name": "Minimal header (Minimal Otaku)",
+  "description": "Minimal header: a wordmark and plain text links on a rule. From the Minimal Otaku archetype (Ultra-minimal Swiss and brutalist editorial); re-skin it to the design's tokens and mix it with blocks of other archetypes, never the whole template.",
+  "category": "navigation",
+  "batch": "anime-minimal-swiss-editorial",
+  "collection": "Anime archetype: Minimal Otaku",
+  "kind": "component",
+  "role": "header",
+  "tags": [
+    "anime",
+    "entertainment",
+    "media",
+    "light",
+    "swiss",
+    "brutalist",
+    "brutalism",
+    "minimalist",
+    "international style",
+    "grid system",
+    "swiss-design-portfolio",
+    "brutalist-architecture",
+    "design-studio",
+    "minimalist-blog",
+    "minimal",
+    "header",
+    "wordmark",
+    "plain",
+    "text",
+    "links",
+    "network",
+    "relationships",
+    "graph",
+    "api-monitoring",
+    "usage",
+    "sparkline",
+    "compact",
+    "text-analytics",
+    "light-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "stylesheet",
+      "id": "anime-minimal-swiss-editorial"
+    },
+    {
+      "type": "tokens",
+      "id": "anime-minimal-swiss-editorial"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "header",
+    "span": "full"
+  },
+  "style": {
+    "tokens": "anime-minimal-swiss-editorial",
+    "mode": "light",
+    "colors": {}
+  },
+  "source": {
+    "file": "anime-templates/13_minimal_otaku_swiss_editorial.html",
+    "ref": "header class=\"site-header\" #0"
+  },
+  "archetype": "anime-minimal-swiss-editorial",
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "8ece451f32afbf21",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

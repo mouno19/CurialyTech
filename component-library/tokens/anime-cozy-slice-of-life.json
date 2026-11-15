@@ -21,8 +21,9 @@
     "series5": "#303d32",
     "series6": "#e8e8dc"
   },
-  "aliases": {
-    "#788477": "series2"
+  "aliases": {},
+  "replaced": {
+    "#788477": "#677166"
   },
   "fonts": {
     "display": "\"Fraunces\", serif",

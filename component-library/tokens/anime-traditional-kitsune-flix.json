@@ -20,8 +20,9 @@
     "series4": "#282724",
     "series5": "#d9d0c1"
   },
-  "aliases": {
-    "#777268": "series2"
+  "aliases": {},
+  "replaced": {
+    "#777268": "#6b665d"
   },
   "fonts": {
     "display": "\"Shippori Mincho\", serif",

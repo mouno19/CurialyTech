@@ -1,0 +1,102 @@
+{
+  "id": "anime-live-premieres",
+  "name": "Premiere schedule (Anime Live)",
+  "description": "Premiere schedule: cards with attendee avatar stacks (+348 going) and remind-me buttons. From the Anime Live archetype (Community watch party, live social platform); re-skin it to the design's tokens and mix it with blocks of other archetypes, never the whole template. (In the source: \"Starfall Academy\".)",
+  "category": "media-browsing",
+  "batch": "anime-community-anime-live",
+  "collection": "Anime archetype: Anime Live",
+  "kind": "component",
+  "role": "content",
+  "tags": [
+    "anime",
+    "entertainment",
+    "media",
+    "dark",
+    "watch party",
+    "watch-party",
+    "livestream",
+    "live stream",
+    "live chat",
+    "community",
+    "social-community",
+    "creator-watch-party",
+    "live-webinar",
+    "discord-like-app",
+    "premiere",
+    "schedule",
+    "cards",
+    "with",
+    "attendee",
+    "avatar",
+    "stacked",
+    "composition",
+    "network",
+    "relationships",
+    "graph",
+    "timeline",
+    "planning",
+    "project-management",
+    "api-monitoring",
+    "usage",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "interactive",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "lucide",
+      "version": "0.577.0"
+    },
+    {
+      "type": "stylesheet",
+      "id": "anime-community-anime-live"
+    },
+    {
+      "type": "tokens",
+      "id": "anime-community-anime-live"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "content",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "anime-community-anime-live",
+    "mode": "dark",
+    "colors": {}
+  },
+  "source": {
+    "file": "anime-templates/12_anime_live_watch_party_community.html",
+    "ref": "section id=\"premieres\" #0"
+  },
+  "archetype": "anime-community-anime-live",
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "dfa4eb63cdb8f987",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

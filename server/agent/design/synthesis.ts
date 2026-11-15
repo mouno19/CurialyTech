@@ -1,8 +1,9 @@
 import { ARCHETYPES, ENTERTAINMENT_WORDS, type Archetype, type GrantedLook } from "./knowledge/archetypes";
+import { contrast } from "./audit";
 
 // Style synthesis: when a request is anime or entertainment work, or its subject fits one of the
 // style archetypes (a luxury brand, a developer terminal, a cozy cafe), the design is a mixture:
-// one archetype gives the base (tokens, type, layout language) and one or two others lend blocks
+// one archetype gives the base (tokens, type, layout language) and two or three others lend blocks
 // and details, all on one token set. Never a single template reproduced. Deterministic: the same
 // request gets the same synthesis (the brief stays byte-stable and cacheable).
 
@@ -32,20 +33,28 @@ function said(text: string, phrase: string) {
 
 /** Partners that complement each base (contrast in one dimension, kinship in another). */
 const PARTNERS: Record<string, string[]> = {
-  "anime-cozy-slice-of-life": ["anime-pastel-sakura-stream", "anime-editorial-frame-magazine", "anime-streaming-nebula-cosmic"],
-  "anime-luxury-kuro-cinema": ["anime-editorial-frame-magazine", "anime-streaming-nebula-cosmic", "anime-traditional-kitsune-flix"],
-  "anime-retro-arcade-synthwave": ["anime-action-shonen-hub", "anime-terminal-otaku-os", "anime-catalog-anime-grid"],
-  "anime-editorial-frame-magazine": ["anime-luxury-kuro-cinema", "anime-traditional-kitsune-flix", "anime-catalog-anime-grid"],
-  "anime-action-shonen-hub": ["anime-retro-arcade-synthwave", "anime-terminal-otaku-os", "anime-cozy-slice-of-life"],
-  "anime-streaming-nebula-cosmic": ["anime-catalog-anime-grid", "anime-luxury-kuro-cinema", "anime-retro-arcade-synthwave"],
-  "anime-catalog-anime-grid": ["anime-streaming-nebula-cosmic", "anime-terminal-otaku-os", "anime-editorial-frame-magazine"],
-  "anime-terminal-otaku-os": ["anime-catalog-anime-grid", "anime-retro-arcade-synthwave", "anime-streaming-nebula-cosmic"],
-  "anime-pastel-sakura-stream": ["anime-cozy-slice-of-life", "anime-traditional-kitsune-flix", "anime-editorial-frame-magazine"],
-  "anime-traditional-kitsune-flix": ["anime-editorial-frame-magazine", "anime-pastel-sakura-stream", "anime-luxury-kuro-cinema"],
+  "anime-cozy-slice-of-life": ["anime-pastel-sakura-stream", "anime-editorial-frame-magazine", "anime-streaming-nebula-cosmic", "anime-community-anime-live"],
+  "anime-luxury-kuro-cinema": ["anime-editorial-frame-magazine", "anime-streaming-nebula-cosmic", "anime-traditional-kitsune-flix", "anime-archive-anime-vault", "anime-celestial-senpai-plus"],
+  "anime-retro-arcade-synthwave": ["anime-action-shonen-hub", "anime-terminal-otaku-os", "anime-catalog-anime-grid", "anime-cyberpop-hyperanime"],
+  "anime-editorial-frame-magazine": ["anime-luxury-kuro-cinema", "anime-traditional-kitsune-flix", "anime-catalog-anime-grid", "anime-minimal-swiss-editorial", "anime-archive-anime-vault"],
+  "anime-action-shonen-hub": ["anime-retro-arcade-synthwave", "anime-terminal-otaku-os", "anime-cozy-slice-of-life", "anime-cyberpop-hyperanime", "anime-community-anime-live"],
+  "anime-streaming-nebula-cosmic": ["anime-catalog-anime-grid", "anime-luxury-kuro-cinema", "anime-retro-arcade-synthwave", "anime-celestial-senpai-plus", "anime-community-anime-live"],
+  "anime-catalog-anime-grid": ["anime-streaming-nebula-cosmic", "anime-terminal-otaku-os", "anime-editorial-frame-magazine", "anime-minimal-swiss-editorial", "anime-archive-anime-vault"],
+  "anime-terminal-otaku-os": ["anime-catalog-anime-grid", "anime-retro-arcade-synthwave", "anime-streaming-nebula-cosmic", "anime-community-anime-live"],
+  "anime-pastel-sakura-stream": ["anime-cozy-slice-of-life", "anime-traditional-kitsune-flix", "anime-editorial-frame-magazine", "anime-community-anime-live"],
+  "anime-traditional-kitsune-flix": ["anime-editorial-frame-magazine", "anime-pastel-sakura-stream", "anime-luxury-kuro-cinema", "anime-archive-anime-vault", "anime-minimal-swiss-editorial"],
+  "anime-celestial-senpai-plus": ["anime-luxury-kuro-cinema", "anime-archive-anime-vault", "anime-streaming-nebula-cosmic", "anime-cyberpop-hyperanime"],
+  "anime-community-anime-live": ["anime-streaming-nebula-cosmic", "anime-action-shonen-hub", "anime-cyberpop-hyperanime", "anime-terminal-otaku-os"],
+  "anime-minimal-swiss-editorial": ["anime-editorial-frame-magazine", "anime-catalog-anime-grid", "anime-traditional-kitsune-flix", "anime-archive-anime-vault"],
+  "anime-archive-anime-vault": ["anime-luxury-kuro-cinema", "anime-editorial-frame-magazine", "anime-catalog-anime-grid", "anime-minimal-swiss-editorial"],
+  "anime-cyberpop-hyperanime": ["anime-retro-arcade-synthwave", "anime-action-shonen-hub", "anime-community-anime-live", "anime-celestial-senpai-plus"],
 };
 
 /** Bases for entertainment requests that name no style (picked by the request's own text, so they vary across requests). */
-const DEFAULT_BASES = ["anime-streaming-nebula-cosmic", "anime-luxury-kuro-cinema", "anime-pastel-sakura-stream", "anime-action-shonen-hub", "anime-cozy-slice-of-life", "anime-catalog-anime-grid"];
+const DEFAULT_BASES = [
+  "anime-streaming-nebula-cosmic", "anime-luxury-kuro-cinema", "anime-pastel-sakura-stream", "anime-action-shonen-hub", "anime-cozy-slice-of-life", "anime-catalog-anime-grid",
+  "anime-celestial-senpai-plus", "anime-community-anime-live", "anime-minimal-swiss-editorial", "anime-cyberpop-hyperanime",
+];
 
 /** Request words that ask for a particular block (whichever archetype has it). */
 const BLOCK_WORDS: [RegExp, RegExp][] = [
@@ -55,14 +64,24 @@ const BLOCK_WORDS: [RegExp, RegExp][] = [
   [/\b(streaks?|achievements?|gamif\w*|points|xp|leaderboard)\b/, /player hub/i],
   [/\b(reviews?|critics?|ratings?|scores?)\b/, /critics|rated/i],
   [/\b(shelf|shelves|carousel|row of|trending)\b/, /shelf|trending/i],
-  [/\b(membership|plans?|pricing|subscribe|vip|perks)\b/, /membership/i],
+  [/\b(membership|plans?|pricing|subscribe|subscriptions?|tiers?|vip|perks)\b/, /membership|pricing/i],
   [/\b(characters?|cast|heroes|champions?)\b/, /champion/i],
   [/\b(search|command|terminal|cli|prompt)\b/, /prompt|slash search|status bar/i],
   [/\b(collections?|curated|playlists?)\b/, /collection/i],
   [/\b(mood|feeling|vibe)\b/, /mood/i],
   [/\b(mobile|phone|bottom nav|tab bar)\b/, /mobile dock/i],
-  [/\b(ticker|live|breaking)\b/, /ticker/i],
+  [/\b(ticker|breaking|live updates|live scores)\b/, /ticker/i],
   [/\b(masthead|issue|magazine)\b/, /masthead|cover/i],
+  [/\b(watch[ -]?party|watch together|livestreams?|live streams?|live now)\b/, /watch-party/i],
+  [/\b(chat|live chat|messages|activity)\b/, /chat/i],
+  [/\b(discussions?|forums?|threads?|posts|fan theories)\b/, /discussion/i],
+  [/\b(schedule|calendar|premieres?|upcoming|line-?up)\b/, /schedule|premiere/i],
+  [/\b(genre grid|genre buttons|genre index|grid of genres)\b/, /genre grid/i],
+  [/\b(archives?|archival|catalogu?es?|metadata|provenance|dossiers?)\b/, /archive|dossier/i],
+  [/\b(rank|ranks|ranked|rankings?|top 10|top ten)\b/, /rank|trending/i],
+  [/\b(accounts?|profiles?|my list|watchlists?|saved)\b/, /account|my list|watchlist/i],
+  [/\b(manifesto|philosophy|our story)\b/, /manifesto|philosophy/i],
+  [/\b(new releases?|latest releases|just added)\b/, /releases|recent/i],
 ];
 
 /** A matched phrase (two words or more) names the subject clearly ("video platform", "tea house"). */
@@ -97,37 +116,41 @@ export function synthesize(input: { text: string; ui: boolean; avoid?: string[] 
   const text = input.text.toLowerCase();
   const refused = (archetype: Archetype) => (input.avoid ?? []).some(word => archetype.signals.includes(word) || archetype.style.toLowerCase().includes(word));
   const entertainment = ENTERTAINMENT_WORDS.some(word => said(text, word));
+  // Equal points: a phrase that names the subject beats a single word.
   const ranked = ARCHETYPES.filter(archetype => !refused(archetype))
-    .map((archetype, order) => ({ archetype, points: score(archetype, text), order }))
-    .sort((a, b) => b.points - a.points || a.order - b.order);
+    .map((archetype, order) => ({ archetype, points: score(archetype, text), strong: strongMatch(archetype, text), order }))
+    .sort((a, b) => b.points - a.points || Number(b.strong) - Number(a.strong) || a.order - b.order);
   const best = ranked[0];
   // Outside entertainment, only a clear fit of subject or style brings the archetypes in: two
   // signals, or one phrase that names the subject.
-  if (!entertainment && (!best || (best.points < 4 && !strongMatch(best.archetype, text)))) return null;
+  if (!entertainment && (!best || (best.points < 4 && !best.strong))) return null;
   if (!best) return null;
   const pool = ranked.map(item => item.archetype);
   const primary = best.points > 0 ? best.archetype : pool.find(archetype => archetype.id === DEFAULT_BASES.filter(id => pool.some(item => item.id === id))[stableIndex(text, DEFAULT_BASES.length) % DEFAULT_BASES.length]) ?? pool[0];
-  // Partners: others the request also points to, then the base's complements (always at least one).
+  // Partners: others the request also points to; then the owners of the blocks it asks for (up to
+  // three partners); then the base's complements (always at least one partner).
   const partners: Archetype[] = [];
   for (const item of ranked) if (item.archetype !== primary && item.points >= 3 && partners.length < 2) partners.push(item.archetype);
-  for (const id of PARTNERS[primary.id] ?? []) {
-    if (partners.length >= 2) break;
-    const partner = pool.find(archetype => archetype.id === id);
-    if (partner && !partners.includes(partner)) partners.push(partner);
-  }
-  if (!partners.length) partners.push(pool.find(archetype => archetype !== primary)!);
-  // Blocks: what the request asks for, from whichever archetype has it; otherwise each partner's signature block.
+  const complements = (PARTNERS[primary.id] ?? []).map(id => pool.find(archetype => archetype.id === id)).filter((archetype): archetype is Archetype => !!archetype);
+  // Blocks: what the request asks for, from the mixture if it has it (the base first while it has room
+  // beside its hero), else from the base's complements, else from any archetype; otherwise each
+  // partner's signature block.
   const blocks: Synthesis["blocks"] = [];
   const take = (archetype: Archetype, block: Archetype["blocks"][number]) => { if (!blocks.some(item => item.block.id === block.id)) blocks.push({ archetype, block }); };
+  const room = Math.max(2, Math.ceil(primary.blocks.length / 2)) - 1;
   for (const [ask, name] of BLOCK_WORDS) {
     if (!ask.test(text)) continue;
-    for (const archetype of [...partners, primary]) {
-      const block = archetype.blocks.find(item => name.test(item.name));
-      if (block) { take(archetype, block); break; }
-    }
+    const mixture = blocks.filter(item => item.archetype === primary).length < room ? [primary, ...partners] : [...partners, primary];
+    const owners = [...mixture, ...(partners.length < 3 ? [...complements, ...pool].filter(archetype => archetype !== primary && !partners.includes(archetype)) : [])];
+    const owner = owners.find(archetype => archetype.blocks.some(item => name.test(item.name)));
+    if (!owner) continue;
+    if (owner !== primary && !partners.includes(owner)) partners.push(owner);
+    take(owner, owner.blocks.find(item => name.test(item.name))!);
   }
+  for (const complement of complements) if (partners.length < 2 && !partners.includes(complement)) partners.push(complement);
+  if (!partners.length) partners.push(pool.find(archetype => archetype !== primary)!);
   // A partner's signature block, not its hero (the base gives the hero) and not its chrome.
-  for (const partner of partners) if (!blocks.some(item => item.archetype === partner)) take(partner, partner.blocks.find(block => !/header|topbar|nav|sidebar|footer|dock|masthead|hero|cover|featured/i.test(block.name)) ?? partner.blocks[0]);
+  for (const partner of partners) if (!blocks.some(item => item.archetype === partner)) take(partner, partner.blocks.find(block => !/header|topbar|nav|sidebar|footer|dock|masthead|ticker|status bar|intro|hero|cover|featured/i.test(block.name)) ?? partner.blocks[0]);
   const hero = primary.blocks.find(block => /hero|cover|featured/i.test(block.name));
   if (hero) take(primary, hero);
   const fit = primary.fits.find(item => said(text, item));
@@ -140,7 +163,12 @@ export function synthesize(input: { text: string; ui: boolean; avoid?: string[] 
   };
 }
 
+const list = (items: string[]) => (items.length > 1 ? `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}` : items.join(""));
 const textColor = (archetype: Archetype, role: "muted" | "accent" | "accent2") => archetype.textSafe?.[role] ?? archetype.tokens[role];
+const rgb = (hex: string) => [1, 3, 5].map(i => Number.parseInt(hex.slice(i, i + 2), 16)) as [number, number, number];
+/** The accent fill: the template's own, or its text-safe shade where a label on the template's is under 4.5:1 too. */
+export const accentFill = (archetype: Archetype) =>
+  (archetype.textSafe?.accent && contrast(rgb(archetype.tokens.onAccent), rgb(archetype.tokens.accent)) < 4.5 ? archetype.textSafe.accent : archetype.tokens.accent);
 
 /** The synthesis as the brief's section: base, partners, one token set, type, blocks and the rules. */
 export function renderSynthesis(synthesis: Synthesis) {
@@ -150,8 +178,8 @@ export function renderSynthesis(synthesis: Synthesis) {
   const safe = primary.textSafe ? ` For text, use ${Object.entries(primary.textSafe).map(([role, hex]) => `${hex} instead of the ${role} ${t[role as keyof typeof t]} (under 4.5:1)`).join("; ")}.` : "";
   return [
     `## Style synthesis (${synthesis.reason})`,
-    `Mix archetypes; never reproduce one template. Base: **${primary.name}** (${primary.style}) — ${primary.concept} Partners: ${partners.map(partner => `**${partner.name}** (${partner.style})`).join(" and ")}.`,
-    `- One token set for everything, from the base: --bg ${t.bg}, --surface ${t.surface}, --surface-2 ${t.surface2}, --line ${t.line}, --text ${t.text}, --muted ${textColor(primary, "muted")}, --accent ${t.accent}, --accent-2 ${t.accent2}, --on-accent ${t.onAccent}; radius: ${primary.radius}.${safe} Borrowed blocks take these tokens and this radius, never their own palette.`,
+    `Mix archetypes; never reproduce one template. Base: **${primary.name}** (${primary.style}) — ${primary.concept} Partners: ${list(partners.map(partner => `**${partner.name}** (${partner.style})`))}.`,
+    `- One token set for everything, from the base: --bg ${t.bg}, --surface ${t.surface}, --surface-2 ${t.surface2}, --line ${t.line}, --text ${t.text}, --muted ${textColor(primary, "muted")}, --accent ${accentFill(primary)}, --accent-2 ${t.accent2}, --on-accent ${t.onAccent}; radius: ${primary.radius}.${safe} Borrowed blocks take these tokens and this radius, never their own palette.`,
     `- Type: ${primary.fonts.use} Load only ${fonts}${partners.some(partner => partner.fonts.display !== primary.fonts.display) ? `; a partner's face (${[...new Set(partners.map(partner => partner.fonts.display))].filter(face => face !== primary.fonts.display).join(", ")}) at most for one small detail` : ""}.`,
     `- Blocks to combine: ${blocks.map(item => `${item.block.name} from ${item.archetype.name} (${item.block.how}; component ${item.block.id})`).join("; ")}. Rebuild each in the base's language; add what the subject needs and leave out what it doesn't.`,
     `- Layout and motion from the base: ${primary.layout} ${primary.motion}`,

@@ -1,0 +1,33 @@
+{
+  "id": "anime-celestial-senpai-plus",
+  "name": "Senpai+ (dark)",
+  "mode": "dark",
+  "source": "anime-templates/11_senpai_plus_celestial_streaming.html",
+  "colors": {
+    "background": "#080d1d",
+    "surface": "#111a30",
+    "surface2": "#17213a",
+    "border": "#2a3550",
+    "text": "#f4f6ff",
+    "muted": "#9aa7c0",
+    "accent": "#a58bff",
+    "positive": "#d9e0f0",
+    "negative": "#ff6b6b",
+    "warning": "#d9e0f0",
+    "series1": "#a58bff",
+    "series2": "#d9e0f0",
+    "series3": "#795cf0",
+    "series4": "#9aa7c0",
+    "series5": "#f4f6ff",
+    "series6": "#2a3550"
+  },
+  "aliases": {},
+  "replaced": {},
+  "fonts": {
+    "display": "\"Space Grotesk\", system-ui, sans-serif",
+    "sans": "\"DM Sans\", system-ui, sans-serif"
+  },
+  "radius": {
+    "card": "14px cards, 30px pills, round orbs"
+  }
+}

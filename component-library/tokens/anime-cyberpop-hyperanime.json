@@ -1,0 +1,33 @@
+{
+  "id": "anime-cyberpop-hyperanime",
+  "name": "Hyperanime (dark)",
+  "mode": "dark",
+  "source": "anime-templates/15_hyperanime_cyberpop_multiverse.html",
+  "colors": {
+    "background": "#100b20",
+    "surface": "#1a1430",
+    "surface2": "#211a35",
+    "border": "#383049",
+    "text": "#fffafc",
+    "muted": "#aaa3bc",
+    "accent": "#ff4a9b",
+    "positive": "#65eaff",
+    "negative": "#ff6b6b",
+    "warning": "#ffb453",
+    "series1": "#ff4a9b",
+    "series2": "#65eaff",
+    "series3": "#9b55ff",
+    "series4": "#ffb453",
+    "series5": "#aaa3bc",
+    "series6": "#fffafc"
+  },
+  "aliases": {},
+  "replaced": {},
+  "fonts": {
+    "display": "\"Space Grotesk\", system-ui, sans-serif",
+    "sans": "\"DM Sans\", system-ui, sans-serif"
+  },
+  "radius": {
+    "card": "14-22px cards, pills for tags"
+  }
+}

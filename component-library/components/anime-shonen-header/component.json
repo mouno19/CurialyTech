@@ -34,6 +34,7 @@
   ],
   "capabilities": [
     "responsive",
+    "interactive",
     "accessible"
   ],
   "dependencies": [
@@ -85,7 +86,7 @@
     "compiled": true,
     "rendered": true,
     "notes": [],
-    "hash": "d58a04b5b759dcff",
+    "hash": "6ce204dcc438b043",
     "checked_at": "2026-11-15"
   },
   "generated_by": "atlas-import",

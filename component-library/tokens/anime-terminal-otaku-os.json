@@ -21,6 +21,7 @@
     "series5": "#273443"
   },
   "aliases": {},
+  "replaced": {},
   "fonts": {
     "display": "\"Space Grotesk\", system-ui, sans-serif",
     "sans": "\"DM Sans\", system-ui, sans-serif"

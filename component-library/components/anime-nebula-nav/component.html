@@ -64,7 +64,8 @@ const titles={
       paper:{name:"Paper Moon Tokyo",image:"mural",genre:"Slice of Life · Drama",year:"2024",label:"EP 07",description:"Art, friendship, and second chances collide under the lights of Osaka."},
       after:{name:"Afterglow 2099",image:"diner",genre:"Cyberpunk · Mystery",year:"2025",label:"NEW",description:"A neon-lit diner becomes the unlikely meeting point for people caught between two realities."}
     };
-const overlay=document.getElementById("preview-overlay"),closeButton=document.getElementById("close-dialog");
+const overlay=document.getElementById("preview-overlay");
+const closeButton=document.getElementById("close-dialog");
 let lastFocus;
 function openPreview(key){
       const t=titles[key],img=images[t.image];lastFocus=document.activeElement;

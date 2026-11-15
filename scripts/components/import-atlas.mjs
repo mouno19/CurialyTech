@@ -398,12 +398,31 @@ function tokenSetOf(id) {
   return JSON.parse(fs.readFileSync(path.join(LIBRARY, "tokens", `${id}.json`), "utf8"));
 }
 
+/**
+ * An archetype template's colours as the library keeps them: written in full (#abc → #aabbcc, in style
+ * rules and style attributes, so theme adaptation finds them), and the text-safe shades its token set
+ * names in place of the colours they replace (with any alpha suffix kept).
+ */
+function safeColors(html, tokenSet) {
+  const full = text => text.replace(/#([0-9a-f])([0-9a-f])([0-9a-f])\b/gi, (_, r, g, b) => `#${r}${r}${g}${g}${b}${b}`);
+  let out = html
+    .replace(/(<style[^>]*>)([\s\S]*?)(<\/style>)/g, (_, open, css, close) => `${open}${css.replace(/\{([^{}]*)\}/g, (__, rule) => `{${full(rule)}}`)}${close}`)
+    .replace(/\sstyle="([^"]*)"/g, (_, value) => ` style="${full(value)}"`);
+  for (const [from, to] of Object.entries(tokenSet.replaced ?? {})) out = out.replace(new RegExp(`${from}(?=(?:[0-9a-f]{2})?\\b)`, "gi"), to);
+  return out;
+}
+
+/** Elements a piece of script looks up: ids (getElementById, a $("id") helper) and selectors. */
+const lookups = text => unique([...text.matchAll(/(?:getElementById|\$)\(\s*['"]([^'"]+)['"]/g)].map(match => `#${match[1]}`)
+  .concat([...text.matchAll(/querySelector(?:All)?\(\s*['"]([^'"]+)['"]/g)].map(match => match[1])));
+
 function importBlocks(BLOCKS) {
   const file = path.join(BLOCKS.dir ?? ATLAS, BLOCKS.file);
-  const html = clean(fs.readFileSync(file, "utf8"));
+  const tokenSet = tokenSetOf(BLOCKS.tokens);
+  const source = clean(fs.readFileSync(file, "utf8"));
+  const html = BLOCKS.archetype ? safeColors(source, tokenSet) : source;
   const { styles, scripts, fonts } = pieces(html);
   const body = html.slice(html.indexOf("<body"));
-  const tokenSet = tokenSetOf(BLOCKS.tokens);
   const scope = `cx-${BLOCKS.tokens}`;
   const scoped = scopeCss(styles, scope).css;
   // One stylesheet for the family, loaded once however many of its blocks a page uses.
@@ -414,26 +433,36 @@ function importBlocks(BLOCKS) {
   const { parse } = require("@babel/parser");
   const statements = [];
   const decls = new Map();
-  for (const code of scripts) {
+  for (const [index, code] of scripts.entries()) {
     const ast = parse(code, { sourceType: "script" });
     for (const node of ast.program.body) {
       const text = code.slice(node.start, node.end);
       // What a statement touches: ids it looks up (getElementById, querySelector, a $("id") helper), and
       // ids a call hands to a helper as plain strings (makeChecks("genre-list", …)).
       const calls = node.type === "ExpressionStatement" && node.expression.type === "CallExpression" ? [...text.matchAll(/["'`]([a-z][\w-]*)["'`]/gi)].map(match => `#${match[1]}`) : [];
-      const touches = unique([...text.matchAll(/(?:getElementById|\$)\(\s*['"]([^'"]+)['"]/g)].map(match => `#${match[1]}`)
-        .concat([...text.matchAll(/querySelector(?:All)?\(\s*['"]([^'"]+)['"]/g)].map(match => match[1]), calls));
-      statements.push({ node, text, touches, setup: /^(lucide\.createIcons|Chart\.defaults)/.test(text) });
+      const touches = unique([...lookups(text), ...calls]);
+      statements.push({ node, text, touches, script: index, setup: /^(lucide\.createIcons|Chart\.defaults)/.test(text) });
     }
-    for (const [name, decl] of declarations(code)) decls.set(name, decl);
+    // An archetype template's declarations one by one, so a block takes only the names it uses.
+    for (const [name, decl] of declarations(code, { split: !!BLOCKS.archetype })) decls.set(name, Object.assign(decl, { script: index }));
   }
+  const pageIds = new Map([...body.matchAll(/\sid="([^"]+)"/g)].map(match => [match[1], match.index]));
+  // Dialogs of the page (a title's details): what a block's script opens there comes along with it.
+  const dialogs = [...body.matchAll(/<dialog\b|<[a-z][\w-]*\s[^>]*(?:role="dialog"|aria-modal="true")/g)].map(match => {
+    try { return [match.index, match.index + element(body, match.index).length]; } catch { return [match.index, match.index]; }
+  });
+  const inDialog = id => dialogs.some(([start, end]) => pageIds.get(id) >= start && pageIds.get(id) < end);
+  const pageClasses = new Set([...body.matchAll(/\sclass="([^"]+)"/g)].flatMap(match => match[1].split(/\s+/)));
+  const pageAttrs = new Set([...body.matchAll(/\s(data-[a-z-]+)=/g)].map(match => match[1]));
   const results = [];
   for (const block of BLOCKS.items) {
     if (ONLY && !block.id.startsWith(ONLY)) continue;
     const notes = [];
     let markup = element(body, nth(body, block.find[0], block.find[1]));
-    // A view the page shows on demand (a title detail) is registered open.
+    // A view the page shows on demand (a title detail) is registered open: with the class that shows it,
+    // or without the one that hides it.
     if (block.addClass) markup = markup.replace(/^(<[a-z][\w-]*[^>]*?\bclass=")([^"]*)"/i, (_, start, classes) => `${start}${classes} ${block.addClass}"`);
+    if (block.removeClass) markup = markup.replace(/^(<[a-z][\w-]*[^>]*?\bclass=")([^"]*)"/i, (_, start, classes) => `${start}${classes.split(/\s+/).filter(name => name !== block.removeClass).join(" ")}"`).replace(/^(<[^>]*?) class=""/, "$1");
     const ids = new Set([...markup.matchAll(/\bid="([^"]+)"/g)].map(match => match[1]));
     const classes = new Set([...markup.matchAll(/\bclass="([^"]+)"/g)].flatMap(match => match[1].split(/\s+/)));
     const attrs = new Set([...markup.matchAll(/\s(data-[a-z-]+)=/g)].map(match => match[1]));
@@ -448,7 +477,27 @@ function importBlocks(BLOCKS) {
     // Calls of functions the block's statements declare (renderSources();), and the declarations they read.
     const declared = new Set(selected.flatMap(statement => (statement.node.type === "FunctionDeclaration" ? [statement.node.id.name] : statement.node.type === "VariableDeclaration" ? statement.node.declarations.map(d => d.id.name) : [])));
     const calls = statements.filter(statement => statement.node.type === "ExpressionStatement" && statement.node.expression.type === "CallExpression" && declared.has(statement.node.expression.callee?.name));
-    const chosen = new Set([...selected, ...calls]);
+    // Statements that reach the block only through a variable a chosen statement declared
+    // (const trend = $("trending-grid"); titles.forEach(… trend.append(…))), when neither they nor the
+    // page's functions they call work on anything of the page outside the block but a dialog (which comes
+    // along as a supporting element: a title's details; the page's other cards and grids don't).
+    const variables = new Set(selected.filter(statement => statement.node.type === "VariableDeclaration").flatMap(statement => statement.node.declarations.map(d => d.id.name).filter(Boolean)));
+    const outside = selector => {
+      const first = selector.split(/\s+/)[0];
+      if (first.startsWith("#")) return pageIds.has(first.slice(1)) && !ids.has(first.slice(1)) && !inDialog(first.slice(1));
+      if (first.startsWith(".")) return pageClasses.has(first.slice(1)) && !classes.has(first.slice(1));
+      if (first.startsWith("[")) { const attr = first.slice(1, -1).split("=")[0]; return pageAttrs.has(attr) && !attrs.has(attr); }
+      return false;
+    };
+    const inSelected = decl => selected.some(statement => statement.script === decl.script && decl.start >= statement.node.start && decl.start < statement.node.end);
+    const elsewhere = (node, touches, seen = new Set()) => touches.some(outside) || [...references(node)].some(name => {
+      if (seen.has(name) || !decls.has(name)) return false;
+      seen.add(name);
+      const decl = decls.get(name);
+      return !inSelected(decl) && elsewhere(decl.node, lookups(decl.text), seen);
+    });
+    const uses = statements.filter(statement => statement.node.type === "ExpressionStatement" && !selected.includes(statement) && !markup.includes(statement.text) && [...references(statement.node)].some(name => variables.has(name)) && !elsewhere(statement.node, statement.touches));
+    const chosen = new Set([...selected, ...calls, ...uses]);
     const refs = [...new Set([...chosen].flatMap(statement => [...references(statement.node)]))];
     let needed = "";
     try {
@@ -493,7 +542,7 @@ ${fonts.map(href => `<link rel="stylesheet" href="${href}">`).join("\n")}
 <style>${scoped}</style>
 </head><body><div class="preview-root" data-component="${block.id}">
 ${snippet}
-</div></body></html>`;
+</div>${block.previewRun ? `\n<script>/* Preview only: show it open. */ ${block.previewRun}</script>` : ""}</body></html>`;
     const meta = {
       id: block.id,
       name: block.name,
