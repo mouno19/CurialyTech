@@ -1,0 +1,33 @@
+{
+  "id": "atlas-experimental",
+  "name": "Experimental (dark)",
+  "mode": "dark",
+  "source": "08_experimental_charts_081_090.html",
+  "colors": {
+    "background": "#070b15",
+    "surface": "#101726",
+    "surface2": "#141d30",
+    "border": "#253047",
+    "text": "#eaf0fa",
+    "muted": "#98a6bc",
+    "accent": "#5ee4df",
+    "positive": "#5ee4df",
+    "negative": "#ff8aa8",
+    "warning": "#ffc46b",
+    "series1": "#5ee4df",
+    "series2": "#487dff",
+    "series3": "#b18cff",
+    "series4": "#ffc46b",
+    "series5": "#ff8aa8",
+    "series6": "#98a6bc"
+  },
+  "fonts": {
+    "sans": "\"Space Grotesk\", system-ui, sans-serif",
+    "mono": "ui-monospace, monospace"
+  },
+  "radius": {
+    "card": "18px",
+    "control": "10px"
+  },
+  "spacing": "24px"
+}

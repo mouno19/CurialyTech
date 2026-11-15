@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Activation Split · graph-003</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@600;700&display=swap">
+<style>html,body{margin:0;background:#f6f8fc;min-height:100%}#root{padding:24px;max-width:1100px;margin:0 auto}</style>
+<script type="importmap">{"imports":{"react":"https://esm.sh/react@18.3.1","react/jsx-runtime":"https://esm.sh/react@18.3.1/jsx-runtime","react-dom/client":"https://esm.sh/react-dom@18.3.1/client?deps=react@18.3.1","chart.js/auto":"https://esm.sh/chart.js@4.4.8/auto","chart.js":"https://esm.sh/chart.js@4.4.8","echarts":"https://esm.sh/echarts@5.5.1","d3":"https://esm.sh/d3@7.9.0","d3-sankey":"https://esm.sh/d3-sankey@0.12.3?deps=d3-array@3.2.4,d3-shape@3.2.0","leaflet":"https://esm.sh/leaflet@1.9.4","three":"https://esm.sh/three@0.160.1"}}</script>
+</head><body><div id="root" data-component="graph-003"></div>
+<script type="module">
+import { jsx } from "react/jsx-runtime";
+import React, { useEffect, useRef } from "react";
+import Chart from "chart.js/auto";
+const sampleData = {
+  "labels": [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun"
+  ],
+  "datasets": [
+    {
+      "label": "Desktop",
+      "data": [
+        58,
+        61,
+        64,
+        65,
+        69,
+        72
+      ],
+      "backgroundColor": "#5784e8",
+      "borderRadius": 5
+    },
+    {
+      "label": "Mobile",
+      "data": [
+        43,
+        46,
+        48,
+        53,
+        56,
+        61
+      ],
+      "backgroundColor": "#bbd1fa",
+      "borderRadius": 5
+    }
+  ]
+};
+const __entry = function ActivationSplit({
+  data = sampleData,
+  height = 280,
+  ariaLabel = "Activation Split: Compare trial activation across desktop and mobile cohorts."
+}) {
+  const canvasRef = useRef(null);
+  useEffect(() => {
+    const chart = new Chart(canvasRef.current, {
+      type: "bar",
+      data,
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        indexAxis: "x",
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { display: true },
+          tooltip: {
+            callbacks: {
+              label: (context) => context.dataset.label + ": " + context.parsed.y + "%"
+            }
+          }
+        },
+        scales: {
+          x: { stacked: false, grid: { display: false } },
+          y: {
+            stacked: false,
+            grid: { display: true },
+            max: 80
+          }
+        }
+      }
+    });
+    return () => chart.destroy();
+  }, [data]);
+  return /* @__PURE__ */ jsx("div", { role: "img", "aria-label": ariaLabel, style: { height, width: "100%" }, children: /* @__PURE__ */ jsx("canvas", { ref: canvasRef, "aria-hidden": "true" }) });
+};
+
+import { createRoot as __createRoot } from "react-dom/client";
+import { createElement as __h } from "react";
+__createRoot(document.getElementById("root")).render(__h(__entry));
+</script></body></html>

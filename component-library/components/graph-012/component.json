@@ -1,0 +1,84 @@
+{
+  "id": "graph-012",
+  "name": "Segment Gravity",
+  "description": "Bubble Chart: Compare acquisition segments by activation, retention and cohort size. Style: Dark technical interface.",
+  "category": "data-visualization",
+  "batch": "statistical-charts",
+  "collection": "Essential Data Visualization",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "scatter",
+    "correlation",
+    "statistics",
+    "distribution",
+    "conversion",
+    "funnel",
+    "retention",
+    "user-analytics",
+    "comparison",
+    "audience",
+    "statistical",
+    "light-theme"
+  ],
+  "capabilities": [
+    "interactive",
+    "tooltips",
+    "responsive",
+    "keyboard",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-essentials"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-generator"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "atlas-essentials",
+    "mode": "light",
+    "colors": {
+      "#59d6cd": "series1",
+      "#b29aff": "accent",
+      "#172033": "text"
+    }
+  },
+  "source": {
+    "file": "atlas/01_essential_charts_001_020.html",
+    "ref": "advanced[1]"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "056f3c20f0107dd0",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

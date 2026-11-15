@@ -1,0 +1,89 @@
+{
+  "id": "graph-049",
+  "name": "Force-Directed Graph",
+  "description": "NETWORK: A simulated layout balances connected services, repulsion, and collision avoidance. The resulting topology adapts naturally as relationships change.",
+  "category": "data-visualization",
+  "batch": "network-hierarchy-charts",
+  "collection": "Network Atlas",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "hierarchy",
+    "tree",
+    "structure",
+    "network",
+    "relationships",
+    "graph",
+    "events",
+    "monitoring",
+    "operations",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "interactive",
+    "responsive",
+    "keyboard",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "package",
+      "name": "d3",
+      "version": "7.9.0"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-network"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-generator"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "wide"
+  },
+  "style": {
+    "tokens": "atlas-network",
+    "mode": "dark",
+    "colors": {
+      "#5ce2e6": "series1",
+      "#aa91ff": "series2",
+      "#bcf07a": "series3",
+      "#ffbf75": "series4",
+      "#f18fba": "series5",
+      "#79adff": "series6"
+    }
+  },
+  "source": {
+    "file": "atlas/04_network_hierarchy_charts_041_050.html",
+    "ref": "graphs[8]"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "0e86b311ce5e3b06",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

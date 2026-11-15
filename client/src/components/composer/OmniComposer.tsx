@@ -24,15 +24,18 @@ import { AttachmentTray, MAX_ATTACHMENTS, useAttachments } from "@/lib/useAttach
 import { insertAtCursor } from "@/lib/insertText";
 import { DictationButton } from "./DictationButton";
 import { readAttachedSkills, SkillPicker, writeAttachedSkills } from "./SkillPicker";
+import { ToolPicker, validTools } from "./ToolPicker";
+import type { ToolId } from "@shared/components";
 // The unsent prompt survives a reload, the GitHub sign-in round trip and a hand-off from the homepage.
 import { PREFS_KEY, readDraft, writeDraft } from "@/lib/composerDraft";
 
-type Prefs = { model: string; mode: TaskMode; effort: ThinkingLevel; webSearch: boolean; team: boolean };
-const DEFAULT_PREFS: Prefs = { model: "auto", mode: "agent", effort: "medium", webSearch: false, team: false };
+type Prefs = { model: string; mode: TaskMode; effort: ThinkingLevel; webSearch: boolean; team: boolean; tools: ToolId[] };
+const DEFAULT_PREFS: Prefs = { model: "auto", mode: "agent", effort: "medium", webSearch: false, team: false, tools: [] };
 
 function readPrefs(): Prefs {
   let prefs = DEFAULT_PREFS;
   try { prefs = { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}") }; } catch { /* storage unavailable */ }
+  prefs = { ...prefs, tools: validTools(prefs.tools) };
   if (prefs.model === "auto") return prefs;
   // Saved ids from older catalogs: aliases resolve to their entry (keeping the level they implied),
   // retired entries to their replacement, anything else to Auto.
@@ -418,6 +421,7 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed, examples }: {
         repo: agent ? repo?.full_name ?? null : null,
         repoBranch: agent ? repo?.default_branch ?? null : null,
         ...(skillsReady ? { skillIds } : {}),
+        tools: prefs.tools,
       });
       writeDraft("");
       setPrompt("");
@@ -533,6 +537,7 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed, examples }: {
               onWeb={webSearch => update({ webSearch })}
               webReason={webReason}
             />
+            <ToolPicker selected={prefs.tools} onChange={tools => update({ tools })} />
             <SkillPicker selected={skillIds} onChange={setSkillIds} onReady={setSkillsReady} />
             <Tip content={attachBlocked ?? "Attach files, or paste or drop them into the box"}>
               <button type="button" className="toggle" aria-label="Attach files" aria-disabled={attachBlocked ? true : undefined} onClick={() => (attachBlocked ? setNote(attachBlocked) : attachments.open())}>

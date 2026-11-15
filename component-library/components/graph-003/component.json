@@ -1,0 +1,86 @@
+{
+  "id": "graph-003",
+  "name": "Activation Split",
+  "description": "Grouped Bar Chart: Compare trial activation across desktop and mobile cohorts. Style: Apple-inspired clean UI.",
+  "category": "data-visualization",
+  "batch": "essential-charts",
+  "collection": "Essential Data Visualization",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "bar-chart",
+    "comparison",
+    "ranking",
+    "categorical",
+    "conversion",
+    "funnel",
+    "retention",
+    "user-analytics",
+    "essential",
+    "light-theme"
+  ],
+  "capabilities": [
+    "interactive",
+    "tooltips",
+    "responsive",
+    "accessible",
+    "multiple-series"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "package",
+      "name": "chart.js",
+      "version": "4.4.8"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-essentials"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-generator"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "atlas-essentials",
+    "mode": "light",
+    "colors": {
+      "#5784e8": "series1",
+      "#bbd1fa": "series2"
+    }
+  },
+  "source": {
+    "file": "atlas/01_essential_charts_001_020.html",
+    "ref": "specs[2]"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "8b2a8f91e1ed3b28",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

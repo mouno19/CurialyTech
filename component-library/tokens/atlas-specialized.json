@@ -1,0 +1,33 @@
+{
+  "id": "atlas-specialized",
+  "name": "Specialized (dark)",
+  "mode": "dark",
+  "source": "09_advanced_specialized_charts_091_100.html",
+  "colors": {
+    "background": "#090d13",
+    "surface": "#101720",
+    "surface2": "#151e29",
+    "border": "#273341",
+    "text": "#e9f0f2",
+    "muted": "#8b9ba7",
+    "accent": "#9df0cb",
+    "positive": "#9df0cb",
+    "negative": "#f49d91",
+    "warning": "#e8c47d",
+    "series1": "#9df0cb",
+    "series2": "#79b8f6",
+    "series3": "#b8a4f4",
+    "series4": "#e8c47d",
+    "series5": "#f49d91",
+    "series6": "#81939f"
+  },
+  "fonts": {
+    "sans": "\"DM Sans\", system-ui, sans-serif",
+    "mono": "\"IBM Plex Mono\", ui-monospace, monospace"
+  },
+  "radius": {
+    "card": "14px",
+    "control": "8px"
+  },
+  "spacing": "20px"
+}

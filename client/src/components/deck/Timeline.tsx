@@ -2,7 +2,7 @@ import { memo, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   Bot, Brain, Check, ChevronDown, Circle, CircleDashed, CircleDot, CircleSlash, ExternalLink, FilePen, FileSearch, FolderTree, GitBranch, GitCommitHorizontal,
-  GitPullRequest, Globe, ImageOff, Info, ListChecks, Minus, Paperclip, Radar, RefreshCw, Rocket, Route, ScanEye, Search, ShieldCheck, SquareTerminal, Trash2, TriangleAlert,
+  Blocks, Bookmark, GitPullRequest, Globe, ImageOff, Info, LayoutTemplate, ListChecks, Minus, Paperclip, Radar, RefreshCw, Rocket, Route, ScanEye, Search, ShieldCheck, SquareTerminal, Trash2, TriangleAlert,
   Unplug, Wrench, X, CircleX,
 } from "lucide-react";
 import { getModel, PHASES, type PhaseId, type PhaseState, type PlanStep, type RunTrigger } from "@shared/agent";
@@ -157,7 +157,7 @@ export const ThinkingBlock = memo(function ThinkingBlock({ item, usage, streamin
 
 const TOOL_ICONS: Record<string, LucideIcon> = {
   run_command: SquareTerminal, verify: ShieldCheck, read_file: FileSearch, write_file: FilePen, edit_file: FilePen, delete_file: Trash2,
-  list_files: FolderTree, search_files: Search, web_search: Radar, web_fetch: Globe, delegate_research: Bot, research_agent: Bot, update_plan: ListChecks,
+  list_files: FolderTree, search_files: Search, web_search: Radar, find_components: LayoutTemplate, load_component: FileSearch, add_components: Blocks, save_component: Bookmark, web_fetch: Globe, delegate_research: Bot, research_agent: Bot, update_plan: ListChecks,
   browse: Globe, test_preview_visual: ScanEye, deploy_preview: Rocket, browser_click: Globe, browser_type: Globe, browser_scroll: Globe, browser_extract: Globe, browser_screenshot: Globe, browser_close: Globe, attach_files: Paperclip,
   github_list_repos: GitBranch, github_get_repo: GitBranch, github_clone_to_workspace: GitBranch, github_commit_and_push: GitBranch, github_create_pr: GitBranch,
 };
@@ -168,7 +168,7 @@ export const TERMINAL_TOOLS = new Set(["run_command", "verify", "research", "res
 
 function toolSubtitle(item: ItemOf<"tool">) {
   const input = item.input ?? {};
-  const value = input.command ?? input.path ?? input.url ?? input.pattern ?? input.query ?? input.task ?? input.repo ?? input.message ?? input.title ?? (item.name === "deploy_preview" && typeof input.kind === "string" ? `${input.kind} preview` : undefined);
+  const value = input.command ?? input.path ?? input.url ?? input.pattern ?? input.query ?? input.request ?? input.id ?? (Array.isArray(input.ids) ? input.ids.join(", ") : undefined) ?? input.task ?? input.repo ?? input.message ?? input.title ?? (item.name === "deploy_preview" && typeof input.kind === "string" ? `${input.kind} preview` : undefined);
   if (typeof value === "string") return value;
   if (item.name === "update_plan" && Array.isArray(input.steps)) return plural(input.steps.length, "step");
   return partialField(item.inputPartial, ["command", "path", "url", "pattern"]) ?? "";

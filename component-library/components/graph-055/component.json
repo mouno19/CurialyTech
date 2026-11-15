@@ -1,0 +1,98 @@
+{
+  "id": "graph-055",
+  "name": "Hexagonal Geographic Map",
+  "description": "hex: A disciplined hex-cell field summarizes regional distribution.",
+  "category": "data-visualization",
+  "batch": "geospatial-charts",
+  "collection": "Geospatial Visualization",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "line-chart",
+    "trend",
+    "time-series",
+    "distribution",
+    "statistics",
+    "latency",
+    "variance",
+    "scientific",
+    "field",
+    "3d",
+    "network",
+    "relationships",
+    "graph",
+    "geospatial",
+    "map",
+    "location",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "interactive",
+    "tooltips",
+    "responsive",
+    "accessible",
+    "multiple-series"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "package",
+      "name": "leaflet",
+      "version": "1.9.4"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-geo"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-generator"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "wide"
+  },
+  "style": {
+    "tokens": "atlas-geo",
+    "mode": "dark",
+    "colors": {
+      "#ffbd76": "series4",
+      "#6ce7e7": "series1"
+    }
+  },
+  "source": {
+    "file": "atlas/05_geospatial_charts_051_060.html",
+    "ref": "components[4]"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [
+      "map tiles come from tile.openstreetmap.org: they need a page with a proper referrer (previews show them blocked), and OpenStreetMap's tile policy rules out heavy or commercial use — set your own tile provider for production"
+    ],
+    "hash": "e1d0b8013ebb3a57",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1,
+  "network": [
+    "tile.openstreetmap.org"
+  ]
+}

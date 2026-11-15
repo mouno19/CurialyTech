@@ -1,0 +1,78 @@
+{
+  "id": "card-report-insights",
+  "name": "Report hero with insight cards",
+  "description": "A report headline with three insight cards that pair a finding with its evidence. (In the source: \"Momentum, with room to grow.\".)",
+  "category": "analytics",
+  "batch": "insights",
+  "collection": "Analytics Component Library",
+  "kind": "component",
+  "role": "insight",
+  "tags": [
+    "insights",
+    "report",
+    "summary",
+    "narrative",
+    "cards",
+    "line-chart",
+    "trend",
+    "time-series",
+    "light-theme"
+  ],
+  "capabilities": [
+    "responsive"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "lucide",
+      "version": "0.577.0"
+    },
+    {
+      "type": "stylesheet",
+      "id": "atlas-paper"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-paper"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "web-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "insight",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "atlas-paper",
+    "mode": "light",
+    "colors": {}
+  },
+  "source": {
+    "file": "atlas/10_analytics_dashboard_components.html",
+    "ref": "div class=\"canvas\" #2"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "fdd7c2e0435eeeb7",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

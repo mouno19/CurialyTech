@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Circle Packing · graph-043</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap">
+<style>html,body{margin:0;background:#080e1b;min-height:100%}#root{padding:24px;max-width:1100px;margin:0 auto}</style>
+<script type="importmap">{"imports":{"react":"https://esm.sh/react@18.3.1","react/jsx-runtime":"https://esm.sh/react@18.3.1/jsx-runtime","react-dom/client":"https://esm.sh/react-dom@18.3.1/client?deps=react@18.3.1","chart.js/auto":"https://esm.sh/chart.js@4.4.8/auto","chart.js":"https://esm.sh/chart.js@4.4.8","echarts":"https://esm.sh/echarts@5.5.1","d3":"https://esm.sh/d3@7.9.0","d3-sankey":"https://esm.sh/d3-sankey@0.12.3?deps=d3-array@3.2.4,d3-shape@3.2.0","leaflet":"https://esm.sh/leaflet@1.9.4","three":"https://esm.sh/three@0.160.1"}}</script>
+</head><body><div id="root" data-component="graph-043"></div>
+<script type="module">
+import { jsx } from "react/jsx-runtime";
+import React, { useEffect, useRef } from "react";
+import * as d3 from "d3";
+function CirclePacking({
+  data,
+  width = 900,
+  height = 430,
+  colors = ["#5ce2e6", "#aa91ff", "#bcf07a", "#ffbf75", "#f18fba", "#79adff"],
+  onSelect = () => {
+  }
+}) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const svg = d3.select(ref.current);
+    svg.selectAll("*").remove();
+    const root = svg.append("g");
+    const choose = (selection, datum) => selection.attr("tabindex", 0).attr("role", "button").attr("aria-label", datum.name || datum.id || "Relationship").on("click", () => onSelect(datum)).on("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        onSelect(datum);
+      }
+    });
+    const hierarchy = d3.hierarchy(data).sum((d) => d.value || 0);
+    d3.pack().size([width - 40, height - 40]).padding(8)(hierarchy);
+    root.attr("transform", "translate(20,20)").selectAll("circle").data(hierarchy.descendants().slice(1)).join("circle").attr("cx", (d) => d.x).attr("cy", (d) => d.y).attr("r", (d) => d.r).attr("fill", (d) => colors[(d.depth === 1 ? hierarchy.children.indexOf(d) : hierarchy.children.indexOf(d.parent)) % colors.length]).attr("fill-opacity", (d) => d.children ? 0.15 : 0.7).attr("stroke", "#d8f7ff").each(function(d) {
+      choose(d3.select(this), d.data);
+    });
+  }, [data, width, height, colors, onSelect]);
+  return /* @__PURE__ */ jsx(
+    "svg",
+    {
+      ref,
+      viewBox: `0 0 ${width} ${height}`,
+      role: "img",
+      "aria-label": "Circle Packing visualization",
+      style: { width: "100%", height: "auto", overflow: "visible" }
+    }
+  );
+}
+const sampleData = {
+  "name": "Research portfolio",
+  "children": [
+    {
+      "name": "Climate",
+      "children": [
+        {
+          "name": "Ocean models",
+          "value": 31
+        },
+        {
+          "name": "Atmospheric",
+          "value": 24
+        },
+        {
+          "name": "Carbon cycle",
+          "value": 18
+        }
+      ]
+    },
+    {
+      "name": "Biology",
+      "children": [
+        {
+          "name": "Genomics",
+          "value": 26
+        },
+        {
+          "name": "Cell imaging",
+          "value": 20
+        },
+        {
+          "name": "Proteomics",
+          "value": 15
+        }
+      ]
+    },
+    {
+      "name": "Materials",
+      "children": [
+        {
+          "name": "Batteries",
+          "value": 22
+        },
+        {
+          "name": "Polymers",
+          "value": 17
+        },
+        {
+          "name": "Quantum",
+          "value": 12
+        }
+      ]
+    }
+  ]
+};
+const __entry = function CirclePackingWithData(props) {
+  return /* @__PURE__ */ jsx(CirclePacking, { data: sampleData, ...props });
+};
+
+import { createRoot as __createRoot } from "react-dom/client";
+import { createElement as __h } from "react";
+__createRoot(document.getElementById("root")).render(__h(__entry));
+</script></body></html>

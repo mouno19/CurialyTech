@@ -1,4 +1,5 @@
 import { brandText } from "@shared/brand";
+import { TOOL_IDS } from "@shared/components";
 import fs from "node:fs";
 import path from "node:path";
 import { Readable } from "node:stream";
@@ -50,6 +51,8 @@ const createSchema = z.object({
   team: z.boolean().default(false),
   clientMessageId: z.string().trim().max(80).optional(),
   skillIds: z.array(z.string().uuid("One of those skills is not on this account.")).max(SAVED_SKILL_LIMITS.maxPerTask, `A task can use ${SAVED_SKILL_LIMITS.maxPerTask} skills.`).optional(),
+  /** The tools the user selected (empty: not limited). */
+  tools: z.array(z.enum(TOOL_IDS)).max(TOOL_IDS.length).default([]),
 });
 const linkSchema = z.object({ repo: z.string().trim().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/), branch: z.string().trim().max(200).optional() });
 
@@ -67,6 +70,8 @@ const followUpSchema = z.object({
   replaceRepo: z.boolean().optional(),
   /** Replace the task's saved skills. Omitted leaves them as they are; an empty list clears them. */
   skillIds: z.array(z.string().uuid("One of those skills is not on this account.")).max(SAVED_SKILL_LIMITS.maxPerTask, `A task can use ${SAVED_SKILL_LIMITS.maxPerTask} skills.`).optional(),
+  /** Replace the task's selected tools. Omitted leaves them as they are; an empty list removes the limit. */
+  tools: z.array(z.enum(TOOL_IDS)).max(TOOL_IDS.length).optional(),
 });
 const skillWriteSchema = z.object({
   name: z.string().trim().min(1, "Name the skill.").max(SAVED_SKILL_LIMITS.name, `Keep the name under ${SAVED_SKILL_LIMITS.name} characters.`),
@@ -423,7 +428,7 @@ export function agentRouter() {
     const extras = await followUpExtras(task, input);
     await oneAtATime(accountOf(req).id, async () => {
       if (!(await admitRun(req, res))) return;
-      const started = await followUp(task.id, input.prompt, await resolveAttachments(input.attachmentIds, accountOf(req).id), { clientMessageId: input.clientMessageId, expectedRunId: input.expectedRunId, skillIds: input.skillIds, ...extras });
+      const started = await followUp(task.id, input.prompt, await resolveAttachments(input.attachmentIds, accountOf(req).id), { clientMessageId: input.clientMessageId, expectedRunId: input.expectedRunId, skillIds: input.skillIds, tools: input.tools ? [...new Set(input.tools)] : undefined, ...extras });
       res.status(202).json({ ok: true, status: "queued", ...started });
     });
   }));

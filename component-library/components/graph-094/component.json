@@ -1,0 +1,95 @@
+{
+  "id": "graph-094",
+  "name": "Marimekko Chart",
+  "description": "marimekko: Competitive market mapping and portfolio mix analysis where total size and share both matter. Style: Let area do two jobs: communicate the size of each market and the share captured within it. Direct labels anchor the interpretation..",
+  "category": "data-visualization",
+  "batch": "advanced-specialized-charts",
+  "collection": "Visualization Atlas",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "finance",
+    "portfolio",
+    "allocation",
+    "composition",
+    "market",
+    "stock",
+    "comparison",
+    "time-series",
+    "area-chart",
+    "trend",
+    "volume",
+    "pie-chart",
+    "share",
+    "proportion",
+    "geospatial",
+    "map",
+    "location",
+    "advanced",
+    "specialized",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "accessible",
+    "multiple-series"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-specialized"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-renderer"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "wide"
+  },
+  "style": {
+    "tokens": "atlas-specialized",
+    "mode": "dark",
+    "colors": {
+      "#9df0cb": "series1",
+      "#79b8f6": "series2",
+      "#b8a4f4": "series3",
+      "#f49d91": "series5",
+      "#e8c47d": "series4",
+      "#81939f": "series6",
+      "#101720": "surface",
+      "#e9f0f2": "text"
+    }
+  },
+  "source": {
+    "file": "atlas/09_advanced_specialized_charts_091_100.html",
+    "ref": "components[3]"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "d6fdc2227dd52a05",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

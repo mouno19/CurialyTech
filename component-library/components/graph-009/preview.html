@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>User Base Composition · graph-009</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@600;700&display=swap">
+<style>html,body{margin:0;background:#f6f8fc;min-height:100%}#root{padding:24px;max-width:1100px;margin:0 auto}</style>
+<script type="importmap">{"imports":{"react":"https://esm.sh/react@18.3.1","react/jsx-runtime":"https://esm.sh/react@18.3.1/jsx-runtime","react-dom/client":"https://esm.sh/react-dom@18.3.1/client?deps=react@18.3.1","chart.js/auto":"https://esm.sh/chart.js@4.4.8/auto","chart.js":"https://esm.sh/chart.js@4.4.8","echarts":"https://esm.sh/echarts@5.5.1","d3":"https://esm.sh/d3@7.9.0","d3-sankey":"https://esm.sh/d3-sankey@0.12.3?deps=d3-array@3.2.4,d3-shape@3.2.0","leaflet":"https://esm.sh/leaflet@1.9.4","three":"https://esm.sh/three@0.160.1"}}</script>
+</head><body><div id="root" data-component="graph-009"></div>
+<script type="module">
+import { jsx } from "react/jsx-runtime";
+import React, { useEffect, useRef } from "react";
+import Chart from "chart.js/auto";
+const sampleData = {
+  "labels": [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun"
+  ],
+  "datasets": [
+    {
+      "label": "New",
+      "data": [
+        18,
+        19,
+        20,
+        22,
+        23,
+        25
+      ],
+      "backgroundColor": "#eeff3b",
+      "borderColor": "#111111",
+      "fill": "-1",
+      "tension": 0.25,
+      "borderWidth": 1.5,
+      "pointRadius": 0
+    },
+    {
+      "label": "Returning",
+      "data": [
+        27,
+        29,
+        30,
+        33,
+        36,
+        40
+      ],
+      "backgroundColor": "#b5b9b1",
+      "borderColor": "#111111",
+      "fill": "-1",
+      "tension": 0.25,
+      "borderWidth": 1.5,
+      "pointRadius": 0
+    },
+    {
+      "label": "Power",
+      "data": [
+        9,
+        11,
+        11,
+        14,
+        15,
+        19
+      ],
+      "backgroundColor": "#272727",
+      "borderColor": "#111111",
+      "fill": "-1",
+      "tension": 0.25,
+      "borderWidth": 1.5,
+      "pointRadius": 0
+    }
+  ]
+};
+const __entry = function UserBaseComposition({
+  data = sampleData,
+  height = 280,
+  ariaLabel = "User Base Composition: Understand how new, returning, and power users contribute to activity."
+}) {
+  const canvasRef = useRef(null);
+  useEffect(() => {
+    const chart = new Chart(canvasRef.current, {
+      type: "line",
+      data,
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        indexAxis: "x",
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { display: true },
+          tooltip: {
+            callbacks: {
+              label: (context) => context.dataset.label + ": " + context.parsed.y + "k"
+            }
+          }
+        },
+        scales: {
+          x: { stacked: true, grid: { display: false } },
+          y: {
+            stacked: true,
+            grid: { display: true },
+            max: 100
+          }
+        }
+      }
+    });
+    return () => chart.destroy();
+  }, [data]);
+  return /* @__PURE__ */ jsx("div", { role: "img", "aria-label": ariaLabel, style: { height, width: "100%" }, children: /* @__PURE__ */ jsx("canvas", { ref: canvasRef, "aria-hidden": "true" }) });
+};
+
+import { createRoot as __createRoot } from "react-dom/client";
+import { createElement as __h } from "react";
+__createRoot(document.getElementById("root")).render(__h(__entry));
+</script></body></html>

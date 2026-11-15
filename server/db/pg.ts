@@ -696,6 +696,28 @@ const MIGRATIONS: { id: number; sql: string }[] = [
       CREATE INDEX IF NOT EXISTS api_usage_at_idx ON curialy.api_usage (created_at);
     `,
   },
+  {
+    id: 24,
+    sql: `
+      -- The component library: the tools a user selected for a task (empty: not limited), and
+      -- components an account's agent saved for reuse. A saved component is a candidate that only
+      -- its own account's tasks see; it joins the shared library only when the operator adds it.
+      ALTER TABLE curialy.chat_sessions ADD COLUMN IF NOT EXISTS tools text[] NOT NULL DEFAULT '{}';
+      CREATE TABLE IF NOT EXISTS curialy.component_candidates (
+        owner_id uuid NOT NULL REFERENCES curialy.users(id) ON DELETE CASCADE,
+        id text NOT NULL,
+        meta jsonb NOT NULL,
+        framework text NOT NULL,
+        source text NOT NULL,
+        task_id uuid,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (owner_id, id),
+        CONSTRAINT component_candidates_framework CHECK (framework IN ('react', 'html')),
+        CONSTRAINT component_candidates_size CHECK (length(source) <= 200000)
+      );
+    `,
+  },
 ];
 
 export async function migrate() {

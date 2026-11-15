@@ -37,6 +37,8 @@ import { CANVA_SCHEMAS, CANVA_TOOLS, runCanvaTool, type CanvaToolName } from "./
 import { runStudioTool, STUDIO_SCHEMAS, STUDIO_TOOLS, type StudioToolName } from "./studio-tools";
 import { studioAvailable } from "./studio";
 import { runWebSearchTool, searchConfigured, WEB_SEARCH_SCHEMAS, WEB_SEARCH_TOOL, type SearchInput } from "./web-search";
+import { COMPONENT_READ_TOOLS, COMPONENT_SCHEMAS, COMPONENT_TOOLS, runComponentTool, type ComponentToolName } from "./component-tools";
+import { registry } from "../components/registry";
 import { approveOnGitHub, GITHUB_CI_SCHEMAS, GITHUB_CI_TOOLS, runGitHubCiTool, type GitHubCiToolName } from "./github-ci-tools";
 import { askSecret, taskSecrets, type SecretStore } from "./requests";
 import { loadSecret, saveSecret, secretName, secretsConfigured } from "../secrets";
@@ -71,6 +73,8 @@ export type ToolContext = {
   onRead?: (path: string) => void;
   /** Why write_file may not replace this existing file yet (null: it may). */
   mustReadFirst?: (path: string) => string | null;
+  /** The tools the user selected for the task (empty or absent: not limited): the component library respects them. */
+  selectedTools?: string[];
 };
 
 /**
@@ -186,6 +190,7 @@ const schemas = {
   ...CANVA_SCHEMAS,
   ...STUDIO_SCHEMAS,
   ...WEB_SEARCH_SCHEMAS,
+  ...COMPONENT_SCHEMAS,
   request_secret: z.object({ name: secretName, reason: z.string().trim().min(3).max(300) }),
 };
 
@@ -403,6 +408,11 @@ const GITHUB_TOOLS: ToolDef[] = [
   },
 ];
 
+/** Components are registered (the library folder is there and holds at least one). */
+function componentLibraryAvailable() {
+  try { return registry().components.length > 0; } catch { return false; }
+}
+
 export function toolsFor(opts: { coding: boolean; web: boolean; eager: boolean; github?: boolean; vercel?: boolean; canva?: boolean; operator?: boolean }): Anthropic.Tool[] {
   const all = toolList(opts);
   const tools = opts.operator === false ? all.filter(tool => !OPERATOR_TOOLS.has(tool.name)) : all;
@@ -413,6 +423,8 @@ function toolList(opts: { coding: boolean; web: boolean; github?: boolean; verce
   const tools: ToolDef[] = [...INSIGHT_TOOLS];
   // Web search in chat and agent mode alike (the Web toggle is for fetching pages and browsing).
   if (searchConfigured()) tools.push(WEB_SEARCH_TOOL);
+  // The component library: planning and reading in both modes; copying into the workspace and saving in agent mode.
+  if (componentLibraryAvailable()) tools.push(...COMPONENT_TOOLS.filter(tool => opts.coding || COMPONENT_READ_TOOLS.includes(tool.name)));
   if (opts.coding) tools.push(...CODING_TOOLS, ATTACH_TOOL);
   if (opts.coding && backgroundAvailable()) tools.push(...JOB_TOOLS);
   if (opts.github) tools.push(...(opts.coding ? GITHUB_TOOLS : GITHUB_TOOLS.slice(0, 2)), REMEMBER_TOOL, ...GITHUB_CI_TOOLS);
@@ -668,6 +680,11 @@ async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOu
       return runStudioTool(name as StudioToolName, input, ctx);
     case "web_search":
       return runWebSearchTool(input as SearchInput, ctx);
+    case "find_components":
+    case "load_component":
+    case "add_components":
+    case "save_component":
+      return runComponentTool(name as ComponentToolName, input, ctx);
     case "request_secret": {
       const { name: secret, reason } = input as z.infer<typeof schemas.request_secret>;
       const owner = await taskOwner(ctx.sessionId);

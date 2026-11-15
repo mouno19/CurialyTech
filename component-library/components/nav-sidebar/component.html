@@ -1,0 +1,24 @@
+<!-- Sidebar navigation · nav-sidebar: from the Analytics Component Library (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/atlas-paper.css, and an ancestor with class="cx-atlas-paper". -->
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+<div class="cx-atlas-paper">
+<aside class="sidebar">
+    <div class="brand"><span class="brand-mark"><i data-lucide="chart-no-axes-combined"></i></span> Atlas / Studio
+    </div>
+    <div class="side-label">
+     Component index
+    </div>
+    <nav id="section-nav" aria-label="Component sections">
+     <a class="side-link active" href="#overview"><i data-lucide="layout-dashboard"></i> Introduction</a> <a class="side-link" href="#dashboard"><i data-lucide="panels-top-left"></i> Overview</a> <a class="side-link" href="#charts"><i data-lucide="chart-column"></i> Visualizations</a> <a class="side-link" href="#reports"><i data-lucide="file-chart-column"></i> Storytelling</a> <a class="side-link" href="#operations"><i data-lucide="database"></i> Operations</a> <a class="side-link" href="#journeys"><i data-lucide="route"></i> Journeys</a> <a class="side-link" href="#planning"><i data-lucide="target"></i> Planning</a> <a class="side-link" href="#foundations"><i data-lucide="palette"></i> Foundations</a> <a class="side-link" href="#table-charts"><i data-lucide="table-2"></i> Table charts</a>
+    </nav>
+    <div class="side-bottom"><strong>Design reference</strong>Flexible patterns for interfaces that make complex information feel clear.
+    </div>
+   </aside>
+</div>
+<script>
+lucide.createIcons();
+document.querySelectorAll('.side-link').forEach(link=>link.addEventListener('click',()=>{
+      document.querySelectorAll('.side-link').forEach(item=>item.classList.remove('active'));
+      link.classList.add('active');
+    }));
+</script>

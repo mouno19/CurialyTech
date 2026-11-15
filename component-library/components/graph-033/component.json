@@ -1,0 +1,98 @@
+{
+  "id": "graph-033",
+  "name": "Nested Donut Chart",
+  "description": "LAYERED COMPARISON: Compare three related completion rates without mixing their scales. Style: Concentric geometry creates hierarchy: each independent ring carries one percentage..",
+  "category": "data-visualization",
+  "batch": "circular-radial-charts",
+  "collection": "Circular Atlas",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "revenue",
+    "finance",
+    "growth",
+    "business",
+    "pie-chart",
+    "composition",
+    "share",
+    "proportion",
+    "radial",
+    "circular",
+    "hierarchy",
+    "tree",
+    "structure",
+    "network",
+    "relationships",
+    "graph",
+    "geospatial",
+    "map",
+    "location",
+    "comparison",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "interactive",
+    "tooltips",
+    "responsive",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "package",
+      "name": "echarts",
+      "version": "5.5.1"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-circular"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-generator"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "atlas-circular",
+    "mode": "dark",
+    "colors": {
+      "#9fb0be": "series6",
+      "#b8f3cc": "series1",
+      "#b9aeff": "series2",
+      "#ffae9d": "series3"
+    }
+  },
+  "source": {
+    "file": "atlas/03_circular_radial_charts_031_040.html",
+    "ref": "defs[2]"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "08a823d6443b51a5",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

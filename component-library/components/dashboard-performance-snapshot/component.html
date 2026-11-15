@@ -1,0 +1,114 @@
+<!-- Performance snapshot (KPI cards, revenue chart, target ring, period switch) · dashboard-performance-snapshot: from the Analytics Component Library (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/atlas-paper.css, and an ancestor with class="cx-atlas-paper". -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+<div class="cx-atlas-paper">
+<div class="canvas">
+      <div class="canvas-header">
+       <div>
+        <h3 class="canvas-title">Performance snapshot</h3>
+        <p class="subtle">A concise pulse check across core signals</p>
+       </div>
+       <div class="segmented" role="group" aria-label="Dashboard period">
+        <button type="button" class="active" data-period="7" aria-pressed="true">7 days</button> <button type="button" data-period="30" aria-pressed="false">30 days</button> <button type="button" data-period="90" aria-pressed="false">90 days</button>
+       </div>
+      </div>
+      <div class="grid four">
+       <div class="metric">
+        <div class="metric-top">
+         Total revenue <span class="icon-box"><i data-lucide="wallet"></i></span>
+        </div>
+        <div class="metric-value" id="revenue-value">
+         $48,294
+        </div>
+        <div class="delta"><b id="revenue-delta">↑ 12.8%</b> vs. previous period
+        </div>
+       </div>
+       <div class="metric">
+        <div class="metric-top">
+         Active users <span class="icon-box"><i data-lucide="users"></i></span>
+        </div>
+        <div class="metric-value" id="users-value">
+         24,892
+        </div>
+        <div class="delta"><b id="users-delta">↑ 8.2%</b> vs. previous period
+        </div>
+       </div>
+       <div class="metric">
+        <div class="metric-top">
+         Conversion rate <span class="icon-box"><i data-lucide="mouse-pointer-2"></i></span>
+        </div>
+        <div class="metric-value" id="conversion-value">
+         4.86%
+        </div>
+        <div class="delta"><b id="conversion-delta">↑ 2.4%</b> vs. previous period
+        </div>
+       </div>
+       <div class="metric">
+        <div class="metric-top">
+         Avg. order value <span class="icon-box"><i data-lucide="shopping-bag"></i></span>
+        </div>
+        <div class="metric-value" id="order-value">
+         $126.40
+        </div>
+        <div class="delta"><b id="order-delta">↑ 5.1%</b> vs. previous period
+        </div>
+       </div>
+      </div>
+      <div class="grid overview-grid" style="margin-top:15px">
+       <div class="panel">
+        <div class="panel-head">
+         <div>
+          <h3>Revenue momentum</h3>
+          <p class="panel-caption">Current period compared with the previous one</p>
+         </div><span class="badge coral">Growing</span>
+        </div>
+        <div class="chart-wrap tall">
+         <canvas id="revenue-chart" role="img" aria-label="Line chart comparing current and previous revenue"></canvas>
+        </div>
+       </div>
+       <div class="panel goal-card">
+        <h3>Quarterly target</h3>
+        <div class="goal-ring" role="img" aria-label="78 percent of quarterly target reached">
+         <div class="goal-inner"><strong>78%</strong><span>completed</span>
+         </div>
+        </div>
+        <p>Just 22% to go. Revenue remains ahead of the expected pace.</p>
+       </div>
+      </div>
+     </div>
+</div>
+<script>
+lucide.createIcons();
+Chart.defaults.font.family='"DM Sans", sans-serif';
+Chart.defaults.font.size=11;
+Chart.defaults.color='#838d85';
+const axis={grid:{color:'#edf0e9'},border:{display:false},ticks:{padding:9}};
+const noGrid={grid:{display:false},border:{display:false},ticks:{padding:9}};
+const periods={
+      7:{values:['$48,294','24,892','4.86%','$126.40'],deltas:['↑ 12.8%','↑ 8.2%','↑ 2.4%','↑ 5.1%'],labels:['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],current:[34,43,39,54,48,65,72],previous:[27,32,36,34,42,45,51]},
+      30:{values:['$192,840','89,410','4.62%','$121.80'],deltas:['↑ 15.4%','↑ 10.6%','↑ 1.8%','↑ 3.7%'],labels:['Week 1','Week 2','Week 3','Week 4'],current:[42,51,58,69],previous:[34,39,47,53]},
+      90:{values:['$564,210','268,750','4.74%','$124.10'],deltas:['↑ 18.6%','↑ 13.1%','↑ 3.2%','↑ 4.4%'],labels:['Month 1','Month 2','Month 3'],current:[43,57,74],previous:[35,46,56]}
+    };
+const revenueChart=new Chart(document.getElementById('revenue-chart'),{
+      type:'line',
+      data:{labels:['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],datasets:[
+        {label:'Current period',data:[34,43,39,54,48,65,72],borderColor:'#f2735d',backgroundColor:'rgba(242,115,93,.11)',fill:true,tension:.4,pointRadius:3,pointBackgroundColor:'#f2735d',borderWidth:2.5},
+        {label:'Previous period',data:[27,32,36,34,42,45,51],borderColor:'#a9bcb0',borderDash:[5,5],tension:.4,pointRadius:0,borderWidth:2}
+      ]},
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{usePointStyle:true,boxWidth:7,padding:18}}},scales:{x:noGrid,y:{...axis,ticks:{callback:v=>'$'+v+'k',padding:9}}}}
+    });
+document.querySelectorAll('[data-period]').forEach(button=>button.addEventListener('click',()=>{
+      document.querySelectorAll('[data-period]').forEach(item=>{item.classList.remove('active');item.setAttribute('aria-pressed','false')});
+      button.classList.add('active');button.setAttribute('aria-pressed','true');
+      const period=periods[button.dataset.period];
+      ['revenue','users','conversion','order'].forEach((key,index)=>{
+        document.getElementById(key+'-value').textContent=period.values[index];
+        document.getElementById(key+'-delta').textContent=period.deltas[index];
+      });
+      revenueChart.data.labels=period.labels;
+      revenueChart.data.datasets[0].data=period.current;
+      revenueChart.data.datasets[1].data=period.previous;
+      revenueChart.update();
+    }));
+</script>

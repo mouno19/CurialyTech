@@ -1,0 +1,90 @@
+{
+  "id": "graph-028",
+  "name": "Cash Flow Chart",
+  "description": "cash: Read operating cash inflows, outflows, and net movement. Style: Modern treasury console.",
+  "category": "data-visualization",
+  "batch": "financial-charts",
+  "collection": "Financial Visualization",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "finance",
+    "accounting",
+    "budget",
+    "flow",
+    "sankey",
+    "conversion",
+    "financial",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "interactive",
+    "tooltips",
+    "responsive",
+    "keyboard",
+    "accessible",
+    "animated",
+    "multiple-series"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-terminal"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-component"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "atlas-terminal",
+    "mode": "dark",
+    "colors": {
+      "#60e6b2": "series2",
+      "#ff7782": "series5",
+      "#69cbf5": "series1",
+      "#f7c878": "series3",
+      "#a99afa": "series4",
+      "#111b29": "surface",
+      "#090e16": "background",
+      "#152131": "surface2",
+      "#273444": "border",
+      "#e8f0f4": "text",
+      "#8a9bab": "series6"
+    }
+  },
+  "source": {
+    "file": "atlas/02_financial_charts_021_030.html",
+    "ref": "components[7]"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "33dd600a24cb0e95",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

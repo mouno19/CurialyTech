@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dependency Graph · graph-050</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap">
+<style>html,body{margin:0;background:#080e1b;min-height:100%}#root{padding:24px;max-width:1100px;margin:0 auto}</style>
+<script type="importmap">{"imports":{"react":"https://esm.sh/react@18.3.1","react/jsx-runtime":"https://esm.sh/react@18.3.1/jsx-runtime","react-dom/client":"https://esm.sh/react-dom@18.3.1/client?deps=react@18.3.1","chart.js/auto":"https://esm.sh/chart.js@4.4.8/auto","chart.js":"https://esm.sh/chart.js@4.4.8","echarts":"https://esm.sh/echarts@5.5.1","d3":"https://esm.sh/d3@7.9.0","d3-sankey":"https://esm.sh/d3-sankey@0.12.3?deps=d3-array@3.2.4,d3-shape@3.2.0","leaflet":"https://esm.sh/leaflet@1.9.4","three":"https://esm.sh/three@0.160.1"}}</script>
+</head><body><div id="root" data-component="graph-050"></div>
+<script type="module">
+import { jsx } from "react/jsx-runtime";
+import React, { useEffect, useRef } from "react";
+import * as d3 from "d3";
+function DependencyGraph({
+  data,
+  width = 900,
+  height = 430,
+  colors = ["#5ce2e6", "#aa91ff", "#bcf07a", "#ffbf75", "#f18fba", "#79adff"],
+  onSelect = () => {
+  }
+}) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const svg = d3.select(ref.current);
+    svg.selectAll("*").remove();
+    const root = svg.append("g");
+    const choose = (selection, datum) => selection.attr("tabindex", 0).attr("role", "button").attr("aria-label", datum.name || datum.id || "Relationship").on("click", () => onSelect(datum)).on("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        onSelect(datum);
+      }
+    });
+    const nodes = data.nodes.map((d) => ({ ...d }));
+    const positions = /* @__PURE__ */ new Map();
+    const tiers = d3.group(nodes, (d) => d.layer);
+    tiers.forEach((items, tier) => items.forEach(
+      (d, i) => positions.set(d.id, [
+        100 + tier * (width - 200) / Math.max(1, tiers.size - 1),
+        height / 2 + (i - (items.length - 1) / 2) * 85
+      ])
+    ));
+    const defs = root.append("defs");
+    defs.append("marker").attr("id", "dependency-arrow").attr("markerWidth", 8).attr("markerHeight", 8).attr("refX", 8).attr("refY", 4).attr("orient", "auto").append("path").attr("d", "M0,0 L8,4 L0,8 Z").attr("fill", "#8ca8b8");
+    root.selectAll("line").data(data.links).join("line").attr("x1", (d) => positions.get(d[0])[0] + 14).attr("y1", (d) => positions.get(d[0])[1]).attr("x2", (d) => positions.get(d[1])[0] - 14).attr("y2", (d) => positions.get(d[1])[1]).attr("stroke", "#63889c").attr("marker-end", "url(#dependency-arrow)");
+    const layer = root.selectAll("g.node").data(nodes).join("g").attr("transform", (d) => `translate(${positions.get(d.id)})`);
+    layer.each(function(d) {
+      const node = d3.select(this);
+      choose(node.append("circle").attr("r", 14).attr("fill", colors[d.layer % colors.length]), d);
+      node.append("text").attr("y", 32).attr("text-anchor", "middle").attr("fill", "#e8f5ff").attr("font-size", 10).text(d.id);
+    });
+  }, [data, width, height, colors, onSelect]);
+  return /* @__PURE__ */ jsx(
+    "svg",
+    {
+      ref,
+      viewBox: `0 0 ${width} ${height}`,
+      role: "img",
+      "aria-label": "Dependency Graph visualization",
+      style: { width: "100%", height: "auto", overflow: "visible" }
+    }
+  );
+}
+const sampleData = {
+  "nodes": [
+    {
+      "id": "Application",
+      "layer": 0
+    },
+    {
+      "id": "UI library",
+      "layer": 1
+    },
+    {
+      "id": "Auth SDK",
+      "layer": 1
+    },
+    {
+      "id": "API client",
+      "layer": 1
+    },
+    {
+      "id": "Design tokens",
+      "layer": 2
+    },
+    {
+      "id": "Session service",
+      "layer": 2
+    },
+    {
+      "id": "HTTP transport",
+      "layer": 2
+    },
+    {
+      "id": "Telemetry",
+      "layer": 3
+    },
+    {
+      "id": "Runtime",
+      "layer": 3
+    }
+  ],
+  "links": [
+    [
+      "Application",
+      "UI library"
+    ],
+    [
+      "Application",
+      "Auth SDK"
+    ],
+    [
+      "Application",
+      "API client"
+    ],
+    [
+      "UI library",
+      "Design tokens"
+    ],
+    [
+      "Auth SDK",
+      "Session service"
+    ],
+    [
+      "API client",
+      "HTTP transport"
+    ],
+    [
+      "Session service",
+      "Telemetry"
+    ],
+    [
+      "HTTP transport",
+      "Telemetry"
+    ],
+    [
+      "Telemetry",
+      "Runtime"
+    ]
+  ]
+};
+const __entry = function DependencyGraphWithData(props) {
+  return /* @__PURE__ */ jsx(DependencyGraph, { data: sampleData, ...props });
+};
+
+import { createRoot as __createRoot } from "react-dom/client";
+import { createElement as __h } from "react";
+__createRoot(document.getElementById("root")).render(__h(__entry));
+</script></body></html>

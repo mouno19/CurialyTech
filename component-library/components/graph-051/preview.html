@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>World Choropleth Map · graph-051</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>html,body{margin:0;background:#080e18;min-height:100%}#root{padding:24px;max-width:1100px;margin:0 auto}</style>
+<script type="importmap">{"imports":{"react":"https://esm.sh/react@18.3.1","react/jsx-runtime":"https://esm.sh/react@18.3.1/jsx-runtime","react-dom/client":"https://esm.sh/react-dom@18.3.1/client?deps=react@18.3.1","chart.js/auto":"https://esm.sh/chart.js@4.4.8/auto","chart.js":"https://esm.sh/chart.js@4.4.8","echarts":"https://esm.sh/echarts@5.5.1","d3":"https://esm.sh/d3@7.9.0","d3-sankey":"https://esm.sh/d3-sankey@0.12.3?deps=d3-array@3.2.4,d3-shape@3.2.0","leaflet":"https://esm.sh/leaflet@1.9.4","three":"https://esm.sh/three@0.160.1"}}</script>
+</head><body><div id="root" data-component="graph-051"></div>
+<script type="module">
+import { jsx } from "react/jsx-runtime";
+import { useEffect, useRef } from "react";
+import L from "leaflet";
+function GRAPH051({ data = [{ "country": "United States", "iso": "USA", "index": 82 }, { "country": "Brazil", "iso": "BRA", "index": 58 }, { "country": "United Kingdom", "iso": "GBR", "index": 76 }, { "country": "France", "iso": "FRA", "index": 69 }, { "country": "India", "iso": "IND", "index": 91 }, { "country": "Japan", "iso": "JPN", "index": 84 }, { "country": "Australia", "iso": "AUS", "index": 64 }] }) {
+  const host = useRef(null);
+  useEffect(() => {
+    const map = L.map(host.current, { center: [18, 10], zoom: 2, scrollWheelZoom: false });
+    map.attributionControl.setPrefix(false);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors'
+    }).addTo(map);
+    fetch("https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson").then((response) => response.json()).then((geojson) => {
+      const scores = Object.fromEntries(data.map((d) => [d.country, d.index ?? d.value]));
+      L.geoJSON(geojson, {
+        style: (feature) => {
+          const name = feature.properties.name;
+          const value = scores[name] ?? (name === "United States of America" ? scores["United States"] : void 0);
+          return {
+            color: value == null ? "#64839a" : "#a6edee",
+            weight: value == null ? 0.35 : 1,
+            fillColor: value == null ? "#34506b" : value >= 80 ? "#ffbd76" : value >= 65 ? "#6ce7e7" : "#6d91ff",
+            fillOpacity: value == null ? 0.06 : 0.55
+          };
+        },
+        onEachFeature: (feature, layer) => {
+          const name = feature.properties.name;
+          const value = scores[name] ?? (name === "United States of America" ? scores["United States"] : void 0);
+          if (value != null) layer.bindTooltip(name + " \xB7 " + value);
+        }
+      }).addTo(map);
+    });
+    return () => map.remove();
+  }, [data]);
+  return /* @__PURE__ */ jsx("div", { ref: host, role: "img", "aria-label": "World Choropleth Map", style: { height: 320, width: "100%" } });
+}
+const __entry = GRAPH051;
+
+import { createRoot as __createRoot } from "react-dom/client";
+import { createElement as __h } from "react";
+__createRoot(document.getElementById("root")).render(__h(__entry));
+</script></body></html>

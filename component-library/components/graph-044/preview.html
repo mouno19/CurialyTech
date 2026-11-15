@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tree Diagram · graph-044</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap">
+<style>html,body{margin:0;background:#080e1b;min-height:100%}#root{padding:24px;max-width:1100px;margin:0 auto}</style>
+<script type="importmap">{"imports":{"react":"https://esm.sh/react@18.3.1","react/jsx-runtime":"https://esm.sh/react@18.3.1/jsx-runtime","react-dom/client":"https://esm.sh/react-dom@18.3.1/client?deps=react@18.3.1","chart.js/auto":"https://esm.sh/chart.js@4.4.8/auto","chart.js":"https://esm.sh/chart.js@4.4.8","echarts":"https://esm.sh/echarts@5.5.1","d3":"https://esm.sh/d3@7.9.0","d3-sankey":"https://esm.sh/d3-sankey@0.12.3?deps=d3-array@3.2.4,d3-shape@3.2.0","leaflet":"https://esm.sh/leaflet@1.9.4","three":"https://esm.sh/three@0.160.1"}}</script>
+</head><body><div id="root" data-component="graph-044"></div>
+<script type="module">
+import { jsx } from "react/jsx-runtime";
+import React, { useEffect, useRef } from "react";
+import * as d3 from "d3";
+function TreeDiagram({
+  data,
+  width = 900,
+  height = 430,
+  colors = ["#5ce2e6", "#aa91ff", "#bcf07a", "#ffbf75", "#f18fba", "#79adff"],
+  onSelect = () => {
+  }
+}) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const svg = d3.select(ref.current);
+    svg.selectAll("*").remove();
+    const root = svg.append("g");
+    const choose = (selection, datum) => selection.attr("tabindex", 0).attr("role", "button").attr("aria-label", datum.name || datum.id || "Relationship").on("click", () => onSelect(datum)).on("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        onSelect(datum);
+      }
+    });
+    const hierarchy = d3.hierarchy(data);
+    const vertical = false;
+    d3.tree().size(vertical ? [width - 130, height - 110] : [height - 90, width - 180])(hierarchy);
+    const point = (d) => vertical ? [d.x + 65, d.y + 55] : [d.y + 90, d.x + 45];
+    root.selectAll("path").data(hierarchy.links()).join("path").attr("d", (d) => {
+      const [sx, sy] = point(d.source), [tx, ty] = point(d.target);
+      return vertical ? `M${sx},${sy} V${(sy + ty) / 2} H${tx} V${ty}` : `M${sx},${sy} H${(sx + tx) / 2} V${ty} H${tx}`;
+    }).attr("fill", "none").attr("stroke", "#63889c");
+    const nodes = root.selectAll("g.node").data(hierarchy.descendants()).join("g").attr("transform", (d) => `translate(${point(d)})`);
+    nodes.each(function(d) {
+      const node = d3.select(this);
+      choose(node.append("circle").attr("r", 10).attr("fill", colors[d.depth % colors.length]), d.data);
+      node.append("text").attr("x", vertical ? 0 : 16).attr("y", vertical ? -16 : 4).attr("text-anchor", vertical ? "middle" : "start").attr("fill", "#e8f5ff").attr("font-size", 10).text(d.data.name).style("pointer-events", "none");
+    });
+  }, [data, width, height, colors, onSelect]);
+  return /* @__PURE__ */ jsx(
+    "svg",
+    {
+      ref,
+      viewBox: `0 0 ${width} ${height}`,
+      role: "img",
+      "aria-label": "Tree Diagram visualization",
+      style: { width: "100%", height: "auto", overflow: "visible" }
+    }
+  );
+}
+const sampleData = {
+  "name": "Security operations",
+  "children": [
+    {
+      "name": "Detect",
+      "children": [
+        {
+          "name": "Endpoint telemetry",
+          "value": 1
+        },
+        {
+          "name": "Network signals",
+          "value": 1
+        },
+        {
+          "name": "Threat intelligence",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "Investigate",
+      "children": [
+        {
+          "name": "Triage",
+          "value": 1
+        },
+        {
+          "name": "Forensics",
+          "value": 1
+        },
+        {
+          "name": "Case management",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "Respond",
+      "children": [
+        {
+          "name": "Containment",
+          "value": 1
+        },
+        {
+          "name": "Recovery",
+          "value": 1
+        },
+        {
+          "name": "Postmortem",
+          "value": 1
+        }
+      ]
+    }
+  ]
+};
+const __entry = function TreeDiagramWithData(props) {
+  return /* @__PURE__ */ jsx(TreeDiagram, { data: sampleData, ...props });
+};
+
+import { createRoot as __createRoot } from "react-dom/client";
+import { createElement as __h } from "react";
+__createRoot(document.getElementById("root")).render(__h(__entry));
+</script></body></html>

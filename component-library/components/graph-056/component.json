@@ -1,0 +1,81 @@
+{
+  "id": "graph-056",
+  "name": "3D Globe Visualization",
+  "description": "globe: A luminous rotating Earth for global spatial orientation.",
+  "category": "data-visualization",
+  "batch": "geospatial-charts",
+  "collection": "Geospatial Visualization",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "scientific",
+    "field",
+    "3d",
+    "geospatial",
+    "map",
+    "location",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "accessible",
+    "animated",
+    "multiple-series"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "package",
+      "name": "three",
+      "version": "0.160.1"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-geo"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-generator"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "wide"
+  },
+  "style": {
+    "tokens": "atlas-geo",
+    "mode": "dark",
+    "colors": {}
+  },
+  "source": {
+    "file": "atlas/05_geospatial_charts_051_060.html",
+    "ref": "components[5]"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "9dfd5cfd9b127ff4",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1,
+  "network": [
+    "threejs.org"
+  ]
+}

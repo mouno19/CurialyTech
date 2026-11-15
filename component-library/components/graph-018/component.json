@@ -1,0 +1,86 @@
+{
+  "id": "graph-018",
+  "name": "MRR Bridge",
+  "description": "Waterfall Chart: Reconcile opening monthly recurring revenue with new, expansion, churn and closing MRR. Style: Futuristic finance console.",
+  "category": "data-visualization",
+  "batch": "statistical-charts",
+  "collection": "Essential Data Visualization",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "revenue",
+    "finance",
+    "growth",
+    "business",
+    "waterfall",
+    "change-analysis",
+    "radial",
+    "circular",
+    "distribution",
+    "statistics",
+    "latency",
+    "variance",
+    "statistical",
+    "light-theme"
+  ],
+  "capabilities": [
+    "interactive",
+    "tooltips",
+    "responsive",
+    "keyboard",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-essentials"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-generator"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "atlas-essentials",
+    "mode": "light",
+    "colors": {
+      "#6bd5ad": "series1",
+      "#f3887e": "accent",
+      "#172033": "text"
+    }
+  },
+  "source": {
+    "file": "atlas/01_essential_charts_001_020.html",
+    "ref": "advanced[7]"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "1f380cd47dfedeb6",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

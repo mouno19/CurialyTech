@@ -1,0 +1,865 @@
+{
+  "about": "Concepts the component search understands. A request phrase or a component's own text that uses any of a concept's terms is about that concept, so 'spending' finds budget charts and 'API logs' finds data tables. tools: which of the user-selectable tools provide the concept. role: the layout region its components usually take. Add concepts or terms here; no code changes are needed.",
+  "concepts": [
+    {
+      "id": "navigation",
+      "tools": [
+        "web-design",
+        "ui-ux-design",
+        "dashboard-builder"
+      ],
+      "role": "navigation",
+      "terms": [
+        "sidebar",
+        "side bar",
+        "side navigation",
+        "navigation",
+        "nav",
+        "menu",
+        "app shell",
+        "drawer",
+        "interactive sidebar",
+        "left rail"
+      ]
+    },
+    {
+      "id": "top-navigation",
+      "tools": [
+        "web-design",
+        "ui-ux-design",
+        "dashboard-builder"
+      ],
+      "role": "header",
+      "terms": [
+        "top bar",
+        "topbar",
+        "top navigation",
+        "navbar",
+        "header bar",
+        "breadcrumb",
+        "breadcrumbs",
+        "app bar"
+      ]
+    },
+    {
+      "id": "page-header",
+      "tools": [
+        "web-design",
+        "ui-ux-design"
+      ],
+      "role": "header",
+      "terms": [
+        "page header",
+        "page intro",
+        "intro",
+        "headline",
+        "title section",
+        "hero"
+      ]
+    },
+    {
+      "id": "kpi",
+      "tools": [
+        "dashboard-builder",
+        "data-analytics"
+      ],
+      "role": "kpi",
+      "terms": [
+        "kpi",
+        "kpis",
+        "metric",
+        "metrics",
+        "metric card",
+        "stat",
+        "stats",
+        "stat card",
+        "big number",
+        "scorecard",
+        "growth indicator",
+        "growth indicators",
+        "summary cards",
+        "conversion metrics",
+        "revenue metrics",
+        "headline numbers",
+        "spending",
+        "spend"
+      ]
+    },
+    {
+      "id": "target",
+      "tools": [
+        "dashboard-builder",
+        "data-analytics"
+      ],
+      "role": "kpi",
+      "terms": [
+        "target",
+        "goal",
+        "goals",
+        "quota",
+        "attainment",
+        "pacing",
+        "progress",
+        "budget vs actual",
+        "plan vs actual"
+      ]
+    },
+    {
+      "id": "status",
+      "tools": [
+        "dashboard-builder",
+        "data-analytics"
+      ],
+      "role": "kpi",
+      "terms": [
+        "status",
+        "health",
+        "uptime",
+        "sync",
+        "incident",
+        "availability",
+        "system status",
+        "monitoring"
+      ]
+    },
+    {
+      "id": "time-series",
+      "tools": [
+        "data-analytics"
+      ],
+      "role": "chart",
+      "terms": [
+        "over time",
+        "trend",
+        "trends",
+        "time series",
+        "time-series",
+        "daily",
+        "weekly",
+        "monthly",
+        "real time",
+        "real-time",
+        "live",
+        "growth",
+        "momentum",
+        "tracking",
+        "usage over time",
+        "requests over time",
+        "line chart",
+        "area chart"
+      ]
+    },
+    {
+      "id": "finance",
+      "tools": [
+        "data-analytics"
+      ],
+      "role": "chart",
+      "terms": [
+        "revenue",
+        "sales",
+        "income",
+        "profit",
+        "loss",
+        "p&l",
+        "cash flow",
+        "cash",
+        "budget",
+        "spending",
+        "spend",
+        "cost",
+        "costs",
+        "billing",
+        "financial",
+        "finance",
+        "mrr",
+        "arr",
+        "margin",
+        "expenses",
+        "financial reporting",
+        "waterfall",
+        "revenue tracking",
+        "profit and loss",
+        "income and expenses"
+      ]
+    },
+    {
+      "id": "trading",
+      "tools": [
+        "data-analytics"
+      ],
+      "role": "chart",
+      "terms": [
+        "trading",
+        "trade",
+        "crypto",
+        "cryptocurrency",
+        "bitcoin",
+        "token price",
+        "market",
+        "markets",
+        "market chart",
+        "market charts",
+        "price chart",
+        "candlestick",
+        "candles",
+        "ohlc",
+        "ticker",
+        "exchange",
+        "stock",
+        "stocks",
+        "volume",
+        "order flow"
+      ]
+    },
+    {
+      "id": "portfolio",
+      "tools": [
+        "data-analytics",
+        "dashboard-builder"
+      ],
+      "role": "chart",
+      "terms": [
+        "portfolio",
+        "holdings",
+        "allocation",
+        "asset allocation",
+        "positions",
+        "balance",
+        "portfolio analytics"
+      ]
+    },
+    {
+      "id": "order-book",
+      "tools": [
+        "data-analytics"
+      ],
+      "role": "table",
+      "terms": [
+        "order book",
+        "orderbook",
+        "bids",
+        "asks",
+        "bid ask",
+        "market depth",
+        "depth chart",
+        "level 2"
+      ]
+    },
+    {
+      "id": "comparison",
+      "tools": [
+        "data-analytics"
+      ],
+      "role": "chart",
+      "terms": [
+        "compare",
+        "comparison",
+        "comparing",
+        "versus",
+        "vs",
+        "benchmark",
+        "side by side",
+        "model comparison",
+        "model usage comparison",
+        "head to head",
+        "ranking",
+        "rank",
+        "leaderboard",
+        "compare models",
+        "across models"
+      ]
+    },
+    {
+      "id": "distribution",
+      "tools": [
+        "data-analytics"
+      ],
+      "role": "chart",
+      "terms": [
+        "distribution",
+        "latency",
+        "response time",
+        "percentile",
+        "percentiles",
+        "p50",
+        "p95",
+        "p99",
+        "histogram",
+        "variance",
+        "spread",
+        "box plot",
+        "outliers",
+        "statistical",
+        "statistics"
+      ]
+    },
+    {
+      "id": "composition",
+      "tools": [
+        "data-analytics"
+      ],
+      "role": "chart",
+      "terms": [
+        "share",
+        "breakdown",
+        "composition",
+        "mix",
+        "split",
+        "proportion",
+        "pie",
+        "donut",
+        "by device",
+        "by channel",
+        "by model"
+      ]
+    },
+    {
+      "id": "correlation",
+      "tools": [
+        "data-analytics"
+      ],
+      "role": "chart",
+      "terms": [
+        "correlation",
+        "relationship between",
+        "scatter",
+        "regression",
+        "cluster",
+        "clusters"
+      ]
+    },
+    {
+      "id": "heatmap",
+      "tools": [
+        "data-analytics"
+      ],
+      "role": "chart",
+      "terms": [
+        "heatmap",
+        "heat map",
+        "density",
+        "matrix",
+        "activity grid",
+        "calendar heatmap"
+      ]
+    },
+    {
+      "id": "user-analytics",
+      "tools": [
+        "data-analytics",
+        "dashboard-builder"
+      ],
+      "role": "chart",
+      "terms": [
+        "users",
+        "user analytics",
+        "audience",
+        "visitors",
+        "sessions",
+        "active users",
+        "retention",
+        "cohort",
+        "cohorts",
+        "engagement",
+        "acquisition",
+        "signups",
+        "churn",
+        "devices"
+      ]
+    },
+    {
+      "id": "conversion",
+      "tools": [
+        "data-analytics"
+      ],
+      "role": "chart",
+      "terms": [
+        "conversion",
+        "funnel",
+        "drop-off",
+        "checkout",
+        "journey",
+        "customer journey",
+        "sales pipeline"
+      ]
+    },
+    {
+      "id": "api-monitoring",
+      "tools": [
+        "data-analytics",
+        "dashboard-builder"
+      ],
+      "role": "chart",
+      "terms": [
+        "api",
+        "api requests",
+        "requests",
+        "api request monitoring",
+        "api usage",
+        "usage",
+        "throughput",
+        "error rate",
+        "endpoints",
+        "rate limit",
+        "tokens",
+        "model usage",
+        "llm usage",
+        "calls"
+      ]
+    },
+    {
+      "id": "forecast",
+      "tools": [
+        "data-analytics"
+      ],
+      "role": "chart",
+      "terms": [
+        "forecast",
+        "forecasting",
+        "projection",
+        "prediction",
+        "outlook",
+        "scenario"
+      ]
+    },
+    {
+      "id": "geospatial",
+      "tools": [
+        "data-analytics"
+      ],
+      "role": "chart",
+      "terms": [
+        "map",
+        "maps",
+        "geographic",
+        "geo",
+        "country",
+        "countries",
+        "region",
+        "regions",
+        "world",
+        "globe",
+        "location",
+        "locations",
+        "routes",
+        "choropleth"
+      ]
+    },
+    {
+      "id": "hierarchy",
+      "tools": [
+        "data-analytics"
+      ],
+      "role": "chart",
+      "terms": [
+        "hierarchy",
+        "tree",
+        "treemap",
+        "org chart",
+        "nested",
+        "breakdown tree",
+        "sunburst"
+      ]
+    },
+    {
+      "id": "network",
+      "tools": [
+        "data-analytics"
+      ],
+      "role": "chart",
+      "terms": [
+        "network",
+        "graph of",
+        "relationships",
+        "dependencies",
+        "flow",
+        "flows",
+        "sankey",
+        "connections",
+        "topology"
+      ]
+    },
+    {
+      "id": "timeline",
+      "tools": [
+        "dashboard-builder",
+        "data-analytics",
+        "web-design"
+      ],
+      "role": "timeline",
+      "terms": [
+        "timeline",
+        "milestones",
+        "roadmap",
+        "gantt",
+        "schedule",
+        "project plan",
+        "events",
+        "changelog",
+        "release history"
+      ]
+    },
+    {
+      "id": "insights",
+      "tools": [
+        "dashboard-builder",
+        "data-analytics"
+      ],
+      "role": "insight",
+      "terms": [
+        "insights",
+        "insight",
+        "report",
+        "summary",
+        "narrative",
+        "findings",
+        "recommendations",
+        "notes",
+        "highlights"
+      ]
+    },
+    {
+      "id": "data-table",
+      "tools": [
+        "data-analytics",
+        "dashboard-builder",
+        "web-design"
+      ],
+      "role": "table",
+      "terms": [
+        "table",
+        "tables",
+        "data table",
+        "data grid",
+        "grid of rows",
+        "list",
+        "logs",
+        "log",
+        "api logs",
+        "records",
+        "transactions",
+        "transaction table",
+        "trading history",
+        "trade history",
+        "history table",
+        "directory",
+        "user table",
+        "product table",
+        "rows",
+        "order history",
+        "trade log",
+        "audit log",
+        "event log"
+      ]
+    },
+    {
+      "id": "search-filter",
+      "tools": [
+        "data-analytics",
+        "dashboard-builder",
+        "web-design",
+        "ui-ux-design"
+      ],
+      "role": "filters",
+      "terms": [
+        "search",
+        "filter",
+        "filters",
+        "filtering",
+        "sort",
+        "sorting",
+        "pagination",
+        "query builder",
+        "facets",
+        "model filters"
+      ]
+    },
+    {
+      "id": "date-range",
+      "tools": [
+        "dashboard-builder",
+        "ui-ux-design",
+        "data-analytics"
+      ],
+      "role": "filters",
+      "terms": [
+        "date picker",
+        "date range",
+        "date selection",
+        "date filters",
+        "period",
+        "time range",
+        "last 7 days",
+        "last 30 days",
+        "period switch",
+        "timeframe"
+      ]
+    },
+    {
+      "id": "dashboard-layout",
+      "tools": [
+        "dashboard-builder",
+        "web-design"
+      ],
+      "role": "section",
+      "terms": [
+        "dashboard",
+        "dashboards",
+        "admin panel",
+        "overview",
+        "control panel",
+        "analytics dashboard",
+        "dashboard section",
+        "responsive grid",
+        "card layout",
+        "terminal"
+      ]
+    },
+    {
+      "id": "settings-form",
+      "tools": [
+        "web-design",
+        "ui-ux-design",
+        "frontend-development"
+      ],
+      "role": "form",
+      "terms": [
+        "settings",
+        "account settings",
+        "profile",
+        "preferences",
+        "form",
+        "forms",
+        "permissions",
+        "roles",
+        "toggle",
+        "inputs"
+      ]
+    },
+    {
+      "id": "landing-page",
+      "tools": [
+        "web-design",
+        "ui-ux-design"
+      ],
+      "role": "content",
+      "terms": [
+        "landing page",
+        "marketing page",
+        "homepage",
+        "hero section",
+        "features section",
+        "pricing section",
+        "pricing cards",
+        "testimonials",
+        "call to action",
+        "cta",
+        "faq",
+        "footer",
+        "signup section",
+        "logo cloud"
+      ]
+    },
+    {
+      "id": "kanban",
+      "tools": [
+        "web-design",
+        "ui-ux-design",
+        "dashboard-builder"
+      ],
+      "role": "content",
+      "terms": [
+        "kanban",
+        "board",
+        "task board",
+        "columns of cards",
+        "drag and drop"
+      ]
+    },
+    {
+      "id": "calendar",
+      "tools": [
+        "web-design",
+        "ui-ux-design",
+        "dashboard-builder"
+      ],
+      "role": "content",
+      "terms": [
+        "calendar",
+        "month view",
+        "agenda",
+        "booking"
+      ]
+    },
+    {
+      "id": "modal",
+      "tools": [
+        "ui-ux-design",
+        "web-design"
+      ],
+      "role": "content",
+      "terms": [
+        "modal",
+        "dialog",
+        "popup",
+        "drawer",
+        "sheet",
+        "confirmation"
+      ]
+    },
+    {
+      "id": "scientific",
+      "tools": [
+        "data-analytics"
+      ],
+      "role": "chart",
+      "terms": [
+        "scientific",
+        "contour",
+        "surface",
+        "3d",
+        "spectrogram",
+        "sensor",
+        "field",
+        "parallel coordinates",
+        "radar",
+        "spider"
+      ]
+    },
+    {
+      "id": "experimental",
+      "tools": [
+        "data-analytics"
+      ],
+      "role": "chart",
+      "terms": [
+        "experimental",
+        "particle",
+        "fluid",
+        "liquid",
+        "generative",
+        "artistic",
+        "futuristic"
+      ]
+    },
+    {
+      "id": "backend",
+      "tools": [
+        "backend-development"
+      ],
+      "role": "content",
+      "terms": [
+        "api endpoint",
+        "backend",
+        "database schema",
+        "server",
+        "webhook",
+        "authentication service",
+        "rest api",
+        "graphql"
+      ]
+    }
+  ],
+  "products": [
+    {
+      "id": "dashboard",
+      "match": [
+        "dashboard",
+        "admin panel",
+        "control panel",
+        "analytics app",
+        "monitoring app",
+        "console"
+      ],
+      "implies": [
+        "sidebar navigation",
+        "top bar",
+        "kpi metric cards",
+        "data table"
+      ]
+    },
+    {
+      "id": "trading-terminal",
+      "match": [
+        "trading terminal",
+        "trading platform",
+        "exchange",
+        "trading app",
+        "crypto terminal"
+      ],
+      "implies": [
+        "sidebar navigation",
+        "top bar",
+        "candlestick price chart",
+        "trading volume",
+        "order book",
+        "trade history table",
+        "portfolio allocation"
+      ]
+    },
+    {
+      "id": "landing-page",
+      "match": [
+        "landing page",
+        "marketing page",
+        "homepage",
+        "marketing site",
+        "website for"
+      ],
+      "implies": [
+        "top navigation",
+        "hero section",
+        "features section",
+        "pricing section",
+        "testimonials",
+        "call to action",
+        "footer"
+      ]
+    },
+    {
+      "id": "report",
+      "match": [
+        "report",
+        "reporting tool",
+        "financial reporting"
+      ],
+      "implies": [
+        "page intro",
+        "insights",
+        "data table"
+      ]
+    },
+    {
+      "id": "admin-panel",
+      "match": [
+        "admin panel",
+        "admin console",
+        "back office",
+        "saas admin"
+      ],
+      "implies": [
+        "sidebar navigation",
+        "top bar",
+        "user table",
+        "permissions settings form",
+        "kpi metric cards"
+      ]
+    },
+    {
+      "id": "project-management",
+      "match": [
+        "project management",
+        "task manager",
+        "project tracker"
+      ],
+      "implies": [
+        "sidebar navigation",
+        "kanban board",
+        "calendar",
+        "progress charts",
+        "task table"
+      ]
+    }
+  ]
+}

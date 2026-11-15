@@ -1,0 +1,32 @@
+<!-- Retention cohort variations (10 treatments) · chart-cohort-variations: from the Analytics Component Library (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/atlas-paper.css, and an ancestor with class="cx-atlas-paper". -->
+<div class="cx-atlas-paper">
+<div id="cohort-variations" class="cohort-gallery" aria-label="Retention cohort heatmap variations">
+       <div class="cohort-gallery-heading">
+        <div>
+         <h3>More ways to see retention</h3>
+         <p>Ten ways to read the same cohorts: matrices, lanes, dials, and retention strips.</p>
+        </div><span class="badge">10 variations</span>
+       </div>
+       <div id="cohort-variation-grid" class="cohort-variation-grid"></div>
+      </div>
+</div>
+<script>
+const periods={
+      7:{values:['$48,294','24,892','4.86%','$126.40'],deltas:['↑ 12.8%','↑ 8.2%','↑ 2.4%','↑ 5.1%'],labels:['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],current:[34,43,39,54,48,65,72],previous:[27,32,36,34,42,45,51]},
+      30:{values:['$192,840','89,410','4.62%','$121.80'],deltas:['↑ 15.4%','↑ 10.6%','↑ 1.8%','↑ 3.7%'],labels:['Week 1','Week 2','Week 3','Week 4'],current:[42,51,58,69],previous:[34,39,47,53]},
+      90:{values:['$564,210','268,750','4.74%','$124.10'],deltas:['↑ 18.6%','↑ 13.1%','↑ 3.2%','↑ 4.4%'],labels:['Month 1','Month 2','Month 3'],current:[43,57,74],previous:[35,46,56]}
+    };
+(()=>{
+        const months=['Jan','Feb','Mar','Apr'],periods=['Start','M1','M2','M3','M4'];
+        const values=[[100,76,59,42,31],[100,79,62,48,null],[100,81,65,null,null],[100,83,null,null,null]];
+        const styles=[['Forest tiles','The familiar green, refined into compact blocks'],['Soft coral','Warm rounded cells with a gentle editorial feel'],['Night mode','Mint signals against a deep charcoal surface'],['Lavender grid','A quiet violet system with squared edges'],['Ocean glass','Cool blue-green with sculpted corners'],['Golden underline','Amber scores with a sharp baseline'],['Plum after dark','Rose-colored highlights on a dark canvas'],['Seamless matrix','A dense, continuous analytical grid'],['Terracotta dots','Circular markers with a playful rhythm'],['Cobalt cards','Crisp blue scores on an airy background']];
+        const grid=document.getElementById('cohort-variation-grid');
+        const matrix=(title)=>`<div class="cohort-mini" role="img" aria-label="${title}: January 100, 76, 59, 42, 31 percent; February 100, 79, 62, 48 percent; March 100, 81, 65 percent; April 100, 83 percent"><span></span>${periods.map(p=>`<span class="ch-label">${p}</span>`).join('')}${values.map((row,r)=>`<span class="ch-label">${months[r]}</span>${row.map(v=>`<span class="ch-cell" data-level="${v===null?'empty':v>=75?'high':v>=55?'mid':'low'}">${v===null?'—':v+'%'}</span>`).join('')}`).join('')}</div>`;
+        const lanes=()=>`<div class="cohort-lanes">${values.map((row,r)=>`<div><strong>${months[r]}</strong><div class="lane-dots">${row.filter(v=>v!==null).map(v=>`<span style="height:${Math.max(18,v*.57)}px" title="${v}%">${v}</span>`).join('')}</div></div>`).join('')}</div>`;
+        const arcs=()=>`<div class="cohort-arcs">${values.map((row,r)=>`<div><span class="arc" style="--value:${row[row.filter(v=>v!==null).length-1]}%"><b>${row[row.filter(v=>v!==null).length-1]}%</b></span><strong>${months[r]}</strong><small>latest available</small></div>`).join('')}</div>`;
+        const strips=()=>`<div class="cohort-strips">${values.map((row,r)=>`<div><strong>${months[r]}</strong><span>${row.filter(v=>v!==null).map(v=>`<i style="width:${v}%" title="${v}%"></i>`).join('')}</span><b>${row.filter(v=>v!==null).at(-1)}%</b></div>`).join('')}</div>`;
+        const names=['Forest tiles','Retention lanes','Night mode','Lavender grid','Cohort arcs','Golden underline','Plum after dark','Retention strips','Terracotta dots','Cobalt cards'];
+        grid.innerHTML=styles.map(([,caption],i)=>{const title=names[i];const visual=i===1?lanes():i===4?arcs():i===7?strips():matrix(title);return `<article class="cohort-variation"><div class="cohort-variation-top"><div><h4>${title}</h4><p>${caption}</p></div><span class="cohort-variation-number">${String(i+1).padStart(2,'0')} / 10</span></div>${visual}</article>`}).join('');
+       })();
+</script>

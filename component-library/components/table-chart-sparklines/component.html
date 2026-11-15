@@ -1,0 +1,57 @@
+<!-- Table with sparklines · table-chart-sparklines: from the Analytics Component Library (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/atlas-paper.css, and an ancestor with class="cx-atlas-paper". -->
+<div class="cx-atlas-paper">
+<article class="table-chart-card">
+        <h3>03 / Sparkline table</h3>
+        <p class="panel-caption">Weekly orders · last seven days</p>
+        <div class="table-scroll">
+         <table>
+          <thead>
+           <tr>
+            <th scope="col">Region</th>
+            <th scope="col">7-day trend</th>
+            <th scope="col">Change</th>
+           </tr>
+          </thead>
+          <tbody>
+           <tr>
+            <td>North</td>
+            <td>
+             <svg class="spark" viewbox="0 0 105 28" role="img" aria-label="North orders trending upward">
+              <polyline points="2,23 19,19 36,21 53,13 70,15 87,7 103,3" fill="none" stroke="#246d57" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+             </svg></td>
+            <td class="delta-positive">↑ 18.2%</td>
+           </tr>
+           <tr>
+            <td>East</td>
+            <td>
+             <svg class="spark" viewbox="0 0 105 28" role="img" aria-label="East orders trending upward">
+              <polyline points="2,22 19,15 36,17 53,12 70,14 87,8 103,6" fill="none" stroke="#246d57" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+             </svg></td>
+            <td class="delta-positive">↑ 11.4%</td>
+           </tr>
+           <tr>
+            <td>West</td>
+            <td>
+             <svg class="spark" viewbox="0 0 105 28" role="img" aria-label="West orders trending downward">
+              <polyline points="2,5 19,9 36,7 53,15 70,13 87,20 103,23" fill="none" stroke="#f2735d" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+             </svg></td>
+            <td class="delta-negative">↓ 8.1%</td>
+           </tr>
+           <tr>
+            <td>South</td>
+            <td>
+             <svg class="spark" viewbox="0 0 105 28" role="img" aria-label="South orders mostly steady">
+              <polyline points="2,17 19,13 36,15 53,12 70,16 87,11 103,12" fill="none" stroke="#d09844" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+             </svg></td>
+            <td class="delta-positive">↑ 2.3%</td>
+           </tr>
+          </tbody>
+         </table>
+        </div>
+        <p class="table-chart-note">Tiny lines show shape; written deltas make direction explicit.</p>
+       </article>
+</div>
+<script>
+
+</script>

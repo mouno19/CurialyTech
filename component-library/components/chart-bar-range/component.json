@@ -1,0 +1,85 @@
+{
+  "id": "chart-bar-range",
+  "name": "Daily order range (floating bars)",
+  "description": "Daily order range (floating bars): one of eight bar chart treatments for comparing magnitude in a dashboard card.",
+  "category": "data-visualization",
+  "batch": "bar-chart-variants",
+  "collection": "Analytics Component Library",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "range",
+    "min-max",
+    "bar-chart",
+    "orders",
+    "comparison",
+    "ranking",
+    "categorical",
+    "radial",
+    "circular",
+    "light-theme"
+  ],
+  "capabilities": [
+    "tooltips",
+    "responsive",
+    "interactive",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "chart.js",
+      "version": "4.4.8"
+    },
+    {
+      "type": "stylesheet",
+      "id": "atlas-paper"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-paper"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "atlas-paper",
+    "mode": "light",
+    "colors": {
+      "#a5dbc6": "series3",
+      "#f3ca78": "series4",
+      "#f2735d": "series1"
+    }
+  },
+  "source": {
+    "file": "atlas/10_analytics_dashboard_components.html",
+    "ref": "article class=\"panel #2"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "88138ae0581913b9",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

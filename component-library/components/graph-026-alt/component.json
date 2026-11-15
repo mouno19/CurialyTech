@@ -1,0 +1,78 @@
+{
+  "id": "graph-026-alt",
+  "name": "Profit and Loss Chart",
+  "description": "diverge: Compare monthly operating profit and loss above and below zero. Style: Futuristic dark fintech.",
+  "category": "data-visualization",
+  "batch": "financial-charts",
+  "collection": "Essential Data Visualization",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "finance",
+    "accounting",
+    "budget",
+    "comparison",
+    "financial",
+    "light-theme"
+  ],
+  "capabilities": [
+    "interactive",
+    "tooltips",
+    "responsive",
+    "keyboard",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-essentials"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-generator"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "atlas-essentials",
+    "mode": "light",
+    "colors": {
+      "#58dcb1": "series1",
+      "#fc8294": "series2"
+    }
+  },
+  "variant_of": "graph-026",
+  "source": {
+    "file": "atlas/01_essential_charts_001_020.html",
+    "ref": "finance[5]"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "a6cbd963bad311b0",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

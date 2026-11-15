@@ -1,0 +1,88 @@
+{
+  "id": "graph-031",
+  "name": "Pie Chart",
+  "description": "COMPOSITION: Show the share of a whole across distinct categories. Style: Luxury minimalism: a restrained circular composition with crisp divisions and a quiet external legend..",
+  "category": "data-visualization",
+  "batch": "circular-radial-charts",
+  "collection": "Circular Atlas",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "pie-chart",
+    "composition",
+    "share",
+    "proportion",
+    "radial",
+    "circular",
+    "sparkline",
+    "compact",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "interactive",
+    "tooltips",
+    "responsive",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "package",
+      "name": "echarts",
+      "version": "5.5.1"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-circular"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-generator"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "atlas-circular",
+    "mode": "dark",
+    "colors": {
+      "#9fb0be": "series6",
+      "#111722": "surface",
+      "#a8f0d2": "series1",
+      "#6ca6c4": "series2",
+      "#a788d8": "series3",
+      "#e7b886": "series4"
+    }
+  },
+  "source": {
+    "file": "atlas/03_circular_radial_charts_031_040.html",
+    "ref": "defs[0]"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "ce7c50cc4c3bb3f3",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

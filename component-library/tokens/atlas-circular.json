@@ -1,0 +1,33 @@
+{
+  "id": "atlas-circular",
+  "name": "Circular (dark)",
+  "mode": "dark",
+  "source": "03_circular_radial_charts_031_040.html",
+  "colors": {
+    "background": "#090c12",
+    "surface": "#111722",
+    "surface2": "#161d29",
+    "border": "#27303d",
+    "text": "#f0f3f5",
+    "muted": "#91a0af",
+    "accent": "#a8f0d2",
+    "positive": "#a8f0d2",
+    "negative": "#e7b886",
+    "warning": "#e7b886",
+    "series1": "#a8f0d2",
+    "series2": "#6ca6c4",
+    "series3": "#a788d8",
+    "series4": "#e7b886",
+    "series5": "#778795",
+    "series6": "#9fb0be"
+  },
+  "fonts": {
+    "sans": "Manrope, system-ui, sans-serif",
+    "mono": "\"DM Mono\", ui-monospace, monospace"
+  },
+  "radius": {
+    "card": "18px",
+    "control": "10px"
+  },
+  "spacing": "24px"
+}

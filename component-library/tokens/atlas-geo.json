@@ -1,0 +1,33 @@
+{
+  "id": "atlas-geo",
+  "name": "Geospatial (dark)",
+  "mode": "dark",
+  "source": "05_geospatial_charts_051_060.html",
+  "colors": {
+    "background": "#080e18",
+    "surface": "#101a28",
+    "surface2": "#142132",
+    "border": "#26384a",
+    "text": "#e8f3f7",
+    "muted": "#8da4b5",
+    "accent": "#6ce7e7",
+    "positive": "#83e8bc",
+    "negative": "#ff859e",
+    "warning": "#ffbd76",
+    "series1": "#6ce7e7",
+    "series2": "#6d91ff",
+    "series3": "#ab8bff",
+    "series4": "#ffbd76",
+    "series5": "#83e8bc",
+    "series6": "#ff859e"
+  },
+  "fonts": {
+    "sans": "\"DM Sans\", system-ui, sans-serif",
+    "mono": "\"DM Mono\", ui-monospace, monospace"
+  },
+  "radius": {
+    "card": "16px",
+    "control": "8px"
+  },
+  "spacing": "22px"
+}

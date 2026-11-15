@@ -1,0 +1,33 @@
+{
+  "id": "atlas-terminal",
+  "name": "Financial terminal (dark)",
+  "mode": "dark",
+  "source": "02_financial_charts_021_030.html",
+  "colors": {
+    "background": "#090e16",
+    "surface": "#111b29",
+    "surface2": "#152131",
+    "border": "#273444",
+    "text": "#e8f0f4",
+    "muted": "#8a9bab",
+    "accent": "#69cbf5",
+    "positive": "#60e6b2",
+    "negative": "#ff7782",
+    "warning": "#f7c878",
+    "series1": "#69cbf5",
+    "series2": "#60e6b2",
+    "series3": "#f7c878",
+    "series4": "#a99afa",
+    "series5": "#ff7782",
+    "series6": "#8a9bab"
+  },
+  "fonts": {
+    "sans": "\"IBM Plex Sans\", system-ui, sans-serif",
+    "mono": "\"IBM Plex Mono\", ui-monospace, monospace"
+  },
+  "radius": {
+    "card": "14px",
+    "control": "8px"
+  },
+  "spacing": "20px"
+}

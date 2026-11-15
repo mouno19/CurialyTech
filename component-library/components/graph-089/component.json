@@ -1,0 +1,78 @@
+{
+  "id": "graph-089",
+  "name": "Animated-Style Particle Network",
+  "description": "Network graph: A connected network compares node activity and relationship strength. Larger nodes indicate greater activity; brighter, thicker links identify stronger connections.",
+  "category": "data-visualization",
+  "batch": "experimental-charts",
+  "collection": "Future Forms",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "network",
+    "relationships",
+    "graph",
+    "events",
+    "monitoring",
+    "operations",
+    "comparison",
+    "experimental",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "accessible",
+    "animated"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-experimental"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-renderer"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "wide"
+  },
+  "style": {
+    "tokens": "atlas-experimental",
+    "mode": "dark",
+    "colors": {
+      "#72bcff": "accent",
+      "#ce91ff": "series2"
+    }
+  },
+  "source": {
+    "file": "atlas/08_experimental_charts_081_090.html",
+    "ref": "graphs[8]"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "80518ae88c532cdc",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

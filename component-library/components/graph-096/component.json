@@ -1,0 +1,94 @@
+{
+  "id": "graph-096",
+  "name": "Streamgraph",
+  "description": "stream: Editorial analysis of traffic sources, media consumption or changing demand composition. Style: Use a flowing silhouette to reveal both aggregate momentum and category transitions. A central baseline reduces the visual dominance of any one layer..",
+  "category": "data-visualization",
+  "batch": "advanced-specialized-charts",
+  "collection": "Visualization Atlas",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "line-chart",
+    "trend",
+    "time-series",
+    "area-chart",
+    "volume",
+    "pie-chart",
+    "composition",
+    "share",
+    "proportion",
+    "flow",
+    "sankey",
+    "conversion",
+    "network",
+    "relationships",
+    "graph",
+    "advanced",
+    "specialized",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "accessible",
+    "animated",
+    "multiple-series"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-specialized"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-renderer"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "atlas-specialized",
+    "mode": "dark",
+    "colors": {
+      "#9df0cb": "series1",
+      "#79b8f6": "series2",
+      "#b8a4f4": "series3",
+      "#f49d91": "series5",
+      "#e8c47d": "series4",
+      "#81939f": "series6",
+      "#101720": "surface",
+      "#e9f0f2": "text"
+    }
+  },
+  "source": {
+    "file": "atlas/09_advanced_specialized_charts_091_100.html",
+    "ref": "components[5]"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "dbb2878d46fb1c35",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

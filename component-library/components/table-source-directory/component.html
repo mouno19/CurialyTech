@@ -1,0 +1,60 @@
+<!-- Searchable, sortable data table · table-source-directory: from the Analytics Component Library (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/atlas-paper.css, and an ancestor with class="cx-atlas-paper". -->
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+<div class="cx-atlas-paper">
+<div class="canvas">
+      <div class="canvas-header">
+       <div>
+        <h3 class="canvas-title">Source directory</h3>
+        <p class="subtle">Search and sort a sample operational dataset</p>
+       </div><label class="searchbox" for="source-search"><i data-lucide="search"></i><input id="source-search" type="search" placeholder="Search sources..." aria-label="Search sources"></label>
+      </div>
+      <div class="table-scroll">
+       <table>
+        <thead>
+         <tr>
+          <th scope="col"><button class="sort-button" type="button" data-sort="name">Source <i data-lucide="arrow-up-down"></i></button></th>
+          <th scope="col"><button class="sort-button" type="button" data-sort="type">Type <i data-lucide="arrow-up-down"></i></button></th>
+          <th scope="col"><button class="sort-button" type="button" data-sort="records">Records <i data-lucide="arrow-up-down"></i></button></th>
+          <th scope="col"><button class="sort-button" type="button" data-sort="updated">Last sync <i data-lucide="arrow-up-down"></i></button></th>
+          <th scope="col">Status</th>
+         </tr>
+        </thead>
+        <tbody id="source-rows"></tbody>
+       </table>
+       <div id="source-empty" class="empty" hidden>
+        No sources match your search.
+       </div>
+      </div>
+     </div>
+</div>
+<script>
+lucide.createIcons();
+const sources=[
+      {name:'Orders database',type:'Database',records:82410,updated:'09:42',status:'Healthy'},
+      {name:'Customer profiles',type:'Database',records:124800,updated:'08:30',status:'Healthy'},
+      {name:'Website analytics',type:'Analytics',records:642900,updated:'09:36',status:'Healthy'},
+      {name:'Marketing events',type:'Events',records:318240,updated:'08:12',status:'Healthy'},
+      {name:'Product catalog',type:'API',records:18420,updated:'07:55',status:'Healthy'},
+      {name:'Support tickets',type:'API',records:12580,updated:'06:20',status:'Review'},
+      {name:'Email campaigns',type:'Marketing',records:96730,updated:'05:48',status:'Healthy'},
+      {name:'Inventory feed',type:'API',records:28950,updated:'04:15',status:'Healthy'}
+    ];
+let sortKey='name',sortAsc=true;
+function renderSources(){
+      const query=document.getElementById('source-search').value.trim().toLowerCase();
+      const filtered=sources.filter(source=>[source.name,source.type,source.status].some(value=>value.toLowerCase().includes(query))).sort((a,b)=>{
+        const x=a[sortKey],y=b[sortKey];
+        return (typeof x==='number'?x-y:String(x).localeCompare(String(y)))*(sortAsc?1:-1);
+      });
+      document.getElementById('source-rows').innerHTML=filtered.map(source=>`<tr><td><strong>${source.name}</strong></td><td>${source.type}</td><td>${source.records.toLocaleString()}</td><td>${source.updated}</td><td><span class="badge ${source.status==='Review'?'warn':''}">${source.status}</span></td></tr>`).join('');
+      document.getElementById('source-empty').hidden=filtered.length!==0;
+    }
+document.getElementById('source-search').addEventListener('input',renderSources);
+document.querySelectorAll('[data-sort]').forEach(button=>button.addEventListener('click',()=>{
+      if(sortKey===button.dataset.sort)sortAsc=!sortAsc;
+      else{sortKey=button.dataset.sort;sortAsc=true}
+      renderSources();
+    }));
+renderSources();
+</script>

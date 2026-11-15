@@ -1,0 +1,86 @@
+{
+  "id": "graph-090",
+  "name": "Sci-Fi Dashboard Visualization",
+  "description": "Telemetry panel: A compact mission-control composition combines a radial utilization gauge, a short trend series and three status meters. Each instrument retains its own labeled scale.",
+  "category": "data-visualization",
+  "batch": "experimental-charts",
+  "collection": "Future Forms",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "line-chart",
+    "trend",
+    "time-series",
+    "pie-chart",
+    "composition",
+    "share",
+    "proportion",
+    "radial",
+    "circular",
+    "kpi",
+    "target",
+    "progress",
+    "performance",
+    "events",
+    "monitoring",
+    "operations",
+    "experimental",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-experimental"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-renderer"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "atlas-experimental",
+    "mode": "dark",
+    "colors": {
+      "#f9dc75": "accent",
+      "#6ce5db": "series2"
+    }
+  },
+  "source": {
+    "file": "atlas/08_experimental_charts_081_090.html",
+    "ref": "graphs[9]"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "0e8f886d4037ec38",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

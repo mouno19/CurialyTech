@@ -1,0 +1,94 @@
+{
+  "id": "graph-029",
+  "name": "KPI Performance Chart",
+  "description": "kpi: Monitor key financial indicators against operating targets. Style: Holographic performance panel.",
+  "category": "data-visualization",
+  "batch": "financial-charts",
+  "collection": "Financial Visualization",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "kpi",
+    "target",
+    "progress",
+    "performance",
+    "network",
+    "relationships",
+    "graph",
+    "events",
+    "monitoring",
+    "operations",
+    "financial",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "interactive",
+    "tooltips",
+    "responsive",
+    "keyboard",
+    "accessible",
+    "animated",
+    "multiple-series"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-terminal"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-component"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "atlas-terminal",
+    "mode": "dark",
+    "colors": {
+      "#60e6b2": "series2",
+      "#ff7782": "series5",
+      "#69cbf5": "series1",
+      "#f7c878": "series3",
+      "#a99afa": "series4",
+      "#111b29": "surface",
+      "#090e16": "background",
+      "#152131": "surface2",
+      "#273444": "border",
+      "#e8f0f4": "text",
+      "#8a9bab": "series6"
+    }
+  },
+  "source": {
+    "file": "atlas/02_financial_charts_021_030.html",
+    "ref": "components[8]"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "bf12d9d9892e6389",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

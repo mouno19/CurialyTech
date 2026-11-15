@@ -1,0 +1,81 @@
+{
+  "id": "graph-006",
+  "name": "Conversion Pulse",
+  "description": "Basic Line Chart: Monitor trial-to-paid conversion across the first half of the year. Style: Gradient-based design.",
+  "category": "data-visualization",
+  "batch": "essential-charts",
+  "collection": "Essential Data Visualization",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "line-chart",
+    "trend",
+    "time-series",
+    "conversion",
+    "funnel",
+    "retention",
+    "user-analytics",
+    "essential",
+    "light-theme"
+  ],
+  "capabilities": [
+    "interactive",
+    "tooltips",
+    "responsive",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "package",
+      "name": "chart.js",
+      "version": "4.4.8"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-essentials"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-generator"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "atlas-essentials",
+    "mode": "light",
+    "colors": {}
+  },
+  "source": {
+    "file": "atlas/01_essential_charts_001_020.html",
+    "ref": "specs[5]"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "43258d5c5babce08",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

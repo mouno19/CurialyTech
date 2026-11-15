@@ -1,0 +1,33 @@
+{
+  "id": "atlas-scientific",
+  "name": "Scientific (dark)",
+  "mode": "dark",
+  "source": "06_scientific_charts_061_070.html",
+  "colors": {
+    "background": "#090e15",
+    "surface": "#101923",
+    "surface2": "#141f2b",
+    "border": "#263440",
+    "text": "#eaf2f5",
+    "muted": "#8da0af",
+    "accent": "#6ae0df",
+    "positive": "#6ae0df",
+    "negative": "#e782aa",
+    "warning": "#ffb674",
+    "series1": "#6ae0df",
+    "series2": "#5c95e8",
+    "series3": "#ffb674",
+    "series4": "#e782aa",
+    "series5": "#90a9b8",
+    "series6": "#263b48"
+  },
+  "fonts": {
+    "sans": "\"IBM Plex Sans\", system-ui, sans-serif",
+    "mono": "\"IBM Plex Mono\", ui-monospace, monospace"
+  },
+  "radius": {
+    "card": "12px",
+    "control": "6px"
+  },
+  "spacing": "20px"
+}

@@ -1,0 +1,138 @@
+<!-- Revenue outlook (forecast) · chart-revenue-forecast: from the Analytics Component Library (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/atlas-paper.css, and an ancestor with class="cx-atlas-paper". -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+<div class="cx-atlas-paper">
+<div class="panel">
+        <div class="panel-head">
+         <div>
+          <h3>Revenue outlook</h3>
+          <p class="panel-caption">Historical monthly revenue and a simple projection</p>
+         </div>
+        </div>
+        <div class="chart-wrap tall">
+         <canvas id="forecast-chart" role="img" aria-label="Line chart showing historical revenue and projected revenue through September"></canvas>
+        </div>
+        <style>
+         #forecast-variations{border-top:1px solid var(--line);margin-top:24px;padding-top:22px}
+         #forecast-variations h4{font-family:"Plus Jakarta Sans",sans-serif;font-size:13px;letter-spacing:-.025em;margin:0 0 5px}
+         #forecast-variations .variation-intro{font-size:11px;color:var(--muted);margin:0 0 16px}
+         #forecast-variations .variation-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+         #forecast-variations .variation-card{min-width:0;border:1px solid var(--line);border-radius:12px;background:#fbfcf9;padding:14px}
+         #forecast-variations .variation-card:last-child{grid-column:1/-1;background:#f0f6f1}
+         #forecast-variations .variation-title{font-family:"Plus Jakarta Sans",sans-serif;font-size:11px;font-weight:800;margin:0 0 3px}
+         #forecast-variations .variation-caption{font-size:10px;color:var(--muted);margin:0 0 10px}
+         #forecast-variations .variation-chart{position:relative;height:155px}
+         #forecast-variations .forecast-extra{border-radius:16px;padding:17px;min-height:230px;background:var(--extra-bg,#fbfcf9);border:1px solid var(--extra-border,var(--line));color:var(--extra-ink,var(--ink))}
+         #forecast-variations .forecast-extra .variation-title{font-size:12px;color:inherit}
+         #forecast-variations .forecast-extra .variation-caption{color:var(--extra-muted,var(--muted));line-height:1.45}
+         #forecast-variations .forecast-extra .variation-chart{height:160px}
+         #forecast-variations .forecast-extra .forecast-kicker{display:inline-block;font-size:9px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:var(--extra-accent,#246d57);margin-bottom:9px}
+         #forecast-variations .forecast-extra:nth-child(4n+1){border-radius:4px}
+         #forecast-variations .forecast-extra:nth-child(4n+2){border-radius:22px}
+         #forecast-variations .forecast-ledger{display:grid;grid-template-columns:repeat(2,1fr);gap:5px 14px;margin-top:14px}
+         #forecast-variations .forecast-ledger>div{display:flex;align-items:center;gap:7px;border-bottom:1px solid rgba(100,110,100,.18);padding:6px 0;font-size:10px}
+         #forecast-variations .forecast-ledger span{flex:1}#forecast-variations .forecast-ledger small{font-size:8px;opacity:.55}#forecast-variations .forecast-ledger strong{font-size:15px}#forecast-variations .forecast-ledger em{font-size:9px;color:var(--extra-accent);font-style:normal}
+         #forecast-variations .forecast-dial{width:156px;height:156px;margin:8px auto 0;border-radius:50%;background:conic-gradient(var(--extra-accent) 0 92%,rgba(120,100,160,.15) 92%);display:grid;place-items:center}
+         #forecast-variations .forecast-dial>div{width:122px;height:122px;border-radius:50%;background:var(--extra-bg);display:flex;flex-direction:column;align-items:center;justify-content:center}#forecast-variations .forecast-dial strong{font:800 32px "Plus Jakarta Sans",sans-serif}#forecast-variations .forecast-dial small,#forecast-variations .forecast-dial span{font-size:9px}
+         #forecast-variations .forecast-tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:14px}#forecast-variations .forecast-tiles>div{background:rgba(255,255,255,.65);padding:10px;border-radius:8px;display:flex;flex-direction:column;gap:3px}#forecast-variations .forecast-tiles .future{background:#d0eee0}#forecast-variations .forecast-tiles small{font-size:8px;letter-spacing:.08em}#forecast-variations .forecast-tiles strong{font:800 20px "Plus Jakarta Sans",sans-serif}#forecast-variations .forecast-tiles span{font-size:9px;color:#246d57}
+         #forecast-variations .forecast-split .variation-chart{height:185px}#forecast-variations .forecast-lollipop .variation-chart{border-bottom:2px solid var(--extra-accent)}
+         @media(max-width:650px){#forecast-variations .variation-grid{grid-template-columns:1fr}#forecast-variations .variation-card:last-child{grid-column:auto}}
+        </style>
+        <div id="forecast-variations" aria-label="Revenue outlook graph variations">
+         <h4>More ways to view the forecast</h4>
+         <p class="variation-intro">One April–September revenue story, thirteen distinct ways to read it: compare exact values, inspect momentum, or scan the outlook. Projected months are labeled or visually separated.</p>
+         <div class="variation-grid">
+          <div class="variation-card">
+           <p class="variation-title">01 / Column comparison</p>
+           <p class="variation-caption">Solid actuals · outlined projections</p>
+           <div class="variation-chart">
+            <canvas id="forecast-columns" role="img" aria-label="Revenue columns: actual April 38, May 43, June 49, July 55 thousand dollars; projected August 62 and September 69 thousand dollars"></canvas>
+           </div>
+          </div>
+          <div class="variation-card">
+           <p class="variation-title">02 / Stepped trajectory</p>
+           <p class="variation-caption">A crisp, editorial view of month-to-month growth</p>
+           <div class="variation-chart">
+            <canvas id="forecast-steps" role="img" aria-label="Stepped revenue chart rising from 38 thousand dollars in April to a projected 69 thousand dollars in September"></canvas>
+           </div>
+          </div>
+          <div class="variation-card">
+           <p class="variation-title">03 / Growth from baseline</p>
+           <p class="variation-caption">Incremental lift above April’s $38k starting point</p>
+           <div class="variation-chart">
+            <canvas id="forecast-lift" role="img" aria-label="Revenue lift above April: May 5, June 11, July 17, projected August 24 and September 31 thousand dollars"></canvas>
+           </div>
+          </div>
+         </div>
+        </div>
+        <script>
+         (()=>{
+          const labels=['Apr','May','Jun','Jul','Aug','Sep'];
+          const base={responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>'$'+ctx.parsed.y+'k'}}},scales:{x:{grid:{display:false},border:{display:false}},y:{min:0,grid:{color:'#e8eee8'},border:{display:false},ticks:{callback:v=>'$'+v+'k'}}}};
+          new Chart(document.getElementById('forecast-columns'),{type:'bar',data:{labels,datasets:[{data:[38,43,49,55,null,null],backgroundColor:'#246d57',borderRadius:5,barPercentage:.6},{data:[null,null,null,null,62,69],backgroundColor:'rgba(242,115,93,.13)',borderColor:'#f2735d',borderWidth:2,borderRadius:5,barPercentage:.6}]},options:base});
+          new Chart(document.getElementById('forecast-steps'),{type:'line',data:{labels,datasets:[{data:[38,43,49,55,null,null],borderColor:'#246d57',backgroundColor:'rgba(165,219,198,.3)',fill:true,stepped:'middle',pointRadius:3,borderWidth:2.5},{data:[null,null,null,55,62,69],borderColor:'#f2735d',borderDash:[5,4],stepped:'middle',pointRadius:4,pointBackgroundColor:'#f2735d',borderWidth:2.5}]},options:base});
+          new Chart(document.getElementById('forecast-lift'),{type:'bar',data:{labels,datasets:[{data:[0,5,11,17,null,null],backgroundColor:'#a5dbc6',borderRadius:5,barPercentage:.55},{data:[null,null,null,null,24,31],backgroundColor:'#f2735d',borderRadius:5,barPercentage:.55}]},options:{...base,plugins:{...base.plugins,tooltip:{callbacks:{label:ctx=>'+$'+ctx.parsed.y+'k vs Apr'}}},scales:{...base.scales,y:{...base.scales.y,ticks:{callback:v=>'+$'+v+'k'}}}}});
+          const treatments=[
+           {title:'04 / Forecast ribbon',caption:'Actual line framed by a projected range',kind:'ribbon',bg:'#f1f7ed',accent:'#246d57'},
+           {title:'05 / Horizon strips',caption:'Six compact columns emphasize month-by-month pace',kind:'bars',bg:'#172c28',accent:'#a5dbc6',dark:true},
+           {title:'06 / Change ledger',caption:'A precise editorial readout of every monthly shift',kind:'ledger',bg:'#faf8f3',accent:'#d35449'},
+           {title:'07 / Lollipop sequence',caption:'Open stems put each monthly value in focus',kind:'lollipop',bg:'#eaf6f8',accent:'#278ea2'},
+           {title:'08 / Target dial',caption:'September outlook as a share of a $75k target',kind:'dial',bg:'#f5f0fc',accent:'#7455b4'},
+           {title:'09 / Growth staircase',caption:'The forecast as a sequence of discrete steps',kind:'steps',bg:'#f4f6e6',accent:'#788f28'},
+           {title:'10 / Delta waterfall',caption:'How each month adds to the April baseline',kind:'waterfall',bg:'#fbefe8',accent:'#a65f47'},
+           {title:'11 / Range bands',caption:'A compact interval view for actuals and outlook',kind:'ranges',bg:'#f1f7ff',accent:'#397bb6'},
+           {title:'12 / Split comparison',caption:'Actual and projected months in separate lanes',kind:'split',bg:'#422d3a',accent:'#ffafbd',dark:true},
+           {title:'13 / Growth tiles',caption:'A typographic grid for scanning exact values',kind:'tiles',bg:'#e9f5ef',accent:'#168c79'}
+          ];
+          const gallery=document.querySelector('#forecast-variations .variation-grid');
+          const values=[38,43,49,55,62,69];
+          treatments.forEach((style,i)=>{
+           const card=document.createElement('article');
+           card.className='forecast-extra forecast-'+style.kind;
+           card.style.setProperty('--extra-bg',style.bg);
+           card.style.setProperty('--extra-border',style.bg);
+           card.style.setProperty('--extra-ink',style.dark?'#fff':'#202522');
+           card.style.setProperty('--extra-muted',style.dark?'#b6c7bb':'#747b76');
+           card.style.setProperty('--extra-accent',style.accent);
+           const head=`<span class="forecast-kicker">Revenue · Apr—Sep</span><h4 class="variation-title">${style.title}</h4><p class="variation-caption">${style.caption}</p>`;
+           let visual='';
+           if(style.kind==='ledger') visual=`<div class="forecast-ledger">${labels.map((m,n)=>`<div><span>${m} <small>${n>3?'EST':'ACT'}</small></span><strong>$${values[n]}k</strong><em>${n?'+'+(values[n]-values[n-1])+'k':'BASE'}</em></div>`).join('')}</div>`;
+           else if(style.kind==='dial') visual=`<div class="forecast-dial" role="img" aria-label="September projected revenue 69 thousand dollars, 92 percent of 75 thousand dollar target"><div><small>SEP FORECAST</small><strong>$69k</strong><span>92% of $75k goal</span></div></div>`;
+           else if(style.kind==='tiles') visual=`<div class="forecast-tiles">${labels.map((m,n)=>`<div class="${n>3?'future':''}"><small>${m} · ${n>3?'PROJ':'ACTUAL'}</small><strong>$${values[n]}k</strong><span>${n?'↑ +$'+(values[n]-values[n-1])+'k':'Starting point'}</span></div>`).join('')}</div>`;
+           else visual=`<div class="variation-chart"><canvas id="forecast-line-${i+4}" role="img" aria-label="${style.title}: April 38, May 43, June 49, July 55 thousand dollars actual; August 62 and September 69 thousand dollars projected"></canvas></div>`;
+           card.innerHTML=head+visual;
+           gallery.appendChild(card);
+           if(['ledger','dial','tiles'].includes(style.kind))return;
+           let type='bar',datasets=[],horizontal=false,stacked=false;
+           if(style.kind==='ribbon'){
+            type='line';datasets=[{label:'Forecast lower',data:[null,null,null,55,58,64],borderWidth:0,pointRadius:0},{label:'Forecast upper',data:[null,null,null,55,66,74],borderWidth:0,pointRadius:0,fill:'-1',backgroundColor:'rgba(36,109,87,.17)'},{label:'Actual',data:[38,43,49,55,null,null],borderColor:style.accent,borderWidth:3,pointRadius:4,tension:.35},{label:'Projection',data:[null,null,null,55,62,69],borderColor:'#d79946',borderDash:[5,4],borderWidth:3,pointRadius:4,tension:.35}];
+           }else if(style.kind==='steps'){
+            type='line';datasets=[{label:'Actual',data:[38,43,49,55,null,null],borderColor:style.accent,stepped:'after',borderWidth:3,pointRadius:4},{label:'Projection',data:[null,null,null,55,62,69],borderColor:'#dc7b2a',stepped:'after',borderDash:[5,4],borderWidth:3,pointRadius:4}];
+           }else if(style.kind==='lollipop'){
+            type='bar';datasets=[{label:'Revenue',data:values,backgroundColor:values.map((_,n)=>n>3?'#f18c68':style.accent),barThickness:3,pointStyle:'circle'}];
+           }else if(style.kind==='waterfall'){
+            datasets=[{label:'Revenue',data:[[0,38],[38,43],[43,49],[49,55],[55,62],[62,69]],backgroundColor:values.map((_,n)=>n>3?'#df9a56':style.accent),borderRadius:4,barPercentage:.55}];
+           }else if(style.kind==='ranges'){
+            horizontal=true;datasets=[{label:'Revenue interval',data:[[36,40],[41,45],[47,51],[53,57],[58,66],[64,74]],backgroundColor:values.map((_,n)=>n>3?'#f18c68':style.accent),borderRadius:10,barThickness:12}];
+           }else if(style.kind==='split'){
+            horizontal=true;datasets=[{label:'Actual',data:[38,43,49,55,null,null],backgroundColor:style.accent,borderRadius:5,barThickness:15},{label:'Projected',data:[null,null,null,null,62,69],backgroundColor:'#f3ce84',borderRadius:5,barThickness:15}];
+           }else{datasets=[{label:'Actual',data:[38,43,49,55,null,null],backgroundColor:style.accent,borderRadius:2,barPercentage:.65},{label:'Projected',data:[null,null,null,null,62,69],backgroundColor:'#f3ce84',borderColor:'#f3ce84',borderWidth:2,borderRadius:2,barPercentage:.65}];}
+           new Chart(document.getElementById('forecast-line-'+(i+4)),{type,data:{labels,datasets},options:{indexAxis:horizontal?'y':'x',responsive:true,maintainAspectRatio:false,interaction:{intersect:false,mode:'index'},plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': $'+(Array.isArray(ctx.raw)?ctx.raw.join('–'):ctx.raw)+'k'}}},scales:{x:{grid:{display:horizontal,color:'rgba(110,120,110,.16)'},border:{display:false},ticks:{color:style.dark?'#b6c7bb':'#747b76',font:{size:10}}},y:{min:horizontal?undefined:0,max:horizontal?undefined:80,grid:{color:'rgba(110,120,110,.16)'},border:{display:false},ticks:{color:style.dark?'#b6c7bb':'#747b76',font:{size:10},callback:v=>horizontal?v:'$'+v+'k'}}}}});
+          });
+         })();
+        </script>
+       </div>
+</div>
+<script>
+Chart.defaults.font.family='"DM Sans", sans-serif';
+Chart.defaults.font.size=11;
+Chart.defaults.color='#838d85';
+const axis={grid:{color:'#edf0e9'},border:{display:false},ticks:{padding:9}};
+const noGrid={grid:{display:false},border:{display:false},ticks:{padding:9}};
+new Chart(document.getElementById('forecast-chart'),{
+      type:'line',data:{labels:['Apr','May','Jun','Jul','Aug','Sep'],datasets:[
+        {label:'Actual',data:[38,43,49,55,null,null],borderColor:'#246d57',backgroundColor:'rgba(36,109,87,.09)',fill:true,tension:.35,pointRadius:4,borderWidth:2.5},
+        {label:'Projection',data:[null,null,null,55,62,69],borderColor:'#f2735d',borderDash:[6,5],tension:.35,pointRadius:4,borderWidth:2.5}
+      ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{usePointStyle:true,boxWidth:8,padding:18}}},scales:{x:noGrid,y:{...axis,ticks:{callback:v=>'$'+v+'k',padding:9}}}}
+    });
+</script>

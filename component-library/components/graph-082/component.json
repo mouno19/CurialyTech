@@ -1,0 +1,79 @@
+{
+  "id": "graph-082",
+  "name": "Particle-Based Visualization",
+  "description": "Particle scatter: Clusters of luminous points encode two-dimensional observations. Particle size reflects magnitude, while color separates two cohorts and reference axes preserve analytical context.",
+  "category": "data-visualization",
+  "batch": "experimental-charts",
+  "collection": "Future Forms",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "scatter",
+    "correlation",
+    "statistics",
+    "distribution",
+    "conversion",
+    "funnel",
+    "retention",
+    "user-analytics",
+    "text-analytics",
+    "experimental",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-experimental"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-renderer"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "atlas-experimental",
+    "mode": "dark",
+    "colors": {
+      "#9b8cff": "accent",
+      "#48dcd2": "series2"
+    }
+  },
+  "source": {
+    "file": "atlas/08_experimental_charts_081_090.html",
+    "ref": "graphs[1]"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "c0bdcdb92abe6d4c",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

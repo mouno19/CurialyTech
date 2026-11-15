@@ -1,0 +1,79 @@
+{
+  "id": "graph-027-alt",
+  "name": "Financial Comparison Chart",
+  "description": "grouped: Compare budget with actual spend across departments. Style: Executive finance dashboard.",
+  "category": "data-visualization",
+  "batch": "financial-charts",
+  "collection": "Essential Data Visualization",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "finance",
+    "accounting",
+    "budget",
+    "comparison",
+    "financial",
+    "light-theme"
+  ],
+  "capabilities": [
+    "interactive",
+    "tooltips",
+    "responsive",
+    "keyboard",
+    "accessible",
+    "multiple-series"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-essentials"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-generator"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "atlas-essentials",
+    "mode": "light",
+    "colors": {
+      "#688db2": "series1",
+      "#58dbc2": "series2"
+    }
+  },
+  "variant_of": "graph-027",
+  "source": {
+    "file": "atlas/01_essential_charts_001_020.html",
+    "ref": "finance[6]"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "1e8a62e3df4d1205",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

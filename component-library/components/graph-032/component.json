@@ -1,0 +1,91 @@
+{
+  "id": "graph-032",
+  "name": "Donut Chart",
+  "description": "CENTER METRIC: Frame composition around a prominent total. Style: Holographic dashboard: a bright annular ring surrounds a large central aggregate..",
+  "category": "data-visualization",
+  "batch": "circular-radial-charts",
+  "collection": "Circular Atlas",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "pie-chart",
+    "composition",
+    "share",
+    "proportion",
+    "radial",
+    "circular",
+    "network",
+    "relationships",
+    "graph",
+    "events",
+    "monitoring",
+    "operations",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "interactive",
+    "tooltips",
+    "responsive",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "package",
+      "name": "echarts",
+      "version": "5.5.1"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-circular"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-generator"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "atlas-circular",
+    "mode": "dark",
+    "colors": {
+      "#9fb0be": "series6",
+      "#111722": "surface",
+      "#73dfff": "series1",
+      "#6979ec": "series2",
+      "#c4a3ff": "series3"
+    }
+  },
+  "source": {
+    "file": "atlas/03_circular_radial_charts_031_040.html",
+    "ref": "defs[1]"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "8ac872794b27e0b6",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

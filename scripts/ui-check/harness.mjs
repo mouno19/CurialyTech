@@ -142,6 +142,8 @@ export function buildPlan(fx, { viewports = VIEWPORTS, only = null } = {}) {
     if (preview) checks.push({ id: "task-preview-export", path: `/tasks/${preview.id}`, scenario: "preview", task: true, viewport, phone, action: "export-overwrite" });
     if (fx.redeployTaskId) checks.push({ id: "task-redeploy", path: `/tasks/${fx.redeployTaskId}`, scenario: "redeploy", task: true, viewport, phone });
     checks.push({ id: "dashboard-starters", path: "/", viewport, phone, action: "starters" });
+    // The tools a task may use: the composer's picker, opened.
+    checks.push({ id: "dashboard-tools", path: "/", viewport, phone, action: "tools-picker" });
     // A free account: the credits meter and the dashboard's credits line.
     checks.push({ id: "dashboard-free", path: "/", viewport, phone, account: "free" });
     // Web search: an answer's Sources opened, and a live search's full list.

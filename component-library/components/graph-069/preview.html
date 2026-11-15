@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3D Bar Chart · graph-069</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>html,body{margin:0;background:#090e15;min-height:100%}#root{padding:24px;max-width:1100px;margin:0 auto}</style>
+<script type="importmap">{"imports":{"react":"https://esm.sh/react@18.3.1","react/jsx-runtime":"https://esm.sh/react@18.3.1/jsx-runtime","react-dom/client":"https://esm.sh/react-dom@18.3.1/client?deps=react@18.3.1","chart.js/auto":"https://esm.sh/chart.js@4.4.8/auto","chart.js":"https://esm.sh/chart.js@4.4.8","echarts":"https://esm.sh/echarts@5.5.1","d3":"https://esm.sh/d3@7.9.0","d3-sankey":"https://esm.sh/d3-sankey@0.12.3?deps=d3-array@3.2.4,d3-shape@3.2.0","leaflet":"https://esm.sh/leaflet@1.9.4","three":"https://esm.sh/three@0.160.1"}}</script>
+</head><body><div id="root" data-component="graph-069"></div>
+<script type="module">
+import React from "react";
+const e = React.createElement;
+const C = { bg: "#0b141d", grid: "#263b48", text: "#90a9b8", cyan: "#6ae0df", blue: "#5c95e8", orange: "#ffb674", pink: "#e782aa" };
+const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+function color(t) {
+  t = clamp(t);
+  const stops = [[15, 36, 63], [36, 105, 141], [61, 177, 171], [198, 218, 138], [255, 181, 102]];
+  let p = t * 4, i = Math.min(3, Math.floor(p)), f = p - i;
+  return `rgb(${stops[i].map((v, j) => Math.round(lerp(v, stops[i + 1][j], f))).join(",")})`;
+}
+function Svg({ children }) {
+  return e("svg", { viewBox: "0 0 440 230", role: "img", style: { overflow: "visible" }, preserveAspectRatio: "xMidYMid meet" }, children);
+}
+function T(x, y, text, extra = {}) {
+  return e("text", { x, y, fill: C.text, fontSize: 9, fontFamily: "IBM Plex Mono, monospace", ...extra }, text);
+}
+function L(x1, y1, x2, y2, stroke = C.grid, width = 1) {
+  return e("line", { x1, y1, x2, y2, stroke, strokeWidth: width });
+}
+function project(x, y, z) {
+  return [218 + (x - y) * 67, 174 + (x + y) * 25 - z * 92];
+}
+function axes3D() {
+  let o = project(-1, -1, 0), xx = project(1, -1, 0), yy = project(-1, 1, 0), zz = project(-1, -1, 1);
+  return e(React.Fragment, null, L(...o, ...xx, "#7495a4"), L(...o, ...yy, "#7495a4"), L(...o, ...zz, "#7495a4"), T(xx[0] + 8, xx[1] + 3, "X"), T(yy[0] - 12, yy[1] + 3, "Y"), T(zz[0] - 8, zz[1] - 5, "Z"));
+}
+function Bar3D() {
+  let bars = [];
+  for (let j = 3; j >= 0; j--) for (let i = 0; i < 5; i++) {
+    let z = 0.14 + 0.7 * clamp(0.5 + 0.35 * Math.sin(i * 0.9 + j * 0.65));
+    let x = -0.85 + i * 0.39, y = -0.75 + j * 0.39, d = 0.25;
+    let a = project(x, y, 0), b = project(x + d, y, 0), c = project(x + d, y + d, 0), f = project(x, y + d, 0), at = project(x, y, z), bt = project(x + d, y, z), ct = project(x + d, y + d, z), ft = project(x, y + d, z);
+    let poly = (points, fill, key) => e("polygon", { key, points: points.map((p) => p.join(",")).join(" "), fill, stroke: "#0b2632", strokeWidth: 0.8 });
+    bars.push(e("g", { key: `${i}-${j}` }, poly([b, c, ct, bt], color(z * 0.75), 1), poly([f, c, ct, ft], color(z * 0.6), 2), poly([at, bt, ct, ft], color(z), 3), poly([a, b, bt, at], color(z * 0.85), 4)));
+  }
+  return e(Svg, null, e(React.Fragment, null, axes3D(), bars, T(17, 19, "5 \xD7 4 bins  \u2022  height = response")));
+}
+const styles = `
+    .cx-atlas-scientific{--bg:#090e15;--panel:#101923;--panel2:#141f2b;--line:#263440;--muted:#8da0af;--text:#eaf2f5;--cyan:#6ae0df;--blue:#5c95e8;--orange:#ffb674}
+    .cx-atlas-scientific *,.cx-atlas-scientific{box-sizing:border-box}.cx-atlas-scientific{scroll-behavior:smooth}.cx-atlas-scientific,.cx-atlas-scientific button{font-family:"DM Sans",sans-serif}.cx-atlas-scientific{margin:0;background:var(--bg);color:var(--text)}.cx-atlas-scientific button{cursor:pointer}.cx-atlas-scientific button:focus-visible,.cx-atlas-scientific a:focus-visible{outline:2px solid var(--cyan);outline-offset:3px}.cx-atlas-scientific code,.cx-atlas-scientific pre,.cx-atlas-scientific .mono{font-family:"IBM Plex Mono",monospace}
+    .cx-atlas-scientific .shell{display:grid;grid-template-columns:224px minmax(0,1fr);min-height:100vh}.cx-atlas-scientific .sidebar{position:sticky;top:0;height:100vh;padding:28px 16px;border-right:1px solid var(--line);background:#0c131c;overflow:auto}.cx-atlas-scientific .brand{display:flex;align-items:center;gap:11px;padding:0 10px 27px;border-bottom:1px solid var(--line)}.cx-atlas-scientific .brand-mark{width:33px;height:33px;border:1px solid var(--cyan);border-radius:9px;display:grid;place-items:center;color:var(--cyan);font:600 20px "IBM Plex Mono",monospace}.cx-atlas-scientific .brand strong{display:block;font-size:13px;letter-spacing:.03em}.cx-atlas-scientific .brand small{display:block;margin-top:3px;color:var(--muted);font-size:10px;letter-spacing:.13em}.cx-atlas-scientific .side-label{font:500 10px "IBM Plex Mono",monospace;letter-spacing:.15em;color:#738b99;margin:27px 10px 13px}.cx-atlas-scientific .nav-item{display:flex;width:100%;align-items:center;gap:11px;text-align:left;background:transparent;border:1px solid transparent;border-radius:7px;color:#a6b5bf;padding:10px;margin:2px 0;font-size:12px}.cx-atlas-scientific .nav-item:hover,.cx-atlas-scientific .nav-item.active{background:#172631;color:var(--text)}.cx-atlas-scientific .nav-item.active{border-color:#2c5260}.cx-atlas-scientific .nav-item .num{font:500 10px "IBM Plex Mono",monospace;color:var(--cyan);min-width:28px}.cx-atlas-scientific .side-foot{margin:28px 10px;font:10px/1.7 "IBM Plex Mono",monospace;color:#657e8d}
+    .cx-atlas-scientific .main{min-width:0;padding:32px clamp(20px,3.5vw,60px) 70px;max-width:1600px;width:100%;margin:auto}.cx-atlas-scientific .eyebrow{font:500 11px "IBM Plex Mono",monospace;color:var(--cyan);letter-spacing:.17em;text-transform:uppercase}.cx-atlas-scientific .top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start}.cx-atlas-scientific .top h1{font-size:clamp(29px,3vw,44px);letter-spacing:-.045em;margin:12px 0 9px}.cx-atlas-scientific .top p{color:var(--muted);margin:0;max-width:650px;font-size:14px;line-height:1.6}.cx-atlas-scientific .edition{border:1px solid var(--line);padding:9px 12px;border-radius:6px;white-space:nowrap;color:#9ab0bd;font:10px "IBM Plex Mono",monospace}.cx-atlas-scientific .rule{height:1px;background:var(--line);margin:29px 0 27px}.cx-atlas-scientific .section-heading{display:flex;justify-content:space-between;align-items:center;margin-bottom:17px}.cx-atlas-scientific .section-heading h2{font-size:15px;margin:0}.cx-atlas-scientific .section-heading span{font:11px "IBM Plex Mono",monospace;color:var(--muted)}
+    .cx-atlas-scientific .gallery{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px}.cx-atlas-scientific .graph-card{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;text-align:left;color:inherit;padding:0;width:100%;transition:border-color .2s,transform .2s}.cx-atlas-scientific .graph-card:hover{transform:translateY(-2px);border-color:#557b89}.cx-atlas-scientific .graph-card.active{border-color:var(--cyan);box-shadow:0 0 0 1px #2b6a71}.cx-atlas-scientific .card-top{display:flex;align-items:center;justify-content:space-between;padding:17px 18px 0}.cx-atlas-scientific .id{font:600 10px "IBM Plex Mono",monospace;color:var(--cyan);letter-spacing:.09em}.cx-atlas-scientific .kind{font:10px "IBM Plex Mono",monospace;color:#7d96a5}.cx-atlas-scientific .preview{height:213px;padding:9px 13px 0}.cx-atlas-scientific .preview svg{width:100%;height:100%;display:block}.cx-atlas-scientific .card-bottom{border-top:1px solid var(--line);padding:13px 18px 16px}.cx-atlas-scientific .card-bottom h3{margin:0 0 5px;font-size:15px}.cx-atlas-scientific .card-bottom p{margin:0;color:var(--muted);font-size:11px;line-height:1.5}
+    .cx-atlas-scientific .inspector{margin-top:37px;border:1px solid #36525e;border-radius:11px;background:var(--panel);overflow:hidden}.cx-atlas-scientific .inspector-head{padding:22px 25px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:18px;align-items:start}.cx-atlas-scientific .inspector-head h2{margin:8px 0 5px;font-size:24px;letter-spacing:-.025em}.cx-atlas-scientific .inspector-head p{margin:0;color:var(--muted);font-size:12px}.cx-atlas-scientific .badge{border:1px solid #36616b;border-radius:4px;color:var(--cyan);padding:7px 9px;font:10px "IBM Plex Mono",monospace;white-space:nowrap}.cx-atlas-scientific .tabs{display:flex;gap:3px;padding:10px 20px 0;border-bottom:1px solid var(--line);overflow:auto}.cx-atlas-scientific .tab{border:0;background:none;color:var(--muted);padding:11px 13px;font-size:12px;white-space:nowrap;border-bottom:2px solid transparent}.cx-atlas-scientific .tab.active{color:var(--cyan);border-bottom-color:var(--cyan)}.cx-atlas-scientific .inspector-body{padding:24px}.cx-atlas-scientific .overview{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(250px,1fr);gap:24px}.cx-atlas-scientific .large-preview{min-height:330px;background:#0b141d;border:1px solid var(--line);border-radius:8px;padding:16px}.cx-atlas-scientific .large-preview svg{width:100%;height:300px}.cx-atlas-scientific .info h3{font-size:11px;letter-spacing:.12em;color:var(--cyan);text-transform:uppercase;margin:2px 0 10px}.cx-atlas-scientific .info p{font-size:13px;color:#bdcbd2;line-height:1.65;margin:0 0 22px}.cx-atlas-scientific .token-list{display:grid;gap:8px}.cx-atlas-scientific .token{display:flex;justify-content:space-between;gap:15px;padding:9px 0;border-bottom:1px solid var(--line);font:11px "IBM Plex Mono",monospace}.cx-atlas-scientific .token span:first-child{color:var(--muted)}.cx-atlas-scientific .code-wrap{position:relative}.cx-atlas-scientific .copy{position:absolute;right:12px;top:12px;background:#203744;color:var(--cyan);border:1px solid #39616a;border-radius:5px;padding:7px 11px;font:10px "IBM Plex Mono",monospace}.cx-atlas-scientific .code{background:#0a121a;border:1px solid var(--line);border-radius:7px;color:#b9dae0;padding:22px;overflow:auto;max-height:480px;font-size:11px;line-height:1.7;white-space:pre}.cx-atlas-scientific .note{color:var(--muted);font-size:11px;margin-top:11px;line-height:1.6}.cx-atlas-scientific .footer{color:#6e8795;font:10px "IBM Plex Mono",monospace;margin-top:28px;display:flex;justify-content:space-between;gap:10px}
+    @media(max-width:900px){.cx-atlas-scientific .shell{grid-template-columns:1fr}.cx-atlas-scientific .sidebar{position:relative;height:auto;border-right:0;border-bottom:1px solid var(--line);padding:15px}.cx-atlas-scientific .brand{padding-bottom:12px}.cx-atlas-scientific .side-label,.cx-atlas-scientific .side-foot{display:none}.cx-atlas-scientific .nav-list{display:flex;overflow:auto;gap:4px;margin-top:10px}.cx-atlas-scientific .nav-item{width:auto;white-space:nowrap}.cx-atlas-scientific .nav-item .num{min-width:auto}.cx-atlas-scientific .main{padding:25px 18px 50px}}@media(max-width:650px){.cx-atlas-scientific .gallery,.cx-atlas-scientific .overview{grid-template-columns:1fr}.cx-atlas-scientific .edition{display:none}.cx-atlas-scientific .inspector-body{padding:15px}.cx-atlas-scientific .preview{height:225px}.cx-atlas-scientific .inspector-head{padding:18px}}
+  `;
+const __entry = function DBarChart({ className = "", style }) {
+  return React.createElement("div", { className: `cx-atlas-scientific ${className}`.trim(), style }, React.createElement("style", null, styles), React.createElement(Bar3D));
+};
+
+import { createRoot as __createRoot } from "react-dom/client";
+import { createElement as __h } from "react";
+__createRoot(document.getElementById("root")).render(__h(__entry));
+</script></body></html>

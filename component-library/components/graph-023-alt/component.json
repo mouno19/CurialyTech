@@ -1,0 +1,82 @@
+{
+  "id": "graph-023-alt",
+  "name": "Stock Market Performance Chart",
+  "description": "line: Benchmark a fictional stock against a fictional market index. Style: Premium market intelligence.",
+  "category": "data-visualization",
+  "batch": "financial-charts",
+  "collection": "Essential Data Visualization",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "finance",
+    "market",
+    "stock",
+    "comparison",
+    "time-series",
+    "line-chart",
+    "trend",
+    "financial",
+    "light-theme"
+  ],
+  "capabilities": [
+    "interactive",
+    "tooltips",
+    "responsive",
+    "keyboard",
+    "accessible",
+    "multiple-series"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-essentials"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-generator"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "atlas-essentials",
+    "mode": "light",
+    "colors": {
+      "#65e0bc": "series1",
+      "#91a4fa": "series2"
+    }
+  },
+  "variant_of": "graph-023",
+  "source": {
+    "file": "atlas/01_essential_charts_001_020.html",
+    "ref": "finance[2]"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "059e10869aefa5b5",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

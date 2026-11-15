@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Organic Flowing Data Visualization · graph-088</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>html,body{margin:0;background:#070b15;min-height:100%}#root{padding:24px;max-width:1100px;margin:0 auto}</style>
+<script type="importmap">{"imports":{"react":"https://esm.sh/react@18.3.1","react/jsx-runtime":"https://esm.sh/react@18.3.1/jsx-runtime","react-dom/client":"https://esm.sh/react-dom@18.3.1/client?deps=react@18.3.1","chart.js/auto":"https://esm.sh/chart.js@4.4.8/auto","chart.js":"https://esm.sh/chart.js@4.4.8","echarts":"https://esm.sh/echarts@5.5.1","d3":"https://esm.sh/d3@7.9.0","d3-sankey":"https://esm.sh/d3-sankey@0.12.3?deps=d3-array@3.2.4,d3-shape@3.2.0","leaflet":"https://esm.sh/leaflet@1.9.4","three":"https://esm.sh/three@0.160.1"}}</script>
+</head><body><div id="root" data-component="graph-088"></div>
+<script type="module">
+import { jsx } from "react/jsx-runtime";
+import React from "react";
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const txt = (x, y, s, size = 11, color = "#91a8bd", anchor = "start", extra = "") => `<text x="${x}" y="${y}" fill="${color}" font-family="JetBrains Mono, monospace" font-size="${size}" text-anchor="${anchor}" ${extra}>${esc(s)}</text>`;
+function preview(g) {
+  const a = g.accent, b = g.secondary, id = "g" + g.n, v = g.data;
+  let s = `<svg viewBox="0 0 640 380" role="img" aria-labelledby="${id}-title ${id}-desc" preserveAspectRatio="xMidYMid meet"><title id="${id}-title">${esc(g.name)}</title><desc id="${id}-desc">${esc(g.encoding)} ${esc(g.spec)}.</desc><defs><linearGradient id="${id}-grad" x1="0" y1="0" x2="0" y2="1"><stop stop-color="${a}" stop-opacity=".68"/><stop offset="1" stop-color="${b}" stop-opacity=".07"/></linearGradient><linearGradient id="${id}-bar" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff" stop-opacity=".45"/><stop offset=".3" stop-color="${a}" stop-opacity=".82"/><stop offset="1" stop-color="${b}" stop-opacity=".38"/></linearGradient><filter id="${id}-glow"><feGaussianBlur stdDeviation="7"/></filter></defs><rect width="640" height="380" fill="${g.tokens.surface}"/><circle cx="470" cy="110" r="175" fill="${a}" opacity=".035"/>`;
+  s += txt(30, 37, g.spec.toUpperCase(), 10, "#b9cede") + txt(610, 37, `GRAPH-${g.n}`, 10, a, "end");
+  const grid = () => {
+    let z = "";
+    for (let i = 0; i < 5; i++) {
+      let y = 85 + i * 55;
+      z += `<line x1="65" y1="${y}" x2="605" y2="${y}" stroke="${g.tokens.grid}" opacity=".55" stroke-dasharray="3 6"/>${txt(51, y + 4, (100 - i * 25).toString(), 10, "#728aa0", "end")}`;
+    }
+    return z;
+  };
+  const pointPath = (arr, x0 = 75, xstep = 70, base = 305, scale = 2.2) => arr.map((d, i) => `${i ? "L" : "M"}${x0 + i * xstep},${base - d * scale}`).join(" ");
+  if ([81, 83, 84, 85, 86, 88].includes(g.n)) s += grid();
+  if (g.n === 81) {
+    let p = pointPath(v, 75, 74, 305, 2.3);
+    s += `<path d="${p} L593,305 L75,305 Z" fill="url(#${id}-grad)"/><path d="${p}" fill="none" stroke="${a}" stroke-width="3" stroke-linejoin="round"/><path d="${p}" fill="none" stroke="${a}" opacity=".45" stroke-width="12" filter="url(#${id}-glow)"/>`;
+    v.forEach((d, i) => s += `<circle cx="${75 + i * 74}" cy="${305 - d * 2.3}" r="${i === 7 ? 6 : 3}" fill="${a}" stroke="#0a1a25" stroke-width="2"/>`);
+    s += txt(586, 94, "84 kL", 20, "#e5fffa", "end");
+  }
+  if (g.n === 82) {
+    s += `<line x1="70" y1="310" x2="590" y2="310" stroke="#4a5276"/><line x1="70" y1="70" x2="70" y2="310" stroke="#4a5276"/>`;
+    for (let i = 0; i < 5; i++) s += `<line x1="${70 + i * 130}" y1="75" x2="${70 + i * 130}" y2="310" stroke="#353454" stroke-dasharray="2 7"/>`;
+    v.forEach((d) => {
+      let x = 70 + d.x * 5.2, y = 310 - d.y * 2.35, c = d.g ? b : a;
+      s += `<circle cx="${x}" cy="${y}" r="${d.v + 5}" fill="${c}" opacity=".15" filter="url(#${id}-glow)"/><circle cx="${x}" cy="${y}" r="${d.v * 0.7}" fill="${c}" fill-opacity=".68" stroke="${c}" stroke-width="1.5"/>`;
+    });
+    s += txt(80, 350, "VELOCITY \u2192", 10) + txt(590, 350, "\u25CF A   \u25CF B", 11, a, "end");
+  }
+  if (g.n === 83) {
+    let p = pointPath(v, 70, 34, 296, 2.45), q = pointPath(v.map((d, i) => d * 0.55 + 12 + Math.sin(i) * 9), 70, 34, 296, 2.45);
+    s += `<path d="${q}" fill="none" stroke="${b}" stroke-width="2" opacity=".65"/><path d="${p}" fill="none" stroke="${a}" stroke-width="3"/><path d="${p}" fill="none" stroke="${a}" stroke-width="12" opacity=".55" filter="url(#${id}-glow)"/>`;
+  }
+  if (g.n === 84) {
+    let colors = [a, b, "#63e6aa"];
+    v.forEach((row, j) => {
+      let p = pointPath(row, 80, 95, 302 - j * 15, 2.4);
+      s += `<path d="${p}" fill="none" stroke="${colors[j]}" stroke-width="3" opacity="${1 - j * 0.12}"/><path d="${p} L555,315 L80,315 Z" fill="${colors[j]}" opacity=".045"/>${txt(569, 302 - j * 15 - row[5] * 2.4, ["CH 01", "CH 02", "CH 03"][j], 10, colors[j])}`;
+    });
+    s += `<path d="M75 310 L555 310 L600 335 L120 335 Z" fill="none" stroke="${a}" opacity=".3"/>`;
+  }
+  if (g.n === 85) {
+    v.forEach((d, i) => {
+      let x = 87 + i * 84, y = 305 - d * 2.15;
+      s += `<rect x="${x}" y="${y}" width="49" height="${d * 2.15}" rx="8" fill="url(#${id}-bar)" stroke="#d5f2ff" stroke-opacity=".5"/><rect x="${x + 6}" y="${y + 7}" width="4" height="${d * 2.15 - 15}" rx="2" fill="#fff" opacity=".25"/>${txt(x + 24, y - 12, d + "K", 11, "#eaf8ff", "middle")}${txt(x + 24, 335, g.labels[i], 10, "#9aafc5", "middle")}`;
+    });
+  }
+  if (g.n === 86) {
+    v.forEach((d, i) => {
+      let x = 83 + i * 100, h = d * 2.15, y = 305 - h, depth = 17;
+      s += `<path d="M${x} ${y} l${depth} -12 h49 l-${depth} 12 Z" fill="${b}" opacity=".8"/><path d="M${x + 49} ${y} l${depth} -12 v${h} l-${depth} 12 Z" fill="${a}" opacity=".3"/><rect x="${x}" y="${y}" width="49" height="${h}" fill="url(#${id}-bar)" stroke="${a}" stroke-opacity=".7"/>${txt(x + 23, y - 20, d + " GW", 10, "#ffe5cd", "middle")}${txt(x + 24, 339, g.labels[i], 11, "#ad9bad", "middle")}`;
+    });
+  }
+  if (g.n === 87) {
+    v.forEach((d, i) => {
+      let col = i % 3, row = Math.floor(i / 3), cx = 170 + col * 105 - row * 65, cy = 130 + col * 29 + row * 49, h = d * 1.18;
+      s += `<path d="M${cx} ${cy - h} l48 15 l-48 17 l-48 -17 Z" fill="${i % 2 ? b : a}" opacity=".8" stroke="#caffcf" stroke-opacity=".6"/><path d="M${cx - 48} ${cy - h + 15} l48 17 v${h} l-48 -17 Z" fill="${a}" opacity=".31"/><path d="M${cx} ${cy - h + 32} l48 -17 v${h} l-48 17 Z" fill="${b}" opacity=".38"/>${txt(cx, cy - h + 19, d, 11, "#09211b", "middle", "font-weight='700'")}`;
+    });
+    s += txt(390, 344, "9 REGIONS / INDEX", 10, "#a4c4b6");
+  }
+  if (g.n === 88) {
+    let colors = [a, b, "#bf9eff"], base = 310, steps = 67;
+    for (let layer = 0; layer < 3; layer++) {
+      let upper = [], lower = [];
+      for (let i = 0; i < 8; i++) {
+        let below = v.slice(0, layer).reduce((sum, r) => sum + r[i], 0);
+        lower.push([75 + i * steps, base - below * 1.75]);
+        upper.push([75 + i * steps, base - (below + v[layer][i]) * 1.75]);
+      }
+      let path = "M" + upper.map((p) => p.join(",")).join(" L") + " L" + lower.reverse().map((p) => p.join(",")).join(" L") + " Z";
+      s += `<path d="${path}" fill="${colors[layer]}" opacity=".7" stroke="${colors[layer]}" stroke-width="2"/>`;
+    }
+    s += txt(86, 350, "\u25CF SOURCE A", 10, a) + txt(240, 350, "\u25CF SOURCE B", 10, b) + txt(400, 350, "\u25CF SOURCE C", 10, "#bf9eff");
+  }
+  if (g.n === 89) {
+    let pts = [[100, 230], [172, 125], [230, 260], [295, 175], [370, 100], [435, 245], [510, 155], [560, 280]], links = [[0, 1, 2], [0, 2, 1], [1, 3, 3], [1, 4, 1], [2, 3, 2], [2, 5, 1], [3, 4, 3], [3, 5, 2], [3, 6, 2], [4, 6, 3], [5, 6, 2], [5, 7, 3], [6, 7, 1]];
+    links.forEach(([u, w, weight]) => s += `<line x1="${pts[u][0]}" y1="${pts[u][1]}" x2="${pts[w][0]}" y2="${pts[w][1]}" stroke="${weight === 3 ? a : b}" stroke-width="${weight}" opacity="${0.18 + weight * 0.15}"/>`);
+    pts.forEach((p, i) => {
+      let r = 7 + v[i] * 0.18;
+      s += `<circle cx="${p[0]}" cy="${p[1]}" r="${r + 10}" fill="${a}" opacity=".09" filter="url(#${id}-glow)"/><circle cx="${p[0]}" cy="${p[1]}" r="${r}" fill="${i % 2 ? a : b}" fill-opacity=".65" stroke="#d6edff"/><text x="${p[0]}" y="${p[1] + 3}" text-anchor="middle" fill="#071425" font-size="9" font-family="JetBrains Mono" font-weight="700">${i + 1}</text>`;
+    });
+    s += txt(420, 345, "8 NODES  /  13 LINKS", 10, "#a5bed4");
+  }
+  if (g.n === 90) {
+    s += `<circle cx="190" cy="210" r="102" fill="none" stroke="#293a41" stroke-width="15"/><circle cx="190" cy="210" r="102" fill="none" stroke="${a}" stroke-width="15" stroke-dasharray="490 641" stroke-linecap="round" transform="rotate(140 190 210)"/><circle cx="190" cy="210" r="79" fill="none" stroke="${b}" opacity=".3" stroke-dasharray="2 8"/>${txt(190, 206, "78%", 44, "#fff3bd", "middle", "font-weight='700'")}${txt(190, 232, "UTILIZATION", 10, "#a9bcba", "middle")}`;
+    let p = pointPath(v, 350, 34, 214, 1.22);
+    s += txt(340, 91, "OUTPUT TREND", 10, a) + `<path d="${p}" fill="none" stroke="${b}" stroke-width="3"/>`;
+    ["CORE", "UPLINK", "SHIELD"].forEach((label, i) => {
+      let y = 250 + i * 36, w = [86, 64, 91][i];
+      s += txt(345, y, label, 10, "#acbfbc") + `<rect x="420" y="${y - 9}" width="145" height="7" rx="3" fill="#293b41"/><rect x="420" y="${y - 9}" width="${w * 1.45}" height="7" rx="3" fill="${i === 1 ? b : a}"/>${txt(585, y, w + "%", 10, "#dcebe0", "end")}`;
+    });
+  }
+  if (![82, 85, 86, 87, 88, 89, 90].includes(g.n)) g.labels.forEach((l, i) => {
+    let x = 75 + i * (g.n === 83 ? 510 / (g.labels.length - 1) : g.n === 84 ? 95 : 74);
+    if (x < 610) s += txt(x, 345, l, 10, "#8da3b8", "middle");
+  });
+  return s + "</svg>";
+}
+const config = {
+  "n": 88,
+  "name": "Organic Flowing Data Visualization",
+  "kind": "Streamgraph",
+  "accent": "#86e7a8",
+  "secondary": "#74b9ff",
+  "desc": "Continuous flowing bands represent how three contributors change within a total. A steady timeline and separated color layers reveal both composition and overall growth.",
+  "encoding": "Band thickness = contribution; stack height = combined total.",
+  "motion": "Slow gradient travel; band boundaries stay data-true.",
+  "data": [
+    [
+      18,
+      22,
+      20,
+      26,
+      31,
+      28,
+      34,
+      38
+    ],
+    [
+      15,
+      17,
+      22,
+      20,
+      24,
+      29,
+      27,
+      31
+    ],
+    [
+      10,
+      12,
+      14,
+      18,
+      16,
+      20,
+      23,
+      25
+    ]
+  ],
+  "unit": "M",
+  "labels": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+  ],
+  "tokens": {
+    "surface": "#0c1b20",
+    "grid": "#2c4d53",
+    "glow": "#86e7a8",
+    "type": "#e0f8e8"
+  },
+  "spec": "Resource flow \xB7 8 periods",
+  "max": 100
+};
+const __entry = function OrganicFlowingDataVisualization({ config: definition = config, className = "", style }) {
+  return /* @__PURE__ */ jsx("div", { className: `cx-atlas-experimental ${className}`.trim(), style, children: /* @__PURE__ */ jsx("div", { dangerouslySetInnerHTML: { __html: preview(definition) } }) });
+};
+
+import { createRoot as __createRoot } from "react-dom/client";
+import { createElement as __h } from "react";
+__createRoot(document.getElementById("root")).render(__h(__entry));
+</script></body></html>

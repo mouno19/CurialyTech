@@ -1,0 +1,79 @@
+{
+  "id": "graph-030-alt",
+  "name": "Trading Volume Chart",
+  "description": "volume: Correlate fictional token price movement with daily trading volume. Style: Neon crypto analytics.",
+  "category": "data-visualization",
+  "batch": "financial-charts",
+  "collection": "Essential Data Visualization",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "trading",
+    "volume",
+    "market",
+    "api-monitoring",
+    "usage",
+    "financial",
+    "light-theme"
+  ],
+  "capabilities": [
+    "interactive",
+    "tooltips",
+    "responsive",
+    "keyboard",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-essentials"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-generator"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "atlas-essentials",
+    "mode": "light",
+    "colors": {
+      "#6bf1c2": "series1",
+      "#5d87e8": "series2"
+    }
+  },
+  "variant_of": "graph-030",
+  "source": {
+    "file": "atlas/01_essential_charts_001_020.html",
+    "ref": "finance[9]"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "64bcd0499fdfd6a1",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

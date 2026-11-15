@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Route Flow Map · graph-054</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>html,body{margin:0;background:#080e18;min-height:100%}#root{padding:24px;max-width:1100px;margin:0 auto}</style>
+<script type="importmap">{"imports":{"react":"https://esm.sh/react@18.3.1","react/jsx-runtime":"https://esm.sh/react@18.3.1/jsx-runtime","react-dom/client":"https://esm.sh/react-dom@18.3.1/client?deps=react@18.3.1","chart.js/auto":"https://esm.sh/chart.js@4.4.8/auto","chart.js":"https://esm.sh/chart.js@4.4.8","echarts":"https://esm.sh/echarts@5.5.1","d3":"https://esm.sh/d3@7.9.0","d3-sankey":"https://esm.sh/d3-sankey@0.12.3?deps=d3-array@3.2.4,d3-shape@3.2.0","leaflet":"https://esm.sh/leaflet@1.9.4","three":"https://esm.sh/three@0.160.1"}}</script>
+</head><body><div id="root" data-component="graph-054"></div>
+<script type="module">
+import { jsx } from "react/jsx-runtime";
+import { useEffect, useRef } from "react";
+import L from "leaflet";
+function GRAPH054({ data = [{ "from": "New York", "to": "London", "value": 72 }, { "from": "London", "to": "Dubai", "value": 58 }, { "from": "Dubai", "to": "Singapore", "value": 64 }, { "from": "Singapore", "to": "Tokyo", "value": 52 }, { "from": "S\xE3o Paulo", "to": "Lagos", "value": 35 }, { "from": "Tokyo", "to": "Sydney", "value": 46 }] }) {
+  const host = useRef(null);
+  useEffect(() => {
+    const map = L.map(host.current, { center: [19, 25], zoom: 2, scrollWheelZoom: false });
+    map.attributionControl.setPrefix(false);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors'
+    }).addTo(map);
+    const cities = [{ "name": "New York", "lat": 40.7128, "lng": -74.006, "value": 72 }, { "name": "London", "lat": 51.5072, "lng": -0.1276, "value": 88 }, { "name": "Paris", "lat": 48.8566, "lng": 2.3522, "value": 63 }, { "name": "Dubai", "lat": 25.2048, "lng": 55.2708, "value": 57 }, { "name": "Singapore", "lat": 1.3521, "lng": 103.8198, "value": 76 }, { "name": "Tokyo", "lat": 35.6762, "lng": 139.6503, "value": 91 }, { "name": "Sydney", "lat": -33.8688, "lng": 151.2093, "value": 53 }, { "name": "S\xE3o Paulo", "lat": -23.5505, "lng": -46.6333, "value": 48 }, { "name": "Lagos", "lat": 6.5244, "lng": 3.3792, "value": 41 }, { "name": "Mumbai", "lat": 19.076, "lng": 72.8777, "value": 69 }];
+    const lookup = Object.fromEntries(cities.map((city) => [city.name, city]));
+    data.forEach((route) => {
+      const a = lookup[route.from], b = lookup[route.to];
+      if (!a || !b) return;
+      let end = b.lng;
+      if (end - a.lng > 180) end -= 360;
+      if (end - a.lng < -180) end += 360;
+      const arc = Array.from({ length: 35 }, (_, i) => {
+        const t = i / 34;
+        return [a.lat + (b.lat - a.lat) * t + Math.sin(Math.PI * t) * 9, a.lng + (end - a.lng) * t];
+      });
+      L.polyline(arc, {
+        color: "#ffbd76",
+        weight: 1.6 + route.value / 50,
+        opacity: 0.85
+      }).addTo(map).bindTooltip(route.from + " \u2192 " + route.to + " \xB7 " + route.value);
+    });
+    return () => map.remove();
+  }, [data]);
+  return /* @__PURE__ */ jsx("div", { ref: host, role: "img", "aria-label": "Route Flow Map", style: { height: 320, width: "100%" } });
+}
+const __entry = GRAPH054;
+
+import { createRoot as __createRoot } from "react-dom/client";
+import { createElement as __h } from "react";
+__createRoot(document.getElementById("root")).render(__h(__entry));
+</script></body></html>

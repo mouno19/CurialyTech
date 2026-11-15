@@ -1,0 +1,83 @@
+{
+  "id": "graph-084",
+  "name": "Holographic Data Visualization",
+  "description": "Layered bands: Three translucent projected bands compare channel output through time. Each layer maintains a distinct line and value label, making the dimensional treatment informative rather than ornamental.",
+  "category": "data-visualization",
+  "batch": "experimental-charts",
+  "collection": "Future Forms",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "line-chart",
+    "trend",
+    "time-series",
+    "network",
+    "relationships",
+    "graph",
+    "events",
+    "monitoring",
+    "operations",
+    "comparison",
+    "user-analytics",
+    "audience",
+    "experimental",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "accessible",
+    "multiple-series"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-experimental"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-renderer"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "atlas-experimental",
+    "mode": "dark",
+    "colors": {
+      "#56e7ef": "accent",
+      "#a98dff": "series2"
+    }
+  },
+  "source": {
+    "file": "atlas/08_experimental_charts_081_090.html",
+    "ref": "graphs[3]"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "a312bcbfd16735e7",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

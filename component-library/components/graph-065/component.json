@@ -1,0 +1,83 @@
+{
+  "id": "graph-065",
+  "name": "Parallel Coordinates",
+  "description": "MULTIVARIATE / AXES: Find multivariate patterns, crossings, and unusual samples.",
+  "category": "data-visualization",
+  "batch": "scientific-charts",
+  "collection": "Scientific Graph Atlas",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "parallel-coordinates",
+    "multivariate",
+    "scientific",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "interactive",
+    "responsive",
+    "animated"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-scientific"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-component"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "atlas-scientific",
+    "mode": "dark",
+    "colors": {
+      "#263b48": "series6",
+      "#90a9b8": "series5",
+      "#6ae0df": "series1",
+      "#5c95e8": "series2",
+      "#ffb674": "series3",
+      "#e782aa": "series4",
+      "#090e15": "background",
+      "#101923": "surface",
+      "#141f2b": "surface2",
+      "#263440": "border",
+      "#8da0af": "muted",
+      "#eaf2f5": "text"
+    }
+  },
+  "source": {
+    "file": "atlas/06_scientific_charts_061_070.html",
+    "ref": "graphs[4]"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "18f5e9539dedfd2a",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sunburst Chart · graph-042</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap">
+<style>html,body{margin:0;background:#080e1b;min-height:100%}#root{padding:24px;max-width:1100px;margin:0 auto}</style>
+<script type="importmap">{"imports":{"react":"https://esm.sh/react@18.3.1","react/jsx-runtime":"https://esm.sh/react@18.3.1/jsx-runtime","react-dom/client":"https://esm.sh/react-dom@18.3.1/client?deps=react@18.3.1","chart.js/auto":"https://esm.sh/chart.js@4.4.8/auto","chart.js":"https://esm.sh/chart.js@4.4.8","echarts":"https://esm.sh/echarts@5.5.1","d3":"https://esm.sh/d3@7.9.0","d3-sankey":"https://esm.sh/d3-sankey@0.12.3?deps=d3-array@3.2.4,d3-shape@3.2.0","leaflet":"https://esm.sh/leaflet@1.9.4","three":"https://esm.sh/three@0.160.1"}}</script>
+</head><body><div id="root" data-component="graph-042"></div>
+<script type="module">
+import { jsx } from "react/jsx-runtime";
+import React, { useEffect, useRef } from "react";
+import * as d3 from "d3";
+function SunburstChart({
+  data,
+  width = 900,
+  height = 430,
+  colors = ["#5ce2e6", "#aa91ff", "#bcf07a", "#ffbf75", "#f18fba", "#79adff"],
+  onSelect = () => {
+  }
+}) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const svg = d3.select(ref.current);
+    svg.selectAll("*").remove();
+    const root = svg.append("g");
+    const choose = (selection, datum) => selection.attr("tabindex", 0).attr("role", "button").attr("aria-label", datum.name || datum.id || "Relationship").on("click", () => onSelect(datum)).on("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        onSelect(datum);
+      }
+    });
+    const hierarchy = d3.hierarchy(data).sum((d) => d.value || 0);
+    const radius = Math.min(width, height) / 2 - 20;
+    d3.partition().size([2 * Math.PI, radius])(hierarchy);
+    const arc = d3.arc().startAngle((d) => d.x0).endAngle((d) => d.x1).padAngle(0.01).innerRadius((d) => d.y0 + 4).outerRadius((d) => d.y1 - 3);
+    const layer = root.attr("transform", `translate(${width / 2},${height / 2})`);
+    layer.selectAll("path").data(hierarchy.descendants().slice(1)).join("path").attr("d", arc).attr("fill", (d) => colors[(d.depth === 1 ? hierarchy.children.indexOf(d) : hierarchy.children.indexOf(d.parent)) % colors.length]).attr("stroke", "#0a1424").each(function(d) {
+      choose(d3.select(this), d.data);
+    });
+  }, [data, width, height, colors, onSelect]);
+  return /* @__PURE__ */ jsx(
+    "svg",
+    {
+      ref,
+      viewBox: `0 0 ${width} ${height}`,
+      role: "img",
+      "aria-label": "Sunburst Chart visualization",
+      style: { width: "100%", height: "auto", overflow: "visible" }
+    }
+  );
+}
+const sampleData = {
+  "name": "Identity platform",
+  "children": [
+    {
+      "name": "Employees",
+      "children": [
+        {
+          "name": "SSO",
+          "value": 3400
+        },
+        {
+          "name": "MFA",
+          "value": 2700
+        },
+        {
+          "name": "Privileged",
+          "value": 420
+        }
+      ]
+    },
+    {
+      "name": "Partners",
+      "children": [
+        {
+          "name": "Federated",
+          "value": 1800
+        },
+        {
+          "name": "API access",
+          "value": 950
+        }
+      ]
+    },
+    {
+      "name": "Customers",
+      "children": [
+        {
+          "name": "Web accounts",
+          "value": 5200
+        },
+        {
+          "name": "Mobile accounts",
+          "value": 4100
+        }
+      ]
+    },
+    {
+      "name": "Service accounts",
+      "children": [
+        {
+          "name": "Automations",
+          "value": 650
+        },
+        {
+          "name": "Integrations",
+          "value": 320
+        }
+      ]
+    }
+  ]
+};
+const __entry = function SunburstChartWithData(props) {
+  return /* @__PURE__ */ jsx(SunburstChart, { data: sampleData, ...props });
+};
+
+import { createRoot as __createRoot } from "react-dom/client";
+import { createElement as __h } from "react";
+__createRoot(document.getElementById("root")).render(__h(__entry));
+</script></body></html>

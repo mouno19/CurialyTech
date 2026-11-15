@@ -1,0 +1,33 @@
+{
+  "id": "atlas-essentials",
+  "name": "Essentials (light)",
+  "mode": "light",
+  "source": "01_essential_charts_001_020.html",
+  "colors": {
+    "background": "#f6f8fc",
+    "surface": "#ffffff",
+    "surface2": "#f8faff",
+    "border": "#e8ebf0",
+    "text": "#172033",
+    "muted": "#657084",
+    "accent": "#635bdb",
+    "positive": "#148b85",
+    "negative": "#e65b3c",
+    "warning": "#f1ab50",
+    "series1": "#635bdb",
+    "series2": "#148b85",
+    "series3": "#f1ab50",
+    "series4": "#e65b3c",
+    "series5": "#272d28",
+    "series6": "#d7e1ff"
+  },
+  "fonts": {
+    "sans": "Inter, system-ui, sans-serif",
+    "mono": "\"DM Mono\", ui-monospace, monospace"
+  },
+  "radius": {
+    "card": "20px",
+    "control": "7px"
+  },
+  "spacing": "24px"
+}

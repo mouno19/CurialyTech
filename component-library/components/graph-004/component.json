@@ -1,0 +1,92 @@
+{
+  "id": "graph-004",
+  "name": "Revenue Layers",
+  "description": "Stacked Bar Chart: Show the composition of subscription revenue over time. Style: Futuristic dark interface.",
+  "category": "data-visualization",
+  "batch": "essential-charts",
+  "collection": "Essential Data Visualization",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "revenue",
+    "finance",
+    "growth",
+    "business",
+    "bar-chart",
+    "comparison",
+    "ranking",
+    "categorical",
+    "stacked",
+    "composition",
+    "pie-chart",
+    "share",
+    "proportion",
+    "essential",
+    "light-theme"
+  ],
+  "capabilities": [
+    "interactive",
+    "tooltips",
+    "responsive",
+    "accessible",
+    "multiple-series"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "package",
+      "name": "chart.js",
+      "version": "4.4.8"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-essentials"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-generator"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "atlas-essentials",
+    "mode": "light",
+    "colors": {
+      "#218eac": "series1",
+      "#57d9d0": "series2",
+      "#a993f3": "series3"
+    }
+  },
+  "source": {
+    "file": "atlas/01_essential_charts_001_020.html",
+    "ref": "specs[3]"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "427aa762af186aa3",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

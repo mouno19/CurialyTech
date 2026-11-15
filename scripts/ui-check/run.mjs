@@ -233,6 +233,13 @@ async function act(page, check, record) {
       const span = check.action === "range-24h" ? "24 hours" : "30 days";
       await page.getByRole("radio", { name: span, exact: true }).first().click({ timeout: 6000 });
       await page.locator(`figure.chart[aria-label$="last ${span}"]`).first().waitFor({ state: "visible", timeout: 6000 });
+    } else if (check.action === "tools-picker") {
+      // The composer's Tools picker: two tools chosen, the count shown on the trigger.
+      await page.getByRole("button", { name: /^Tools/ }).first().click({ timeout: 6000 });
+      const panel = page.getByRole("dialog", { name: "Tools for this task" });
+      await panel.getByRole("checkbox", { name: /Web Design/ }).check({ timeout: 5000 });
+      await panel.getByRole("checkbox", { name: /Data Analytics/ }).check({ timeout: 5000 });
+      await panel.getByText("2 selected.").waitFor({ state: "visible", timeout: 5000 });
     } else if (check.action === "sources-open") {
       // An answer's Sources, opened: every result with its number, site and date.
       await page.locator("details.sources > summary").first().click({ timeout: 6000 });

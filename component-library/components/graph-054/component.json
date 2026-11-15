@@ -1,0 +1,93 @@
+{
+  "id": "graph-054",
+  "name": "Route Flow Map",
+  "description": "routes: Directional arcs trace an illustrative intercontinental logistics system.",
+  "category": "data-visualization",
+  "batch": "geospatial-charts",
+  "collection": "Geospatial Visualization",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "flow",
+    "sankey",
+    "conversion",
+    "network",
+    "relationships",
+    "graph",
+    "geospatial",
+    "map",
+    "location",
+    "events",
+    "monitoring",
+    "operations",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "interactive",
+    "tooltips",
+    "responsive",
+    "accessible",
+    "multiple-series"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "package",
+      "name": "leaflet",
+      "version": "1.9.4"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-geo"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-generator"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "wide"
+  },
+  "style": {
+    "tokens": "atlas-geo",
+    "mode": "dark",
+    "colors": {
+      "#ffbd76": "series4"
+    }
+  },
+  "source": {
+    "file": "atlas/05_geospatial_charts_051_060.html",
+    "ref": "components[3]"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [
+      "map tiles come from tile.openstreetmap.org: they need a page with a proper referrer (previews show them blocked), and OpenStreetMap's tile policy rules out heavy or commercial use — set your own tile provider for production"
+    ],
+    "hash": "37894ae2293122e1",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1,
+  "network": [
+    "tile.openstreetmap.org"
+  ]
+}

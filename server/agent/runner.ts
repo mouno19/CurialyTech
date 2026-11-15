@@ -10,7 +10,8 @@ import { claimNextRun, closeOpenSessionEvents, getLifecycleRow, HEARTBEAT_MS, ju
 import { anthropicClient, PROVIDER_ENV, reasoningParams, runManusTask, streamCortexInference, streamOpenAIChat } from "./providers";
 import { clip, ensureWorkspace, readWorkspaceFile, runCommand, SANDBOX_MODE, writeWorkspaceBytes } from "./sandbox";
 import { loadTaskSkills, renderSavedSkills, replaceTaskSkills, skillsForTask } from "./saved-skills";
-import { addMessage, createAgentTask, getAgentTask, getConversation, settleTaskWrites, taskOwner, updateAgentTask, type ConversationFormat } from "./store";
+import { addMessage, createAgentTask, getAgentTask, getConversation, setTaskTools, settleTaskWrites, taskOwner, updateAgentTask, type ConversationFormat } from "./store";
+import { componentsContext, wantsComponents } from "./component-tools";
 import { charge, getBalance, outOfCreditsMessage } from "../credits";
 import { voiceConfigured } from "../voice/engines";
 import { creditsFor, modelWeight, OUTPUT_WEIGHT, TOKENS_PER_CREDIT } from "@shared/credits";
@@ -305,6 +306,9 @@ export type RunContext = {
   secretsContext?: string;
   /** Agent mode, when the Animation Studio is set up: its skills and the rule to load one first. */
   studioContext?: string;
+  /** The tools the user selected for the task (empty: not limited), and how the component library is used. */
+  selectedTools?: string[];
+  componentsContext?: string;
   /** Short id used to build block and call ids. */
   runId: string;
   /** The run's fencing token (chat_sessions.run_id): every write of run data is conditional on it. */
@@ -643,7 +647,7 @@ export async function startTask(req: CreateTaskRequest, attachments: AttachmentR
     // Dev Team members run Anthropic-format, tool-capable models; the conversation format follows.
     const team = Boolean(req.team) && req.mode === "agent";
     const format = team ? "anthropic" : formatFor(spec);
-    await createAgentTask({ id, userId, runId: handle.runId, prompt: req.prompt, mode: req.mode, model: spec.id, effort: req.effort, webSearch: req.webSearch, format, team, skillIds: attached.map(skill => skill.id) });
+    await createAgentTask({ id, userId, runId: handle.runId, prompt: req.prompt, mode: req.mode, model: spec.id, effort: req.effort, webSearch: req.webSearch, format, team, skillIds: attached.map(skill => skill.id), tools: [...new Set(req.tools ?? [])] });
     handle.claimed = true;
     handle.attempt = 1;
     const staged = await stageAttachments(ensureWorkspace(id), attachments, {
@@ -762,7 +766,7 @@ export function followUpRepoBlocked(task: { mode: TaskMode; githubRepo?: string;
   return null;
 }
 
-export async function followUp(taskId: string, prompt: string, attachments: AttachmentRef[] = [], opts: { clientMessageId?: string; expectedRunId?: string | null; model?: string | null; repo?: FollowUpRepo | null; skillIds?: string[] } = {}) {
+export async function followUp(taskId: string, prompt: string, attachments: AttachmentRef[] = [], opts: { clientMessageId?: string; expectedRunId?: string | null; model?: string | null; repo?: FollowUpRepo | null; skillIds?: string[]; tools?: string[] } = {}) {
   if (isRunning(taskId)) throw new TaskBusy("This task is still running.");
   // Before staging attachments: a start refused for capacity must not leave copies behind.
   admit();
@@ -778,6 +782,7 @@ export async function followUp(taskId: string, prompt: string, attachments: Atta
     if (!owner) throw new TaskRejected("Task not found.");
     await replaceTaskSkills(taskId, owner, opts.skillIds);
   }
+  if (opts.tools !== undefined) await setTaskTools(taskId, opts.tools);
   // Already this task's repository: nothing to clone. Another one replaces it (the user switched).
   const sameRepo = Boolean(opts.repo && task.githubRepo && task.githubRepo.toLowerCase() === opts.repo.fullName.toLowerCase());
   const cloneRepo = opts.repo && !sameRepo ? { repo: opts.repo.fullName, branch: opts.repo.branch ?? undefined, replace: Boolean(task.githubRepo) } : undefined;
@@ -1099,7 +1104,7 @@ export function latestRequest(conversation: Record<string, unknown>[]) {
 
 /** System blocks after the static prompt: GitHub context, saved skills, the repository's project memory, the design brief. */
 function extraSystem(ctx: RunContext) {
-  return [ctx.context, ctx.vercelContext, ctx.canvaContext, ctx.secretsContext, ctx.studioContext, ctx.skills, ctx.memory?.text, ctx.designText].filter((text): text is string => Boolean(text));
+  return [ctx.context, ctx.vercelContext, ctx.canvaContext, ctx.secretsContext, ctx.studioContext, ctx.componentsContext, ctx.skills, ctx.memory?.text, ctx.designText].filter((text): text is string => Boolean(text));
 }
 
 /** Load the linked repository's project memory into the shared slot. Announce only when a saved note arrives. */
@@ -1250,6 +1255,7 @@ async function executeRun(handle: RunHandle, conversation: Record<string, unknow
       canvaContext: cv.context || undefined,
       secretsContext: secretsText || undefined,
       studioContext: studioText || undefined,
+      selectedTools: existing?.tools ?? [],
       runId: handle.runId.slice(0, 8),
       runToken: handle.runId,
       root,
@@ -1373,6 +1379,11 @@ async function executeRun(handle: RunHandle, conversation: Record<string, unknow
         const { intent, entries } = runCtx.design;
         emit({ type: "notice", level: "info", message: `Design brief: ${intent.surface === "general" ? "web interface" : intent.surface}, ${intent.register} register, ${entries.length} guidelines${intent.cues.length ? `, following the requested direction (${intent.cues.slice(0, 4).join(", ")})` : ""}.` });
       }
+    }
+    // How to use the component library: for interface, dashboard or chart work, and only for a model
+    // that can call its tools. Other work (a cron job, a bug fix) carries no extra block.
+    if (opts.spec.tools && !opts.allowedTools && (runCtx.design || wantsComponents(existing?.prompt || request.text))) {
+      runCtx.componentsContext = componentsContext(existing?.tools ?? [], opts.mode) || undefined;
     }
     let answer: string;
     if (opts.team) answer = await runTeam(runCtx, conversation as unknown as Anthropic.MessageParam[]);
@@ -2356,6 +2367,7 @@ async function trackedTool(ctx: RunContext, callId: string, name: string, input:
     signal: ctx.signal,
     emit: ctx.emit,
     grants: ctx.grants,
+    selectedTools: ctx.selectedTools,
     onPlan: (_steps: PlanStep[]) => undefined,
     onFileChange: file => ctx.changedFiles.add(file),
     onRead: file => work.read.add(file),
@@ -2432,7 +2444,7 @@ async function trackedTool(ctx: RunContext, callId: string, name: string, input:
 }
 
 /** Tools that never change the workspace (anything else may). */
-const LOOK_TOOLS = new Set(["update_plan", "list_files", "read_file", "read_document", "search_files", "web_fetch", "delegate_research", "browse", "browser_click", "browser_type", "browser_scroll", "browser_extract", "browser_screenshot", "browser_close", "attach_files", "command_status", "stop_command", "github_list_repos", "github_get_repo", "github_create_pr", "remember_project"]);
+const LOOK_TOOLS = new Set(["find_components", "load_component", "update_plan", "list_files", "read_file", "read_document", "search_files", "web_fetch", "delegate_research", "browse", "browser_click", "browser_type", "browser_scroll", "browser_extract", "browser_screenshot", "browser_close", "attach_files", "command_status", "stop_command", "github_list_repos", "github_get_repo", "github_create_pr", "remember_project"]);
 
 /** Why write_file may not replace `file` yet: it was there before this run and the agent has not seen it (null: it may). */
 function mustReadFirst(ctx: RunContext, file: string) {

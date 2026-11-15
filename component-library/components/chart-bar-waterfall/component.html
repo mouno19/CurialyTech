@@ -1,0 +1,27 @@
+<!-- Revenue bridge (waterfall, dark) · chart-bar-waterfall: from the Analytics Component Library (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/atlas-paper.css, and an ancestor with class="cx-atlas-paper". -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+<div class="cx-atlas-paper">
+<article class="panel dark-bar-card">
+        <div class="panel-head">
+         <div>
+          <h3>Revenue bridge</h3>
+          <p class="panel-caption">See how individual shifts build the final total</p>
+         </div><span class="badge">Waterfall</span>
+        </div>
+        <div class="chart-wrap">
+         <canvas id="waterfall-bar-chart" role="img" aria-label="Waterfall bar chart from starting revenue of 80 thousand through gains and losses to a final 110 thousand"></canvas>
+        </div>
+       </article>
+</div>
+<script>
+Chart.defaults.font.family='"DM Sans", sans-serif';
+Chart.defaults.font.size=11;
+Chart.defaults.color='#838d85';
+const axis={grid:{color:'#edf0e9'},border:{display:false},ticks:{padding:9}};
+const noGrid={grid:{display:false},border:{display:false},ticks:{padding:9}};
+new Chart(document.getElementById('waterfall-bar-chart'),{
+      type:'bar',data:{labels:['Start','New','Upsell','Churn','Costs','End'],datasets:[{label:'Revenue bridge',data:[[0,80],[80,100],[100,118],[118,106],[106,110],[0,110]],backgroundColor:['#a5dbc6','#62ad89','#62ad89','#f2735d','#f3ca78','#a5dbc6'],borderRadius:5,barPercentage:.55}]},
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>{const changes=[80,20,18,-12,4,110];return (ctx.dataIndex===0||ctx.dataIndex===5?'$':changes[ctx.dataIndex]>0?'+$':'−$')+Math.abs(changes[ctx.dataIndex])+'k'}}}},scales:{x:{...noGrid,ticks:{color:'#c0d1c5',padding:9}},y:{...axis,min:0,max:130,grid:{color:'#3c4b42'},ticks:{color:'#c0d1c5',callback:v=>'$'+v+'k',padding:9}}}}
+    });
+</script>

@@ -1,0 +1,80 @@
+{
+  "id": "card-status-tiles",
+  "name": "Status tiles",
+  "description": "Three compact status tiles with icons (connected sources, sync success, average latency). (In the source: \"12 connected sources\".)",
+  "category": "analytics",
+  "batch": "kpi-cards",
+  "collection": "Analytics Component Library",
+  "kind": "component",
+  "role": "kpi",
+  "tags": [
+    "status",
+    "health",
+    "sync",
+    "uptime",
+    "latency",
+    "operations",
+    "monitoring",
+    "events",
+    "api-monitoring",
+    "usage",
+    "light-theme"
+  ],
+  "capabilities": [
+    "icons"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "lucide",
+      "version": "0.577.0"
+    },
+    {
+      "type": "stylesheet",
+      "id": "atlas-paper"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-paper"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "web-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "kpi",
+    "span": "full"
+  },
+  "style": {
+    "tokens": "atlas-paper",
+    "mode": "light",
+    "colors": {}
+  },
+  "source": {
+    "file": "atlas/10_analytics_dashboard_components.html",
+    "ref": "div class=\"grid three #1"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "ce47d830a31180f9",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

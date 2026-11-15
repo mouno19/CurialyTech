@@ -1,0 +1,79 @@
+{
+  "id": "table-chart-sparklines",
+  "name": "Table with sparklines",
+  "description": "Table with sparklines: a table that makes comparisons visible without leaving the rows. (In the source: \"03 / Sparkline table\".)",
+  "category": "data-management",
+  "batch": "table-charts",
+  "collection": "Analytics Component Library",
+  "kind": "component",
+  "role": "table",
+  "tags": [
+    "table",
+    "data-table",
+    "sparkline",
+    "trend",
+    "orders",
+    "weekly",
+    "line-chart",
+    "time-series",
+    "comparison",
+    "compact",
+    "light-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "stylesheet",
+      "id": "atlas-paper"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-paper"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "web-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "table",
+    "span": "full"
+  },
+  "style": {
+    "tokens": "atlas-paper",
+    "mode": "light",
+    "colors": {
+      "#246d57": "series2",
+      "#f2735d": "series1"
+    }
+  },
+  "source": {
+    "file": "atlas/10_analytics_dashboard_components.html",
+    "ref": "article class=\"table-chart-card #2"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "17dcb59205d1db21",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

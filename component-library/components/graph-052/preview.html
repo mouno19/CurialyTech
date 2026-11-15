@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regional Heat Map · graph-052</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>html,body{margin:0;background:#080e18;min-height:100%}#root{padding:24px;max-width:1100px;margin:0 auto}</style>
+<script type="importmap">{"imports":{"react":"https://esm.sh/react@18.3.1","react/jsx-runtime":"https://esm.sh/react@18.3.1/jsx-runtime","react-dom/client":"https://esm.sh/react-dom@18.3.1/client?deps=react@18.3.1","chart.js/auto":"https://esm.sh/chart.js@4.4.8/auto","chart.js":"https://esm.sh/chart.js@4.4.8","echarts":"https://esm.sh/echarts@5.5.1","d3":"https://esm.sh/d3@7.9.0","d3-sankey":"https://esm.sh/d3-sankey@0.12.3?deps=d3-array@3.2.4,d3-shape@3.2.0","leaflet":"https://esm.sh/leaflet@1.9.4","three":"https://esm.sh/three@0.160.1"}}</script>
+</head><body><div id="root" data-component="graph-052"></div>
+<script type="module">
+import { jsx } from "react/jsx-runtime";
+import { useEffect, useRef } from "react";
+import L from "leaflet";
+function GRAPH052({ data = [{ "name": "London", "lat": 51.5072, "lng": -0.1276, "value": 86 }, { "name": "Paris", "lat": 48.8566, "lng": 2.3522, "value": 76 }, { "name": "Berlin", "lat": 52.52, "lng": 13.405, "value": 65 }, { "name": "Madrid", "lat": 40.4168, "lng": -3.7038, "value": 55 }, { "name": "Rome", "lat": 41.9028, "lng": 12.4964, "value": 61 }, { "name": "Amsterdam", "lat": 52.3676, "lng": 4.9041, "value": 71 }, { "name": "Milan", "lat": 45.4642, "lng": 9.19, "value": 67 }, { "name": "Warsaw", "lat": 52.2297, "lng": 21.0122, "value": 48 }] }) {
+  const host = useRef(null);
+  useEffect(() => {
+    const map = L.map(host.current, { center: [49, 11], zoom: 4, scrollWheelZoom: false });
+    map.attributionControl.setPrefix(false);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors'
+    }).addTo(map);
+    data.forEach((d) => {
+      L.circleMarker([d.lat, d.lng], {
+        radius: 30 + d.value * 0.28,
+        stroke: false,
+        fillColor: d.value > 75 ? "#ff859e" : "#6d91ff",
+        fillOpacity: 0.09
+      }).addTo(map);
+      L.circleMarker([d.lat, d.lng], {
+        radius: 4,
+        color: "#ffffff",
+        fillColor: "#6ce7e7",
+        fillOpacity: 1
+      }).addTo(map).bindTooltip(d.name + " \xB7 " + d.value);
+    });
+    return () => map.remove();
+  }, [data]);
+  return /* @__PURE__ */ jsx("div", { ref: host, role: "img", "aria-label": "Regional Heat Map", style: { height: 320, width: "100%" } });
+}
+const __entry = GRAPH052;
+
+import { createRoot as __createRoot } from "react-dom/client";
+import { createElement as __h } from "react";
+__createRoot(document.getElementById("root")).render(__h(__entry));
+</script></body></html>

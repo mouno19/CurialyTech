@@ -1,0 +1,85 @@
+{
+  "id": "graph-081",
+  "name": "Liquid Data Visualization",
+  "description": "Fluid area: A fluid surface maps a changing metric to vertical position. A luminous fill conveys volume while a fixed baseline and labeled endpoints keep the reading precise.",
+  "category": "data-visualization",
+  "batch": "experimental-charts",
+  "collection": "Future Forms",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "trading",
+    "volume",
+    "market",
+    "line-chart",
+    "trend",
+    "time-series",
+    "area-chart",
+    "scientific",
+    "field",
+    "3d",
+    "geospatial",
+    "map",
+    "location",
+    "api-monitoring",
+    "usage",
+    "experimental",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-experimental"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-renderer"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "wide"
+  },
+  "style": {
+    "tokens": "atlas-experimental",
+    "mode": "dark",
+    "colors": {
+      "#5ee4df": "accent",
+      "#487dff": "series2"
+    }
+  },
+  "source": {
+    "file": "atlas/08_experimental_charts_081_090.html",
+    "ref": "graphs[0]"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "11ca46885f2cd569",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

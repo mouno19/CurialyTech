@@ -1,0 +1,88 @@
+{
+  "id": "chart-bar-bullet",
+  "name": "Goals vs. actuals (bullet bars)",
+  "description": "Goals vs. actuals (bullet bars): one of eight bar chart treatments for comparing magnitude in a dashboard card.",
+  "category": "data-visualization",
+  "batch": "bar-chart-variants",
+  "collection": "Analytics Component Library",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "target",
+    "goals",
+    "actuals",
+    "bullet",
+    "bar-chart",
+    "kpi",
+    "comparison",
+    "ranking",
+    "categorical",
+    "radial",
+    "circular",
+    "progress",
+    "performance",
+    "light-theme"
+  ],
+  "capabilities": [
+    "tooltips",
+    "responsive",
+    "interactive",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "chart.js",
+      "version": "4.4.8"
+    },
+    {
+      "type": "stylesheet",
+      "id": "atlas-paper"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-paper"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "atlas-paper",
+    "mode": "light",
+    "colors": {
+      "#246d57": "series2",
+      "#f2735d": "series1"
+    }
+  },
+  "source": {
+    "file": "atlas/10_analytics_dashboard_components.html",
+    "ref": "article class=\"panel #5"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "79732c6e26bfe1fa",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

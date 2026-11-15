@@ -1,0 +1,27 @@
+<!-- Conversion lift (gradient bars) · chart-bar-gradient: from the Analytics Component Library (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/atlas-paper.css, and an ancestor with class="cx-atlas-paper". -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+<div class="cx-atlas-paper">
+<article class="panel">
+        <div class="panel-head">
+         <div>
+          <h3>Conversion lift</h3>
+          <p class="panel-caption">A soft gradient for a rising weekly trend</p>
+         </div><span class="badge">Gradient</span>
+        </div>
+        <div class="chart-wrap">
+         <canvas id="gradient-bar-chart" role="img" aria-label="Gradient column chart of conversion lift from week one to week six"></canvas>
+        </div>
+       </article>
+</div>
+<script>
+Chart.defaults.font.family='"DM Sans", sans-serif';
+Chart.defaults.font.size=11;
+Chart.defaults.color='#838d85';
+const axis={grid:{color:'#edf0e9'},border:{display:false},ticks:{padding:9}};
+const noGrid={grid:{display:false},border:{display:false},ticks:{padding:9}};
+new Chart(document.getElementById('gradient-bar-chart'),{
+      type:'bar',data:{labels:['W1','W2','W3','W4','W5','W6'],datasets:[{label:'Conversion rate',data:[2.8,3.4,3.1,4.2,4.6,5.3],backgroundColor:ctx=>{const area=ctx.chart.chartArea;if(!area)return '#62ad89';const gradient=ctx.chart.ctx.createLinearGradient(0,area.bottom,0,area.top);gradient.addColorStop(0,'#a5dbc6');gradient.addColorStop(1,'#246d57');return gradient},borderRadius:12,barPercentage:.48}]},
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>ctx.parsed.y+'% conversion'}}},scales:{x:noGrid,y:{...axis,min:0,max:6,ticks:{callback:v=>v+'%',padding:9}}}}
+    });
+</script>

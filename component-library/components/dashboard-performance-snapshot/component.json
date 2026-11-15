@@ -1,0 +1,103 @@
+{
+  "id": "dashboard-performance-snapshot",
+  "name": "Performance snapshot (KPI cards, revenue chart, target ring, period switch)",
+  "description": "A complete overview section: a 7/30/90-day period switch that updates four KPI cards and a revenue chart comparing current and previous periods, plus a quarterly target ring.",
+  "category": "dashboard",
+  "batch": "dashboard-sections",
+  "collection": "Analytics Component Library",
+  "kind": "pattern",
+  "role": "section",
+  "tags": [
+    "dashboard",
+    "overview",
+    "kpi",
+    "revenue",
+    "period-switch",
+    "date-range",
+    "filters",
+    "section",
+    "finance",
+    "growth",
+    "business",
+    "radial",
+    "circular",
+    "target",
+    "progress",
+    "performance",
+    "comparison",
+    "light-theme"
+  ],
+  "capabilities": [
+    "interactive",
+    "period-filter",
+    "growth-indicators",
+    "responsive",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "chart.js",
+      "version": "4.4.8"
+    },
+    {
+      "type": "package",
+      "name": "lucide",
+      "version": "0.577.0"
+    },
+    {
+      "type": "stylesheet",
+      "id": "atlas-paper"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-paper"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "web-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "section",
+    "span": "full"
+  },
+  "style": {
+    "tokens": "atlas-paper",
+    "mode": "light",
+    "colors": {
+      "#f2735d": "series1"
+    }
+  },
+  "source": {
+    "file": "atlas/10_analytics_dashboard_components.html",
+    "ref": "div class=\"canvas\" #0"
+  },
+  "composes": [
+    "kpi-metric-cards",
+    "chart-revenue-momentum",
+    "kpi-goal-ring"
+  ],
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "6e611646761ea8e8",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

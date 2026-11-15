@@ -1,0 +1,34 @@
+{
+  "id": "atlas-paper",
+  "name": "Analytics paper (light)",
+  "mode": "light",
+  "source": "10_analytics_dashboard_components.html",
+  "colors": {
+    "background": "#f6f5f1",
+    "surface": "#fffefa",
+    "surface2": "#f1f0ea",
+    "border": "#e8e8e1",
+    "text": "#202522",
+    "muted": "#747b76",
+    "accent": "#f2735d",
+    "positive": "#246d57",
+    "negative": "#f2735d",
+    "warning": "#f3ca78",
+    "series1": "#f2735d",
+    "series2": "#246d57",
+    "series3": "#a5dbc6",
+    "series4": "#f3ca78",
+    "series5": "#212c29",
+    "series6": "#838d85"
+  },
+  "fonts": {
+    "sans": "\"DM Sans\", system-ui, sans-serif",
+    "display": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+    "mono": "\"DM Mono\", ui-monospace, monospace"
+  },
+  "radius": {
+    "card": "18px",
+    "control": "10px"
+  },
+  "spacing": "16px"
+}

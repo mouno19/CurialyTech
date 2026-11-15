@@ -1,0 +1,91 @@
+{
+  "id": "graph-074",
+  "name": "Event Timeline",
+  "description": "Operations Style: Chronological incident log.",
+  "category": "data-visualization",
+  "batch": "temporal-timeline-charts",
+  "collection": "Temporal Graph Library",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "line-chart",
+    "trend",
+    "time-series",
+    "timeline",
+    "schedule",
+    "planning",
+    "project-management",
+    "events",
+    "monitoring",
+    "operations",
+    "temporal",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "interactive",
+    "tooltips",
+    "accessible",
+    "animated"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-temporal"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-renderer"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "wide"
+  },
+  "style": {
+    "tokens": "atlas-temporal",
+    "mode": "dark",
+    "colors": {
+      "#65d9e9": "series1",
+      "#f4be72": "series4",
+      "#090e1b": "background",
+      "#111a2b": "surface",
+      "#172238": "surface2",
+      "#26334b": "border",
+      "#edf4ff": "text",
+      "#91a0b8": "series6",
+      "#aa93f5": "series2",
+      "#69d9b3": "series3",
+      "#ed8ca8": "series5"
+    }
+  },
+  "source": {
+    "file": "atlas/07_temporal_timeline_charts_071_080.html",
+    "ref": "graphs[3]"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "a798028f2b027ae7",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

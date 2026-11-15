@@ -1,0 +1,73 @@
+{
+  "id": "chart-retention-cohorts",
+  "name": "Retention cohort grid",
+  "description": "A monthly retention cohort grid with shaded cells. (In the source: \"Retention cohorts\".)",
+  "category": "data-visualization",
+  "batch": "journey-analytics",
+  "collection": "Analytics Component Library",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "retention",
+    "cohorts",
+    "heatmap",
+    "matrix",
+    "user-analytics",
+    "density",
+    "conversion",
+    "funnel",
+    "light-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "stylesheet",
+      "id": "atlas-paper"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-paper"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "atlas-paper",
+    "mode": "light",
+    "colors": {}
+  },
+  "source": {
+    "file": "atlas/10_analytics_dashboard_components.html",
+    "ref": "div class=\"panel #Retention cohorts"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "3c7841c09052918e",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

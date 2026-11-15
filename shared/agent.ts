@@ -347,6 +347,8 @@ export type AgentTaskSummary = {
   updatedAt: string;
   /** Saved skills attached to this task, in the order they are followed. Empty when none are. */
   skillIds?: string[];
+  /** The tools the user selected (shared/components.ts TOOLS). Empty: not limited. */
+  tools?: string[];
 };
 
 export type CreateTaskRequest = {
@@ -363,4 +365,6 @@ export type CreateTaskRequest = {
   team?: boolean;
   /** Saved skills to follow on this task (ids from this account). Omitted leaves none attached. */
   skillIds?: string[];
+  /** The tools the user selected for this task (TOOL_IDS). Empty or omitted: not limited. */
+  tools?: string[];
 };

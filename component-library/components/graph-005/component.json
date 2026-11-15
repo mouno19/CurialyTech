@@ -1,0 +1,85 @@
+{
+  "id": "graph-005",
+  "name": "Plan Mix",
+  "description": "100% Stacked Bar Chart: Reveal changes in the subscription mix independent of total size. Style: Editorial data visualization.",
+  "category": "data-visualization",
+  "batch": "essential-charts",
+  "collection": "Essential Data Visualization",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "bar-chart",
+    "comparison",
+    "ranking",
+    "categorical",
+    "stacked",
+    "composition",
+    "essential",
+    "light-theme"
+  ],
+  "capabilities": [
+    "interactive",
+    "tooltips",
+    "responsive",
+    "accessible",
+    "multiple-series"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "package",
+      "name": "chart.js",
+      "version": "4.4.8"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-essentials"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-generator"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "atlas-essentials",
+    "mode": "light",
+    "colors": {
+      "#dbb98b": "series1",
+      "#df6748": "series2",
+      "#313c38": "series3"
+    }
+  },
+  "source": {
+    "file": "atlas/01_essential_charts_001_020.html",
+    "ref": "specs[4]"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "403b31c26186b6b1",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

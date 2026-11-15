@@ -1,0 +1,83 @@
+{
+  "id": "graph-021-alt",
+  "name": "Candlestick Chart",
+  "description": "candle: Inspect fictional daily equity price action. Style: Institutional trading terminal.",
+  "category": "data-visualization",
+  "batch": "financial-charts",
+  "collection": "Essential Data Visualization",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "finance",
+    "trading",
+    "price-action",
+    "ohlc",
+    "market",
+    "stock",
+    "time-series",
+    "crypto",
+    "financial",
+    "light-theme"
+  ],
+  "capabilities": [
+    "interactive",
+    "tooltips",
+    "responsive",
+    "keyboard",
+    "accessible",
+    "multiple-series"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-essentials"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-generator"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "atlas-essentials",
+    "mode": "light",
+    "colors": {
+      "#42d9ad": "series1",
+      "#f47d89": "series2"
+    }
+  },
+  "variant_of": "graph-021",
+  "source": {
+    "file": "atlas/01_essential_charts_001_020.html",
+    "ref": "finance[0]"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "e26ff948b2b84160",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

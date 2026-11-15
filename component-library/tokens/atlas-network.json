@@ -1,0 +1,33 @@
+{
+  "id": "atlas-network",
+  "name": "Network (dark)",
+  "mode": "dark",
+  "source": "04_network_hierarchy_charts_041_050.html",
+  "colors": {
+    "background": "#080e1b",
+    "surface": "#101a2c",
+    "surface2": "#131f33",
+    "border": "#26344b",
+    "text": "#edf5ff",
+    "muted": "#90a2ba",
+    "accent": "#5ce2e6",
+    "positive": "#bcf07a",
+    "negative": "#f18fba",
+    "warning": "#ffbf75",
+    "series1": "#5ce2e6",
+    "series2": "#aa91ff",
+    "series3": "#bcf07a",
+    "series4": "#ffbf75",
+    "series5": "#f18fba",
+    "series6": "#79adff"
+  },
+  "fonts": {
+    "sans": "\"Space Grotesk\", system-ui, sans-serif",
+    "mono": "\"JetBrains Mono\", ui-monospace, monospace"
+  },
+  "radius": {
+    "card": "16px",
+    "control": "8px"
+  },
+  "spacing": "22px"
+}

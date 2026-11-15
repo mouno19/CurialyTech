@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chord Diagram · graph-047</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap">
+<style>html,body{margin:0;background:#080e1b;min-height:100%}#root{padding:24px;max-width:1100px;margin:0 auto}</style>
+<script type="importmap">{"imports":{"react":"https://esm.sh/react@18.3.1","react/jsx-runtime":"https://esm.sh/react@18.3.1/jsx-runtime","react-dom/client":"https://esm.sh/react-dom@18.3.1/client?deps=react@18.3.1","chart.js/auto":"https://esm.sh/chart.js@4.4.8/auto","chart.js":"https://esm.sh/chart.js@4.4.8","echarts":"https://esm.sh/echarts@5.5.1","d3":"https://esm.sh/d3@7.9.0","d3-sankey":"https://esm.sh/d3-sankey@0.12.3?deps=d3-array@3.2.4,d3-shape@3.2.0","leaflet":"https://esm.sh/leaflet@1.9.4","three":"https://esm.sh/three@0.160.1"}}</script>
+</head><body><div id="root" data-component="graph-047"></div>
+<script type="module">
+import { jsx } from "react/jsx-runtime";
+import React, { useEffect, useRef } from "react";
+import * as d3 from "d3";
+function ChordDiagram({
+  data,
+  width = 900,
+  height = 430,
+  colors = ["#5ce2e6", "#aa91ff", "#bcf07a", "#ffbf75", "#f18fba", "#79adff"],
+  onSelect = () => {
+  }
+}) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const svg = d3.select(ref.current);
+    svg.selectAll("*").remove();
+    const root = svg.append("g");
+    const choose = (selection, datum) => selection.attr("tabindex", 0).attr("role", "button").attr("aria-label", datum.name || datum.id || "Relationship").on("click", () => onSelect(datum)).on("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        onSelect(datum);
+      }
+    });
+    const chords = d3.chord().padAngle(0.05)(data.matrix);
+    const radius = Math.min(width, height) / 2 - 35;
+    const layer = root.attr(
+      "transform",
+      `translate(${width / 2},${height / 2})`
+    );
+    const arc = d3.arc().innerRadius(radius - 15).outerRadius(radius);
+    const ribbon = d3.ribbon().radius(radius - 19);
+    layer.selectAll("path.ribbon").data(chords).join("path").attr("class", "ribbon").attr("d", ribbon).attr("fill", (d) => colors[d.source.index % colors.length]).attr("fill-opacity", 0.4).each(function(d) {
+      choose(d3.select(this), d);
+    });
+    layer.selectAll("path.group").data(chords.groups).join("path").attr("class", "group").attr("d", arc).attr("fill", (d) => colors[d.index % colors.length]).each(function(d) {
+      choose(d3.select(this), {
+        name: data.groups[d.index],
+        value: d.value
+      });
+    });
+  }, [data, width, height, colors, onSelect]);
+  return /* @__PURE__ */ jsx(
+    "svg",
+    {
+      ref,
+      viewBox: `0 0 ${width} ${height}`,
+      role: "img",
+      "aria-label": "Chord Diagram visualization",
+      style: { width: "100%", height: "auto", overflow: "visible" }
+    }
+  );
+}
+const sampleData = {
+  "groups": [
+    "Engineering",
+    "Design",
+    "Product",
+    "Security",
+    "Data"
+  ],
+  "matrix": [
+    [
+      0,
+      18,
+      24,
+      8,
+      12
+    ],
+    [
+      18,
+      0,
+      22,
+      4,
+      7
+    ],
+    [
+      24,
+      22,
+      0,
+      9,
+      15
+    ],
+    [
+      8,
+      4,
+      9,
+      0,
+      11
+    ],
+    [
+      12,
+      7,
+      15,
+      11,
+      0
+    ]
+  ]
+};
+const __entry = function ChordDiagramWithData(props) {
+  return /* @__PURE__ */ jsx(ChordDiagram, { data: sampleData, ...props });
+};
+
+import { createRoot as __createRoot } from "react-dom/client";
+import { createElement as __h } from "react";
+__createRoot(document.getElementById("root")).render(__h(__entry));
+</script></body></html>

@@ -1,0 +1,93 @@
+{
+  "id": "graph-088",
+  "name": "Organic Flowing Data Visualization",
+  "description": "Streamgraph: Continuous flowing bands represent how three contributors change within a total. A steady timeline and separated color layers reveal both composition and overall growth.",
+  "category": "data-visualization",
+  "batch": "experimental-charts",
+  "collection": "Future Forms",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "line-chart",
+    "trend",
+    "time-series",
+    "area-chart",
+    "volume",
+    "pie-chart",
+    "composition",
+    "share",
+    "proportion",
+    "flow",
+    "sankey",
+    "conversion",
+    "hierarchy",
+    "tree",
+    "structure",
+    "network",
+    "relationships",
+    "graph",
+    "timeline",
+    "schedule",
+    "planning",
+    "project-management",
+    "experimental",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "accessible",
+    "multiple-series"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-experimental"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-renderer"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "wide"
+  },
+  "style": {
+    "tokens": "atlas-experimental",
+    "mode": "dark",
+    "colors": {
+      "#86e7a8": "accent",
+      "#74b9ff": "series2"
+    }
+  },
+  "source": {
+    "file": "atlas/08_experimental_charts_081_090.html",
+    "ref": "graphs[7]"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "f43e9473dbea0dea",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

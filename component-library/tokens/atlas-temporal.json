@@ -1,0 +1,33 @@
+{
+  "id": "atlas-temporal",
+  "name": "Temporal (dark)",
+  "mode": "dark",
+  "source": "07_temporal_timeline_charts_071_080.html",
+  "colors": {
+    "background": "#090e1b",
+    "surface": "#111a2b",
+    "surface2": "#172238",
+    "border": "#26334b",
+    "text": "#edf4ff",
+    "muted": "#91a0b8",
+    "accent": "#65d9e9",
+    "positive": "#69d9b3",
+    "negative": "#ed8ca8",
+    "warning": "#f4be72",
+    "series1": "#65d9e9",
+    "series2": "#aa93f5",
+    "series3": "#69d9b3",
+    "series4": "#f4be72",
+    "series5": "#ed8ca8",
+    "series6": "#91a0b8"
+  },
+  "fonts": {
+    "sans": "\"DM Sans\", system-ui, sans-serif",
+    "mono": "\"IBM Plex Mono\", ui-monospace, monospace"
+  },
+  "radius": {
+    "card": "16px",
+    "control": "8px"
+  },
+  "spacing": "22px"
+}

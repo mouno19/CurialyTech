@@ -1,0 +1,90 @@
+{
+  "id": "chart-forecast-variations",
+  "name": "Revenue forecast variations (13 treatments)",
+  "description": "Thirteen ways to show one April–September revenue forecast (exact values, momentum or the outlook), with projected months labeled.",
+  "category": "data-visualization",
+  "batch": "planning",
+  "collection": "Analytics Component Library",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "forecast",
+    "revenue",
+    "projection",
+    "variations",
+    "small-multiples",
+    "finance",
+    "growth",
+    "business",
+    "line-chart",
+    "trend",
+    "time-series",
+    "prediction",
+    "light-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "interactive",
+    "tooltips",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "chart.js",
+      "version": "4.4.8"
+    },
+    {
+      "type": "stylesheet",
+      "id": "atlas-paper"
+    },
+    {
+      "type": "tokens",
+      "id": "atlas-paper"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "atlas-paper",
+    "mode": "light",
+    "colors": {
+      "#246d57": "series2",
+      "#f2735d": "series1",
+      "#a5dbc6": "series3",
+      "#202522": "text",
+      "#747b76": "muted"
+    }
+  },
+  "source": {
+    "file": "atlas/10_analytics_dashboard_components.html",
+    "ref": "div id=\"forecast-variations #0"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "da2b4dc285d3c38b",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}
