@@ -1,0 +1,87 @@
+{
+  "id": "motion-react-scroll-kit",
+  "name": "Scroll motion kit (React)",
+  "description": "Scroll motion kit (React): useInView (IntersectionObserver), Reveal (direction up/down/left/right, duration, delay, threshold), useElementProgress and page progress, all on --ease: cubic-bezier(0.22, 1, 0.36, 1). Import the hooks into any React page for reveals, parallax, pinned and horizontal sections and progress cues.",
+  "category": "motion",
+  "batch": "motion-scroll",
+  "collection": "Motion: scroll motion mock (React)",
+  "kind": "component",
+  "role": "section",
+  "tags": [
+    "motion",
+    "animation",
+    "react",
+    "scroll",
+    "reveal",
+    "useinview",
+    "intersection-observer",
+    "parallax",
+    "scroll-progress",
+    "hooks"
+  ],
+  "capabilities": [
+    "responsive",
+    "animated",
+    "reduced-motion",
+    "interactive"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "stylesheet",
+      "id": "motion-scroll-lab"
+    },
+    {
+      "type": "tokens",
+      "id": "motion-scroll-lab"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-component"
+    }
+  ],
+  "layout": {
+    "role": "section",
+    "span": "full"
+  },
+  "style": {
+    "tokens": "motion-scroll-lab",
+    "mode": "dark",
+    "colors": {
+      "#080a0a": "background",
+      "#e7e8e2": "series3",
+      "#949994": "series4",
+      "#b8f20d": "series1",
+      "#57e9df": "series2"
+    }
+  },
+  "source": {
+    "file": "motion-mocks/scroll-transition-showcase/src/App.tsx",
+    "ref": "useInView, Reveal, useElementProgress"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "eed83f00e8efbfbb",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

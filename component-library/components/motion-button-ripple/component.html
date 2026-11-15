@@ -1,0 +1,33 @@
+<!-- Ripple button · motion-button-ripple: from the Motion: Interactive buttons (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/motion-buttons.css, and an ancestor with class="cx-motion-buttons". -->
+<div class="cx-motion-buttons"><div class="w-full">
+<article class=" tile" style="background: rgb(32, 36, 33);">
+      <div class=" stage ripple-stage" style="background: rgb(233, 233, 226);">
+       <button id="ripple" type="button" class=" demo ripple" style="background: rgb(48, 61, 156);"><span style="color: rgb(255, 255, 255); font-weight: 700; font-style: normal; font-size: 16px;">Start a ripple →</span></button>
+      </div>
+      <div class="tile-meta">
+       <span class="number">10</span>
+       <div>
+        <h2 style="color: rgb(244, 244, 238); font-weight: 700; font-style: normal; font-size: 24px;">Ripple Interaction</h2>
+        <p style="color: rgb(174, 183, 174); font-weight: 400; font-style: normal; font-size: 16px;">Instant feedback that expands from your touch.</p>
+       </div>
+      </div>
+     </article>
+</div></div>
+<script>
+(() => {
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+document.getElementById('ripple').addEventListener('click', e => {
+      if (reducedMotion.matches) return;
+      const button = e.currentTarget;
+      const r = button.getBoundingClientRect();
+      const wave = document.createElement('span');
+      wave.className = 'wave';
+      const pointerClick = e.detail !== 0;
+      wave.style.left = `${pointerClick ? e.clientX - r.left : r.width / 2}px`;
+      wave.style.top = `${pointerClick ? e.clientY - r.top : r.height / 2}px`;
+      button.appendChild(wave);
+      wave.addEventListener('animationend', () => wave.remove(), {once:true});
+    });
+})();
+</script>

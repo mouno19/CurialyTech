@@ -1,0 +1,41 @@
+<!-- Scroll-aware navbar · motion-nav-scroll-aware: from the Motion: Animated navigation (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/motion-navigation.css, and an ancestor with class="cx-motion-navigation". -->
+<div class="cx-motion-navigation"><div class="w-full">
+<article id="component-9" class="showcase-card">
+      <div class="card-heading">
+       <p class="eyebrow mb-2">09 / SCROLL</p>
+       <h2 style="color: rgb(23, 33, 36); font-weight: 600; font-style: normal; font-size: 24px;">Scroll-Aware Navbar</h2>
+       <p style="color: rgb(103, 112, 115); font-weight: 400; font-style: normal; font-size: 16px;">A sticky header becomes compact as content moves.</p>
+      </div>
+      <div id="scroll-preview" class="preview scroll-preview" tabindex="0" aria-label="Scrollable navbar preview">
+       <nav class="scroll-nav" aria-label="Scroll-aware navigation">
+        <strong>MONOGRAPH</strong><span><a href="#scroll-story">Story</a><a href="#scroll-details">Details</a></span>
+       </nav>
+       <section id="scroll-story" class="scroll-article">
+        <h3>A fresh perspective.</h3>
+        <p>Scroll inside this preview to watch the navigation transform.</p>
+        <p class="mt-9">Thoughtful design moves with you.</p>
+       </section>
+       <section id="scroll-details" class="scroll-article">
+        <h3>The details matter.</h3>
+        <p>The header stays available while making more room for the story.</p>
+       </section>
+      </div>
+     </article>
+</div></div>
+<script>
+(() => {
+const $ = (selector, root=document) => root.querySelector(selector);
+const $$ = (selector, root=document) => [...root.querySelectorAll(selector)];
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+$('#scroll-preview').addEventListener('scroll', event => {
+      event.currentTarget.classList.toggle('scrolled', event.currentTarget.scrollTop > 28);
+    }, {passive:true});
+$$('.scroll-nav a, .timeline-nav a').forEach(link => link.addEventListener('click', event => {
+      const target = $(link.getAttribute('href'));
+      if (!target) return;
+      event.preventDefault();
+      target.scrollIntoView({behavior:reducedMotion?'instant':'smooth',block:'start'});
+    }));
+})();
+</script>

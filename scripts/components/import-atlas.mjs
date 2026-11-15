@@ -11,7 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
-import { animeCollections, BLOCKS, FAMILIES, graphId, LEXICON, ROLES, TOKEN_SETS } from "./families.mjs";
+import { animeCollections, BLOCKS, FAMILIES, graphId, LEXICON, MOTION_TOKEN_SETS, motionCollections, ROLES, TOKEN_SETS } from "./families.mjs";
 import { closure, declarations, references, scopeCss } from "./bundle.mjs";
 
 const require = createRequire(import.meta.url);
@@ -135,7 +135,7 @@ function write(id, files) {
 }
 
 /** A page that renders the React module alone (ES modules from a CDN; for previews and render checks). */
-function reactPreview({ id, name, source, fonts, background }) {
+function reactPreview({ id, name, source, fonts, background, css = "" }) {
   const links = [];
   const stripped = previewSource(source).replace(/^\s*import\s+['"]([^'"]+\.css)['"];?\s*$/gm, (_, css) => { if (CSS_IMPORTS[css]) links.push(CSS_IMPORTS[css]); return ""; });
   const compiled = esbuild.transformSync(stripped, { loader: "jsx", jsx: "automatic", format: "esm", target: "es2020" }).code;
@@ -143,7 +143,7 @@ function reactPreview({ id, name, source, fonts, background }) {
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${name} · ${id}</title>
 ${[...fonts, ...links].map(href => `<link rel="stylesheet" href="${href}">`).join("\n")}
-<style>html,body{margin:0;background:${background};min-height:100%}#root{padding:24px;max-width:1100px;margin:0 auto}</style>
+<style>html,body{margin:0;background:${background};min-height:100%}#root{padding:24px;max-width:1100px;margin:0 auto}</style>${css ? `\n<style>${css}</style>` : ""}
 <script type="importmap">${JSON.stringify({ imports: IMPORT_MAP })}</script>
 </head><body><div id="root" data-component="${id}"></div>
 <script type="module">
@@ -172,6 +172,120 @@ function withDefaultExport(source) {
 /** Preview pages import the module's default export through a fixed name. */
 function previewSource(source) {
   return source.replace(/export\s+default\s+function\s+(\w+)/, "const __entry = function $1").replace(/export\s+default\s+(\w+)\s*;?/, "const __entry = $1;").replace(/\bexport\s+(?=(const|function|class)\b)/g, "");
+}
+
+// ---- The scroll motion mock (React 19 + Tailwind v4 app) ----
+
+/** The mock's demos as React components (types removed; the showcase's own headings left out) and its hooks as one kit. */
+async function importScrollMock(catalog) {
+  const MOCK = path.join(LIBRARY, "motion-mocks", "scroll-transition-showcase");
+  const id = "motion-scroll-lab";
+  const tokenSet = MOTION_TOKEN_SETS[id];
+  const scope = `cx-${id}`;
+  const app = fs.readFileSync(path.join(MOCK, "src", "App.tsx"), "utf8");
+  // Its declarations (the imports and the app's own export are written again per component).
+  const code = esbuild.transformSync(app, { loader: "tsx", jsx: "preserve", format: "esm", target: "es2020" }).code
+    .replace(/^\s*import\s[^;]*;\s*$/gm, "").replace(/^\s*export\s+default\s+\w+;?\s*$/gm, "").replace(/^export\s*\{[^}]*\};?\s*$/gm, "").replace(/^var\s+stdin_default\s*=\s*\w+;\s*$/gm, "").replace(/^\s*export\s+(?=(function|const|class)\b)/gm, "");
+  const decls = declarations(code);
+  const { parse } = require("@babel/parser");
+  // Its stylesheet, with Tailwind's reset (the app imported Tailwind), scoped so it styles only what sits in .cx-motion-scroll-lab.
+  const css = fs.readFileSync(path.join(MOCK, "src", "index.css"), "utf8").replace(/^@import\s+["']tailwindcss["'];\s*$/m, "");
+  const tailwind = await tailwindLayers(app);
+  const { css: scoped, imports } = scopeCss([tailwind.before, css, tailwind.after].join("\n"), scope);
+  const fonts = imports.map(item => /url\(["']?([^"')]+)/.exec(item)?.[1]).filter(Boolean);
+  fs.writeFileSync(path.join(LIBRARY, "styles", `${id}.css`), `/* Motion: the scroll motion mock's styles, scoped to .${scope} (put its components inside an element with that class). */\n${scoped}\n`);
+  const reactImports = text => {
+    const hooks = ["useEffect", "useRef", "useState"].filter(hook => new RegExp(`\\b${hook}\\b`).test(text));
+    return hooks.length ? `import { ${hooks.join(", ")} } from "react";\n` : "";
+  };
+  const withoutHeadings = text => {
+    const ast = parse(text, { sourceType: "module", plugins: ["jsx"] });
+    const cuts = [];
+    const visit = node => {
+      if (!node || typeof node.type !== "string") return;
+      if (node.type === "JSXElement" && node.openingElement.name.name === "DemoHeader") { cuts.push([node.start, node.end]); return; }
+      for (const [key, child] of Object.entries(node)) if (key !== "loc") (Array.isArray(child) ? child : [child]).forEach(item => item && typeof item.type === "string" && visit(item));
+    };
+    visit(ast.program);
+    return cuts.sort((a, b) => b[0] - a[0]).reduce((out, [start, end]) => out.slice(0, start) + out.slice(end), text);
+  };
+  const results = [];
+  const make = ({ componentId, name, description, tags, demo, variantOf, wrapperName, exports = [] }) => {
+    const notes = [];
+    let source = "";
+    try {
+      const body = withoutHeadings(demo);
+      const refs = [...references(parse(body, { sourceType: "module", plugins: ["jsx"] }).program), ...exports];
+      const helpers = closure(decls, refs, { allowPage: true, skip: new Set([/function\s+(\w+)/.exec(body)?.[1]]) });
+      const inner = /function\s+(\w+)/.exec(body)?.[1];
+      const parts = [helpers, body].filter(Boolean).join("\n\n");
+      source = `${reactImports(parts)}// ${name} · ${componentId}: from the scroll motion mock (Curialy component library). Sample copy and photos are placeholders.
+// Needs the stylesheet styles/${id}.css; the wrapper below gives it its scope. Under prefers-reduced-motion the stylesheet
+// shows reveals and stops CSS transitions${/useElementProgress\(\)/.test(demo) ? "; the transforms this sets from scroll progress still move, so check matchMedia(\"(prefers-reduced-motion: reduce)\") before applying them" : ""}.
+${parts}
+
+export default function ${wrapperName}() {
+  return (
+    <div className="${scope}">
+      <${inner} />
+    </div>
+  );
+}
+${exports.length ? `\nexport { ${exports.join(", ")} };\n` : ""}`;
+    } catch (error) {
+      notes.push(`script: ${error.message}`);
+    }
+    const files = { "react.jsx": source };
+    if (source) {
+      try { files["preview.html"] = reactPreview({ id: componentId, name, source, fonts, background: tokenSet.colors.background, css: scoped }); }
+      catch (error) { notes.push(`preview: ${String(error.message).split("\n")[0]}`); }
+    }
+    const meta = {
+      id: componentId, name, description, category: "motion", batch: "motion-scroll", collection: "Motion: scroll motion mock (React)",
+      kind: "component", role: "section", tags: unique(["motion", "animation", "react", "scroll", ...tags]),
+      capabilities: unique(["responsive", "animated", "reduced-motion", ...capabilities(source, null)]),
+      dependencies: [{ type: "package", name: "react", version: PACKAGES.react }, { type: "stylesheet", id }, { type: "tokens", id }],
+      compatible_tools: ["web-design", "ui-ux-design", "frontend-development"],
+      frameworks: ["react"],
+      implementations: [{ framework: "react", file: "react.jsx", origin: "page-component" }],
+      layout: { role: "section", span: "full" },
+      style: { tokens: id, mode: tokenSet.mode, colors: colorRoles(source + scoped, tokenSet) },
+      source: { file: "motion-mocks/scroll-transition-showcase/src/App.tsx", ref: variantOf ? `function ${/function\s+(\w+)/.exec(demo)?.[1]}` : "useInView, Reveal, useElementProgress" },
+      ...(variantOf ? { variant_of: variantOf } : {}),
+      status: notes.length ? "needs-review" : "active",
+      quality: { compiled: !notes.length, rendered: null, notes },
+      generated_by: GENERATOR,
+      version: 1,
+    };
+    write(componentId, { "component.json": `${JSON.stringify(meta, null, 2)}\n`, ...files });
+    results.push(meta);
+  };
+  for (const piece of catalog.pieces.filter(item => item.react)) {
+    const decl = decls.get(piece.react);
+    if (!decl) throw new Error(`scroll mock: no ${piece.react}`);
+    make({
+      componentId: `${piece.id}-react`, name: `${piece.name} (React)`, variantOf: piece.id,
+      description: `${piece.name}: ${piece.how}. The React version, from the scroll motion mock (useInView / useElementProgress, one ease): re-skin it to the design's tokens and mix it with other pieces, never the whole mock.`,
+      tags: [piece.slot, ...piece.signals.slice(0, 5).map(signal => signal.replace(/\s+/g, "-"))], demo: decl.text,
+      wrapperName: piece.name.replace(/[^A-Za-z0-9]+(.)?/g, (_, next = "") => next.toUpperCase()).replace(/^./, first => first.toUpperCase()),
+    });
+  }
+  // The kit: the hooks and the Reveal wrapper, with a small demo as its default export.
+  const kitDemo = `function ScrollKitDemo() {
+  return (
+    <section className="demo-section">
+      {["up", "left", "right"].map((direction, index) => (
+        <Reveal key={direction} direction={direction} delay={index * 120}>
+          <h3>Reveal {direction}</h3>
+          <p>Enters when 20% of it is in view, on the shared ease.</p>
+        </Reveal>
+      ))}
+    </section>
+  );
+}`;
+  // It exports its hooks too, so pages use them directly.
+  make({ componentId: catalog.kit.id, name: catalog.kit.name, description: `${catalog.kit.name}: ${catalog.kit.how}. Import the hooks into any React page for reveals, parallax, pinned and horizontal sections and progress cues.`, tags: ["reveal", "useinview", "intersection-observer", "parallax", "scroll-progress", "hooks"], demo: kitDemo, wrapperName: "ScrollMotionKit", exports: ["useInView", "useElementProgress", "Reveal"] });
+  return results;
 }
 
 // ---- Families with definition arrays ----
@@ -395,6 +509,7 @@ function nth(html, marker, index) {
 /** A token set by id: the atlas families' (TOKEN_SETS), or one written to tokens/ (the anime archetypes). */
 function tokenSetOf(id) {
   if (TOKEN_SETS[id]) return TOKEN_SETS[id];
+  if (MOTION_TOKEN_SETS[id]) return MOTION_TOKEN_SETS[id];
   return JSON.parse(fs.readFileSync(path.join(LIBRARY, "tokens", `${id}.json`), "utf8"));
 }
 
@@ -412,18 +527,105 @@ function safeColors(html, tokenSet) {
   return out;
 }
 
-/** Elements a piece of script looks up: ids (getElementById, a $("id") helper) and selectors. */
-const lookups = text => unique([...text.matchAll(/(?:getElementById|\$)\(\s*['"]([^'"]+)['"]/g)].map(match => `#${match[1]}`)
-  .concat([...text.matchAll(/querySelector(?:All)?\(\s*['"]([^'"]+)['"]/g)].map(match => match[1])));
+/**
+ * A page's Tailwind utilities (it loaded the Tailwind CDN), compiled from the class names it uses:
+ * the theme variables and the reset go before the page's own styles and the utilities after them
+ * (the CDN's order), without cascade layers, so the page's styles and the utilities meet as they did.
+ */
+async function tailwindLayers(html) {
+  const { compile } = require("tailwindcss");
+  const postcss = require("postcss");
+  const base = path.dirname(require.resolve("tailwindcss/package.json"));
+  const quoted = text => [...text.matchAll(/["'`]([^"'`]+)["'`]/g)].flatMap(match => match[1].split(/\s+/));
+  const candidates = unique([
+    ...[...html.matchAll(/\s(?:class|className)="([^"]+)"/g)].flatMap(match => match[1].split(/\s+/)),
+    ...[...html.matchAll(/(?:classList\.(?:add|remove|toggle)|className\s*=)\s*\(?([^;)]*)/g)].flatMap(match => quoted(match[1])),
+  ].filter(Boolean));
+  const compiler = await compile('@import "tailwindcss/theme.css" layer(theme);\n@import "tailwindcss/preflight.css" layer(base);\n@import "tailwindcss/utilities.css" layer(utilities);', {
+    base,
+    loadStylesheet: async (id, dir) => {
+      const file = id.startsWith("tailwindcss/") ? path.join(base, id.slice("tailwindcss/".length)) : path.resolve(dir, id);
+      return { path: file, base: path.dirname(file), content: fs.readFileSync(file, "utf8") };
+    },
+  });
+  const before = [];
+  const after = [];
+  postcss.parse(compiler.build(candidates)).each(node => {
+    if (node.type === "comment") return;
+    if (node.type === "atrule" && node.name === "layer") { for (const child of node.nodes ?? []) (node.params === "utilities" ? after : before).push(child.toString()); return; }
+    before.push(node.toString());
+  });
+  return { before: before.join("\n"), after: after.join("\n") };
+}
+
+/** The body of a script that is one immediately invoked function ((() => { … })();), so its statements can be chosen one by one. */
+function unwrapIife(code) {
+  const { parse } = require("@babel/parser");
+  const ast = parse(code, { sourceType: "script" });
+  const [only] = ast.program.body;
+  if (ast.program.body.length !== 1 || only.type !== "ExpressionStatement") return code;
+  const call = only.expression.type === "UnaryExpression" ? only.expression.argument : only.expression;
+  const fn = call.type === "CallExpression" ? call.callee : null;
+  if (!fn || call.arguments.length || !/^(ArrowFunctionExpression|FunctionExpression)$/.test(fn.type) || fn.params.length || fn.body.type !== "BlockStatement") return code;
+  return code.slice(fn.body.start + 1, fn.body.end - 1).replace(/^\s*(['"])use strict\1;?/, "");
+}
+
+/** The script with one branch of an if / else-if chain on `name === "value"`, and `name` starting at that value. */
+function keepBranch(script, [name, value]) {
+  const { parse } = require("@babel/parser");
+  const ast = parse(script, { sourceType: "script", allowReturnOutsideFunction: true });
+  const edits = [];
+  const isTest = node => node?.type === "BinaryExpression" && /^===?$/.test(node.operator) && node.left.type === "Identifier" && node.left.name === name && node.right.type === "StringLiteral";
+  const visit = node => {
+    if (!node || typeof node.type !== "string") return;
+    if (node.type === "IfStatement" && isTest(node.test)) {
+      let branch = null;
+      let current = node;
+      while (current?.type === "IfStatement" && isTest(current.test)) { if (current.test.right.value === value) branch = current.consequent; current = current.alternate; }
+      edits.push([node.start, node.end, script.slice(...((branch ?? current) ? [(branch ?? current).start, (branch ?? current).end] : [0, 0]))]);
+      return;
+    }
+    if (node.type === "VariableDeclarator" && node.id.name === name && node.init?.type === "StringLiteral") edits.push([node.init.start, node.init.end, JSON.stringify(value)]);
+    for (const [key, child] of Object.entries(node)) {
+      if (key === "loc" || key === "leadingComments" || key === "trailingComments") continue;
+      if (Array.isArray(child)) child.forEach(visit);
+      else if (child && typeof child.type === "string") visit(child);
+    }
+  };
+  visit(ast.program);
+  let out = script;
+  for (const [start, end, text] of edits.sort((a, b) => b[0] - a[0])) out = out.slice(0, start) + text + out.slice(end);
+  return out;
+}
+
+/** Elements a piece of script looks up: ids (getElementById, a $("id") helper, or `helpers` of the page) and selectors. */
+const lookups = (text, helpers = [], { pageOnly = false } = {}) => unique([...text.matchAll(new RegExp(`(?:getElementById|\\$\\$?${helpers.map(name => `|\\b${name}`).join("")})\\(\\s*['"]([^'"]+)['"]`, "g"))]
+  // $("id") is an id; $("#menu .item") (a querySelector helper) is a selector.
+  .map(match => (/^[#.[]|[\s,>]/.test(match[1]) ? match[1] : `#${match[1]}`))
+  // pageOnly: queries of the document, not of an element (el.querySelector(".x") stays inside el).
+  .concat([...text.matchAll(/(?:(\w+)\s*\.\s*)?querySelector(?:All)?\(\s*['"]([^'"]+)['"]/g)].filter(match => !pageOnly || !match[1] || match[1] === "document").map(match => match[2])));
+
+/** A page's own lookup helpers: functions that hand their first argument to getElementById (svg("line")). */
+const lookupHelpers = code => unique([
+  ...[...code.matchAll(/function\s+([A-Za-z_$][\w$]*)\s*\(\s*([A-Za-z_$][\w$]*)[^)]*\)\s*\{[^}]*?getElementById\(\s*\2\s*\)/g)].map(match => match[1]),
+  ...[...code.matchAll(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*\(?\s*([A-Za-z_$][\w$]*)[^=;]*=>[^;]*?getElementById\(\s*\2\s*\)/g)].map(match => match[1]),
+].filter(name => name !== "$"));
 
 function importBlocks(BLOCKS) {
   const file = path.join(BLOCKS.dir ?? ATLAS, BLOCKS.file);
   const tokenSet = tokenSetOf(BLOCKS.tokens);
   const source = clean(fs.readFileSync(file, "utf8"));
   const html = BLOCKS.archetype ? safeColors(source, tokenSet) : source;
-  const { styles, scripts, fonts } = pieces(html);
+  const { styles: pageStyles, scripts: pageScripts, fonts } = pieces(html);
+  // A suite whose script is one function: its statements, so each block takes only its own.
+  const scripts = BLOCKS.isolate ? pageScripts.map(unwrapIife) : pageScripts;
+  const tailwind = BLOCKS.tailwindCss;
+  const styles = tailwind ? [tailwind.before, pageStyles, tailwind.after].join("\n") : pageStyles;
   const body = html.slice(html.indexOf("<body"));
   const scope = `cx-${BLOCKS.tokens}`;
+  // What the page's styles select on its <body> (a class, data-state="loading"), on a wrapper inside the scope.
+  const bodyTag = /<body\b([^>]*)>/.exec(html)?.[1] ?? "";
+  const bodyAttrs = BLOCKS.isolate ? [...bodyTag.matchAll(/\s(class|data-(?!template-id)[a-z-]+)="([^"]*)"/g)].map(match => ` ${match[1]}="${match[2].trim()}"`).filter(attr => !/="\s*"$/.test(attr)).join("") : "";
   const scoped = scopeCss(styles, scope).css;
   // One stylesheet for the family, loaded once however many of its blocks a page uses.
   const stylesDir = path.join(LIBRARY, "styles");
@@ -433,25 +635,37 @@ function importBlocks(BLOCKS) {
   const { parse } = require("@babel/parser");
   const statements = [];
   const decls = new Map();
+  const helpers = BLOCKS.isolate ? unique(scripts.flatMap(lookupHelpers)) : [];
   for (const [index, code] of scripts.entries()) {
-    const ast = parse(code, { sourceType: "script" });
-    for (const node of ast.program.body) {
-      const text = code.slice(node.start, node.end);
-      // What a statement touches: ids it looks up (getElementById, querySelector, a $("id") helper), and
-      // ids a call hands to a helper as plain strings (makeChecks("genre-list", …)).
-      const calls = node.type === "ExpressionStatement" && node.expression.type === "CallExpression" ? [...text.matchAll(/["'`]([a-z][\w-]*)["'`]/gi)].map(match => `#${match[1]}`) : [];
-      const touches = unique([...lookups(text), ...calls]);
-      statements.push({ node, text, touches, script: index, setup: /^(lucide\.createIcons|Chart\.defaults)/.test(text) });
+    const ast = parse(code, { sourceType: "script", allowReturnOutsideFunction: true });
+    for (const whole of ast.program.body) {
+      // In the motion suites one statement per declarator (const tilt = $("tilt-card"), magnet = $("magnetic-card")).
+      const parts = BLOCKS.isolate && whole.type === "VariableDeclaration" && whole.declarations.length > 1
+        ? whole.declarations.map(d => ({ type: "VariableDeclaration", kind: whole.kind, declarations: [d], start: d.start, end: d.end }))
+        : [whole];
+      for (const node of parts) {
+        const text = node === whole ? code.slice(node.start, node.end) : `${node.kind} ${code.slice(node.start, node.end)};`;
+        // What a statement touches: ids it looks up (getElementById, querySelector, a $("id") helper), and
+        // ids a call hands to a helper as plain strings (makeChecks("genre-list", …)).
+        const calls = node.type === "ExpressionStatement" && node.expression.type === "CallExpression" ? [...text.matchAll(/["'`]([a-z][\w-]*)["'`]/gi)].map(match => `#${match[1]}`) : [];
+        const touches = unique([...lookups(text, helpers), ...calls]);
+        statements.push({ node, text, touches, script: index, setup: /^(lucide\.createIcons|Chart\.defaults)/.test(text) });
+      }
     }
     // An archetype template's declarations one by one, so a block takes only the names it uses.
-    for (const [name, decl] of declarations(code, { split: !!BLOCKS.archetype })) decls.set(name, Object.assign(decl, { script: index }));
+    for (const [name, decl] of declarations(code, { split: !!(BLOCKS.archetype || BLOCKS.isolate) })) decls.set(name, Object.assign(decl, { script: index }));
   }
   const pageIds = new Map([...body.matchAll(/\sid="([^"]+)"/g)].map(match => [match[1], match.index]));
+  // Authoring-tool ids a script selects by ('[data-template-id="progress-track"]'): kept, and their elements come along.
+  const templateRefs = new Set(scripts.flatMap(code => [...code.matchAll(/data-template-id=\\?["']([\w-]+)/g)].map(match => match[1])));
   // Dialogs of the page (a title's details): what a block's script opens there comes along with it.
   const dialogs = [...body.matchAll(/<dialog\b|<[a-z][\w-]*\s[^>]*(?:role="dialog"|aria-modal="true")/g)].map(match => {
     try { return [match.index, match.index + element(body, match.index).length]; } catch { return [match.index, match.index]; }
   });
   const inDialog = id => dialogs.some(([start, end]) => pageIds.get(id) >= start && pageIds.get(id) < end);
+  // Where each piece of a showcase sits: parts of other pieces a shared script also drives come along hidden.
+  const itemAt = item => { try { const at = nth(body, item.find[0], item.find[1]); return [at, at + element(body, at).length]; } catch { return null; } };
+  const ranges = BLOCKS.isolate ? BLOCKS.items.map(itemAt) : [];
   const pageClasses = new Set([...body.matchAll(/\sclass="([^"]+)"/g)].flatMap(match => match[1].split(/\s+/)));
   const pageAttrs = new Set([...body.matchAll(/\s(data-[a-z-]+)=/g)].map(match => match[1]));
   const results = [];
@@ -467,10 +681,15 @@ function importBlocks(BLOCKS) {
     const classes = new Set([...markup.matchAll(/\bclass="([^"]+)"/g)].flatMap(match => match[1].split(/\s+/)));
     const attrs = new Set([...markup.matchAll(/\s(data-[a-z-]+)=/g)].map(match => match[1]));
     // A script that sits inside the block's own markup comes with it: never add it a second time.
-    const selected = statements.filter(statement => !markup.includes(statement.text) && statement.touches.some(selector => {
+    // A selector list ('.reveal,.mask-text') touches the block when one of its selectors does (in the motion suites).
+    const selectorsOf = selector => (BLOCKS.isolate ? selector.split(",").map(part => part.trim()).filter(Boolean) : [selector]);
+    const selected = statements.filter(statement => !markup.includes(statement.text) && statement.touches.flatMap(selectorsOf).some(selector => {
       const first = selector.split(/\s+/)[0];
       if (first.startsWith("#")) return ids.has(first.slice(1).replace(/-$/, "")) || [...ids].some(id => first.endsWith("-") && id.startsWith(first.slice(1)));
       if (first.startsWith(".")) return classes.has(first.slice(1));
+      // [data-scene="magnet"] is the element with that value, not every element with the attribute (in the motion suites).
+      // A selector built at run time ('[data-template-id="' + id) and the authoring tool's own ids say nothing.
+      if (first.startsWith("[") && BLOCKS.isolate) return first.endsWith("]") && !first.startsWith("[data-template-id") && (/=/.test(first) ? markup.includes(first.slice(1, -1).replace(/'/g, '"')) : attrs.has(first.slice(1, -1)));
       if (first.startsWith("[")) return attrs.has(first.slice(1, -1).split("=")[0]);
       return false;
     }));
@@ -484,7 +703,8 @@ function importBlocks(BLOCKS) {
     const variables = new Set(selected.filter(statement => statement.node.type === "VariableDeclaration").flatMap(statement => statement.node.declarations.map(d => d.id.name).filter(Boolean)));
     const outside = selector => {
       const first = selector.split(/\s+/)[0];
-      if (first.startsWith("#")) return pageIds.has(first.slice(1)) && !ids.has(first.slice(1)) && !inDialog(first.slice(1));
+      // In the motion suites any element by id comes along (hidden when it belongs to another piece), so only classes and attributes reach outside.
+      if (first.startsWith("#")) return !BLOCKS.isolate && pageIds.has(first.slice(1)) && !ids.has(first.slice(1)) && !inDialog(first.slice(1));
       if (first.startsWith(".")) return pageClasses.has(first.slice(1)) && !classes.has(first.slice(1));
       if (first.startsWith("[")) { const attr = first.slice(1, -1).split("=")[0]; return pageAttrs.has(attr) && !attrs.has(attr); }
       return false;
@@ -494,45 +714,85 @@ function importBlocks(BLOCKS) {
       if (seen.has(name) || !decls.has(name)) return false;
       seen.add(name);
       const decl = decls.get(name);
-      return !inSelected(decl) && elsewhere(decl.node, lookups(decl.text), seen);
+      return !inSelected(decl) && elsewhere(decl.node, lookups(decl.text, helpers, { pageOnly: BLOCKS.isolate }), seen);
     });
-    const uses = statements.filter(statement => statement.node.type === "ExpressionStatement" && !selected.includes(statement) && !markup.includes(statement.text) && [...references(statement.node)].some(name => variables.has(name)) && !elsewhere(statement.node, statement.touches));
+    // In the motion suites a statement can reach the block through the page's functions too (requestAnimationFrame(frame),
+    // where frame draws the chosen stages).
+    const reaches = (node, seen = new Set()) => [...references(node)].some(name => {
+      if (variables.has(name)) return true;
+      if (!BLOCKS.isolate || seen.has(name) || !decls.has(name)) return false;
+      seen.add(name);
+      const decl = decls.get(name);
+      return !inSelected(decl) && reaches(decl.node, seen);
+    });
+    const uses = statements.filter(statement => statement.node.type === "ExpressionStatement" && !selected.includes(statement) && !markup.includes(statement.text) && reaches(statement.node)
+      && !elsewhere(statement.node, BLOCKS.isolate ? lookups(statement.text, helpers, { pageOnly: true }) : statement.touches));
     const chosen = new Set([...selected, ...calls, ...uses]);
-    const refs = [...new Set([...chosen].flatMap(statement => [...references(statement.node)]))];
+    // What a block runs itself (lineChart(), where the page drew every chart from one render()).
+    const run = block.run ? parse(block.run, { sourceType: "script" }) : null;
+    const refs = [...new Set([...chosen].flatMap(statement => [...references(statement.node)]).concat(run ? [...references(run.program)] : []))];
     let needed = "";
+    let neededEntries = [];
     try {
       // Declarations that read the page are fine only when their elements are in this block (then they were chosen).
       // A block runs in a page with its markup (and the elements its script uses), so declarations that look elements up at load are fine.
-      needed = closure(decls, refs, { skip: declared, allowPage: true });
+      if (BLOCKS.isolate) neededEntries = closure(decls, refs, { skip: declared, allowPage: true, asEntries: true });
+      else needed = closure(decls, refs, { skip: declared, allowPage: true });
     } catch (error) {
       notes.push(`script: ${error.message}`);
     }
     const usesCharts = /new Chart\(/.test([...chosen].map(statement => statement.text).join(""));
-    const ordered = statements.filter(statement => chosen.has(statement)).map(statement => statement.text);
-    const script = [needed, ...ordered].filter(Boolean).join("\n");
+    // In the motion suites the declarations a block needs and its own statements keep their order in the page
+    // (const canvas = …; const ctx = canvas.getContext(…)), so nothing is read before it is declared.
+    const ordered = BLOCKS.isolate
+      ? [...neededEntries.map(entry => ({ script: entry.script, start: entry.start, text: entry.text })), ...statements.filter(statement => chosen.has(statement)).map(statement => ({ script: statement.script, start: statement.node.start, text: statement.text }))]
+        .sort((a, b) => a.script - b.script || a.start - b.start).map(item => item.text)
+      : statements.filter(statement => chosen.has(statement)).map(statement => statement.text);
+    let script = [needed, ...ordered, block.run].filter(Boolean).join("\n");
+    // One of several effects drawn by the same code: only its branch.
+    if (block.branch) script = keepBranch(script, block.branch);
     const usesIcons = /data-lucide=/.test(markup) || /\blucide\./.test(script);
     const setup = statements.filter(statement => statement.setup && (usesCharts || !/^Chart/.test(statement.text)) && (usesIcons || !/^lucide/.test(statement.text))).map(statement => statement.text);
     // Elements the block's script uses that sit elsewhere on the page (a detail dialog, a toast): they come along.
     const supporting = [];
-    for (const id of new Set([...script.matchAll(/(?:getElementById|\$)\(\s*['"]([^'"]+)['"]|querySelector\(\s*['"]#([\w-]+)['"]/g)].map(match => match[1] ?? match[2]))) {
+    const tuning = [];
+    const usedIds = BLOCKS.isolate
+      ? lookups(script, helpers).flatMap(selectorsOf).filter(selector => selector.startsWith("#")).map(selector => selector.slice(1).split(/[\s.,:[>]/)[0])
+        // Ids listed for a loop (['border-card', 'spotlight-card'].forEach(id => getElementById(id)…)).
+        .concat([...script.matchAll(/\[\s*(?:['"][\w-]+['"]\s*,\s*)+['"][\w-]+['"]\s*\]/g)].flatMap(match => [...match[0].matchAll(/['"]([\w-]+)['"]/g)].map(item => item[1])).filter(id => pageIds.has(id)))
+        // A lookup by a variable ($(k) for each setting) reads the page's settings: they all come along (hidden).
+        .concat(/\$\(\s*[a-z_][\w]*\s*\)/.test(script) ? [...body.matchAll(/<(?:input|select|textarea)\b[^>]*\sid="([^"]+)"/g)].map(match => match[1]) : [])
+      : [...script.matchAll(/(?:getElementById|\$)\(\s*['"]([^'"]+)['"]|querySelector\(\s*['"]#([\w-]+)['"]/g)].map(match => match[1] ?? match[2]);
+    // Elements selected by an authoring-tool id the script names.
+    const usedTemplates = BLOCKS.isolate ? [...script.matchAll(/data-template-id=\\?["']([\w-]+)/g)].map(match => match[1]).filter(value => !markup.includes(`data-template-id="${value}"`)) : [];
+    for (const id of [...new Set(usedIds), ...new Set(usedTemplates.map(value => `@${value}`))]) {
       if (ids.has(id)) continue;
-      const at = body.search(new RegExp(`<[a-z][\\w-]*[^>]*\\sid="${id}"`));
+      const at = id.startsWith("@") ? body.search(new RegExp(`<[a-z][\\w-]*[^>]*\\sdata-template-id="${id.slice(1)}"`)) : body.search(new RegExp(`<[a-z][\\w-]*[^>]*\\sid="${id}"`));
       if (at < 0) continue;
       let extra = "";
       try { extra = element(body, at); } catch { continue; }
-      if (extra.length <= 25_000 && !extra.includes(markup) && !supporting.some(item => item.includes(extra))) supporting.push(extra);
+      if (extra.length > 25_000 || extra.includes(markup) || supporting.some(item => item.includes(extra))) continue;
+      // A setting the script reads from the page's control panel (a range, a select), or a part of another piece the
+      // suite's shared script also drives: present so the script runs, hidden.
+      const own = ranges[BLOCKS.items.indexOf(block)];
+      if (BLOCKS.isolate && (/^<(input|select|textarea)\b/i.test(extra) || ranges.some(range => range && own && range[0] !== own[0] && range[0] <= at && at < range[1]))) tuning.push(extra);
+      else supporting.push(extra);
     }
     // An element inside another one that comes along is already there (no duplicate ids).
     for (let index = supporting.length - 1; index >= 0; index--) if (supporting.some((other, at) => at !== index && other.includes(supporting[index]))) supporting.splice(index, 1);
     const title = /<h3[^>]*>([^<]+)</.exec(markup)?.[1]?.trim();
     const packages = unique([usesCharts && "chart.js", usesIcons && "lucide"]);
+    // The authoring tool's element ids mean nothing outside it.
+    const editorIds = text => (BLOCKS.isolate ? text.replace(/\sdata-template-id="([^"]*)"/g, (whole, value) => (templateRefs.has(value) ? whole : "")) : text);
+    const inner = `${editorIds(markup)}${supporting.length ? `\n<!-- Used by this block's script (elsewhere on the page it came from): -->\n${editorIds(supporting.join("\n"))}` : ""}${tuning.length ? `\n<!-- Present for the suite's shared script (its settings, with their defaults, and parts of other pieces it also drives); hidden: -->\n<div hidden>${editorIds(tuning.join("\n"))}</div>` : ""}`;
+    const code = [...setup, script].filter(Boolean).join("\n");
     const snippet = `<!-- ${block.name} · ${block.id}: from the ${BLOCKS.collection} (Curialy component library). Sample data is fictional.
      Needs the stylesheet styles/${BLOCKS.tokens}.css, and an ancestor with class="${scope}". -->
-${packages.includes("chart.js") ? `<script src="https://cdn.jsdelivr.net/npm/chart.js@${PACKAGES["chart.js"]}/dist/chart.umd.min.js"></script>\n` : ""}${packages.includes("lucide") ? `<script src="https://cdn.jsdelivr.net/npm/lucide@${PACKAGES.lucide}/dist/umd/lucide.min.js"></script>\n` : ""}<div class="${scope}">
-${markup}${supporting.length ? `\n<!-- Used by this block's script (elsewhere on the page it came from): -->\n${supporting.join("\n")}` : ""}
-</div>
+${packages.includes("chart.js") ? `<script src="https://cdn.jsdelivr.net/npm/chart.js@${PACKAGES["chart.js"]}/dist/chart.umd.min.js"></script>\n` : ""}${packages.includes("lucide") ? `<script src="https://cdn.jsdelivr.net/npm/lucide@${PACKAGES.lucide}/dist/umd/lucide.min.js"></script>\n` : ""}<div class="${scope}">${bodyAttrs ? `<div${bodyAttrs}>` : ""}
+${inner}
+${bodyAttrs ? "</div>" : ""}</div>
 <script>
-${[...setup, script].filter(Boolean).join("\n")}
+${BLOCKS.isolate ? `(() => {\n${code}\n})();` : code}
 </script>
 `;
     const preview = `<!doctype html>
@@ -552,7 +812,8 @@ ${snippet}
       collection: BLOCKS.collection,
       kind: block.composes ? "pattern" : "component",
       role: block.role,
-      tags: unique([...block.tags, ...lexiconTags(`${block.name} ${block.description}`), tokenSet.mode === "dark" ? "dark-theme" : "light-theme"]),
+      // The lexicon reads what the block is (summary), not the advice every description of its collection repeats.
+      tags: unique([...block.tags, ...lexiconTags(`${block.name} ${block.summary ?? block.description}`), tokenSet.mode === "dark" ? "dark-theme" : "light-theme"]),
       capabilities: unique([...block.capabilities, ...capabilities(markup + script, null)]),
       dependencies: [...packages.map(pkg => ({ type: "package", name: pkg, version: PACKAGES[pkg] })), { type: "stylesheet", id: BLOCKS.tokens }, { type: "tokens", id: BLOCKS.tokens }],
       compatible_tools: block.tools,
@@ -588,7 +849,7 @@ for (const name of fs.existsSync(OUT) ? fs.readdirSync(OUT) : []) {
 }
 const tokensDir = path.join(LIBRARY, "tokens");
 fs.mkdirSync(tokensDir, { recursive: true });
-for (const [id, set] of Object.entries(TOKEN_SETS)) {
+for (const [id, set] of Object.entries({ ...TOKEN_SETS, ...MOTION_TOKEN_SETS })) {
   for (const role of ROLES) if (!set.colors[role]) throw new Error(`token set ${id} has no ${role}`);
   fs.writeFileSync(path.join(tokensDir, `${id}.json`), `${JSON.stringify({ id, ...set }, null, 2)}\n`);
 }
@@ -606,6 +867,20 @@ for (const collection of animeCollections(JSON.parse(fs.readFileSync(path.join(A
   const made = importBlocks(collection);
   summary.push(`${collection.file}: ${made.length} components`);
   for (const block of made) summary.push(`  ${block.id}: "${block._title ?? "?"}" ${block.status}`);
+}
+// The scroll motion mock (React): its demos as React versions of the scroll patterns, and its hooks as a kit.
+if (!ONLY || "motion-scroll-".startsWith(ONLY) || ONLY.startsWith("motion-")) {
+  const made = await importScrollMock(JSON.parse(fs.readFileSync(path.join(LIBRARY, "motion-components", "catalog.json"), "utf8")));
+  summary.push(`motion-mocks/scroll-transition-showcase: ${made.length} components (${made.filter(meta => meta.status !== "active").length} need review)`);
+}
+// The motion suites' pieces (from motion-components/catalog.json, written by export-motion.mts).
+const MOTION = path.join(LIBRARY, "motion-components");
+for (const collection of motionCollections(JSON.parse(fs.readFileSync(path.join(MOTION, "catalog.json"), "utf8")), MOTION)) {
+  if (ONLY && !collection.items.some(item => item.id.startsWith(ONLY))) continue;
+  collection.tailwindCss = await tailwindLayers(fs.readFileSync(path.join(MOTION, collection.file), "utf8"));
+  const made = importBlocks(collection);
+  summary.push(`${collection.file}: ${made.length} components (${made.filter(meta => meta.status !== "active").length} need review)`);
+  for (const block of made.filter(meta => meta.status !== "active")) summary.push(`  ${block.id}: ${block.quality.notes.join("; ")}`);
 }
 for (const block of blocks) summary.push(`  ${block.id}: "${block._title ?? "?"}" ${block.dependencies.filter(dep => dep.type === "package").map(dep => dep.name).join("+") || "markup only"}`);
 // Only after everything was written: generated components that no longer exist in the sources go

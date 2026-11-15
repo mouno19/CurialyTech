@@ -1,0 +1,40 @@
+{
+  "id": "motion-scroll-lab",
+  "name": "Scroll lab (dark)",
+  "mode": "dark",
+  "source": "motion-mocks/scroll-transition-showcase/src",
+  "colors": {
+    "background": "#080a0a",
+    "surface": "#111414",
+    "surface2": "#191d1c",
+    "border": "#2c2e2c",
+    "text": "#e7e8e2",
+    "muted": "#949994",
+    "accent": "#b8f20d",
+    "positive": "#b8f20d",
+    "negative": "#ff8a76",
+    "warning": "#f2d486",
+    "series1": "#b8f20d",
+    "series2": "#57e9df",
+    "series3": "#e7e8e2",
+    "series4": "#949994",
+    "series5": "#2c2e2c",
+    "series6": "#191d1c"
+  },
+  "fonts": {
+    "sans": "Manrope, system-ui, sans-serif",
+    "mono": "\"DM Mono\", ui-monospace, monospace"
+  },
+  "radius": {
+    "card": "22px",
+    "control": "12px"
+  },
+  "spacing": "20px",
+  "motion": {
+    "ease": "cubic-bezier(0.22, 1, 0.36, 1)",
+    "fast": "150ms",
+    "base": "300ms",
+    "reveal": "800ms",
+    "stagger": "80ms"
+  }
+}

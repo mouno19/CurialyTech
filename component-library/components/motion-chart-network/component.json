@@ -1,0 +1,84 @@
+{
+  "id": "motion-chart-network",
+  "name": "Connected network",
+  "description": "Connected network: select a node to trace its links. From the Animated data visualizations suite: re-skin it to the design's tokens and timing (--cx-ease, --cx-duration-*), keep its reduced-motion end state, and mix it with other pieces, never the whole suite.",
+  "category": "data-visualization",
+  "batch": "motion-chart",
+  "collection": "Motion: Animated data visualizations",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "motion",
+    "animation",
+    "data",
+    "interactive",
+    "network-graph",
+    "node-graph",
+    "connected-nodes",
+    "network",
+    "relationships",
+    "graph",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "animated",
+    "interactive",
+    "keyboard",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "stylesheet",
+      "id": "motion-charts"
+    },
+    {
+      "type": "tokens",
+      "id": "motion-charts"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "web-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "motion-charts",
+    "mode": "dark",
+    "colors": {
+      "#a5efca": "series1",
+      "#ff9b82": "series2",
+      "#f2d486": "series3",
+      "#192522": "surface"
+    }
+  },
+  "source": {
+    "file": "motion-components/05_animated_data_visualizations.html",
+    "ref": "article data-template-id=\"network-card\" #0"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "3c4d530c836f8f58",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

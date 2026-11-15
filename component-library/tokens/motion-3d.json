@@ -1,0 +1,40 @@
+{
+  "id": "motion-3d",
+  "name": "3D motion (dark)",
+  "mode": "dark",
+  "source": "motion-components/03_3d_motion_components.html",
+  "colors": {
+    "background": "#0a1719",
+    "surface": "#102427",
+    "surface2": "#142b2c",
+    "border": "#34504e",
+    "text": "#eaece8",
+    "muted": "#9aaca8",
+    "accent": "#a8f4d6",
+    "positive": "#a8f4d6",
+    "negative": "#ff8a76",
+    "warning": "#f2d486",
+    "series1": "#a8f4d6",
+    "series2": "#719e8e",
+    "series3": "#c2d6ce",
+    "series4": "#9aaca8",
+    "series5": "#34504e",
+    "series6": "#183e3e"
+  },
+  "fonts": {
+    "sans": "\"DM Sans\", system-ui, sans-serif",
+    "mono": "\"Space Mono\", ui-monospace, monospace"
+  },
+  "radius": {
+    "card": "22px",
+    "control": "12px"
+  },
+  "spacing": "20px",
+  "motion": {
+    "ease": "cubic-bezier(0.22, 1, 0.36, 1)",
+    "fast": "150ms",
+    "base": "300ms",
+    "reveal": "800ms",
+    "stagger": "80ms"
+  }
+}

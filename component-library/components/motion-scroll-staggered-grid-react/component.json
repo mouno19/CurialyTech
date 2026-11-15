@@ -1,0 +1,85 @@
+{
+  "id": "motion-scroll-staggered-grid-react",
+  "name": "Staggered grid (React)",
+  "description": "Staggered grid: a grid's items arrive one after another. The React version, from the scroll motion mock (useInView / useElementProgress, one ease): re-skin it to the design's tokens and mix it with other pieces, never the whole mock.",
+  "category": "motion",
+  "batch": "motion-scroll",
+  "collection": "Motion: scroll motion mock (React)",
+  "kind": "component",
+  "role": "section",
+  "tags": [
+    "motion",
+    "animation",
+    "react",
+    "scroll",
+    "staggered-grid",
+    "staggered",
+    "stagger",
+    "cascade"
+  ],
+  "capabilities": [
+    "responsive",
+    "animated",
+    "reduced-motion"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "stylesheet",
+      "id": "motion-scroll-lab"
+    },
+    {
+      "type": "tokens",
+      "id": "motion-scroll-lab"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-component"
+    }
+  ],
+  "layout": {
+    "role": "section",
+    "span": "full"
+  },
+  "style": {
+    "tokens": "motion-scroll-lab",
+    "mode": "dark",
+    "colors": {
+      "#080a0a": "background",
+      "#e7e8e2": "series3",
+      "#949994": "series4",
+      "#b8f20d": "series1",
+      "#57e9df": "series2"
+    }
+  },
+  "source": {
+    "file": "motion-mocks/scroll-transition-showcase/src/App.tsx",
+    "ref": "function StaggeredGridDemo"
+  },
+  "variant_of": "motion-scroll-staggered-grid",
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "29966e52498d86ec",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

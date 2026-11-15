@@ -1,5 +1,5 @@
 import type { DesignIntent, Need, Register, Surface, WorkspaceFacts } from "./types";
-import { synthesize } from "./synthesis";
+import { motionMixture, synthesize } from "./synthesis";
 
 // Reads a request (and the workspace it lands in) for what kind of interface it asks for. Pure and
 // deterministic: the same request always gets the same brief, which keeps the prompt cacheable.
@@ -226,7 +226,13 @@ export function analyzeRequest(input: { original: string; latest: string; imageA
   if (surface === "storefront" && !needs.includes("commerce")) needs.push("commerce");
   if (surface === "game" && !needs.includes("immersive")) needs.push("immersive");
   const synthesis = synthesize({ text, ui, avoid });
-  return { ui, surface, register, motion, needs, cues, avoid, text, original, latest, reference: input.imageAttached, styles: synthesis ? [synthesis.primary.id, ...synthesis.partners.map(partner => partner.id)] : [], granted: synthesis?.grants ?? [] };
+  const mixture = motionMixture({ text, ui, surface, motion, needs, avoid, synthesis });
+  return {
+    ui, surface, register, motion, needs, cues, avoid, text, original, latest, reference: input.imageAttached,
+    styles: synthesis ? [synthesis.primary.id, ...synthesis.partners.map(partner => partner.id)] : [],
+    granted: [...new Set([...(synthesis?.grants ?? []), ...(mixture?.grants ?? [])])].sort(),
+    motionPicks: mixture ? mixture.picks.map(pick => pick.piece.id) : [],
+  };
 }
 
 /** Looks the user asked for, so neither the brief nor the audit discourages them (a negated mention doesn't count). */

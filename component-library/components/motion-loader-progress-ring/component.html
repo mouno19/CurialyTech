@@ -1,0 +1,60 @@
+<!-- Progress ring · motion-loader-progress-ring: from the Motion: Loading states (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/motion-loading.css, and an ancestor with class="cx-motion-loading". -->
+<div class="cx-motion-loading"><div data-state="loading" data-mode="determinate">
+<article class=" card panel p-5" style="background: rgb(20, 35, 41);">
+      <div class="flex justify-between gap-2 items-start">
+       <h2 class=" font-semibold" style="color: rgb(237, 246, 244); font-weight: 600; font-style: normal; font-size: 23px;">Progress ring</h2><span class="mono text-xs text-[#718a91]">04</span>
+      </div>
+      <div class="stage motion" aria-hidden="true">
+       <div class="ring">
+        <svg viewBox="0 0 112 112">
+         <circle cx="56" cy="56" r="46"></circle><circle class="arc" cx="56" cy="56" r="46"></circle>
+        </svg><span id="ring-value" class="mono font-bold text-xl">64%</span>
+       </div>
+      </div>
+      <p class=" mt-auto" style="color: rgb(130, 144, 155); font-weight: 400; font-style: normal; font-size: 12px;">A precise arc</p>
+      <p class="component-status mono text-xs mt-2" role="status"></p>
+     </article>
+<!-- Used by this block's script (elsewhere on the page it came from): -->
+<output id="percentage-value" class="mono text-sm w-10">64%</output>
+<output id="speed-value" class="mono text-sm w-12">1.0×</output>
+<div id="announcement" role="status" aria-live="polite" class="sr-only"></div>
+<!-- Present for the suite's shared script (its settings, with their defaults, and parts of other pieces it also drives); hidden: -->
+<div hidden><select id="mode" class="field"><option value="determinate">Determinate</option><option value="indeterminate">Indeterminate</option></select>
+<input id="percentage" type="range" min="0" max="100" value="64">
+<input id="speed" type="range" min="0.4" max="2.5" step="0.1" value="1">
+<input id="color" type="color" value="#65e6cf"></div>
+</div></div>
+<script>
+(() => {
+const body = document.body;
+const mode = document.getElementById('mode');
+const percentage = document.getElementById('percentage');
+const speed = document.getElementById('speed');
+const color = document.getElementById('color');
+const statuses = document.querySelectorAll('.component-status');
+const buttons = document.querySelectorAll('[data-state-value]');
+const segments = document.querySelectorAll('.segments i');
+function render() {
+    const value = Number(percentage.value);
+    const state = body.dataset.state;
+    body.dataset.mode = mode.value;
+    document.documentElement.style.setProperty('--progress', String(state === 'complete' ? 1 : value / 100));
+    document.documentElement.style.setProperty('--speed', speed.value);
+    document.documentElement.style.setProperty('--accent', color.value);
+    document.getElementById('percentage-value').textContent = value + '%';
+    document.getElementById('speed-value').textContent = Number(speed.value).toFixed(1) + '×';
+    document.getElementById('ring-value').textContent = state === 'complete' ? '100%' : state === 'error' ? '!' : mode.value === 'indeterminate' ? '···' : value + '%';
+    segments.forEach((segment, index) => segment.classList.toggle('filled', state === 'complete' || index < Math.round(value / 100 * segments.length)));
+    const description = state === 'complete' ? 'Complete, 100%' : state === 'error' ? 'Error' : state === 'paused' ? 'Paused at ' + value + '%' : mode.value === 'indeterminate' ? 'Loading, progress unknown' : 'Loading, ' + value + '%';
+    statuses.forEach(el => {
+      el.textContent = description;
+      el.style.color = state === 'error' ? '#ff807b' : state === 'complete' ? '#a9f4ae' : '#9bb8b7';
+    });
+    document.getElementById('announcement').textContent = description;
+    percentage.disabled = mode.value === 'indeterminate' && state === 'loading';
+    buttons.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.stateValue === state)));
+  }
+render();
+})();
+</script>

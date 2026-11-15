@@ -1,0 +1,11 @@
+# What the authoring tool (Figma Make) generated around the source: its build, agent notes,
+# deploy scripts and lockfile. The library keeps the app's source (src/, index.html, package.json).
+dist/
+node_modules/
+.figma/
+public/
+CLAUDE.md
+AGENTS.md
+package-lock.json
+vite.config.ts
+tsconfig.json

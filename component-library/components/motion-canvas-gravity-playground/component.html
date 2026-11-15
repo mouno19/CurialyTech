@@ -1,0 +1,154 @@
+<!-- Gravity playground · motion-canvas-gravity-playground: from the Motion: Creative canvas studies (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/motion-canvas.css, and an ancestor with class="cx-motion-canvas". -->
+<div class="cx-motion-canvas">
+<article class=" studio-card" style="background: rgb(29, 35, 31);">
+       <div class="stage" data-scene="gravity" tabindex="0" role="button" aria-label="Gravity playground: drag to attract, press Enter to repel objects">
+        <canvas></canvas>
+       </div>
+       <div class="p-5">
+        <span class="badge text-xs">10 / FALL</span>
+        <h3 class=" font-semibold mt-2" style="color: rgb(233, 234, 227); font-weight: 600; font-style: normal; font-size: 18px;">Gravity playground</h3>
+        <p class=" mt-1" style="color: rgb(170, 175, 164); font-weight: 400; font-style: normal; font-size: 15px;">Pull close. Tap to push everything away.</p>
+       </div>
+      </article>
+<!-- Used by this block's script (elsewhere on the page it came from): -->
+<button id="pause" type="button" class="action" aria-pressed="false"><span id="pause-label" style="font-weight: 400; font-style: normal; font-size: 15px;">Pause motion</span><span id="resume-label" hidden="" style="font-weight: 400; font-style: normal; font-size: 15px;">Resume motion</span></button>
+<button id="reset" type="button" class="action" style="background: rgb(37, 48, 39); color: rgb(233, 234, 227); font-weight: 400; font-style: normal; font-size: 15px;">Reset all</button>
+<!-- Present for the suite's shared script (its settings, with their defaults, and parts of other pieces it also drives); hidden: -->
+<div hidden><button id="magnet-button" type="button" class="magnet-button">Pull me in ↗</button>
+<input id="physics" type="range" min=".2" max="2" step=".1" value="1">
+<input id="speed" type="range" min=".2" max="2" step=".1" value="1">
+<input id="radius" type="range" min="30" max="190" step="5" value="100">
+<input id="color" type="color" value="#c6f36b">
+<input id="count" type="range" min="8" max="90" step="1" value="38">
+<input id="sensitivity" type="range" min=".2" max="2" step=".1" value="1">
+<input id="duration" type="range" min=".3" max="3" step=".1" value="1.5"></div>
+</div>
+<script>
+(() => {
+const defaults={physics:1,speed:1,radius:100,color:"#c6f36b",count:38,sensitivity:1,duration:1.5};
+const settings={...defaults};
+const stages=[...document.querySelectorAll("[data-scene]")];
+const state=new Map();
+const reduce=matchMedia("(prefers-reduced-motion: reduce)");
+let paused=reduce.matches;
+let analyser=null;
+let audioData=null;
+let clock=0;
+let last=0;
+const $=id=>document.getElementById(id);
+const rand=(a,b)=>a+Math.random()*(b-a);
+const rgba=(hex,a)=>{const h=hex.replace("#","");return `rgba(${parseInt(h.slice(0,2),16)},${parseInt(h.slice(2,4),16)},${parseInt(h.slice(4,6),16)},${a})`};
+function size(el,s){
+    const canvas=el.querySelector("canvas"); if(!canvas)return;
+    const r=el.getBoundingClientRect(),d=Math.min(devicePixelRatio||1,2);
+    const w=Math.max(1,Math.round(r.width)),h=Math.max(1,Math.round(r.height));
+    if(s.w!==w||s.h!==h){canvas.width=Math.round(w*d);canvas.height=Math.round(h*d);s.w=w;s.h=h;s.ctx=canvas.getContext("2d");s.ctx.setTransform(d,0,0,d,0,0);}
+  }
+function fresh(el){
+    const s={w:0,h:0,pointer:null,particles:[],objects:[],phase:0,shape:0,shapeFrom:0,shapeAt:0,burstAt:-10000};
+    state.set(el,s);size(el,s);
+    if(el.dataset.scene==="gravity")s.objects=Array.from({length:12},()=>({x:rand(25,s.w-25),y:rand(15,s.h-40),vx:rand(-1,1),vy:0,r:rand(6,13)}));
+    if(el.dataset.scene==="burst")s.particles=Array.from({length:settings.count},(_,i)=>({angle:i*2.39996,ring:Math.sqrt(i/settings.count),jitter:rand(-.1,.1)}));
+    if(el.dataset.scene==="path")drawPath(el);
+  }
+function drawPath(el){
+    const paths=el.querySelectorAll(".draw-line");
+    paths.forEach(p=>{p.style.setProperty("--draw-time",settings.duration+"s");p.classList.remove("draw")});
+    requestAnimationFrame(()=>requestAnimationFrame(()=>paths.forEach(p=>p.classList.add("draw"))));
+  }
+function interact(el,x,y,click=false){
+    const s=state.get(el),kind=el.dataset.scene;s.pointer={x,y,active:true};
+    if(kind==="trail")for(let i=0;i<(click?12:2);i++)s.particles.push({x,y,vx:rand(-2,2)*settings.physics,vy:rand(-2,2)*settings.physics,life:1});
+    if(kind==="liquid"){
+      el.style.setProperty("--px",`${x/s.w*100}%`);el.style.setProperty("--py",`${y/s.h*100}%`);
+      el.style.setProperty("--dx",`${(x/s.w-.5)*19*settings.sensitivity}px`);
+      el.style.setProperty("--dy",`${(y/s.h-.5)*14*settings.sensitivity}px`);
+      el.style.setProperty("--skew",`${(x/s.w-.5)*11*settings.sensitivity}deg`);
+      el.style.setProperty("--wave",".9");
+    }
+    if(kind==="spotlight"){el.style.setProperty("--sx",`${x/s.w*100}%`);el.style.setProperty("--sy",`${y/s.h*100}%`);el.style.setProperty("--radius",`${settings.radius}px`)}
+    if(kind==="magnet"){
+      const button=$("magnet-button"),dx=x-s.w/2,dy=y-s.h/2,dist=Math.hypot(dx,dy);
+      button.style.setProperty("--mx",`${dist<settings.radius*1.6?dx*.28*settings.sensitivity:0}px`);
+      button.style.setProperty("--my",`${dist<settings.radius*1.6?dy*.28*settings.sensitivity:0}px`);
+    }
+    if(click){
+      if(kind==="burst")s.burstAt=clock;
+      if(kind==="shape"){s.shapeFrom=s.shape;s.shape=(s.shape+1)%4;s.shapeAt=clock}
+      if(kind==="path")drawPath(el);
+      if(kind==="gravity")s.objects.forEach(o=>{const dx=o.x-x,dy=o.y-y,d=Math.max(12,Math.hypot(dx,dy));o.vx+=dx/d*rand(3,7)*settings.physics;o.vy+=dy/d*rand(3,7)*settings.physics});
+      if(kind==="liquid")el.style.setProperty("--scale","1.12");
+    }
+  }
+stages.forEach(el=>{
+    fresh(el);
+    el.addEventListener("pointermove",e=>{const r=el.getBoundingClientRect();interact(el,e.clientX-r.left,e.clientY-r.top)});
+    el.addEventListener("pointerdown",e=>{if(e.target.closest("button"))return;const r=el.getBoundingClientRect();interact(el,e.clientX-r.left,e.clientY-r.top,true)});
+    el.addEventListener("pointerleave",()=>{
+      const s=state.get(el);s.pointer=null;
+      if(el.dataset.scene==="magnet"){const b=$("magnet-button");b.style.setProperty("--mx","0px");b.style.setProperty("--my","0px")}
+      if(el.dataset.scene==="liquid"){["--dx","--dy"].forEach(k=>el.style.setProperty(k,"0px"));el.style.setProperty("--skew","0deg");el.style.setProperty("--wave","0");el.style.setProperty("--scale","1.03")}
+    });
+    if(el.tabIndex>=0)el.addEventListener("keydown",e=>{
+      if(e.key==="Enter"||e.key===" "){e.preventDefault();const s=state.get(el);interact(el,s.w/2,s.h/2,true)}
+      if(e.key.startsWith("Arrow")){e.preventDefault();const s=state.get(el),p=s.pointer||{x:s.w/2,y:s.h/2};interact(el,Math.max(0,Math.min(s.w,p.x+(e.key==="ArrowRight"?20:e.key==="ArrowLeft"?-20:0))),Math.max(0,Math.min(s.h,p.y+(e.key==="ArrowDown"?20:e.key==="ArrowUp"?-20:0))))}
+    });
+  });
+function frame(now){
+    requestAnimationFrame(frame);
+    if(paused||document.hidden){last=now;return}
+    const dt=Math.min((now-last||16)/16,2);last=now;clock+=dt*settings.speed;
+    stages.forEach(el=>{
+      const kind=el.dataset.scene;if(!el.querySelector("canvas"))return;
+      const s=state.get(el);size(el,s);
+      const {ctx:c,w,h}=s;c.clearRect(0,0,w,h);
+      const cx=w/2,cy=h/2,accent=settings.color;
+      if(kind==="trail"){
+        s.particles=s.particles.filter(p=>p.life>0).slice(-settings.count*3);
+        s.particles.forEach(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;p.vx*=.98;p.vy*=.98;p.life-=.018*dt/settings.duration;c.fillStyle=rgba(accent,p.life);c.beginPath();c.arc(p.x,p.y,Math.max(.1,5*p.life),0,7);c.fill()});
+        c.strokeStyle=rgba(accent,.18);for(let i=1;i<s.particles.length;i++){const a=s.particles[i-1],b=s.particles[i];if(Math.hypot(a.x-b.x,a.y-b.y)<40){c.beginPath();c.moveTo(a.x,a.y);c.lineTo(b.x,b.y);c.stroke()}}
+      }
+      if(kind==="blobs"){
+        for(let j=0;j<3;j++){const off=j*2.1,px=cx+Math.cos(clock*.014+off)*w*.16+(s.pointer?(s.pointer.x-cx)*.12:0),py=cy+Math.sin(clock*.019+off)*h*.16+(s.pointer?(s.pointer.y-cy)*.12:0),r=35+j*7;
+          c.beginPath();for(let i=0;i<=64;i++){const a=i/64*Math.PI*2,rr=r*(1+.16*Math.sin(a*3+clock*.045+off)+.13*Math.cos(a*5-clock*.028));const x=px+Math.cos(a)*rr,y=py+Math.sin(a)*rr;i?c.lineTo(x,y):c.moveTo(x,y)}c.closePath();c.fillStyle=rgba(accent,.25+j*.13);c.fill();c.strokeStyle=rgba(accent,.6);c.stroke()}
+      }
+      if(kind==="magnet"){
+        for(let i=0;i<4;i++){c.beginPath();c.arc(cx,cy,26+i*settings.radius*.36,0,7);c.strokeStyle=rgba(accent,.24-i*.045);c.stroke()}
+        if(s.pointer){c.beginPath();c.moveTo(cx,cy);c.lineTo(s.pointer.x,s.pointer.y);c.strokeStyle=rgba(accent,.3);c.stroke()}
+      }
+      if(kind==="burst"){
+        const progress=Math.min(1,Math.max(0,(clock-s.burstAt)/(settings.duration*60))),spread=progress<.35?Math.sin(progress/.35*Math.PI/2):Math.max(0,1-(progress-.35)/.65);
+        s.particles.slice(0,settings.count).forEach((p,i)=>{const a=p.angle+clock*.004,base=12+p.ring*38,r=base+spread*(30+p.ring*settings.radius)*settings.physics,x=cx+Math.cos(a)*r,y=cy+Math.sin(a)*r;c.fillStyle=rgba(accent,.55+p.ring*.45);c.beginPath();c.arc(x,y,2.5+p.ring*2,0,7);c.fill()});
+      }
+      if(kind==="shape"){
+        const t=Math.min(1,(clock-s.shapeAt)/(settings.duration*60)),ease=t*t*(3-2*t),n=80;
+        c.beginPath();for(let i=0;i<=n;i++){const a=i/n*2*Math.PI-Math.PI/2;const getR=shape=>{if(shape===0)return 62;if(shape===1)return 55/Math.max(Math.abs(Math.cos(a)),Math.abs(Math.sin(a)));if(shape===2)return 58/Math.max(.5,Math.abs(Math.cos(a-Math.PI/4)),Math.abs(Math.sin(a-Math.PI/4)));return 60*(1+.24*Math.sin(5*a))};const r=getR(s.shapeFrom)*(1-ease)+getR(s.shape)*ease;i?c.lineTo(cx+Math.cos(a)*r,cy+Math.sin(a)*r):c.moveTo(cx+Math.cos(a)*r,cy+Math.sin(a)*r)}c.closePath();c.fillStyle=rgba(accent,.22);c.strokeStyle=accent;c.lineWidth=2;c.fill();c.stroke();
+      }
+      if(kind==="audio"){
+        if(analyser){analyser.getByteFrequencyData(audioData)}
+        const bars=42,bw=w/bars;for(let i=0;i<bars;i++){const value=analyser?audioData[Math.floor(i/bars*audioData.length)]/255:0;const height=8+value*(h-48);c.fillStyle=rgba(accent,.35+value*.65);c.fillRect(i*bw+2,h-height-12,Math.max(2,bw-4),height)}
+      }
+      if(kind==="gravity"){
+        s.objects.forEach((o,i)=>{
+          if(s.pointer){const dx=s.pointer.x-o.x,dy=s.pointer.y-o.y,d=Math.max(14,Math.hypot(dx,dy));if(d<settings.radius){o.vx+=dx/d*.16*settings.physics*settings.sensitivity*dt;o.vy+=dy/d*.16*settings.physics*settings.sensitivity*dt}}
+          o.vy+=.095*settings.physics*dt;o.x+=o.vx*dt;o.y+=o.vy*dt;o.vx*=.994;
+          if(o.x<o.r||o.x>w-o.r){o.x=Math.max(o.r,Math.min(w-o.r,o.x));o.vx*=-.8}
+          if(o.y>h-o.r){o.y=h-o.r;o.vy*=-.78}if(o.y<o.r){o.y=o.r;o.vy=Math.abs(o.vy)}
+          c.beginPath();c.arc(o.x,o.y,o.r,0,7);c.fillStyle=rgba(accent,.35+(i%4)*.15);c.fill();
+        });
+      }
+    });
+  }
+requestAnimationFrame(frame);
+function syncPause(){$("pause-label").hidden=paused;$("resume-label").hidden=!paused;$("pause").setAttribute("aria-pressed",String(paused))}
+$("reset").addEventListener("click",()=>{
+    Object.assign(settings,defaults);Object.keys(defaults).forEach(k=>$(k).value=defaults[k]);
+    document.documentElement.style.setProperty("--accent",defaults.color);
+    stages.forEach(el=>{fresh(el);el.style.removeProperty("--sx");el.style.removeProperty("--sy");el.style.removeProperty("--wave");el.style.removeProperty("--scale");el.style.removeProperty("--dx");el.style.removeProperty("--dy");el.style.removeProperty("--skew")});
+    $("magnet-button").style.removeProperty("--mx");$("magnet-button").style.removeProperty("--my");
+    paused=reduce.matches;syncPause();
+  });
+addEventListener("resize",()=>stages.forEach(el=>{const s=state.get(el);s.w=0;size(el,s)}));
+})();
+</script>

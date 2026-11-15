@@ -1,0 +1,82 @@
+{
+  "id": "motion-chart-momentum-line",
+  "name": "Momentum line",
+  "description": "Momentum line: a line chart that draws itself point by point. From the Animated data visualizations suite: re-skin it to the design's tokens and timing (--cx-ease, --cx-duration-*), keep its reduced-motion end state, and mix it with other pieces, never the whole suite.",
+  "category": "data-visualization",
+  "batch": "motion-chart",
+  "collection": "Motion: Animated data visualizations",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "motion",
+    "animation",
+    "data",
+    "interactive",
+    "animated-line-chart",
+    "momentum-line",
+    "line-draws",
+    "line-chart",
+    "trend",
+    "time-series",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "animated",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "stylesheet",
+      "id": "motion-charts"
+    },
+    {
+      "type": "tokens",
+      "id": "motion-charts"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "web-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "motion-charts",
+    "mode": "dark",
+    "colors": {
+      "#a5efca": "series1",
+      "#ff9b82": "series2",
+      "#f2d486": "series3",
+      "#192522": "surface"
+    }
+  },
+  "source": {
+    "file": "motion-components/05_animated_data_visualizations.html",
+    "ref": "article data-template-id=\"line-card\" #0"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "c0cf0075a8e55f0a",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

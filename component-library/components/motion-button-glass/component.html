@@ -1,0 +1,30 @@
+<!-- Glass button · motion-button-glass: from the Motion: Interactive buttons (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/motion-buttons.css, and an ancestor with class="cx-motion-buttons". -->
+<div class="cx-motion-buttons"><div class="w-full">
+<article class=" tile" style="background: rgb(32, 36, 33);">
+      <div class=" stage glass-stage" style="background: radial-gradient(circle at 25% 30%, rgb(231, 132, 155), rgb(136, 87, 165) 39%, rgb(39, 71, 119) 80%);">
+       <button id="glass" type="button" class=" demo glass" style="background: rgba(255, 255, 255, 0.18);"><span style="color: rgb(255, 255, 255); font-weight: 700; font-style: normal; font-size: 16px;">Through the glass ↗</span></button>
+      </div>
+      <div class="tile-meta">
+       <span class="number">07</span>
+       <div>
+        <h2 style="color: rgb(244, 244, 238); font-weight: 700; font-style: normal; font-size: 24px;">Glassmorphism</h2>
+        <p style="color: rgb(174, 183, 174); font-weight: 400; font-style: normal; font-size: 16px;">Frosted layers with light that follows you.</p>
+       </div>
+      </div>
+     </article>
+</div></div>
+<script>
+(() => {
+const glass = document.getElementById('glass');
+glass.addEventListener('pointermove', e => {
+      const r = glass.getBoundingClientRect();
+      glass.style.setProperty('--gx', `${((e.clientX - r.left) / r.width) * 100}%`);
+      glass.style.setProperty('--gy', `${((e.clientY - r.top) / r.height) * 100}%`);
+    });
+glass.addEventListener('pointerleave', () => {
+      glass.style.setProperty('--gx', '50%');
+      glass.style.setProperty('--gy', '50%');
+    });
+})();
+</script>

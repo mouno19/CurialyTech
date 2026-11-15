@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Ripple button · motion-button-ripple</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,600&display=swap">
+<style>html,body{margin:0;background:#171b19}.preview-root{padding:24px;max-width:1180px;margin:0 auto}</style>
+<style>.cx-motion-buttons, .cx-motion-buttons :host {
+    --font-sans: ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
+    'Noto Color Emoji';
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
+    --default-font-family: var(--font-sans);
+    --default-mono-font-family: var(--font-mono);
+  }
+.cx-motion-buttons *, .cx-motion-buttons, .cx-motion-buttons ::after, .cx-motion-buttons ::before, .cx-motion-buttons ::backdrop, .cx-motion-buttons ::file-selector-button {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    border: 0 solid;
+  }
+.cx-motion-buttons, .cx-motion-buttons :host {
+    line-height: 1.5;
+    -webkit-text-size-adjust: 100%;
+    tab-size: 4;
+    font-family: var(--default-font-family, ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji');
+    font-feature-settings: var(--default-font-feature-settings, normal);
+    font-variation-settings: var(--default-font-variation-settings, normal);
+    -webkit-tap-highlight-color: transparent;
+  }
+.cx-motion-buttons hr {
+    height: 0;
+    color: inherit;
+    border-top-width: 1px;
+  }
+.cx-motion-buttons abbr:where([title]) {
+    -webkit-text-decoration: underline dotted;
+    text-decoration: underline dotted;
+  }
+.cx-motion-buttons h1, .cx-motion-buttons h2, .cx-motion-buttons h3, .cx-motion-buttons h4, .cx-motion-buttons h5, .cx-motion-buttons h6 {
+    font-size: inherit;
+    font-weight: inherit;
+  }
+.cx-motion-buttons a {
+    color: inherit;
+    -webkit-text-decoration: inherit;
+    text-decoration: inherit;
+  }
+.cx-motion-buttons b, .cx-motion-buttons strong {
+    font-weight: bolder;
+  }
+.cx-motion-buttons code, .cx-motion-buttons kbd, .cx-motion-buttons samp, .cx-motion-buttons pre {
+    font-family: var(--default-mono-font-family, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace);
+    font-feature-settings: var(--default-mono-font-feature-settings, normal);
+    font-variation-settings: var(--default-mono-font-variation-settings, normal);
+    font-size: 1em;
+  }
+.cx-motion-buttons small {
+    font-size: 80%;
+  }
+.cx-motion-buttons sub, .cx-motion-buttons sup {
+    font-size: 75%;
+    line-height: 0;
+    position: relative;
+    vertical-align: baseline;
+  }
+.cx-motion-buttons sub {
+    bottom: -0.25em;
+  }
+.cx-motion-buttons sup {
+    top: -0.5em;
+  }
+.cx-motion-buttons table {
+    text-indent: 0;
+    border-color: inherit;
+    border-collapse: collapse;
+  }
+.cx-motion-buttons :-moz-focusring {
+    outline: auto;
+  }
+.cx-motion-buttons progress {
+    vertical-align: baseline;
+  }
+.cx-motion-buttons summary {
+    display: list-item;
+  }
+.cx-motion-buttons ol, .cx-motion-buttons ul, .cx-motion-buttons menu {
+    list-style: none;
+  }
+.cx-motion-buttons img, .cx-motion-buttons svg, .cx-motion-buttons video, .cx-motion-buttons canvas, .cx-motion-buttons audio, .cx-motion-buttons iframe, .cx-motion-buttons embed, .cx-motion-buttons object {
+    display: block;
+    vertical-align: middle;
+  }
+.cx-motion-buttons img, .cx-motion-buttons video {
+    max-width: 100%;
+    height: auto;
+  }
+.cx-motion-buttons button, .cx-motion-buttons input, .cx-motion-buttons select, .cx-motion-buttons optgroup, .cx-motion-buttons textarea, .cx-motion-buttons ::file-selector-button {
+    font: inherit;
+    font-feature-settings: inherit;
+    font-variation-settings: inherit;
+    letter-spacing: inherit;
+    color: inherit;
+    border-radius: 0;
+    background-color: transparent;
+    opacity: 1;
+  }
+.cx-motion-buttons :where(select:is([multiple], [size])) optgroup {
+    font-weight: bolder;
+  }
+.cx-motion-buttons :where(select:is([multiple], [size])) optgroup option {
+    padding-inline-start: 20px;
+  }
+.cx-motion-buttons ::file-selector-button {
+    margin-inline-end: 4px;
+  }
+.cx-motion-buttons ::placeholder {
+    opacity: 1;
+  }
+@supports (not (-webkit-appearance: -apple-pay-button))  or (contain-intrinsic-size: 1px) {
+    .cx-motion-buttons ::placeholder {
+      color: currentcolor;
+      @supports (color: color-mix(in lab, red, red)) {
+        color: color-mix(in oklab, currentcolor 50%, transparent);
+      }
+    }
+  }
+.cx-motion-buttons textarea {
+    resize: vertical;
+  }
+.cx-motion-buttons ::-webkit-search-decoration {
+    -webkit-appearance: none;
+  }
+.cx-motion-buttons ::-webkit-date-and-time-value {
+    min-height: 1lh;
+    text-align: inherit;
+  }
+.cx-motion-buttons ::-webkit-datetime-edit {
+    display: inline-flex;
+  }
+.cx-motion-buttons ::-webkit-datetime-edit-fields-wrapper {
+    padding: 0;
+  }
+.cx-motion-buttons ::-webkit-datetime-edit, .cx-motion-buttons ::-webkit-datetime-edit-year-field, .cx-motion-buttons ::-webkit-datetime-edit-month-field, .cx-motion-buttons ::-webkit-datetime-edit-day-field, .cx-motion-buttons ::-webkit-datetime-edit-hour-field, .cx-motion-buttons ::-webkit-datetime-edit-minute-field, .cx-motion-buttons ::-webkit-datetime-edit-second-field, .cx-motion-buttons ::-webkit-datetime-edit-millisecond-field, .cx-motion-buttons ::-webkit-datetime-edit-meridiem-field {
+    padding-block: 0;
+  }
+.cx-motion-buttons ::-webkit-calendar-picker-indicator {
+    line-height: 1;
+  }
+.cx-motion-buttons :-moz-ui-invalid {
+    box-shadow: none;
+  }
+.cx-motion-buttons button, .cx-motion-buttons input:where([type='button'], [type='reset'], [type='submit']), .cx-motion-buttons ::file-selector-button {
+    appearance: button;
+  }
+.cx-motion-buttons ::-webkit-inner-spin-button, .cx-motion-buttons ::-webkit-outer-spin-button {
+    height: auto;
+  }
+.cx-motion-buttons [hidden]:where(:not([hidden='until-found'])) {
+    display: none !important;
+  }
+
+    .cx-motion-buttons {
+      --accent:#c9f27c; --unit:1; --speed:1; --intensity:1;
+    }
+    .cx-motion-buttons *, .cx-motion-buttons { box-sizing:border-box; }
+    .cx-motion-buttons { color-scheme:dark; }
+    .cx-motion-buttons { margin:0; width:100%; min-width:320px; font-family:"DM Sans",sans-serif; color:#f4f4ee; }
+    .cx-motion-buttons button,.cx-motion-buttons input { font:inherit; }
+    .cx-motion-buttons button { cursor:pointer; -webkit-tap-highlight-color:transparent; }
+    .cx-motion-buttons button:focus-visible, .cx-motion-buttons input:focus-visible { outline:3px solid var(--accent); outline-offset:5px; }
+    .cx-motion-buttons .shell { width:100%; max-width:1500px; margin:auto; padding:clamp(22px,4vw,64px); }
+    .cx-motion-buttons .topline { display:flex; align-items:center; justify-content:space-between; gap:16px; padding-bottom:26px; border-bottom:1px solid #303433; }
+    .cx-motion-buttons .brand { display:flex; align-items:center; gap:12px; font-size:13px; font-weight:700; letter-spacing:.16em; text-transform:uppercase; }
+    .cx-motion-buttons .brandmark { width:23px; height:23px; border:2px solid var(--accent); border-radius:7px; transform:rotate(-15deg); box-shadow:inset 0 0 0 5px #171a19; background:var(--accent); }
+    .cx-motion-buttons .edition { color:#a2aaa5; font-size:12px; letter-spacing:.13em; text-transform:uppercase; }
+    .cx-motion-buttons .intro { display:flex; justify-content:space-between; align-items:end; gap:30px; margin:48px 0 38px; }
+    .cx-motion-buttons h1 { font-family:Fraunces,serif; font-weight:600; letter-spacing:-.055em; line-height:1.04; margin:8px 0 17px; font-size:clamp(45px,6vw,84px); }
+    .cx-motion-buttons .eyebrow { color:var(--accent); font-size:12px; font-weight:700; letter-spacing:.2em; text-transform:uppercase; }
+    .cx-motion-buttons .lede { color:#aeb8b0; max-width:540px; line-height:1.65; margin:0; }
+    .cx-motion-buttons .count { color:var(--accent); font-family:Fraunces,serif; font-size:clamp(72px,10vw,144px); line-height:.8; opacity:.8; }
+    .cx-motion-buttons .controls { display:grid; grid-template-columns:1.2fr repeat(4,1fr); align-items:center; gap:20px; background:#202522; border:1px solid #39413a; border-radius:18px; padding:18px 24px; margin-bottom:27px; }
+    .cx-motion-buttons .control-heading { font-weight:700; }
+    .cx-motion-buttons .control-sub { color:#9ca89e; font-size:12px; margin-top:4px; }
+    .cx-motion-buttons .field { display:flex; flex-direction:column; gap:9px; min-width:0; }
+    .cx-motion-buttons .field label { color:#bcc7bc; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.12em; }
+    .cx-motion-buttons .field input[type=range] { width:100%; accent-color:var(--accent); cursor:pointer; }
+    .cx-motion-buttons .field input[type=color] { width:100%; height:25px; border:0; padding:0; background:none; cursor:pointer; }
+    .cx-motion-buttons .gallery { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:17px; }
+    .cx-motion-buttons .tile { min-width:0; background:#202421; border:1px solid #353b36; border-radius:19px; overflow:hidden; transition:border-color .25s,transform .25s; }
+    .cx-motion-buttons .tile:hover { border-color:#667263; transform:translateY(-2px); }
+    .cx-motion-buttons .stage { position:relative; height:clamp(170px,18vw,225px); display:grid; place-items:center; overflow:hidden; isolation:isolate; }
+    .cx-motion-buttons .tile-meta { display:flex; gap:17px; padding:19px 22px 22px; border-top:1px solid #353b36; }
+    .cx-motion-buttons .number { color:var(--accent); font-family:Fraunces,serif; font-size:23px; line-height:1.2; }
+    .cx-motion-buttons .tile h2 { font-size:17px; font-weight:700; margin:0 0 5px; }
+    .cx-motion-buttons .tile p { color:#aeb7ae; font-size:13px; line-height:1.5; margin:0; }
+    .cx-motion-buttons .demo { position:relative; display:inline-flex; align-items:center; justify-content:center; min-width:calc(160px * var(--unit)); min-height:calc(52px * var(--unit)); padding:calc(12px * var(--unit)) calc(27px * var(--unit)); white-space:nowrap; font-size:calc(14px * var(--unit)); font-weight:700; letter-spacing:.015em; border:0; isolation:isolate; transition-duration:calc(.3s / var(--speed)); }
+    .cx-motion-buttons .demo > span { position:relative; z-index:2; pointer-events:none; }
+    .cx-motion-buttons .mag-stage { background:radial-gradient(circle at 50% 50%,#2c4034,#17231e 70%); }
+    .cx-motion-buttons .magnetic { background:var(--accent); color:#172019; border-radius:100px; transition:transform calc(.23s / var(--speed)) ease-out,box-shadow .25s; box-shadow:0 12px 30px #0005; }
+    .cx-motion-buttons .magnetic:hover { box-shadow:0 15px calc(35px * var(--intensity)) #c9f27c38; }
+    .cx-motion-buttons .liquid-stage { background:#292423; }
+    .cx-motion-buttons .liquid { background:#ff9d70; color:#2a1712; border-radius:50% 42% 50% 44% / 42% 52% 44% 55%; transition:border-radius calc(.65s / var(--speed)) cubic-bezier(.22,1,.36,1),transform calc(.5s / var(--speed)); }
+    .cx-motion-buttons .liquid:hover,.cx-motion-buttons .liquid.is-active { border-radius:36% 62% 43% 57% / 59% 37% 63% 41%; transform:rotate(-3deg) scale(1.06); }
+    .cx-motion-buttons .liquid.is-active { transform:rotate(4deg) scale(.95); }
+    .cx-motion-buttons .neon-stage { background:radial-gradient(circle,#201e39,#111322 72%); }
+    .cx-motion-buttons .neon { background:#191827; color:#ff89df; border:1px solid #ff89df; border-radius:9px; text-shadow:0 0 calc(9px * var(--intensity)) #ff89df; box-shadow:inset 0 0 calc(13px * var(--intensity)) #ff66c544,0 0 calc(16px * var(--intensity)) #ff66c566; animation:neon-breathe calc(2.4s / var(--speed)) ease-in-out infinite alternate; }
+    .cx-motion-buttons .neon:hover { background:#ff89df; color:#241528; text-shadow:none; box-shadow:0 0 calc(35px * var(--intensity)) #ff66c5; }
+    @keyframes neon-breathe { to { box-shadow:inset 0 0 18px #ff66c577,0 0 calc(33px * var(--intensity)) #ff66c5aa; } }
+    .cx-motion-buttons .press-stage { background:repeating-linear-gradient(0deg,#e2d8c7,#e2d8c7 24px,#dcd1bf 25px); }
+    .cx-motion-buttons .press { background:#304c69; color:white; border-radius:11px; transform:translateY(-5px); box-shadow:0 7px 0 #172b40,0 13px 17px #13283b55; transition:transform calc(.13s / var(--speed)),box-shadow calc(.13s / var(--speed)); }
+    .cx-motion-buttons .press:hover { transform:translateY(-3px); box-shadow:0 5px 0 #172b40,0 9px 16px #13283b55; }
+    .cx-motion-buttons .press:active { transform:translateY(2px); box-shadow:0 0 0 #172b40,0 2px 4px #13283b55; }
+    .cx-motion-buttons .flow-stage { background:#252534; }
+    .cx-motion-buttons .flow { color:white; border-radius:100px; background:linear-gradient(105deg,#fa677e,#e78d43,#7b80f0,#fa677e); background-size:300% 100%; animation:flowing calc(4s / var(--speed)) linear infinite; box-shadow:0 12px 28px #e47d6750; }
+    .cx-motion-buttons .flow:hover { transform:scale(1.07); filter:saturate(1.35); }
+    @keyframes flowing { to { background-position:300% 0; } }
+    .cx-motion-buttons .particle-stage { background:#1d2b2b; }
+    .cx-motion-buttons .particle { background:#70e5cf; color:#103029; border-radius:12px; box-shadow:0 8px 0 #398d7d; }
+    .cx-motion-buttons .particle:active { transform:translateY(5px); box-shadow:0 3px 0 #398d7d; }
+    .cx-motion-buttons .spark { position:absolute; left:50%; top:50%; width:7px; height:7px; border-radius:50%; background:var(--spark-color); pointer-events:none; z-index:5; animation:burst calc(.65s / var(--speed)) ease-out forwards; }
+    @keyframes burst { from { transform:translate(-50%,-50%) scale(1); opacity:1; } to { transform:translate(calc(-50% + var(--dx) * var(--intensity)),calc(-50% + var(--dy) * var(--intensity))) scale(.1); opacity:0; } }
+    .cx-motion-buttons .glass-stage { background:radial-gradient(circle at 25% 30%,#e7849b 0,#8857a5 39%,#274777 80%); }
+    .cx-motion-buttons .glass { --gx:50%;--gy:50%; color:#fff; border:1px solid #ffffff88; border-radius:15px; background:radial-gradient(circle at var(--gx) var(--gy),#ffffff88,#ffffff1a 55%); box-shadow:inset 0 1px 1px #fff9,0 15px 35px #1d174558; backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); }
+    .cx-motion-buttons .glass:hover { transform:translateY(-4px); box-shadow:inset 0 1px 1px #fffc,0 20px 40px #1d174570; }
+    .cx-motion-buttons .trace-stage { background:#151b27; }
+    .cx-motion-buttons .trace { color:#f8eed9; background:#252d3a; border-radius:10px; padding:calc(13px * var(--unit)) calc(28px * var(--unit)); }
+    .cx-motion-buttons .trace::before { content:""; position:absolute; inset:-2px; z-index:-2; border-radius:12px; background:conic-gradient(from var(--angle),transparent 0 78%,#ffe2a0 88%,transparent 98%); animation:trace-spin calc(2.3s / var(--speed)) linear infinite; }
+    .cx-motion-buttons .trace::after { content:""; position:absolute; inset:2px; z-index:-1; border-radius:8px; background:#252d3a; }
+    .cx-motion-buttons .trace:hover { color:#ffe2a0; }
+    @property --angle { syntax:"<angle>"; initial-value:0deg; inherits:false; }
+    @keyframes trace-spin { to { --angle:360deg; } }
+    .cx-motion-buttons .toggle-stage { background:#e4ebe5; }
+    .cx-motion-buttons .toggle { width:calc(112px * var(--unit)); height:calc(60px * var(--unit)); border:0; border-radius:100px; background:#9eada2; padding:6px; transition:background calc(.35s / var(--speed)); box-shadow:inset 0 3px 8px #1c403138; }
+    .cx-motion-buttons .toggle-track { display:block; position:relative; width:100%; height:100%; }
+    .cx-motion-buttons .toggle-thumb { position:absolute; top:0; left:0; width:calc(48px * var(--unit)); height:calc(48px * var(--unit)); background:#fff; border-radius:50% 45% 50% 45%; box-shadow:0 3px 9px #12352444; transition:transform calc(.38s / var(--speed)) cubic-bezier(.2,1.5,.5,1),border-radius calc(.38s / var(--speed)); }
+    .cx-motion-buttons .toggle[aria-pressed=true] { background:#317f69; }
+    .cx-motion-buttons .toggle[aria-pressed=true] .toggle-thumb { transform:translateX(calc(52px * var(--unit))); border-radius:42% 55% 45% 53%; }
+    .cx-motion-buttons .toggle-word { position:absolute; top:50%; transform:translateY(-50%); font-size:11px; font-weight:700; color:white; }
+    .cx-motion-buttons .toggle-off { right:12px; }
+    .cx-motion-buttons .toggle-on { left:14px; display:none; }
+    .cx-motion-buttons .toggle[aria-pressed=true] .toggle-off { display:none; }
+    .cx-motion-buttons .toggle[aria-pressed=true] .toggle-on { display:block; }
+    .cx-motion-buttons .ripple-stage { background:#e9e9e2; }
+    .cx-motion-buttons .ripple { overflow:hidden; color:#fff; background:#303d9c; border-radius:7px; box-shadow:0 10px 24px #303d9c40; }
+    .cx-motion-buttons .ripple:hover { background:#4051bf; }
+    .cx-motion-buttons .wave { position:absolute; width:18px; height:18px; border-radius:50%; background:#ffffff80; pointer-events:none; transform:translate(-50%,-50%) scale(0); animation:ripple-out calc(.65s / var(--speed)) ease-out forwards; }
+    @keyframes ripple-out { to { transform:translate(-50%,-50%) scale(calc(17 * var(--intensity))); opacity:0; } }
+    .cx-motion-buttons footer { color:#879388; font-size:12px; padding:29px 0 0; }
+    @media(max-width:800px) { .cx-motion-buttons .controls { grid-template-columns:repeat(2,minmax(0,1fr)); } .cx-motion-buttons .controls > div:first-child { grid-column:1/-1; } }
+    @media(max-width:650px) { .cx-motion-buttons .gallery { grid-template-columns:1fr; } .cx-motion-buttons .intro { margin-top:35px; } .cx-motion-buttons .count { display:none; } .cx-motion-buttons .stage { height:190px; } .cx-motion-buttons .edition { display:none; } }
+    @media(prefers-reduced-motion:reduce) {
+      .cx-motion-buttons *,.cx-motion-buttons,.cx-motion-buttons *::before,.cx-motion-buttons::before,.cx-motion-buttons *::after,.cx-motion-buttons::after { animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; scroll-behavior:auto !important; }
+      .cx-motion-buttons .spark,.cx-motion-buttons .wave { display:none !important; }
+    }
+  
+.cx-motion-buttons .w-full {
+    width: 100%;
+  }</style>
+</head><body><div class="preview-root" data-component="motion-button-ripple">
+<!-- Ripple button · motion-button-ripple: from the Motion: Interactive buttons (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/motion-buttons.css, and an ancestor with class="cx-motion-buttons". -->
+<div class="cx-motion-buttons"><div class="w-full">
+<article class=" tile" style="background: rgb(32, 36, 33);">
+      <div class=" stage ripple-stage" style="background: rgb(233, 233, 226);">
+       <button id="ripple" type="button" class=" demo ripple" style="background: rgb(48, 61, 156);"><span style="color: rgb(255, 255, 255); font-weight: 700; font-style: normal; font-size: 16px;">Start a ripple →</span></button>
+      </div>
+      <div class="tile-meta">
+       <span class="number">10</span>
+       <div>
+        <h2 style="color: rgb(244, 244, 238); font-weight: 700; font-style: normal; font-size: 24px;">Ripple Interaction</h2>
+        <p style="color: rgb(174, 183, 174); font-weight: 400; font-style: normal; font-size: 16px;">Instant feedback that expands from your touch.</p>
+       </div>
+      </div>
+     </article>
+</div></div>
+<script>
+(() => {
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+document.getElementById('ripple').addEventListener('click', e => {
+      if (reducedMotion.matches) return;
+      const button = e.currentTarget;
+      const r = button.getBoundingClientRect();
+      const wave = document.createElement('span');
+      wave.className = 'wave';
+      const pointerClick = e.detail !== 0;
+      wave.style.left = `${pointerClick ? e.clientX - r.left : r.width / 2}px`;
+      wave.style.top = `${pointerClick ? e.clientY - r.top : r.height / 2}px`;
+      button.appendChild(wave);
+      wave.addEventListener('animationend', () => wave.remove(), {once:true});
+    });
+})();
+</script>
+
+</div></body></html>

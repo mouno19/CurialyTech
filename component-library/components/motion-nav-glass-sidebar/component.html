@@ -1,0 +1,56 @@
+<!-- Floating glass sidebar · motion-nav-glass-sidebar: from the Motion: Animated navigation (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/motion-navigation.css, and an ancestor with class="cx-motion-navigation". -->
+<div class="cx-motion-navigation"><div class="w-full">
+<article id="component-3" class="showcase-card">
+      <div class="card-heading">
+       <p class="eyebrow mb-2">03 / GLASS</p>
+       <h2 style="color: rgb(23, 33, 36); font-weight: 600; font-style: normal; font-size: 24px;">Floating Glass Sidebar</h2>
+       <p style="color: rgb(103, 112, 115); font-weight: 400; font-style: normal; font-size: 16px;">Translucent navigation with illuminated active states.</p>
+      </div>
+      <div class="preview glass-preview">
+       <nav class="glass-sidebar" aria-label="Glass sidebar">
+        <button type="button" class="active" aria-label="Overview" aria-current="page" data-view="Overview">◈</button><button type="button" aria-label="Analytics" data-view="Analytics">▥</button><button type="button" aria-label="Messages" data-view="Messages">✉</button><button type="button" aria-label="Settings" data-view="Settings">⚙</button>
+       </nav>
+       <div>
+        <p class="eyebrow mb-3">WORKSPACE / 2026</p>
+        <p id="glass-state" class="glass-content" aria-live="polite">Your overview,<br>
+          beautifully clear.</p>
+       </div>
+      </div>
+     </article>
+<!-- Present for the suite's shared script (its settings, with their defaults, and parts of other pieces it also drives); hidden: -->
+<div hidden><nav id="liquid-nav" class="liquid-bar" aria-label="Liquid navigation">
+        <span class="liquid-pill" aria-hidden="true"></span><button type="button" class="active" aria-current="page" data-view="Discover">Discover</button><button type="button" data-view="Projects">Projects</button><button type="button" data-view="Studio">Studio</button><button type="button" data-view="Journal">Journal</button>
+       </nav></div>
+</div></div>
+<script>
+(() => {
+const $ = (selector, root=document) => root.querySelector(selector);
+const $$ = (selector, root=document) => [...root.querySelectorAll(selector)];
+function positionPill() {
+      const nav = $('#liquid-nav'), active = $('.active', nav), pill = $('.liquid-pill', nav);
+      pill.style.left = active.offsetLeft + 'px';
+      pill.style.width = active.offsetWidth + 'px';
+    }
+function selectButton(button, parent) {
+      $$('button[data-view]', parent).forEach(item => {
+        item.classList.toggle('active', item === button);
+        if (item === button) item.setAttribute('aria-current','page');
+        else item.removeAttribute('aria-current');
+      });
+    }
+const glassCopy = {
+      Overview:'Your overview,\nbeautifully clear.',
+      Analytics:'Your insights,\nin focus.',
+      Messages:'Your conversations,\nall together.',
+      Settings:'Your workspace,\nyour way.'
+    };
+$('.glass-sidebar').addEventListener('click', event => {
+      const button = event.target.closest('button[data-view]');
+      if (!button) return;
+      selectButton(button, $('.glass-sidebar'));
+      $('#glass-state').textContent = glassCopy[button.dataset.view];
+      $('#glass-state').style.whiteSpace = 'pre-line';
+    });
+})();
+</script>

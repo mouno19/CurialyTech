@@ -1,0 +1,1517 @@
+{
+  "families": [
+    {
+      "id": "motion-canvas",
+      "name": "Creative canvas studies",
+      "file": "01_creative_canvas_experiments.html",
+      "tokens": "motion-canvas",
+      "slot": "hero",
+      "category": "motion",
+      "role": "content",
+      "tools": [
+        "web-design",
+        "ui-ux-design",
+        "frontend-development"
+      ]
+    },
+    {
+      "id": "motion-type",
+      "name": "Kinetic typography",
+      "file": "02_kinetic_typography_collection.html",
+      "tokens": "motion-type",
+      "slot": "type",
+      "category": "motion",
+      "role": "header",
+      "tools": [
+        "web-design",
+        "ui-ux-design",
+        "frontend-development"
+      ]
+    },
+    {
+      "id": "motion-3d",
+      "name": "3D motion",
+      "file": "03_3d_motion_components.html",
+      "tokens": "motion-3d",
+      "slot": "hero",
+      "category": "motion",
+      "role": "content",
+      "tools": [
+        "web-design",
+        "ui-ux-design",
+        "frontend-development"
+      ]
+    },
+    {
+      "id": "motion-bg",
+      "name": "Animated backgrounds",
+      "file": "04_animated_background_effects.html",
+      "tokens": "motion-backgrounds",
+      "slot": "hero",
+      "category": "motion",
+      "role": "header",
+      "tools": [
+        "web-design",
+        "ui-ux-design",
+        "frontend-development"
+      ]
+    },
+    {
+      "id": "motion-chart",
+      "name": "Animated data visualizations",
+      "file": "05_animated_data_visualizations.html",
+      "tokens": "motion-charts",
+      "slot": "data",
+      "category": "data-visualization",
+      "role": "chart",
+      "tools": [
+        "data-analytics",
+        "dashboard-builder",
+        "web-design",
+        "frontend-development"
+      ]
+    },
+    {
+      "id": "motion-scroll",
+      "name": "Scroll motion patterns",
+      "file": "06_scroll_animation_showcase.html",
+      "tokens": "motion-scroll",
+      "slot": "scroll",
+      "category": "motion",
+      "role": "section",
+      "tools": [
+        "web-design",
+        "ui-ux-design",
+        "frontend-development"
+      ]
+    },
+    {
+      "id": "motion-card",
+      "name": "Animated cards",
+      "file": "07_animated_card_components.html",
+      "tokens": "motion-cards",
+      "slot": "surface",
+      "category": "motion",
+      "role": "content",
+      "tools": [
+        "web-design",
+        "ui-ux-design",
+        "frontend-development"
+      ]
+    },
+    {
+      "id": "motion-nav",
+      "name": "Animated navigation",
+      "file": "08_animated_navigation_components.html",
+      "tokens": "motion-navigation",
+      "slot": "navigation",
+      "category": "navigation",
+      "role": "navigation",
+      "tools": [
+        "web-design",
+        "ui-ux-design",
+        "frontend-development",
+        "dashboard-builder"
+      ]
+    },
+    {
+      "id": "motion-loader",
+      "name": "Loading states",
+      "file": "09_loading_animation_components.html",
+      "tokens": "motion-loading",
+      "slot": "feedback",
+      "category": "feedback",
+      "role": "content",
+      "tools": [
+        "web-design",
+        "ui-ux-design",
+        "frontend-development",
+        "dashboard-builder",
+        "data-analytics"
+      ]
+    },
+    {
+      "id": "motion-button",
+      "name": "Interactive buttons",
+      "file": "10_interactive_button_showcase.html",
+      "tokens": "motion-buttons",
+      "slot": "control",
+      "category": "motion",
+      "role": "content",
+      "tools": [
+        "web-design",
+        "ui-ux-design",
+        "frontend-development"
+      ]
+    }
+  ],
+  "pieces": [
+    {
+      "id": "motion-canvas-cursor-trail",
+      "family": "motion-canvas",
+      "name": "Cursor trail",
+      "how": "a fading constellation of points follows the pointer",
+      "signals": [
+        "cursor trail",
+        "mouse trail",
+        "cursor effect"
+      ],
+      "slot": "ambient",
+      "cost": "loop",
+      "showcase": true
+    },
+    {
+      "id": "motion-canvas-liquid-image",
+      "family": "motion-canvas",
+      "name": "Liquid image distortion",
+      "how": "dragging across an image bends it like water",
+      "signals": [
+        "liquid image",
+        "image distortion",
+        "ripple image",
+        "distort"
+      ],
+      "slot": "hero",
+      "cost": "loop"
+    },
+    {
+      "id": "motion-canvas-morphing-blobs",
+      "family": "motion-canvas",
+      "name": "Morphing blobs",
+      "how": "organic blobs drift and lean toward the pointer",
+      "signals": [
+        "morphing blob",
+        "blobs",
+        "organic shapes"
+      ],
+      "slot": "hero",
+      "cost": "loop",
+      "looks": [
+        "violet"
+      ]
+    },
+    {
+      "id": "motion-canvas-magnetic-field",
+      "family": "motion-canvas",
+      "name": "Magnetic field",
+      "how": "a button whose field of lines bends toward the pointer",
+      "signals": [
+        "magnetic field"
+      ],
+      "slot": "control",
+      "cost": "loop",
+      "showcase": true
+    },
+    {
+      "id": "motion-canvas-path-drawing",
+      "family": "motion-canvas",
+      "name": "Path drawing",
+      "how": "a hand-drawn SVG route traces itself, replayable",
+      "signals": [
+        "path drawing",
+        "line drawing",
+        "svg path",
+        "draw on scroll",
+        "route animation"
+      ],
+      "slot": "scroll",
+      "cost": "script"
+    },
+    {
+      "id": "motion-canvas-spotlight-reveal",
+      "family": "motion-canvas",
+      "name": "Spotlight reveal",
+      "how": "a pointer-driven spotlight uncovers a hidden message",
+      "signals": [
+        "spotlight reveal",
+        "flashlight",
+        "reveal on hover"
+      ],
+      "slot": "hero",
+      "cost": "script"
+    },
+    {
+      "id": "motion-canvas-particle-burst",
+      "family": "motion-canvas",
+      "name": "Particle burst",
+      "how": "a shape breaks into particles and comes back together",
+      "signals": [
+        "particle burst",
+        "explode",
+        "particles"
+      ],
+      "slot": "hero",
+      "cost": "loop",
+      "showcase": true
+    },
+    {
+      "id": "motion-canvas-shape-transition",
+      "family": "motion-canvas",
+      "name": "Shape transition",
+      "how": "one silhouette morphs from shape to shape",
+      "signals": [
+        "shape morph",
+        "shape transition",
+        "morphing shape"
+      ],
+      "slot": "hero",
+      "cost": "script"
+    },
+    {
+      "id": "motion-canvas-audio-spectrum",
+      "family": "motion-canvas",
+      "name": "Audio spectrum",
+      "how": "a spectrum that moves only after the user presses play",
+      "signals": [
+        "audio spectrum",
+        "audio visualizer",
+        "music visualizer",
+        "equalizer"
+      ],
+      "slot": "hero",
+      "cost": "loop",
+      "showcase": true
+    },
+    {
+      "id": "motion-canvas-gravity-playground",
+      "family": "motion-canvas",
+      "name": "Gravity playground",
+      "how": "bodies pulled toward the pointer; a tap pushes them away",
+      "signals": [
+        "gravity",
+        "physics playground",
+        "physics"
+      ],
+      "slot": "hero",
+      "cost": "loop",
+      "showcase": true
+    },
+    {
+      "id": "motion-type-kinetic-headline",
+      "family": "motion-type",
+      "name": "Kinetic headline",
+      "how": "letters move on their own staggered beat",
+      "signals": [
+        "kinetic headline",
+        "kinetic type",
+        "kinetic typography",
+        "animated headline"
+      ],
+      "slot": "type",
+      "cost": "css"
+    },
+    {
+      "id": "motion-type-text-scramble",
+      "family": "motion-type",
+      "name": "Text scramble",
+      "how": "characters scramble and resolve into the word, on demand",
+      "signals": [
+        "text scramble",
+        "scramble",
+        "decode text",
+        "decrypt"
+      ],
+      "slot": "type",
+      "cost": "script"
+    },
+    {
+      "id": "motion-type-typewriter",
+      "family": "motion-type",
+      "name": "Typewriter",
+      "how": "text types out one character at a time, with play and pause",
+      "signals": [
+        "typewriter",
+        "typing effect",
+        "typed text"
+      ],
+      "slot": "type",
+      "cost": "script"
+    },
+    {
+      "id": "motion-type-gradient-flow",
+      "family": "motion-type",
+      "name": "Gradient text flow",
+      "how": "a gradient flows through the letters",
+      "signals": [
+        "gradient text",
+        "gradient flow",
+        "flowing gradient"
+      ],
+      "slot": "type",
+      "cost": "css",
+      "looks": [
+        "gradient-text"
+      ]
+    },
+    {
+      "id": "motion-type-split-reveal",
+      "family": "motion-type",
+      "name": "Split text reveal",
+      "how": "words rise from a mask one after another, replayable",
+      "signals": [
+        "split text",
+        "word reveal",
+        "text reveal",
+        "headline reveal"
+      ],
+      "slot": "type",
+      "cost": "css"
+    },
+    {
+      "id": "motion-type-rotating-3d",
+      "family": "motion-type",
+      "name": "3D rotating text",
+      "how": "words flip through a rotating 3D stack",
+      "signals": [
+        "rotating text",
+        "rotating words",
+        "flip text",
+        "3d text"
+      ],
+      "slot": "type",
+      "cost": "css"
+    },
+    {
+      "id": "motion-type-variable-weight",
+      "family": "motion-type",
+      "name": "Variable weight",
+      "how": "a variable font breathes between light and heavy",
+      "signals": [
+        "variable font",
+        "variable weight",
+        "font weight animation"
+      ],
+      "slot": "type",
+      "cost": "css"
+    },
+    {
+      "id": "motion-type-glitch",
+      "family": "motion-type",
+      "name": "Glitch typography",
+      "how": "an RGB-split glitch in short bursts",
+      "signals": [
+        "glitch",
+        "glitch text",
+        "rgb split"
+      ],
+      "slot": "type",
+      "cost": "css",
+      "showcase": true
+    },
+    {
+      "id": "motion-type-circular",
+      "family": "motion-type",
+      "name": "Circular text",
+      "how": "a phrase circles a center mark",
+      "signals": [
+        "circular text",
+        "text on a circle",
+        "rotating badge",
+        "spinning text"
+      ],
+      "slot": "type",
+      "cost": "css",
+      "looks": [
+        "marquee"
+      ]
+    },
+    {
+      "id": "motion-type-scroll-driven",
+      "family": "motion-type",
+      "name": "Scroll-driven type",
+      "how": "type scales and shifts as its frame scrolls",
+      "signals": [
+        "scroll-driven type",
+        "type on scroll",
+        "scroll text"
+      ],
+      "slot": "scroll",
+      "cost": "script"
+    },
+    {
+      "id": "motion-3d-sphere",
+      "family": "motion-3d",
+      "name": "Interactive sphere",
+      "how": "a lit CSS sphere follows the pointer",
+      "signals": [
+        "interactive sphere",
+        "sphere",
+        "globe"
+      ],
+      "slot": "hero",
+      "cost": "script"
+    },
+    {
+      "id": "motion-3d-product-showcase",
+      "family": "motion-3d",
+      "name": "Product showcase",
+      "how": "drag to rotate a dimensional product",
+      "signals": [
+        "product showcase",
+        "product viewer",
+        "drag to rotate",
+        "360 view",
+        "rotate product"
+      ],
+      "slot": "hero",
+      "cost": "script"
+    },
+    {
+      "id": "motion-3d-isometric",
+      "family": "motion-3d",
+      "name": "Floating isometric scene",
+      "how": "three blocks drift through an isometric world",
+      "signals": [
+        "isometric",
+        "floating blocks"
+      ],
+      "slot": "hero",
+      "cost": "css"
+    },
+    {
+      "id": "motion-3d-cube-gallery",
+      "family": "motion-3d",
+      "name": "Cube gallery",
+      "how": "a rotating cube with an image on each face",
+      "signals": [
+        "cube gallery",
+        "rotating cube",
+        "cube"
+      ],
+      "slot": "hero",
+      "cost": "script"
+    },
+    {
+      "id": "motion-3d-tunnel",
+      "family": "motion-3d",
+      "name": "Perspective tunnel",
+      "how": "nested frames expand into the distance",
+      "signals": [
+        "perspective tunnel",
+        "tunnel",
+        "infinite zoom"
+      ],
+      "slot": "hero",
+      "cost": "css"
+    },
+    {
+      "id": "motion-3d-layered-parallax",
+      "family": "motion-3d",
+      "name": "Layered parallax",
+      "how": "stacked planes shift with the pointer",
+      "signals": [
+        "layered parallax",
+        "mouse parallax",
+        "depth layers"
+      ],
+      "slot": "hero",
+      "cost": "script"
+    },
+    {
+      "id": "motion-3d-orbit",
+      "family": "motion-3d",
+      "name": "Orbiting objects",
+      "how": "two satellites on adjustable orbits",
+      "signals": [
+        "orbiting",
+        "orbit",
+        "satellites",
+        "planets"
+      ],
+      "slot": "hero",
+      "cost": "css"
+    },
+    {
+      "id": "motion-3d-morphing-geometry",
+      "family": "motion-3d",
+      "name": "Morphing geometry",
+      "how": "a solid flows between silhouettes",
+      "signals": [
+        "morphing geometry",
+        "morphing 3d",
+        "shape shifting"
+      ],
+      "slot": "hero",
+      "cost": "css"
+    },
+    {
+      "id": "motion-3d-liquid-sphere",
+      "family": "motion-3d",
+      "name": "Liquid sphere",
+      "how": "a soft sphere ripples toward the pointer",
+      "signals": [
+        "liquid sphere",
+        "fluid orb",
+        "blob sphere"
+      ],
+      "slot": "hero",
+      "cost": "script"
+    },
+    {
+      "id": "motion-3d-card-carousel",
+      "family": "motion-3d",
+      "name": "3D card carousel",
+      "how": "swipe between three cards suspended in depth",
+      "signals": [
+        "3d carousel",
+        "card carousel",
+        "carousel"
+      ],
+      "slot": "surface",
+      "cost": "script"
+    },
+    {
+      "id": "motion-bg-aurora",
+      "family": "motion-bg",
+      "name": "Aurora gradient",
+      "how": "slow aurora bands behind the content",
+      "signals": [
+        "aurora",
+        "northern lights"
+      ],
+      "slot": "hero",
+      "cost": "loop",
+      "looks": [
+        "violet"
+      ]
+    },
+    {
+      "id": "motion-bg-particle-field",
+      "family": "motion-bg",
+      "name": "Particle field",
+      "how": "a drifting constellation of linked points",
+      "signals": [
+        "particle field",
+        "particle background",
+        "particles background",
+        "constellation"
+      ],
+      "slot": "hero",
+      "cost": "loop"
+    },
+    {
+      "id": "motion-bg-fluid-mesh",
+      "family": "motion-bg",
+      "name": "Fluid mesh",
+      "how": "soft mesh-gradient pools of colour",
+      "signals": [
+        "mesh gradient",
+        "fluid mesh",
+        "gradient mesh"
+      ],
+      "slot": "hero",
+      "cost": "loop",
+      "looks": [
+        "violet"
+      ]
+    },
+    {
+      "id": "motion-bg-starfield",
+      "family": "motion-bg",
+      "name": "Starfield",
+      "how": "stars streaming past in depth",
+      "signals": [
+        "starfield",
+        "stars",
+        "space background",
+        "warp"
+      ],
+      "slot": "hero",
+      "cost": "loop"
+    },
+    {
+      "id": "motion-bg-floating-orbs",
+      "family": "motion-bg",
+      "name": "Floating orbs",
+      "how": "glowing orbs drift and answer the pointer",
+      "signals": [
+        "floating orbs",
+        "orbs",
+        "bokeh"
+      ],
+      "slot": "hero",
+      "cost": "loop",
+      "looks": [
+        "violet"
+      ]
+    },
+    {
+      "id": "motion-bg-digital-matrix",
+      "family": "motion-bg",
+      "name": "Digital matrix",
+      "how": "falling columns of glyphs",
+      "signals": [
+        "digital rain",
+        "code rain",
+        "matrix"
+      ],
+      "slot": "hero",
+      "cost": "loop",
+      "showcase": true
+    },
+    {
+      "id": "motion-bg-waveform",
+      "family": "motion-bg",
+      "name": "Waveform",
+      "how": "layered waves moving slowly",
+      "signals": [
+        "waveform",
+        "waves background",
+        "sine waves"
+      ],
+      "slot": "hero",
+      "cost": "loop"
+    },
+    {
+      "id": "motion-bg-geometric-grid",
+      "family": "motion-bg",
+      "name": "Geometric grid",
+      "how": "a grid that warps under the pointer",
+      "signals": [
+        "geometric grid",
+        "grid background",
+        "warp grid"
+      ],
+      "slot": "hero",
+      "cost": "loop"
+    },
+    {
+      "id": "motion-bg-noise-grain",
+      "family": "motion-bg",
+      "name": "Noise and grain",
+      "how": "animated grain over a gradient",
+      "signals": [
+        "film grain",
+        "grain",
+        "noise"
+      ],
+      "slot": "hero",
+      "cost": "loop"
+    },
+    {
+      "id": "motion-bg-liquid-distortion",
+      "family": "motion-bg",
+      "name": "Liquid distortion",
+      "how": "slow liquid ribbons of colour",
+      "signals": [
+        "liquid distortion",
+        "liquid background"
+      ],
+      "slot": "hero",
+      "cost": "loop"
+    },
+    {
+      "id": "motion-chart-momentum-line",
+      "family": "motion-chart",
+      "name": "Momentum line",
+      "how": "a line chart that draws itself point by point",
+      "signals": [
+        "animated line chart",
+        "momentum line",
+        "line draws"
+      ],
+      "slot": "data",
+      "cost": "script"
+    },
+    {
+      "id": "motion-chart-channel-bars",
+      "family": "motion-chart",
+      "name": "Channel comparison bars",
+      "how": "bars that grow in a stagger",
+      "signals": [
+        "animated bar chart",
+        "growing bars",
+        "bar race"
+      ],
+      "slot": "data",
+      "cost": "script"
+    },
+    {
+      "id": "motion-chart-revenue-donut",
+      "family": "motion-chart",
+      "name": "Revenue mix donut",
+      "how": "a donut whose segments sweep in",
+      "signals": [
+        "animated donut",
+        "donut chart"
+      ],
+      "slot": "data",
+      "cost": "script"
+    },
+    {
+      "id": "motion-chart-liquid-kpi",
+      "family": "motion-chart",
+      "name": "Liquid KPI",
+      "how": "a liquid fill rises to the goal",
+      "signals": [
+        "liquid kpi",
+        "liquid fill",
+        "fill gauge",
+        "goal gauge"
+      ],
+      "slot": "data",
+      "cost": "script"
+    },
+    {
+      "id": "motion-chart-cumulative-area",
+      "family": "motion-chart",
+      "name": "Cumulative area",
+      "how": "a gradient area that sweeps in over time",
+      "signals": [
+        "animated area chart",
+        "cumulative area"
+      ],
+      "slot": "data",
+      "cost": "script"
+    },
+    {
+      "id": "motion-chart-radial-indicators",
+      "family": "motion-chart",
+      "name": "Radial indicators",
+      "how": "four rings that fill to their values",
+      "signals": [
+        "radial indicators",
+        "radial progress",
+        "progress rings",
+        "ring chart"
+      ],
+      "slot": "data",
+      "cost": "script"
+    },
+    {
+      "id": "motion-chart-activity-heatmap",
+      "family": "motion-chart",
+      "name": "Activity heatmap",
+      "how": "cells fade in by intensity",
+      "signals": [
+        "animated heatmap",
+        "activity heatmap",
+        "contribution graph"
+      ],
+      "slot": "data",
+      "cost": "script"
+    },
+    {
+      "id": "motion-chart-live-pulse",
+      "family": "motion-chart",
+      "name": "Live data pulse",
+      "how": "a streaming series that updates on demand with a pulse",
+      "signals": [
+        "live data",
+        "real-time chart",
+        "realtime chart",
+        "live chart",
+        "streaming data"
+      ],
+      "slot": "data",
+      "cost": "loop"
+    },
+    {
+      "id": "motion-chart-network",
+      "family": "motion-chart",
+      "name": "Connected network",
+      "how": "select a node to trace its links",
+      "signals": [
+        "network graph",
+        "node graph",
+        "connected nodes"
+      ],
+      "slot": "data",
+      "cost": "script"
+    },
+    {
+      "id": "motion-chart-funnel",
+      "family": "motion-chart",
+      "name": "Conversion funnel",
+      "how": "funnel stages that flow in from visits to customers",
+      "signals": [
+        "animated funnel",
+        "conversion funnel"
+      ],
+      "slot": "data",
+      "cost": "script"
+    },
+    {
+      "id": "motion-scroll-reveal",
+      "family": "motion-scroll",
+      "name": "Scroll reveal",
+      "how": "content eases in as it enters the viewport (direction, duration, delay, threshold)",
+      "signals": [
+        "scroll reveal",
+        "reveal on scroll",
+        "fade in on scroll",
+        "animate on scroll",
+        "scroll animation",
+        "on scroll"
+      ],
+      "slot": "scroll",
+      "cost": "script",
+      "react": "ScrollRevealDemo"
+    },
+    {
+      "id": "motion-scroll-staggered-grid",
+      "family": "motion-scroll",
+      "name": "Staggered grid",
+      "how": "a grid's items arrive one after another",
+      "signals": [
+        "staggered grid",
+        "staggered",
+        "stagger",
+        "cascade"
+      ],
+      "slot": "scroll",
+      "cost": "script",
+      "react": "StaggeredGridDemo"
+    },
+    {
+      "id": "motion-scroll-parallax",
+      "family": "motion-scroll",
+      "name": "Parallax layers",
+      "how": "layers move at different speeds as the page scrolls",
+      "signals": [
+        "parallax"
+      ],
+      "slot": "scroll",
+      "cost": "script",
+      "react": "ParallaxDemo"
+    },
+    {
+      "id": "motion-scroll-horizontal-story",
+      "family": "motion-scroll",
+      "name": "Horizontal story",
+      "how": "vertical scroll drives a pinned horizontal sequence",
+      "signals": [
+        "horizontal scroll",
+        "horizontal story",
+        "side scroll"
+      ],
+      "slot": "scroll",
+      "cost": "script",
+      "react": "HorizontalStoryDemo"
+    },
+    {
+      "id": "motion-scroll-sticky-story",
+      "family": "motion-scroll",
+      "name": "Sticky storytelling",
+      "how": "a sticky frame changes scene by scene as the text scrolls past",
+      "signals": [
+        "scrollytelling",
+        "sticky story",
+        "sticky section",
+        "storytelling",
+        "sticky scroll"
+      ],
+      "slot": "scroll",
+      "cost": "script",
+      "react": "StickyStoryDemo"
+    },
+    {
+      "id": "motion-scroll-text-mask",
+      "family": "motion-scroll",
+      "name": "Text mask reveal",
+      "how": "lines rise from behind a clipping edge",
+      "signals": [
+        "text mask",
+        "mask reveal",
+        "line reveal"
+      ],
+      "slot": "scroll",
+      "cost": "css",
+      "react": "TextMaskDemo"
+    },
+    {
+      "id": "motion-scroll-page-curtain",
+      "family": "motion-scroll",
+      "name": "Page curtain",
+      "how": "a curtain sweeps across, swaps the scene and reveals it",
+      "signals": [
+        "page transition",
+        "page curtain",
+        "curtain",
+        "wipe transition"
+      ],
+      "slot": "scroll",
+      "cost": "script",
+      "react": "PageCurtainDemo"
+    },
+    {
+      "id": "motion-scroll-circular-reveal",
+      "family": "motion-scroll",
+      "name": "Circular reveal",
+      "how": "a new scene grows from one point with a clip-path circle",
+      "signals": [
+        "circular reveal",
+        "circle reveal",
+        "clip-path reveal"
+      ],
+      "slot": "scroll",
+      "cost": "css",
+      "react": "CircularRevealDemo"
+    },
+    {
+      "id": "motion-scroll-progress",
+      "family": "motion-scroll",
+      "name": "Scroll progress",
+      "how": "a reading progress bar and ring",
+      "signals": [
+        "scroll progress",
+        "reading progress",
+        "progress indicator",
+        "progress bar"
+      ],
+      "slot": "scroll",
+      "cost": "script",
+      "react": "ProgressDemo"
+    },
+    {
+      "id": "motion-scroll-pin-zoom",
+      "family": "motion-scroll",
+      "name": "Image pin and zoom",
+      "how": "an image pins and grows to the full frame as the page scrolls",
+      "signals": [
+        "pin and zoom",
+        "zoom on scroll",
+        "scroll zoom",
+        "pinned image",
+        "image zoom"
+      ],
+      "slot": "scroll",
+      "cost": "script",
+      "react": "PinZoomDemo"
+    },
+    {
+      "id": "motion-card-tilt",
+      "family": "motion-card",
+      "name": "3D tilt card",
+      "how": "the card leans toward the pointer with a moving light",
+      "signals": [
+        "3d tilt",
+        "tilt card",
+        "hover tilt",
+        "tilt"
+      ],
+      "slot": "surface",
+      "cost": "script"
+    },
+    {
+      "id": "motion-card-flip",
+      "family": "motion-card",
+      "name": "Flip card",
+      "how": "a tap or click turns it to the back",
+      "signals": [
+        "flip card",
+        "card flip"
+      ],
+      "slot": "surface",
+      "cost": "css"
+    },
+    {
+      "id": "motion-card-glass",
+      "family": "motion-card",
+      "name": "Glass card",
+      "how": "a frosted pane with a passing reflection",
+      "signals": [
+        "glass card",
+        "glassmorphism",
+        "frosted"
+      ],
+      "slot": "surface",
+      "cost": "css",
+      "looks": [
+        "glass"
+      ]
+    },
+    {
+      "id": "motion-card-image-reveal",
+      "family": "motion-card",
+      "name": "Image reveal card",
+      "how": "a circular mask uncovers the picture on hover",
+      "signals": [
+        "image reveal",
+        "hover reveal"
+      ],
+      "slot": "surface",
+      "cost": "css"
+    },
+    {
+      "id": "motion-card-parallax",
+      "family": "motion-card",
+      "name": "Parallax card",
+      "how": "foreground and background drift apart with the pointer",
+      "signals": [
+        "parallax card",
+        "depth card"
+      ],
+      "slot": "surface",
+      "cost": "script"
+    },
+    {
+      "id": "motion-card-expandable",
+      "family": "motion-card",
+      "name": "Expandable card",
+      "how": "it opens to show the full story",
+      "signals": [
+        "expandable card",
+        "expand card",
+        "read more"
+      ],
+      "slot": "surface",
+      "cost": "css"
+    },
+    {
+      "id": "motion-card-magnetic",
+      "family": "motion-card",
+      "name": "Magnetic floating card",
+      "how": "a spring pulls the card toward the pointer",
+      "signals": [
+        "magnetic card",
+        "floating card"
+      ],
+      "slot": "surface",
+      "cost": "script"
+    },
+    {
+      "id": "motion-card-border-glow",
+      "family": "motion-card",
+      "name": "Border glow card",
+      "how": "a bright edge tracks the pointer along the frame",
+      "signals": [
+        "border glow",
+        "glowing border",
+        "glow border"
+      ],
+      "slot": "surface",
+      "cost": "script"
+    },
+    {
+      "id": "motion-card-stacked",
+      "family": "motion-card",
+      "name": "Stacked cards",
+      "how": "overlapping cards fan apart on tap",
+      "signals": [
+        "stacked cards",
+        "card stack",
+        "fan out"
+      ],
+      "slot": "surface",
+      "cost": "css"
+    },
+    {
+      "id": "motion-card-spotlight",
+      "family": "motion-card",
+      "name": "Spotlight card",
+      "how": "a soft pool of light follows the pointer",
+      "signals": [
+        "spotlight card",
+        "spotlight hover",
+        "hover light"
+      ],
+      "slot": "surface",
+      "cost": "script"
+    },
+    {
+      "id": "motion-nav-morphing-hamburger",
+      "family": "motion-nav",
+      "name": "Morphing hamburger",
+      "how": "three lines morph into a close icon and open a panel",
+      "signals": [
+        "hamburger",
+        "menu icon",
+        "mobile menu"
+      ],
+      "slot": "navigation",
+      "cost": "css"
+    },
+    {
+      "id": "motion-nav-liquid-indicator",
+      "family": "motion-nav",
+      "name": "Liquid tab indicator",
+      "how": "a fluid highlight slides to the selected item",
+      "signals": [
+        "liquid indicator",
+        "sliding indicator",
+        "tab indicator",
+        "animated tabs"
+      ],
+      "slot": "navigation",
+      "cost": "script"
+    },
+    {
+      "id": "motion-nav-glass-sidebar",
+      "family": "motion-nav",
+      "name": "Floating glass sidebar",
+      "how": "translucent navigation with lit active states",
+      "signals": [
+        "glass sidebar",
+        "floating sidebar"
+      ],
+      "slot": "navigation",
+      "cost": "css",
+      "looks": [
+        "glass"
+      ]
+    },
+    {
+      "id": "motion-nav-radial-menu",
+      "family": "motion-nav",
+      "name": "Expandable radial menu",
+      "how": "a compact launcher unfolds into four destinations",
+      "signals": [
+        "radial menu",
+        "speed dial",
+        "fab menu",
+        "circular menu"
+      ],
+      "slot": "navigation",
+      "cost": "css"
+    },
+    {
+      "id": "motion-nav-fullscreen-overlay",
+      "family": "motion-nav",
+      "name": "Fullscreen overlay menu",
+      "how": "large links arrive in a staggered sequence",
+      "signals": [
+        "fullscreen menu",
+        "overlay menu",
+        "full screen navigation"
+      ],
+      "slot": "navigation",
+      "cost": "css"
+    },
+    {
+      "id": "motion-nav-magnetic",
+      "family": "motion-nav",
+      "name": "Magnetic navigation",
+      "how": "links lean toward the pointer",
+      "signals": [
+        "magnetic navigation",
+        "magnetic nav",
+        "magnetic links"
+      ],
+      "slot": "navigation",
+      "cost": "script"
+    },
+    {
+      "id": "motion-nav-mega-menu",
+      "family": "motion-nav",
+      "name": "Animated mega menu",
+      "how": "grouped links open in a panel without losing your place",
+      "signals": [
+        "mega menu",
+        "dropdown menu"
+      ],
+      "slot": "navigation",
+      "cost": "css"
+    },
+    {
+      "id": "motion-nav-floating-dock",
+      "family": "motion-nav",
+      "name": "Bottom floating dock",
+      "how": "a dock that magnifies the selected item",
+      "signals": [
+        "floating dock",
+        "bottom dock",
+        "dock",
+        "bottom navigation"
+      ],
+      "slot": "navigation",
+      "cost": "script"
+    },
+    {
+      "id": "motion-nav-scroll-aware",
+      "family": "motion-nav",
+      "name": "Scroll-aware navbar",
+      "how": "a sticky header that compacts as the page scrolls",
+      "signals": [
+        "scroll-aware",
+        "shrinking header",
+        "sticky header",
+        "navbar on scroll",
+        "hide on scroll"
+      ],
+      "slot": "navigation",
+      "cost": "script"
+    },
+    {
+      "id": "motion-nav-vertical-timeline",
+      "family": "motion-nav",
+      "name": "Vertical timeline navigation",
+      "how": "a marker follows the section being read",
+      "signals": [
+        "timeline navigation",
+        "scrollspy",
+        "section marker",
+        "table of contents"
+      ],
+      "slot": "navigation",
+      "cost": "script"
+    },
+    {
+      "id": "motion-loader-orbit",
+      "family": "motion-loader",
+      "name": "Orbit loader",
+      "how": "dots orbit a centre",
+      "signals": [
+        "orbit loader",
+        "loading spinner",
+        "spinner"
+      ],
+      "slot": "feedback",
+      "cost": "css"
+    },
+    {
+      "id": "motion-loader-liquid",
+      "family": "motion-loader",
+      "name": "Liquid loader",
+      "how": "a liquid fill with a determinate percentage",
+      "signals": [
+        "liquid loader",
+        "fill loader"
+      ],
+      "slot": "feedback",
+      "cost": "css"
+    },
+    {
+      "id": "motion-loader-dna",
+      "family": "motion-loader",
+      "name": "DNA helix loader",
+      "how": "a twisting double helix of dots",
+      "signals": [
+        "dna",
+        "helix"
+      ],
+      "slot": "feedback",
+      "cost": "css"
+    },
+    {
+      "id": "motion-loader-progress-ring",
+      "family": "motion-loader",
+      "name": "Progress ring",
+      "how": "a ring that fills to the percentage",
+      "signals": [
+        "progress ring",
+        "circular progress"
+      ],
+      "slot": "feedback",
+      "cost": "css"
+    },
+    {
+      "id": "motion-loader-segments",
+      "family": "motion-loader",
+      "name": "Segmented loader",
+      "how": "segments light up in sequence",
+      "signals": [
+        "segmented progress",
+        "segments loader",
+        "steps loader"
+      ],
+      "slot": "feedback",
+      "cost": "css"
+    },
+    {
+      "id": "motion-loader-wave",
+      "family": "motion-loader",
+      "name": "Wave loader",
+      "how": "bars rise and fall in a wave",
+      "signals": [
+        "wave loader",
+        "bars loader"
+      ],
+      "slot": "feedback",
+      "cost": "css"
+    },
+    {
+      "id": "motion-loader-assembly",
+      "family": "motion-loader",
+      "name": "Assembly loader",
+      "how": "blocks assemble into a shape",
+      "signals": [
+        "assembly loader",
+        "building blocks loader"
+      ],
+      "slot": "feedback",
+      "cost": "css"
+    },
+    {
+      "id": "motion-loader-skeleton",
+      "family": "motion-loader",
+      "name": "Skeleton screen",
+      "how": "shimmering placeholders shaped like the content",
+      "signals": [
+        "skeleton screen",
+        "skeleton",
+        "shimmer",
+        "content loading",
+        "placeholder loading"
+      ],
+      "slot": "feedback",
+      "cost": "css"
+    },
+    {
+      "id": "motion-loader-ai-thinking",
+      "family": "motion-loader",
+      "name": "AI thinking indicator",
+      "how": "pulsing marks for a model at work",
+      "signals": [
+        "ai thinking",
+        "thinking indicator",
+        "typing indicator",
+        "generating"
+      ],
+      "slot": "feedback",
+      "cost": "css"
+    },
+    {
+      "id": "motion-loader-multi-stage",
+      "family": "motion-loader",
+      "name": "Multi-stage progress",
+      "how": "prepare, process and finish stages with their states",
+      "signals": [
+        "multi-stage",
+        "upload progress",
+        "step progress",
+        "stages"
+      ],
+      "slot": "feedback",
+      "cost": "css"
+    },
+    {
+      "id": "motion-button-magnetic",
+      "family": "motion-button",
+      "name": "Magnetic button",
+      "how": "the button follows the pointer a little",
+      "signals": [
+        "magnetic button",
+        "magnetic cta",
+        "magnetic"
+      ],
+      "slot": "control",
+      "cost": "script"
+    },
+    {
+      "id": "motion-button-liquid-morph",
+      "family": "motion-button",
+      "name": "Liquid morph button",
+      "how": "an organic silhouette that keeps shifting",
+      "signals": [
+        "liquid button",
+        "morph button",
+        "blob button"
+      ],
+      "slot": "control",
+      "cost": "css"
+    },
+    {
+      "id": "motion-button-neon",
+      "family": "motion-button",
+      "name": "Neon glow button",
+      "how": "an electric edge with a soft pulse",
+      "signals": [
+        "neon button",
+        "glow button",
+        "neon"
+      ],
+      "slot": "control",
+      "cost": "css",
+      "looks": [
+        "violet"
+      ]
+    },
+    {
+      "id": "motion-button-3d-press",
+      "family": "motion-button",
+      "name": "3D press button",
+      "how": "a tactile button that presses into depth",
+      "signals": [
+        "3d button",
+        "press button",
+        "tactile button",
+        "pressable"
+      ],
+      "slot": "control",
+      "cost": "css"
+    },
+    {
+      "id": "motion-button-gradient-flow",
+      "family": "motion-button",
+      "name": "Gradient flow button",
+      "how": "a fill of colours that keeps flowing",
+      "signals": [
+        "gradient button",
+        "animated gradient button"
+      ],
+      "slot": "control",
+      "cost": "css"
+    },
+    {
+      "id": "motion-button-particle-burst",
+      "family": "motion-button",
+      "name": "Particle burst button",
+      "how": "a small burst of particles on click",
+      "signals": [
+        "confetti",
+        "particle button",
+        "celebration"
+      ],
+      "slot": "control",
+      "cost": "script"
+    },
+    {
+      "id": "motion-button-glass",
+      "family": "motion-button",
+      "name": "Glass button",
+      "how": "frosted layers with light that follows the pointer",
+      "signals": [
+        "glass button"
+      ],
+      "slot": "control",
+      "cost": "css",
+      "looks": [
+        "glass"
+      ]
+    },
+    {
+      "id": "motion-button-border-trace",
+      "family": "motion-button",
+      "name": "Border trace button",
+      "how": "a glint travels around the edge",
+      "signals": [
+        "border trace",
+        "animated border",
+        "traveling border"
+      ],
+      "slot": "control",
+      "cost": "css"
+    },
+    {
+      "id": "motion-button-morphing-toggle",
+      "family": "motion-button",
+      "name": "Morphing toggle",
+      "how": "a switch whose knob morphs between two states",
+      "signals": [
+        "morphing toggle",
+        "toggle",
+        "switch"
+      ],
+      "slot": "control",
+      "cost": "css"
+    },
+    {
+      "id": "motion-button-ripple",
+      "family": "motion-button",
+      "name": "Ripple button",
+      "how": "a ripple expands from the touch point",
+      "signals": [
+        "ripple",
+        "ripple effect"
+      ],
+      "slot": "control",
+      "cost": "script"
+    }
+  ],
+  "kit": {
+    "id": "motion-react-scroll-kit",
+    "name": "Scroll motion kit (React)",
+    "how": "useInView (IntersectionObserver), Reveal (direction up/down/left/right, duration, delay, threshold), useElementProgress and page progress, all on --ease: cubic-bezier(0.22, 1, 0.36, 1)"
+  }
+}

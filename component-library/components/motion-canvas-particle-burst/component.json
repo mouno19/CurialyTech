@@ -1,0 +1,78 @@
+{
+  "id": "motion-canvas-particle-burst",
+  "name": "Particle burst",
+  "description": "Particle burst: a shape breaks into particles and comes back together. From the Creative canvas studies suite: re-skin it to the design's tokens and timing (--cx-ease, --cx-duration-*), keep its reduced-motion end state, and mix it with other pieces, never the whole suite.",
+  "category": "motion",
+  "batch": "motion-canvas",
+  "collection": "Motion: Creative canvas studies",
+  "kind": "component",
+  "role": "content",
+  "tags": [
+    "motion",
+    "animation",
+    "hero",
+    "continuous-animation",
+    "particle-burst",
+    "explode",
+    "particles",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "animated",
+    "continuous-animation",
+    "interactive",
+    "keyboard",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "stylesheet",
+      "id": "motion-canvas"
+    },
+    {
+      "type": "tokens",
+      "id": "motion-canvas"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "content",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "motion-canvas",
+    "mode": "dark",
+    "colors": {
+      "#c6f36b": "series1"
+    }
+  },
+  "source": {
+    "file": "motion-components/01_creative_canvas_experiments.html",
+    "ref": "article data-template-id=\"card-burst\" #0"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "8c8d1d03d4b1710d",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

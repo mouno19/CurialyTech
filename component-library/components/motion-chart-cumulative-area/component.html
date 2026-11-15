@@ -1,0 +1,38 @@
+<!-- Cumulative area · motion-chart-cumulative-area: from the Motion: Animated data visualizations (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/motion-charts.css, and an ancestor with class="cx-motion-charts". -->
+<div class="cx-motion-charts"><div class="app-shell">
+<article class=" chart-card" style="background: rgb(25, 37, 34);">
+      <div class="card-top"><span class="chart-number">05</span>
+       <div>
+        <h2 style="color: rgb(240, 243, 233); font-weight: 700; font-style: normal; font-size: 21px;">Cumulative area</h2>
+        <p class=" card-desc" style="color: rgb(165, 184, 174); font-weight: 400; font-style: normal; font-size: 14px;">A gradient view of activity over time.</p>
+       </div>
+      </div>
+      <svg id="area" class="viz" role="img" aria-label="Cumulative activity area chart"></svg>
+     </article>
+</div></div>
+<script>
+(() => {
+const NS='http://www.w3.org/2000/svg';
+const M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug'];
+const samples={
+    saas:{label:'SaaS growth',series:[28,35,32,48,55,53,72,86],categories:[46,78,61,91,55],segments:[45,27,18,10],radial:[86,72,64,91],kpi:78,heat:Array.from({length:42},(_,i)=>((i*17+Math.floor(i/7)*11)%91)+9),pulse:[40,49,44,58,52,65,58,73,68,76,72,83],funnel:[12000,7200,3100,980]},
+    finance:{label:'Financial outlook',series:[42,38,47,45,59,68,64,79],categories:[83,62,75,48,67],segments:[38,31,20,11],radial:[74,89,68,82],kpi:84,heat:Array.from({length:42},(_,i)=>((i*23+Math.floor(i/7)*7)%88)+12),pulse:[55,50,62,57,65,59,72,69,79,74,77,85],funnel:[18600,10400,4700,1650]},
+    ai:{label:'AI platform',series:[18,22,37,42,57,66,81,94],categories:[72,88,56,79,63],segments:[51,25,16,8],radial:[93,78,85,69],kpi:91,heat:Array.from({length:42},(_,i)=>((i*31+Math.floor(i/7)*13)%90)+10),pulse:[25,39,35,51,48,64,59,75,72,81,79,92],funnel:[24000,13200,5900,2200]}
+  };
+const colors=['#a5efca','#ff9b82','#f2d486','#82b3db','#bba9e8'];
+const state={data:structuredClone(samples.saas),selected:null,live:null};
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+function svg(id){const el=document.getElementById(id),w=Math.max(300,Math.round(el.getBoundingClientRect().width)),h=Math.round(el.getBoundingClientRect().height)||230;el.setAttribute('viewBox',`0 0 ${w} ${h}`);el.replaceChildren();return {el,w,h}}
+function node(tag,attrs={},parent){const e=document.createElementNS(NS,tag);for(const [k,v] of Object.entries(attrs))e.setAttribute(k,String(v));if(parent)parent.appendChild(e);return e}
+function txt(p,x,y,text,extra={}){const e=node('text',{x,y,...extra},p);e.textContent=text;return e}
+function tip(el,text){node('title',{},el).textContent=text}
+function animate(el,attrs,duration=850,delay=0){if(reduce){Object.entries(attrs).forEach(([k,v])=>el.setAttribute(k,v));return}setTimeout(()=>{el.style.transition=`all ${duration}ms cubic-bezier(.22,.8,.22,1)`;requestAnimationFrame(()=>Object.entries(attrs).forEach(([k,v])=>el.setAttribute(k,v)))},delay)}
+function axes(el,w,h,max,labels){const left=38,right=12,top=14,bottom=h-30;[0,.5,1].forEach(v=>{const y=bottom-(bottom-top)*v;node('line',{x1:left,y1:y,x2:w-right,y2:y,class:'grid-line'},el);txt(el,2,y+3,String(Math.round(max*v)))});labels.forEach((l,i)=>txt(el,left+(w-left-right)*i/(labels.length-1),h-8,l,{'text-anchor':'middle'}));return {left,right,top,bottom}}
+function points(data,w,h,a,max){return data.map((v,i)=>[a.left+(w-a.left-a.right)*i/(data.length-1),a.bottom-(a.bottom-a.top)*v/max])}
+function path(pts){return pts.map((p,i)=>`${i?'L':'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ')}
+function drawStroke(el,pts,color){const line=node('path',{d:path(pts),fill:'none',stroke:color,'stroke-width':3,'stroke-linecap':'round','stroke-linejoin':'round'},el);const length=line.getTotalLength();line.style.strokeDasharray=length;line.style.strokeDashoffset=reduce?0:length;requestAnimationFrame(()=>{line.style.transition='stroke-dashoffset 1s ease';line.style.strokeDashoffset=0});return line}
+function areaChart(){const {el,w,h}=svg('area'),d=state.data.series.map((v,i)=>Math.min(100,v*.82+8+i*1.2)),a=axes(el,w,h,110,M),pts=points(d,w,h,a,110);const defs=node('defs',{},el),grad=node('linearGradient',{id:'area-gradient',x1:0,y1:0,x2:0,y2:1},defs);node('stop',{offset:'0%','stop-color':colors[0],'stop-opacity':'.55'},grad);node('stop',{offset:'100%','stop-color':colors[0],'stop-opacity':'0'},grad);const area=node('path',{d:`${path(pts)} L${pts.at(-1)[0]} ${a.bottom} L${pts[0][0]} ${a.bottom} Z`,fill:'url(#area-gradient)'},el);area.style.opacity=0;animate(area,{opacity:1},900);drawStroke(el,pts,colors[0]);pts.forEach(([x,y],i)=>{const c=node('circle',{cx:x,cy:y,r:3,fill:colors[0]},el);tip(c,`${M[i]}: ${Math.round(d[i])}k activity units`)})}
+areaChart();
+})();
+</script>

@@ -1,0 +1,86 @@
+{
+  "id": "motion-scroll-progress",
+  "name": "Scroll progress",
+  "description": "Scroll progress: a reading progress bar and ring. From the Scroll motion patterns suite: re-skin it to the design's tokens and timing (--cx-ease, --cx-duration-*), keep its reduced-motion end state, and mix it with other pieces, never the whole suite.",
+  "category": "motion",
+  "batch": "motion-scroll",
+  "collection": "Motion: Scroll motion patterns",
+  "kind": "component",
+  "role": "section",
+  "tags": [
+    "motion",
+    "animation",
+    "scroll",
+    "interactive",
+    "scroll-progress",
+    "reading-progress",
+    "progress-indicator",
+    "progress-bar",
+    "bar-chart",
+    "comparison",
+    "ranking",
+    "categorical",
+    "radial",
+    "circular",
+    "kpi",
+    "target",
+    "progress",
+    "performance",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "animated"
+  ],
+  "dependencies": [
+    {
+      "type": "stylesheet",
+      "id": "motion-scroll"
+    },
+    {
+      "type": "tokens",
+      "id": "motion-scroll"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "section",
+    "span": "full"
+  },
+  "style": {
+    "tokens": "motion-scroll",
+    "mode": "dark",
+    "colors": {
+      "#455249": "series5",
+      "#d5f36a": "series1"
+    }
+  },
+  "source": {
+    "file": "motion-components/06_scroll_animation_showcase.html",
+    "ref": "section id=\"progress\" #0"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "17ea8b569842a685",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

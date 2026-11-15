@@ -1,0 +1,56 @@
+<!-- Magnetic navigation · motion-nav-magnetic: from the Motion: Animated navigation (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/motion-navigation.css, and an ancestor with class="cx-motion-navigation". -->
+<div class="cx-motion-navigation"><div class="w-full">
+<article id="component-6" class="showcase-card">
+      <div class="card-heading">
+       <p class="eyebrow mb-2">06 / CURSOR</p>
+       <h2 style="color: rgb(23, 33, 36); font-weight: 600; font-style: normal; font-size: 24px;">Magnetic Navigation</h2>
+       <p style="color: rgb(103, 112, 115); font-weight: 400; font-style: normal; font-size: 16px;">Links gently lean toward your pointer.</p>
+      </div>
+      <div class="preview magnetic-preview">
+       <nav class="magnetic-nav" aria-label="Magnetic navigation">
+        <button type="button" class="active" aria-current="page" data-view="Home">Home</button><button type="button" data-view="About">About</button><button type="button" data-view="Services">Services</button><button type="button" data-view="Contact">Contact</button>
+       </nav>
+       <p id="magnetic-state" class="state-label" aria-live="polite">CURRENT VIEW / HOME</p>
+      </div>
+     </article>
+<!-- Present for the suite's shared script (its settings, with their defaults, and parts of other pieces it also drives); hidden: -->
+<div hidden><nav id="liquid-nav" class="liquid-bar" aria-label="Liquid navigation">
+        <span class="liquid-pill" aria-hidden="true"></span><button type="button" class="active" aria-current="page" data-view="Discover">Discover</button><button type="button" data-view="Projects">Projects</button><button type="button" data-view="Studio">Studio</button><button type="button" data-view="Journal">Journal</button>
+       </nav></div>
+</div></div>
+<script>
+(() => {
+const $ = (selector, root=document) => root.querySelector(selector);
+const $$ = (selector, root=document) => [...root.querySelectorAll(selector)];
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+function positionPill() {
+      const nav = $('#liquid-nav'), active = $('.active', nav), pill = $('.liquid-pill', nav);
+      pill.style.left = active.offsetLeft + 'px';
+      pill.style.width = active.offsetWidth + 'px';
+    }
+function selectButton(button, parent) {
+      $$('button[data-view]', parent).forEach(item => {
+        item.classList.toggle('active', item === button);
+        if (item === button) item.setAttribute('aria-current','page');
+        else item.removeAttribute('aria-current');
+      });
+    }
+$('.magnetic-nav').addEventListener('click', event => {
+      const button = event.target.closest('button[data-view]');
+      if (!button) return;
+      selectButton(button, $('.magnetic-nav'));
+      $('#magnetic-state').textContent = 'CURRENT VIEW / ' + button.dataset.view.toUpperCase();
+    });
+if (!reducedMotion && matchMedia('(hover:hover)').matches) {
+      $$('.magnetic-nav button').forEach(button => {
+        button.addEventListener('pointermove', event => {
+          const box = button.getBoundingClientRect();
+          button.style.transform = `translate(${(event.clientX-box.left-box.width/2)*.16}px, ${(event.clientY-box.top-box.height/2)*.22}px)`;
+        });
+        button.addEventListener('pointerleave', () => button.style.transform = '');
+        button.addEventListener('blur', () => button.style.transform = '');
+      });
+    }
+})();
+</script>

@@ -1,0 +1,24 @@
+<!-- Flip card · motion-card-flip: from the Motion: Animated cards (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/motion-cards.css, and an ancestor with class="cx-motion-cards". -->
+<div class="cx-motion-cards"><div class="w-full">
+<article class="demo">
+       <div class="demo-head"><span class="demo-number">02 / REVEAL</span>
+        <h2 class=" demo-title" style="color: rgb(236, 240, 232); font-weight: 600; font-style: normal; font-size: 24px;">Flip Information</h2>
+        <p class=" demo-description" style="color: rgb(194, 206, 196); font-weight: 400; font-style: normal; font-size: 13px;">Tap or click to discover the other side.</p>
+       </div>
+       <div class="stage"><button id="flip-card" class="flip-wrap" type="button" aria-label="Flip information card" aria-pressed="false"><span class="flip-inner"><span class="sample flip-face"><span class="orb"></span><strong>Turn the page.</strong><small>Tap to reveal</small></span><span class="sample flip-face flip-back"><strong>Look closer.</strong><small>Every story has another side.</small></span></span></button>
+       </div>
+      </article>
+</div></div>
+<script>
+(() => {
+function toggleCard(id, attribute) {
+      const button=document.getElementById(id);
+      button.addEventListener('click',()=>{
+        const active=button.classList.toggle('is-active');
+        button.setAttribute(attribute,String(active));
+      });
+    }
+toggleCard('flip-card','aria-pressed');
+})();
+</script>

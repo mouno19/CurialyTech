@@ -1,0 +1,62 @@
+<!-- Parallax card · motion-card-parallax: from the Motion: Animated cards (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/motion-cards.css, and an ancestor with class="cx-motion-cards". -->
+<div class="cx-motion-cards"><div class="w-full">
+<article class="demo">
+       <div class="demo-head"><span class="demo-number">05 / LAYERS</span>
+        <h2 class=" demo-title" style="color: rgb(236, 240, 232); font-weight: 600; font-style: normal; font-size: 24px;">Parallax Layers</h2>
+        <p class=" demo-description" style="color: rgb(194, 206, 196); font-weight: 400; font-style: normal; font-size: 13px;">Foreground and background drift at different speeds.</p>
+       </div>
+       <div class="stage" id="parallax-zone">
+        <div class="sample parallax-sample">
+         <div id="parallax-back" class="parallax-layer parallax-back"></div>
+         <div id="parallax-front" class="parallax-layer parallax-front"></div><strong>In motion.</strong><small>Layers of possibility</small>
+        </div>
+       </div>
+      </article>
+<!-- Present for the suite's shared script (its settings, with their defaults, and parts of other pieces it also drives); hidden: -->
+<div hidden><div class="sample tilt-sample" id="tilt-card">
+         <div class="ring"></div>
+         <div class="orb"></div><strong>New angles.</strong><small>Perspective study / 001</small>
+        </div>
+<div class="sample magnetic-sample" id="magnetic-card">
+         <div class="ring"></div>
+         <div class="orb"></div><strong>Feel the pull.</strong><small>Gentle attraction</small>
+        </div>
+<div class="sample border-sample" id="border-card">
+         <div class="orb"></div><strong>Trace the edge.</strong><small>Illuminated outline</small>
+        </div>
+<div class="sample spotlight-sample" id="spotlight-card">
+         <div class="ring"></div><strong>Find the light.</strong><small>Follow your curiosity</small>
+        </div></div>
+</div></div>
+<script>
+(() => {
+const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+let motionOff = reduced.matches;
+function position(event, element) {
+      const box = element.getBoundingClientRect();
+      return { x:(event.clientX-box.left)/box.width, y:(event.clientY-box.top)/box.height };
+    }
+function resetPointerEffects() {
+      document.getElementById('tilt-card').style.transform = '';
+      document.getElementById('magnetic-card').style.transform = '';
+      document.getElementById('parallax-back').style.transform = '';
+      document.getElementById('parallax-front').style.transform = '';
+      ['border-card','spotlight-card'].forEach(id => {
+        const el = document.getElementById(id);
+        el.style.setProperty('--mx','50%'); el.style.setProperty('--my','50%');
+      });
+    }
+const parallaxZone=document.getElementById('parallax-zone');
+parallaxZone.addEventListener('pointermove',e=>{
+      if(motionOff || e.pointerType==='touch') return;
+      const p=position(e,parallaxZone),x=p.x-.5,y=p.y-.5;
+      document.getElementById('parallax-back').style.transform=`translate(${x*15}px,${y*15}px)`;
+      document.getElementById('parallax-front').style.transform=`translate(${x*40}px,${y*40}px) rotate(24deg)`;
+    });
+parallaxZone.addEventListener('pointerleave',()=>{
+      document.getElementById('parallax-back').style.transform='';
+      document.getElementById('parallax-front').style.transform='';
+    });
+})();
+</script>

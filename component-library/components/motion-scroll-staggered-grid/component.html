@@ -1,0 +1,55 @@
+<!-- Staggered grid · motion-scroll-staggered-grid: from the Motion: Scroll motion patterns (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/motion-scroll.css, and an ancestor with class="cx-motion-scroll". -->
+<div class="cx-motion-scroll"><div class="w-full">
+<section id="grid" class="demo-section">
+    <div class="max-w-7xl mx-auto px-5 md:px-10 grid lg:grid-cols-[310px_1fr] gap-8 lg:gap-16">
+     <div>
+      <p class="eyebrow">02 / Sequence</p>
+      <h2 class=" serif mt-4 mb-4" style="color: rgb(241, 238, 228); font-weight: 400; font-style: normal; font-size: 24px;">Staggered grid</h2>
+      <p class=" leading-relaxed" style="color: rgb(174, 184, 170); font-weight: 400; font-style: normal; font-size: 16px;">A sequence of small arrivals turns a collection into a composition.</p>
+      <p class="setting mt-6">Each tile accepts its own data-delay, duration, direction and trigger.</p>
+     </div>
+     <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+      <div class="reveal rounded-2xl bg-[#d5f36a] text-[#101613] p-6 min-h-40 flex flex-col justify-between" data-delay="0" data-duration="700" data-direction="up" data-trigger="0.15">
+       <span>01</span><span class=" serif" style="color: rgb(16, 22, 19); font-weight: 400; font-style: normal; font-size: 25px;">Think</span>
+      </div>
+      <div class="reveal rounded-2xl bg-[#d9a88d] text-[#101613] p-6 min-h-40 flex flex-col justify-between" data-delay="110" data-duration="700" data-direction="up" data-trigger="0.15">
+       <span>02</span><span class=" serif" style="color: rgb(16, 22, 19); font-weight: 400; font-style: normal; font-size: 25px;">Shape</span>
+      </div>
+      <div class="reveal rounded-2xl bg-[#c4d4be] text-[#101613] p-6 min-h-40 flex flex-col justify-between" data-delay="220" data-duration="700" data-direction="up" data-trigger="0.15">
+       <span>03</span><span class=" serif" style="color: rgb(16, 22, 19); font-weight: 400; font-style: normal; font-size: 25px;">Build</span>
+      </div>
+      <div class="reveal rounded-2xl bg-[#bac7cd] text-[#101613] p-6 min-h-40 flex flex-col justify-between" data-delay="330" data-duration="700" data-direction="up" data-trigger="0.15">
+       <span>04</span><span class=" serif" style="color: rgb(16, 22, 19); font-weight: 400; font-style: normal; font-size: 25px;">Refine</span>
+      </div>
+      <div class="reveal rounded-2xl bg-[#e4d4a2] text-[#101613] p-6 min-h-40 flex flex-col justify-between" data-delay="440" data-duration="700" data-direction="up" data-trigger="0.15">
+       <span>05</span><span class=" serif" style="color: rgb(16, 22, 19); font-weight: 400; font-style: normal; font-size: 25px;">Share</span>
+      </div>
+      <div class="reveal rounded-2xl bg-[#bcaac0] text-[#101613] p-6 min-h-40 flex flex-col justify-between" data-delay="550" data-duration="700" data-direction="up" data-trigger="0.15">
+       <span>06</span><span class=" serif" style="color: rgb(16, 22, 19); font-weight: 400; font-style: normal; font-size: 25px;">Repeat</span>
+      </div>
+     </div>
+    </div>
+   </section>
+</div></div>
+<script>
+(() => {
+const clamp = (n,min=0,max=1) => Math.min(max,Math.max(min,n));
+const setting = (el,key,fallback) => Number.isFinite(Number(el.dataset[key])) ? Number(el.dataset[key]) : fallback;
+const observed = document.querySelectorAll('.reveal,.mask-text');
+observed.forEach(el => {
+      el.style.setProperty('--duration',`${Math.max(0,setting(el,'duration',800))}ms`);
+      el.style.setProperty('--delay',`${Math.max(0,setting(el,'delay',0))}ms`);
+      if (el.dataset.easing) el.style.setProperty('--ease',el.dataset.easing);
+      // Per-element observer gives each reusable preview its own viewport threshold.
+      new IntersectionObserver((entries, ownObserver) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            el.classList.add('is-visible');
+            if (el.dataset.repeat !== 'true') ownObserver.unobserve(el);
+          } else if(el.dataset.repeat === 'true') el.classList.remove('is-visible');
+        });
+      }, {threshold:clamp(setting(el,'trigger',.15))}).observe(el);
+    });
+})();
+</script>

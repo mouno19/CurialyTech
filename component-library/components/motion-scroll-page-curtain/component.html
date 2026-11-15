@@ -1,0 +1,35 @@
+<!-- Page curtain · motion-scroll-page-curtain: from the Motion: Scroll motion patterns (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/motion-scroll.css, and an ancestor with class="cx-motion-scroll". -->
+<div class="cx-motion-scroll"><div class="w-full">
+<section id="curtain" class="demo-section">
+    <div class="max-w-7xl mx-auto px-5 md:px-10 grid lg:grid-cols-[310px_1fr] gap-8 lg:gap-16">
+     <div>
+      <p class="eyebrow">07 / Transition</p>
+      <h2 class=" serif mt-4 mb-4" style="color: rgb(241, 238, 228); font-weight: 400; font-style: normal; font-size: 24px;">Page curtain</h2>
+      <p class=" leading-relaxed" style="color: rgb(174, 184, 170); font-weight: 400; font-style: normal; font-size: 16px;">A bold sweep resets the scene without navigating away or taking over the page.</p><button id="curtain-button" type="button" class=" action mt-7" style="background: rgb(213, 243, 106); color: rgb(16, 22, 19); font-weight: 700; font-style: normal; font-size: 16px;">Replay curtain ↗</button>
+      <p class="setting mt-5">Change data-duration on the preview for curtain timing.</p>
+     </div>
+     <div id="curtain-preview" data-duration="1250" class=" demo-panel flex items-center justify-center p-8" style="background: rgb(28, 37, 32);">
+      <div class="text-center">
+       <span class="preview-label">A NEW POINT OF VIEW</span>
+       <h3 class=" serif mt-5" style="color: rgb(241, 238, 228); font-weight: 400; font-style: normal; font-size: 39px;">And now, a new perspective.</h3>
+      </div>
+      <div id="curtain-layer" class="curtain"></div>
+     </div>
+    </div>
+   </section>
+</div></div>
+<script>
+(() => {
+const setting = (el,key,fallback) => Number.isFinite(Number(el.dataset[key])) ? Number(el.dataset[key]) : fallback;
+const curtain=document.getElementById('curtain-layer');
+const curtainButton=document.getElementById('curtain-button');
+curtainButton.addEventListener('click',()=>{
+      curtain.classList.remove('play');
+      void curtain.offsetWidth;
+      curtain.style.animationDuration=`${Math.max(200,setting(document.getElementById('curtain-preview'),'duration',1250))}ms`;
+      curtain.classList.add('play');
+    });
+curtain.addEventListener('animationend',()=>curtain.classList.remove('play'));
+})();
+</script>

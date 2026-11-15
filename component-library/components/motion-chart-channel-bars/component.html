@@ -1,0 +1,34 @@
+<!-- Channel comparison bars · motion-chart-channel-bars: from the Motion: Animated data visualizations (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/motion-charts.css, and an ancestor with class="cx-motion-charts". -->
+<div class="cx-motion-charts"><div class="app-shell">
+<article class=" chart-card" style="background: rgb(25, 37, 34);">
+      <div class="card-top"><span class="chart-number">02</span>
+       <div>
+        <h2 style="color: rgb(240, 243, 233); font-weight: 700; font-style: normal; font-size: 21px;">Channel comparison</h2>
+        <p class=" card-desc" style="color: rgb(165, 184, 174); font-weight: 400; font-style: normal; font-size: 14px;">Category totals with staggered growth.</p>
+       </div>
+      </div>
+      <svg id="bar" class="viz" role="img" aria-label="Channel comparison bar chart"></svg>
+     </article>
+</div></div>
+<script>
+(() => {
+const NS='http://www.w3.org/2000/svg';
+const samples={
+    saas:{label:'SaaS growth',series:[28,35,32,48,55,53,72,86],categories:[46,78,61,91,55],segments:[45,27,18,10],radial:[86,72,64,91],kpi:78,heat:Array.from({length:42},(_,i)=>((i*17+Math.floor(i/7)*11)%91)+9),pulse:[40,49,44,58,52,65,58,73,68,76,72,83],funnel:[12000,7200,3100,980]},
+    finance:{label:'Financial outlook',series:[42,38,47,45,59,68,64,79],categories:[83,62,75,48,67],segments:[38,31,20,11],radial:[74,89,68,82],kpi:84,heat:Array.from({length:42},(_,i)=>((i*23+Math.floor(i/7)*7)%88)+12),pulse:[55,50,62,57,65,59,72,69,79,74,77,85],funnel:[18600,10400,4700,1650]},
+    ai:{label:'AI platform',series:[18,22,37,42,57,66,81,94],categories:[72,88,56,79,63],segments:[51,25,16,8],radial:[93,78,85,69],kpi:91,heat:Array.from({length:42},(_,i)=>((i*31+Math.floor(i/7)*13)%90)+10),pulse:[25,39,35,51,48,64,59,75,72,81,79,92],funnel:[24000,13200,5900,2200]}
+  };
+const colors=['#a5efca','#ff9b82','#f2d486','#82b3db','#bba9e8'];
+const channels=['Direct','Search','Social','Partner','Email'];
+const state={data:structuredClone(samples.saas),selected:null,live:null};
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+function svg(id){const el=document.getElementById(id),w=Math.max(300,Math.round(el.getBoundingClientRect().width)),h=Math.round(el.getBoundingClientRect().height)||230;el.setAttribute('viewBox',`0 0 ${w} ${h}`);el.replaceChildren();return {el,w,h}}
+function node(tag,attrs={},parent){const e=document.createElementNS(NS,tag);for(const [k,v] of Object.entries(attrs))e.setAttribute(k,String(v));if(parent)parent.appendChild(e);return e}
+function txt(p,x,y,text,extra={}){const e=node('text',{x,y,...extra},p);e.textContent=text;return e}
+function tip(el,text){node('title',{},el).textContent=text}
+function animate(el,attrs,duration=850,delay=0){if(reduce){Object.entries(attrs).forEach(([k,v])=>el.setAttribute(k,v));return}setTimeout(()=>{el.style.transition=`all ${duration}ms cubic-bezier(.22,.8,.22,1)`;requestAnimationFrame(()=>Object.entries(attrs).forEach(([k,v])=>el.setAttribute(k,v)))},delay)}
+function barChart(){const {el,w,h}=svg('bar'),d=state.data.categories,base=h-33,plot=h-55;[0,50,100].forEach(v=>{const y=base-v/100*plot;node('line',{x1:28,y1:y,x2:w-8,y2:y,class:'grid-line'},el);txt(el,0,y+3,String(v))});const slot=(w-38)/d.length;d.forEach((v,i)=>{const bw=Math.min(48,slot*.55),x=30+slot*i+(slot-bw)/2,height=v/100*plot;const r=node('rect',{x,y:base,width:bw,height:0,rx:5,fill:colors[i]},el);tip(r,`${channels[i]}: ${v}k`);animate(r,{y:base-height,height},750,i*100);txt(el,30+slot*(i+.5),h-10,channels[i],{'text-anchor':'middle'})})}
+barChart();
+})();
+</script>

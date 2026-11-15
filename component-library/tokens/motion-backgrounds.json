@@ -1,0 +1,41 @@
+{
+  "id": "motion-backgrounds",
+  "name": "Animated backgrounds (dark)",
+  "mode": "dark",
+  "source": "motion-components/04_animated_background_effects.html",
+  "colors": {
+    "background": "#101b21",
+    "surface": "#1b2a31",
+    "surface2": "#263c42",
+    "border": "#304049",
+    "text": "#eaf1f1",
+    "muted": "#9aa9b1",
+    "accent": "#b9eddb",
+    "positive": "#b9eddb",
+    "negative": "#ff785f",
+    "warning": "#ffb66b",
+    "series1": "#36c9ae",
+    "series2": "#73dce5",
+    "series3": "#c9f8d4",
+    "series4": "#9165e6",
+    "series5": "#ff785f",
+    "series6": "#eda745"
+  },
+  "fonts": {
+    "sans": "\"DM Sans\", system-ui, sans-serif",
+    "display": "\"Fraunces\", Georgia, serif",
+    "mono": "\"Space Mono\", ui-monospace, monospace"
+  },
+  "radius": {
+    "card": "22px",
+    "control": "12px"
+  },
+  "spacing": "20px",
+  "motion": {
+    "ease": "cubic-bezier(0.22, 1, 0.36, 1)",
+    "fast": "150ms",
+    "base": "300ms",
+    "reveal": "800ms",
+    "stagger": "80ms"
+  }
+}

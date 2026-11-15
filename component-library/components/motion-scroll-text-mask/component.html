@@ -1,0 +1,42 @@
+<!-- Text mask reveal · motion-scroll-text-mask: from the Motion: Scroll motion patterns (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/motion-scroll.css, and an ancestor with class="cx-motion-scroll". -->
+<div class="cx-motion-scroll"><div class="w-full">
+<section id="mask" class="demo-section">
+    <div class="max-w-7xl mx-auto px-5 md:px-10 grid lg:grid-cols-[310px_1fr] gap-8 lg:gap-16">
+     <div>
+      <p class="eyebrow">06 / Typography</p>
+      <h2 class=" serif mt-4 mb-4" style="color: rgb(241, 238, 228); font-weight: 400; font-style: normal; font-size: 24px;">Text mask reveal</h2>
+      <p class=" leading-relaxed" style="color: rgb(174, 184, 170); font-weight: 400; font-style: normal; font-size: 16px;">Words unfold from behind an invisible edge, one line at a time.</p>
+      <p class="setting mt-6">Set duration, delay, easing and viewport trigger on the masked line.</p>
+     </div>
+     <div class=" demo-panel flex items-center p-8 md:p-14" style="background: rgb(28, 37, 32);">
+      <div class="w-full">
+       <span class="preview-label">WORDS IN MOTION</span>
+       <h3 class=" mask-text serif mt-6 leading-tight" data-duration="1200" data-delay="100" data-easing="cubic-bezier(.65,0,.15,1)" data-trigger="0.3" style="color: rgb(241, 238, 228); font-weight: 400; font-style: normal; font-size: 43px;">Some words deserve a little suspense.</h3>
+       <div class="h-px bg-[#d5f36a] mt-8"></div>
+      </div>
+     </div>
+    </div>
+   </section>
+</div></div>
+<script>
+(() => {
+const clamp = (n,min=0,max=1) => Math.min(max,Math.max(min,n));
+const setting = (el,key,fallback) => Number.isFinite(Number(el.dataset[key])) ? Number(el.dataset[key]) : fallback;
+const observed = document.querySelectorAll('.reveal,.mask-text');
+observed.forEach(el => {
+      el.style.setProperty('--duration',`${Math.max(0,setting(el,'duration',800))}ms`);
+      el.style.setProperty('--delay',`${Math.max(0,setting(el,'delay',0))}ms`);
+      if (el.dataset.easing) el.style.setProperty('--ease',el.dataset.easing);
+      // Per-element observer gives each reusable preview its own viewport threshold.
+      new IntersectionObserver((entries, ownObserver) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            el.classList.add('is-visible');
+            if (el.dataset.repeat !== 'true') ownObserver.unobserve(el);
+          } else if(el.dataset.repeat === 'true') el.classList.remove('is-visible');
+        });
+      }, {threshold:clamp(setting(el,'trigger',.15))}).observe(el);
+    });
+})();
+</script>

@@ -1,0 +1,42 @@
+<!-- Liquid tab indicator · motion-nav-liquid-indicator: from the Motion: Animated navigation (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/motion-navigation.css, and an ancestor with class="cx-motion-navigation". -->
+<div class="cx-motion-navigation"><div class="w-full">
+<article id="component-2" class="showcase-card">
+      <div class="card-heading">
+       <p class="eyebrow mb-2">02 / MOTION</p>
+       <h2 style="color: rgb(23, 33, 36); font-weight: 600; font-style: normal; font-size: 24px;">Liquid Indicator</h2>
+       <p style="color: rgb(103, 112, 115); font-weight: 400; font-style: normal; font-size: 16px;">A fluid highlight follows the selected destination.</p>
+      </div>
+      <div class="preview liquid-preview">
+       <p id="liquid-state" class="state-label" aria-live="polite">DISCOVER / Featured destinations</p>
+       <nav id="liquid-nav" class="liquid-bar" aria-label="Liquid navigation">
+        <span class="liquid-pill" aria-hidden="true"></span><button type="button" class="active" aria-current="page" data-view="Discover">Discover</button><button type="button" data-view="Projects">Projects</button><button type="button" data-view="Studio">Studio</button><button type="button" data-view="Journal">Journal</button>
+       </nav>
+      </div>
+     </article>
+</div></div>
+<script>
+(() => {
+const $ = (selector, root=document) => root.querySelector(selector);
+const $$ = (selector, root=document) => [...root.querySelectorAll(selector)];
+function positionPill() {
+      const nav = $('#liquid-nav'), active = $('.active', nav), pill = $('.liquid-pill', nav);
+      pill.style.left = active.offsetLeft + 'px';
+      pill.style.width = active.offsetWidth + 'px';
+    }
+function selectButton(button, parent) {
+      $$('button[data-view]', parent).forEach(item => {
+        item.classList.toggle('active', item === button);
+        if (item === button) item.setAttribute('aria-current','page');
+        else item.removeAttribute('aria-current');
+      });
+    }
+$('#liquid-nav').addEventListener('click', event => {
+      const button = event.target.closest('button[data-view]');
+      if (!button) return;
+      selectButton(button, $('#liquid-nav'));
+      $('#liquid-state').textContent = button.dataset.view.toUpperCase() + ' / Selected destination';
+      positionPill();
+    });
+})();
+</script>

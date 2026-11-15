@@ -1,0 +1,76 @@
+{
+  "id": "motion-type-gradient-flow",
+  "name": "Gradient text flow",
+  "description": "Gradient text flow: a gradient flows through the letters. From the Kinetic typography suite: re-skin it to the design's tokens and timing (--cx-ease, --cx-duration-*), keep its reduced-motion end state, and mix it with other pieces, never the whole suite.",
+  "category": "motion",
+  "batch": "motion-type",
+  "collection": "Motion: Kinetic typography",
+  "kind": "component",
+  "role": "header",
+  "tags": [
+    "motion",
+    "animation",
+    "type",
+    "css-animation",
+    "gradient-text",
+    "gradient-flow",
+    "flowing-gradient",
+    "flow",
+    "sankey",
+    "conversion",
+    "text-analytics",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "animated"
+  ],
+  "dependencies": [
+    {
+      "type": "stylesheet",
+      "id": "motion-type"
+    },
+    {
+      "type": "tokens",
+      "id": "motion-type"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "header",
+    "span": "full"
+  },
+  "style": {
+    "tokens": "motion-type",
+    "mode": "dark",
+    "colors": {}
+  },
+  "source": {
+    "file": "motion-components/02_kinetic_typography_collection.html",
+    "ref": "article data-template-id=\"card-04\" #0"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "f7058ec6c0f58ace",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

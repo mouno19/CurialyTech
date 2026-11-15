@@ -1,0 +1,41 @@
+{
+  "id": "motion-canvas",
+  "name": "Canvas studies (dark)",
+  "mode": "dark",
+  "source": "motion-components/01_creative_canvas_experiments.html",
+  "colors": {
+    "background": "#101713",
+    "surface": "#1d231f",
+    "surface2": "#202924",
+    "border": "#384138",
+    "text": "#e9eae3",
+    "muted": "#aaafa4",
+    "accent": "#c6f36b",
+    "positive": "#c6f36b",
+    "negative": "#ff8a76",
+    "warning": "#f2d486",
+    "series1": "#c6f36b",
+    "series2": "#71866b",
+    "series3": "#e9eae3",
+    "series4": "#aaafa4",
+    "series5": "#384138",
+    "series6": "#f2d486"
+  },
+  "fonts": {
+    "sans": "\"DM Sans\", system-ui, sans-serif",
+    "display": "\"Fraunces\", Georgia, serif",
+    "mono": "\"Space Mono\", ui-monospace, monospace"
+  },
+  "radius": {
+    "card": "22px",
+    "control": "12px"
+  },
+  "spacing": "20px",
+  "motion": {
+    "ease": "cubic-bezier(0.22, 1, 0.36, 1)",
+    "fast": "150ms",
+    "base": "300ms",
+    "reveal": "800ms",
+    "stagger": "80ms"
+  }
+}

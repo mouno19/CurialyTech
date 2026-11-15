@@ -46,7 +46,7 @@ export function references(node, out = new Set()) {
  * what needs the dialog doesn't get the grid).
  */
 export function declarations(code, { split = false } = {}) {
-  const ast = parse(code, { sourceType: "script", plugins: ["jsx"], errorRecovery: false });
+  const ast = parse(code, { sourceType: "script", plugins: ["jsx"], errorRecovery: false, allowReturnOutsideFunction: true });
   const byName = new Map();
   for (const node of ast.program.body) {
     if (split && node.type === "VariableDeclaration" && node.declarations.length > 1) {
@@ -75,7 +75,7 @@ export function declarations(code, { split = false } = {}) {
  * The declarations `entries` need, in source order. Throws when one of them touches the page
  * (a DOM lookup at load time): such a renderer can't be lifted out on its own.
  */
-export function closure(byName, entries, { allowPage = false, skip = new Set() } = {}) {
+export function closure(byName, entries, { allowPage = false, skip = new Set(), asEntries = false } = {}) {
   const wanted = new Set();
   const queue = [...entries];
   while (queue.length) {
@@ -88,7 +88,8 @@ export function closure(byName, entries, { allowPage = false, skip = new Set() }
     for (const ref of declaration.refs) if (!wanted.has(ref)) queue.push(ref);
   }
   const statements = [...new Set([...wanted].map(name => byName.get(name)))].sort((a, b) => a.start - b.start);
-  return statements.map(statement => statement.text).join("\n");
+  // asEntries: the declarations themselves, for a caller that interleaves them with other statements in source order.
+  return asEntries ? statements : statements.map(statement => statement.text).join("\n");
 }
 
 /**

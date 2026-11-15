@@ -1,0 +1,83 @@
+{
+  "id": "motion-chart-activity-heatmap",
+  "name": "Activity heatmap",
+  "description": "Activity heatmap: cells fade in by intensity. From the Animated data visualizations suite: re-skin it to the design's tokens and timing (--cx-ease, --cx-duration-*), keep its reduced-motion end state, and mix it with other pieces, never the whole suite.",
+  "category": "data-visualization",
+  "batch": "motion-chart",
+  "collection": "Motion: Animated data visualizations",
+  "kind": "component",
+  "role": "chart",
+  "tags": [
+    "motion",
+    "animation",
+    "data",
+    "interactive",
+    "animated-heatmap",
+    "activity-heatmap",
+    "contribution-graph",
+    "heatmap",
+    "matrix",
+    "density",
+    "geospatial",
+    "map",
+    "location",
+    "events",
+    "monitoring",
+    "operations",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "animated",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "stylesheet",
+      "id": "motion-charts"
+    },
+    {
+      "type": "tokens",
+      "id": "motion-charts"
+    }
+  ],
+  "compatible_tools": [
+    "data-analytics",
+    "dashboard-builder",
+    "web-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "chart",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "motion-charts",
+    "mode": "dark",
+    "colors": {}
+  },
+  "source": {
+    "file": "motion-components/05_animated_data_visualizations.html",
+    "ref": "article data-template-id=\"heat-card\" #0"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "fe3c47341f7499ad",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

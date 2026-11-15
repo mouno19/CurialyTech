@@ -1,0 +1,37 @@
+<!-- Liquid KPI · motion-chart-liquid-kpi: from the Motion: Animated data visualizations (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/motion-charts.css, and an ancestor with class="cx-motion-charts". -->
+<div class="cx-motion-charts"><div class="app-shell">
+<article class=" chart-card" style="background: rgb(25, 37, 34);">
+      <div class="card-top"><span class="chart-number">04</span>
+       <div>
+        <h2 style="color: rgb(240, 243, 233); font-weight: 700; font-style: normal; font-size: 21px;">Liquid KPI</h2>
+        <p class=" card-desc" style="color: rgb(165, 184, 174); font-weight: 400; font-style: normal; font-size: 14px;">A rising indicator for goal attainment.</p>
+       </div>
+      </div>
+      <div class="kpi-main">
+       <div class="kpi-orb" role="img" aria-label="Goal attainment">
+        <div id="liquid" class="liquid"></div>
+        <div id="kpi-number" class="kpi-number" aria-live="polite">
+         0%
+        </div>
+       </div>
+       <div class="kpi-side"><strong style="color: rgb(240, 243, 233); font-weight: 700; font-style: normal; font-size: 14px;">Goal progress</strong>
+        <p style="color: rgb(165, 184, 174); font-weight: 400; font-style: normal; font-size: 14px;">Measured against the current quarter’s target.</p>
+       </div>
+      </div>
+     </article>
+</div></div>
+<script>
+(() => {
+const samples={
+    saas:{label:'SaaS growth',series:[28,35,32,48,55,53,72,86],categories:[46,78,61,91,55],segments:[45,27,18,10],radial:[86,72,64,91],kpi:78,heat:Array.from({length:42},(_,i)=>((i*17+Math.floor(i/7)*11)%91)+9),pulse:[40,49,44,58,52,65,58,73,68,76,72,83],funnel:[12000,7200,3100,980]},
+    finance:{label:'Financial outlook',series:[42,38,47,45,59,68,64,79],categories:[83,62,75,48,67],segments:[38,31,20,11],radial:[74,89,68,82],kpi:84,heat:Array.from({length:42},(_,i)=>((i*23+Math.floor(i/7)*7)%88)+12),pulse:[55,50,62,57,65,59,72,69,79,74,77,85],funnel:[18600,10400,4700,1650]},
+    ai:{label:'AI platform',series:[18,22,37,42,57,66,81,94],categories:[72,88,56,79,63],segments:[51,25,16,8],radial:[93,78,85,69],kpi:91,heat:Array.from({length:42},(_,i)=>((i*31+Math.floor(i/7)*13)%90)+10),pulse:[25,39,35,51,48,64,59,75,72,81,79,92],funnel:[24000,13200,5900,2200]}
+  };
+const state={data:structuredClone(samples.saas),selected:null,live:null};
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+let kpiFrame;
+function kpiChart(){const target=state.data.kpi;document.getElementById('liquid').style.height=`${target}%`;const out=document.getElementById('kpi-number');out.parentElement.setAttribute('aria-label',`Goal attainment: ${target}%`);cancelAnimationFrame(kpiFrame);let start=null;const from=parseInt(out.textContent,10)||0;function step(t){if(start===null)start=t;const p=reduce?1:Math.min((t-start)/1050,1),ease=1-(1-p)**3;out.textContent=`${Math.round(from+(target-from)*ease)}%`;if(p<1)kpiFrame=requestAnimationFrame(step)}kpiFrame=requestAnimationFrame(step)}
+kpiChart();
+})();
+</script>

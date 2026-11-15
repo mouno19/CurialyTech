@@ -1,5 +1,7 @@
 import { ARCHETYPES, ENTERTAINMENT_WORDS, type Archetype, type GrantedLook } from "./knowledge/archetypes";
 import { contrast } from "./audit";
+import { MOTION_FAMILIES, MOTION_PIECES, MOTION_TIMING, type MotionPiece, type MotionSlot } from "./knowledge/motion";
+import type { MotionLevel, Need, Surface } from "./types";
 
 // Style synthesis: when a request is anime or entertainment work, or its subject fits one of the
 // style archetypes (a luxury brand, a developer terminal, a cozy cafe), the design is a mixture:
@@ -25,7 +27,9 @@ const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 function said(text: string, phrase: string) {
   const pattern = new RegExp(`(?:^|[^a-z0-9-])${escape(phrase)}(?:s|es|'s)?(?![a-z0-9])`, "g");
   for (const match of text.matchAll(pattern)) {
-    const before = text.slice(Math.max(0, (match.index ?? 0) - 24), match.index);
+    // Up to where the phrase starts (the separator before it belongs to the clause: "no 3d").
+    const at = (match.index ?? 0) + match[0].indexOf(phrase);
+    const before = text.slice(Math.max(0, at - 24), at);
     if (!/(?:^|[^a-z])(?:no|not|without|avoid|never|instead of|rather than)\s+(?:[a-z-]+\s+){0,2}$/.test(before)) return true;
   }
   return false;
@@ -195,3 +199,119 @@ export function renderSynthesis(synthesis: Synthesis) {
 
 /** Every archetype in one line (for docs and the agent's general knowledge). */
 export const archetypeSummary = () => ARCHETYPES.map(archetype => `${archetype.name}: ${archetype.style}; ${archetype.fonts.display} + ${archetype.fonts.text}; fits ${archetype.fits.slice(0, 4).join(", ")}`);
+
+// ---- Motion mixture ----
+// When a request asks for motion (by name, or by asking for an animated or interactive site), a few
+// pieces of the motion library by job: what it names, else defaults that suit the kind of site,
+// varied by the request. One continuously running piece at most; studies made for show only by
+// name; all on the design's tokens and the shared timing (--cx-ease, --cx-duration-*).
+
+export type MotionMixture = {
+  picks: { slot: MotionSlot; piece: MotionPiece; named: boolean }[];
+  /** The token set the pieces go on: the style synthesis's base, else the first pick's family. */
+  theme: string;
+  grants: GrantedLook[];
+  reason: string;
+};
+
+const MOTION_ASK = ["animated", "animation", "animations", "animate", "motion", "interactive", "micro-interaction", "micro-interactions", "microinteraction", "kinetic", "scroll effects", "scroll animations", "transitions", "delightful", "playful interactions", "immersive", "wow"];
+const SLOT_LIMIT: Partial<Record<MotionSlot, number>> = { scroll: 2, data: 3 };
+const SLOT_ORDER: MotionSlot[] = ["hero", "type", "scroll", "surface", "control", "navigation", "feedback", "data", "ambient"];
+/** Defaults by kind of site, a few options per slot (the request's text picks one). */
+const MOTION_DEFAULTS: Partial<Record<Surface, Partial<Record<MotionSlot, string[]>>>> = {
+  landing: { type: ["motion-type-split-reveal", "motion-type-rotating-3d"], scroll: ["motion-scroll-reveal", "motion-scroll-staggered-grid", "motion-scroll-sticky-story"], surface: ["motion-card-tilt", "motion-card-spotlight", "motion-card-border-glow"], control: ["motion-button-magnetic", "motion-button-border-trace", "motion-button-ripple"], navigation: ["motion-nav-scroll-aware"] },
+  showcase: { hero: ["motion-3d-product-showcase", "motion-3d-sphere"], scroll: ["motion-scroll-pin-zoom", "motion-scroll-sticky-story", "motion-scroll-horizontal-story"], surface: ["motion-card-tilt", "motion-card-parallax"], control: ["motion-button-magnetic", "motion-button-3d-press"] },
+  portfolio: { type: ["motion-type-split-reveal", "motion-type-variable-weight"], scroll: ["motion-scroll-text-mask", "motion-scroll-pin-zoom", "motion-scroll-horizontal-story"], surface: ["motion-card-image-reveal", "motion-card-spotlight", "motion-card-tilt"], control: ["motion-button-border-trace", "motion-button-magnetic"], navigation: ["motion-nav-fullscreen-overlay", "motion-nav-morphing-hamburger"] },
+  editorial: { type: ["motion-type-split-reveal"], scroll: ["motion-scroll-progress", "motion-scroll-sticky-story", "motion-scroll-text-mask"], navigation: ["motion-nav-vertical-timeline", "motion-nav-scroll-aware"] },
+  storefront: { scroll: ["motion-scroll-staggered-grid", "motion-scroll-reveal"], surface: ["motion-card-image-reveal", "motion-card-flip", "motion-card-tilt"], control: ["motion-button-ripple", "motion-button-particle-burst", "motion-button-3d-press"], feedback: ["motion-loader-skeleton"] },
+  dashboard: { data: ["motion-chart-momentum-line", "motion-chart-radial-indicators"], feedback: ["motion-loader-skeleton", "motion-loader-progress-ring"], navigation: ["motion-nav-liquid-indicator"], control: ["motion-button-morphing-toggle"] },
+  app: { feedback: ["motion-loader-skeleton", "motion-loader-ai-thinking", "motion-loader-multi-stage"], navigation: ["motion-nav-liquid-indicator", "motion-nav-floating-dock"], control: ["motion-button-morphing-toggle", "motion-button-ripple"], surface: ["motion-card-expandable", "motion-card-stacked"] },
+  docs: { scroll: ["motion-scroll-progress"], navigation: ["motion-nav-vertical-timeline"] },
+  media: { hero: ["motion-bg-starfield", "motion-bg-particle-field", "motion-bg-waveform"], type: ["motion-type-kinetic-headline", "motion-type-split-reveal"], scroll: ["motion-scroll-staggered-grid", "motion-scroll-horizontal-story"], surface: ["motion-3d-card-carousel", "motion-card-tilt"], control: ["motion-button-magnetic", "motion-button-3d-press"], feedback: ["motion-loader-skeleton"] },
+  game: { hero: ["motion-canvas-particle-burst", "motion-bg-starfield"], type: ["motion-type-glitch", "motion-type-text-scramble"], control: ["motion-button-3d-press", "motion-button-particle-burst"], feedback: ["motion-loader-segments", "motion-loader-orbit"] },
+  general: { scroll: ["motion-scroll-reveal", "motion-scroll-staggered-grid"], surface: ["motion-card-tilt", "motion-card-spotlight"], control: ["motion-button-magnetic", "motion-button-ripple"] },
+};
+/** A hero moment by default only for expressive requests on these kinds of site (none built on a look that needs asking for). */
+const HERO_DEFAULTS = ["motion-bg-particle-field", "motion-bg-waveform", "motion-3d-sphere", "motion-bg-geometric-grid", "motion-bg-starfield"];
+/** Style words a "no …" rules out wherever they appear in a piece ("no 3d" rules out the 3D tilt card). */
+const REFUSABLE = ["3d", "parallax", "particle", "glass", "neon", "glitch", "canvas", "gradient", "blob", "aurora", "starfield", "matrix", "cursor", "magnetic", "tilt", "typewriter", "confetti", "orbit", "liquid", "carousel"];
+
+/** Mentioned, but only inside a "no …" clause. */
+const refusedIn = (text: string, phrase: string) => text.includes(phrase) && !said(text, phrase);
+
+export function motionMixture(input: { text: string; ui: boolean; surface: Surface; motion: MotionLevel; needs: Need[]; avoid?: string[]; synthesis?: Synthesis | null }): MotionMixture | null {
+  if (!input.ui) return null;
+  const text = input.text.toLowerCase();
+  // Asked to keep it still: no mixture at all.
+  if (["animation", "animations", "motion", "animated"].some(word => refusedIn(text, word)) || /\b(static|no motion|without motion|reduced motion only)\b/.test(text)) return null;
+  const refusedWords = REFUSABLE.filter(word => refusedIn(text, word));
+  const refused = (piece: MotionPiece) => piece.signals.some(signal => refusedIn(text, signal))
+    || refusedWords.some(word => [piece.name, piece.family, ...piece.signals].some(value => value.toLowerCase().includes(word)))
+    || (input.avoid ?? []).some(word => piece.signals.includes(word) || piece.name.toLowerCase().includes(word));
+  // What the request names, longest phrase first; a phrase inside a longer one already matched ("scroll progress ring") is that one's.
+  const claimed: [number, number][] = [];
+  const spans = (signal: string) => [...text.matchAll(new RegExp(`(?:^|[^a-z0-9-])(${escape(signal)})(?:s|es)?(?![a-z0-9])`, "g"))].map(match => [match.index! + match[0].indexOf(match[1]), match.index! + match[0].indexOf(match[1]) + signal.length] as [number, number]);
+  const named = MOTION_PIECES.filter(piece => !refused(piece) && piece.signals.some(signal => said(text, signal)))
+    .map(piece => ({ piece, signals: piece.signals.filter(signal => said(text, signal)).sort((a, b) => b.length - a.length) }))
+    .sort((a, b) => b.signals[0].length - a.signals[0].length || MOTION_PIECES.indexOf(a.piece) - MOTION_PIECES.indexOf(b.piece))
+    .filter(({ signals }) => {
+      const own = signals.flatMap(spans).filter(([start, end]) => !claimed.some(([from, to]) => start < to && end > from));
+      if (!own.length) return false;
+      claimed.push(...own);
+      return true;
+    });
+  const asked = input.motion === "expressive" || MOTION_ASK.some(word => said(text, word));
+  if (!named.length && !asked) return null;
+  const picks: MotionMixture["picks"] = [];
+  // What the user names may take two of a slot (two backgrounds for two sections); a default never adds a second loop.
+  const room = (slot: MotionSlot, isNamed: boolean) => picks.filter(pick => pick.slot === slot).length < (SLOT_LIMIT[slot] ?? 1) + (isNamed ? 1 : 0);
+  const add = (piece: MotionPiece, isNamed: boolean) => {
+    if (picks.some(pick => pick.piece.id === piece.id) || !room(piece.slot, isNamed) || (!isNamed && piece.cost === "loop" && picks.some(pick => pick.piece.cost === "loop"))) return;
+    picks.push({ slot: piece.slot, piece, named: isNamed });
+  };
+  for (const { piece } of named) add(piece, true);
+  // A request that asks for motion in general gets the defaults that suit its kind of site, one per open slot.
+  if (asked) {
+    const defaults = MOTION_DEFAULTS[input.surface] ?? MOTION_DEFAULTS.general!;
+    const pool = (ids: string[]) => ids.map(id => MOTION_PIECES.find(piece => piece.id === id)!).filter(piece => piece && !refused(piece));
+    for (const slot of SLOT_ORDER) {
+      const options = pool(defaults[slot] ?? []);
+      if (options.length && !picks.some(pick => pick.slot === slot)) add(options[stableIndex(`${text}:${slot}`, options.length)], false);
+    }
+    // A continuously running hero only when nothing was named, or the request talks about its hero or background.
+    const heroWanted = !named.length || ["hero", "background", "backdrop"].some(word => said(text, word));
+    if (heroWanted && !picks.some(pick => pick.slot === "hero") && input.motion === "expressive" && (input.needs.includes("immersive") || ["landing", "showcase", "media", "general"].includes(input.surface))) {
+      const heroes = pool(HERO_DEFAULTS);
+      if (heroes.length) add(heroes[stableIndex(`${text}:hero`, heroes.length)], false);
+    }
+  }
+  if (!picks.length) return null;
+  picks.sort((a, b) => SLOT_ORDER.indexOf(a.slot) - SLOT_ORDER.indexOf(b.slot));
+  const chosen = picks.slice(0, 7);
+  const first = MOTION_FAMILIES.find(family => family.id === chosen[0].piece.family)!;
+  return {
+    picks: chosen,
+    theme: input.synthesis?.primary.id ?? first.tokens,
+    // Only what the user named makes its look deliberate (a default never lifts a warning).
+    grants: [...new Set(chosen.filter(pick => pick.named).flatMap(pick => pick.piece.looks ?? []))].sort() as GrantedLook[],
+    reason: named.length ? "the request names these" : "the request asks for motion",
+  };
+}
+
+/** The mixture as the brief's section: the pieces by job, the shared timing, the budget and the rules. */
+export function renderMotionMixture(mixture: MotionMixture) {
+  const loops = mixture.picks.filter(pick => pick.piece.cost === "loop");
+  return [
+    `## Motion mixture (${mixture.reason})`,
+    "Mix pieces of the motion library by job; never reproduce a suite or the scroll mock. Rebuild each in the design's own language.",
+    `- Pieces: ${mixture.picks.map(pick => `${pick.slot}: ${pick.piece.name} (${pick.piece.how}; component ${pick.piece.id}${pick.piece.react ? `, React: ${pick.piece.id}-react` : ""})`).join("; ")}.`,
+    `- Timing from the tokens for every piece: --cx-ease ${MOTION_TIMING.ease}, --cx-duration-fast ${MOTION_TIMING.fast}, --cx-duration-base ${MOTION_TIMING.base}, --cx-duration-reveal ${MOTION_TIMING.reveal}, --cx-stagger ${MOTION_TIMING.stagger}; colours by role from the design's tokens, never a suite's own palette or font.`,
+    loops.length > 1
+      ? `- Budget: ${loops.map(pick => pick.piece.name).join(" and ")} run continuously: never on screen together (separate sections), each paused off-screen and when the tab is hidden, each with a pause control. Everything else runs on events, scroll or CSS.`
+      : loops.length
+        ? `- Budget: ${loops[0].piece.name} is the one continuously running piece; it pauses off-screen and when the tab is hidden, and gets a pause control. Everything else runs on events, scroll or CSS.`
+        : "- Budget: nothing runs continuously; everything runs on events, scroll or CSS.",
+    "- Reduced motion (prefers-reduced-motion: reduce): every piece has an end state: reveals show their content, loops stop on a still frame, pointer effects stay put, pinned and horizontal sections stack.",
+    `- With the component library: add_components with ${mixture.picks.map(pick => pick.piece.id).join(", ")} and theme ${mixture.theme} re-skins them to one token set (find_components finds other pieces).`,
+  ].join("\n");
+}

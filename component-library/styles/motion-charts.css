@@ -1,0 +1,196 @@
+/* Motion: Animated data visualizations: the family's styles, scoped to .cx-motion-charts (put the blocks inside an element with that class). */
+.cx-motion-charts, .cx-motion-charts :host {
+    --font-sans: ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
+    'Noto Color Emoji';
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
+    --default-font-family: var(--font-sans);
+    --default-mono-font-family: var(--font-mono);
+  }
+.cx-motion-charts *, .cx-motion-charts, .cx-motion-charts ::after, .cx-motion-charts ::before, .cx-motion-charts ::backdrop, .cx-motion-charts ::file-selector-button {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    border: 0 solid;
+  }
+.cx-motion-charts, .cx-motion-charts :host {
+    line-height: 1.5;
+    -webkit-text-size-adjust: 100%;
+    tab-size: 4;
+    font-family: var(--default-font-family, ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji');
+    font-feature-settings: var(--default-font-feature-settings, normal);
+    font-variation-settings: var(--default-font-variation-settings, normal);
+    -webkit-tap-highlight-color: transparent;
+  }
+.cx-motion-charts hr {
+    height: 0;
+    color: inherit;
+    border-top-width: 1px;
+  }
+.cx-motion-charts abbr:where([title]) {
+    -webkit-text-decoration: underline dotted;
+    text-decoration: underline dotted;
+  }
+.cx-motion-charts h1, .cx-motion-charts h2, .cx-motion-charts h3, .cx-motion-charts h4, .cx-motion-charts h5, .cx-motion-charts h6 {
+    font-size: inherit;
+    font-weight: inherit;
+  }
+.cx-motion-charts a {
+    color: inherit;
+    -webkit-text-decoration: inherit;
+    text-decoration: inherit;
+  }
+.cx-motion-charts b, .cx-motion-charts strong {
+    font-weight: bolder;
+  }
+.cx-motion-charts code, .cx-motion-charts kbd, .cx-motion-charts samp, .cx-motion-charts pre {
+    font-family: var(--default-mono-font-family, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace);
+    font-feature-settings: var(--default-mono-font-feature-settings, normal);
+    font-variation-settings: var(--default-mono-font-variation-settings, normal);
+    font-size: 1em;
+  }
+.cx-motion-charts small {
+    font-size: 80%;
+  }
+.cx-motion-charts sub, .cx-motion-charts sup {
+    font-size: 75%;
+    line-height: 0;
+    position: relative;
+    vertical-align: baseline;
+  }
+.cx-motion-charts sub {
+    bottom: -0.25em;
+  }
+.cx-motion-charts sup {
+    top: -0.5em;
+  }
+.cx-motion-charts table {
+    text-indent: 0;
+    border-color: inherit;
+    border-collapse: collapse;
+  }
+.cx-motion-charts :-moz-focusring {
+    outline: auto;
+  }
+.cx-motion-charts progress {
+    vertical-align: baseline;
+  }
+.cx-motion-charts summary {
+    display: list-item;
+  }
+.cx-motion-charts ol, .cx-motion-charts ul, .cx-motion-charts menu {
+    list-style: none;
+  }
+.cx-motion-charts img, .cx-motion-charts svg, .cx-motion-charts video, .cx-motion-charts canvas, .cx-motion-charts audio, .cx-motion-charts iframe, .cx-motion-charts embed, .cx-motion-charts object {
+    display: block;
+    vertical-align: middle;
+  }
+.cx-motion-charts img, .cx-motion-charts video {
+    max-width: 100%;
+    height: auto;
+  }
+.cx-motion-charts button, .cx-motion-charts input, .cx-motion-charts select, .cx-motion-charts optgroup, .cx-motion-charts textarea, .cx-motion-charts ::file-selector-button {
+    font: inherit;
+    font-feature-settings: inherit;
+    font-variation-settings: inherit;
+    letter-spacing: inherit;
+    color: inherit;
+    border-radius: 0;
+    background-color: transparent;
+    opacity: 1;
+  }
+.cx-motion-charts :where(select:is([multiple], [size])) optgroup {
+    font-weight: bolder;
+  }
+.cx-motion-charts :where(select:is([multiple], [size])) optgroup option {
+    padding-inline-start: 20px;
+  }
+.cx-motion-charts ::file-selector-button {
+    margin-inline-end: 4px;
+  }
+.cx-motion-charts ::placeholder {
+    opacity: 1;
+  }
+@supports (not (-webkit-appearance: -apple-pay-button))  or (contain-intrinsic-size: 1px) {
+    .cx-motion-charts ::placeholder {
+      color: currentcolor;
+      @supports (color: color-mix(in lab, red, red)) {
+        color: color-mix(in oklab, currentcolor 50%, transparent);
+      }
+    }
+  }
+.cx-motion-charts textarea {
+    resize: vertical;
+  }
+.cx-motion-charts ::-webkit-search-decoration {
+    -webkit-appearance: none;
+  }
+.cx-motion-charts ::-webkit-date-and-time-value {
+    min-height: 1lh;
+    text-align: inherit;
+  }
+.cx-motion-charts ::-webkit-datetime-edit {
+    display: inline-flex;
+  }
+.cx-motion-charts ::-webkit-datetime-edit-fields-wrapper {
+    padding: 0;
+  }
+.cx-motion-charts ::-webkit-datetime-edit, .cx-motion-charts ::-webkit-datetime-edit-year-field, .cx-motion-charts ::-webkit-datetime-edit-month-field, .cx-motion-charts ::-webkit-datetime-edit-day-field, .cx-motion-charts ::-webkit-datetime-edit-hour-field, .cx-motion-charts ::-webkit-datetime-edit-minute-field, .cx-motion-charts ::-webkit-datetime-edit-second-field, .cx-motion-charts ::-webkit-datetime-edit-millisecond-field, .cx-motion-charts ::-webkit-datetime-edit-meridiem-field {
+    padding-block: 0;
+  }
+.cx-motion-charts ::-webkit-calendar-picker-indicator {
+    line-height: 1;
+  }
+.cx-motion-charts :-moz-ui-invalid {
+    box-shadow: none;
+  }
+.cx-motion-charts button, .cx-motion-charts input:where([type='button'], [type='reset'], [type='submit']), .cx-motion-charts ::file-selector-button {
+    appearance: button;
+  }
+.cx-motion-charts ::-webkit-inner-spin-button, .cx-motion-charts ::-webkit-outer-spin-button {
+    height: auto;
+  }
+.cx-motion-charts [hidden]:where(:not([hidden='until-found'])) {
+    display: none !important;
+  }
+
+    .cx-motion-charts{--bg:#101917;--card:#192522;--ink:#f0f3e9;--muted:#a5b8ae;--line:#35433c;--mint:#a5efca;--coral:#ff9b82;--gold:#f2d486}
+    .cx-motion-charts *,.cx-motion-charts{box-sizing:border-box}.cx-motion-charts{scroll-behavior:smooth}.cx-motion-charts{margin:0;font-family:"DM Sans",sans-serif;color:var(--ink)}
+    .cx-motion-charts .app-shell{width:100%;min-height:100%;background-image:radial-gradient(circle at 90% 0%,#234036 0,transparent 32%),linear-gradient(90deg,transparent 98%,#ffffff07 98%);background-size:auto,36px 36px}
+    .cx-motion-charts .wrap{width:100%;max-width:1540px;margin:auto;padding:clamp(20px,4vw,62px)}
+    .cx-motion-charts .eyebrow,.cx-motion-charts .mono,.cx-motion-charts .chart-number,.cx-motion-charts .axis-label{font-family:"Space Mono",monospace}
+    .cx-motion-charts .eyebrow{letter-spacing:.16em;text-transform:uppercase}
+    .cx-motion-charts .hero{display:flex;justify-content:space-between;align-items:end;gap:28px;flex-wrap:wrap;padding-bottom:34px;border-bottom:1px solid var(--line)}
+    .cx-motion-charts h1{font-size:clamp(38px,5.5vw,78px);line-height:1.02;letter-spacing:-.065em;max-width:850px;margin:16px 0}
+    .cx-motion-charts .hero-description{max-width:670px;line-height:1.6}
+    .cx-motion-charts .controls{display:flex;align-items:end;gap:10px;flex-wrap:wrap}
+    .cx-motion-charts .select-wrap{display:grid;gap:7px}
+    .cx-motion-charts select,.cx-motion-charts .action{height:43px;border:1px solid #52655a;border-radius:8px;background:#23332d;color:var(--ink);padding:0 13px;font:600 13px "DM Sans",sans-serif}
+    .cx-motion-charts select{min-width:170px}.cx-motion-charts .action{cursor:pointer;transition:background .2s,transform .2s}.cx-motion-charts .action:hover{background:#345345;transform:translateY(-2px)}
+    .cx-motion-charts .action.primary{background:var(--mint);border-color:var(--mint);color:#14251b}.cx-motion-charts .action.primary:hover{background:#d0ffe4}
+    .cx-motion-charts :focus-visible{outline:3px solid var(--gold);outline-offset:3px}
+    .cx-motion-charts .chart-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:25px}
+    .cx-motion-charts .chart-card{min-width:0;background:var(--card);border:1px solid #35483e;border-radius:16px;padding:clamp(17px,2.2vw,28px);overflow:hidden;box-shadow:0 14px 40px #09110e33}
+    .cx-motion-charts .card-top{display:flex;gap:14px;align-items:start;margin-bottom:12px}.cx-motion-charts .chart-number{color:var(--mint);font-size:12px;padding-top:5px}
+    .cx-motion-charts h2{font-size:20px;font-weight:700;letter-spacing:-.035em;margin:0 0 5px}
+    .cx-motion-charts .card-desc{font-size:13px;line-height:1.5;margin:0;color:var(--muted)}
+    .cx-motion-charts .viz{width:100%;height:230px;display:block;overflow:visible}
+    .cx-motion-charts .viz text{font-family:"Space Mono",monospace;font-size:10px;fill:var(--muted)}
+    .cx-motion-charts .viz .grid-line{stroke:var(--line);stroke-width:1;stroke-dasharray:3 5}
+    .cx-motion-charts .viz .value-label{fill:var(--ink);font-size:11px}
+    .cx-motion-charts .viz .network-node{cursor:pointer}
+    .cx-motion-charts .viz .network-node:focus-visible{outline:none;stroke:var(--gold);stroke-width:4}
+    .cx-motion-charts .kpi-main{height:230px;display:flex;align-items:center;gap:28px}
+    .cx-motion-charts .kpi-orb{position:relative;flex:none;width:174px;height:174px;border-radius:50%;overflow:hidden;border:1px solid #7fcda9;box-shadow:0 0 38px #69dbac22,inset 0 0 30px #172d24;background:#19372c}
+    .cx-motion-charts .liquid{position:absolute;left:-15%;width:130%;bottom:0;height:0;background:linear-gradient(180deg,#bdfcda,#66cda0);transition:height 1.3s cubic-bezier(.2,.8,.2,1)}
+    .cx-motion-charts .liquid:before{content:"";position:absolute;left:-10%;top:-15px;width:120%;height:32px;background:#bdfcda;border-radius:50%;animation:wave 3s ease-in-out infinite alternate}
+    @keyframes wave{to{transform:translateX(9%) rotate(4deg)}}
+    .cx-motion-charts .kpi-number{position:absolute;inset:0;display:grid;place-items:center;color:#103527;font:bold 31px "Space Mono",monospace;filter:drop-shadow(0 1px 2px #ffffff99)}
+    .cx-motion-charts .kpi-side{min-width:0}.cx-motion-charts .kpi-side strong{display:block;font-size:19px;margin-bottom:8px}
+    .cx-motion-charts .kpi-side p{color:var(--muted);font-size:13px;line-height:1.6}
+    .cx-motion-charts .footer{padding:27px 0 0;color:var(--muted);font-size:12px}
+    @media(max-width:850px){.cx-motion-charts .chart-grid{grid-template-columns:1fr}.cx-motion-charts .hero{align-items:start}}
+    @media(max-width:480px){.cx-motion-charts .wrap{padding:18px}.cx-motion-charts .chart-card{padding:16px}.cx-motion-charts .kpi-main{gap:15px}.cx-motion-charts .kpi-orb{width:145px;height:145px}.cx-motion-charts .kpi-number{font-size:24px}.cx-motion-charts .viz{height:210px}}
+    @media(prefers-reduced-motion:reduce){.cx-motion-charts *,.cx-motion-charts,.cx-motion-charts *:before,.cx-motion-charts:before,.cx-motion-charts *:after,.cx-motion-charts:after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+  
+

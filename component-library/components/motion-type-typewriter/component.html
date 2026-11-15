@@ -1,0 +1,77 @@
+<!-- Typewriter · motion-type-typewriter: from the Motion: Kinetic typography (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/motion-type.css, and an ancestor with class="cx-motion-type". -->
+<div class="cx-motion-type"><div class="w-full">
+<article class=" demo-card" style="background: rgb(34, 41, 37);">
+       <div class="card-top">
+        <span class="card-index">03 / WRITE</span>
+        <h3 class=" card-title" style="font-weight: 400; font-style: normal; font-size: 19px;">Typewriter</h3>
+       </div>
+       <div class="stage">
+        <div class="demo-text">
+         <span id="type-output" aria-live="off">Make it memorable</span><span class="cursor" aria-hidden="true"></span>
+        </div>
+       </div>
+       <div class="card-foot">
+        <p class=" hint" style="color: rgb(171, 185, 173); font-weight: 400; font-style: normal; font-size: 16px;">A thought, one character at a time.</p><button id="type-toggle" type="button" class="action" aria-pressed="false"><span style="color: rgb(233, 246, 215); font-weight: 400; font-style: normal; font-size: 16px;">Start typing</span><span class=" hidden" style="color: rgb(233, 246, 215); font-weight: 400; font-style: normal; font-size: 16px;">Pause typing</span></button>
+       </div>
+      </article>
+<!-- Present for the suite's shared script (its settings, with their defaults, and parts of other pieces it also drives); hidden: -->
+<div hidden><input id="custom-copy" class=" copy-input" type="text" maxlength="35" value="Make it memorable" aria-describedby="copy-help" placeholder="Enter your text" style="font-weight: 400; font-style: normal; font-size: 16px;">
+<input id="motion-speed" type="range" min="40" max="200" value="100">
+<p id="scramble-output" class="demo-text scramble-output" aria-live="polite">Make it memorable</p>
+<div id="scroll-box" class="scroll-box" tabindex="0" aria-label="Scroll this area to transform the headline">
+         <div class="scroll-sticky">
+          <p class=" demo-text scroll-headline" style="font-weight: 400; font-style: normal; font-size: 16px;">KEEP GOING ↓</p>
+         </div>
+         <div class="scroll-spacer"></div>
+        </div></div>
+</div></div>
+<script>
+(() => {
+const reduced=window.matchMedia('(prefers-reduced-motion: reduce)');
+const $=id=>document.getElementById(id);
+const copy=()=> $('custom-copy').value.trim() || 'Make it memorable';
+let scrambleTimer=null;
+let typeTimer=null;
+let typing=false;
+let typeIndex=0;
+let deleting=false;
+function stopScramble(){ if(scrambleTimer){clearInterval(scrambleTimer);scrambleTimer=null;} }
+function setTyping(active){
+      typing=active && !reduced.matches;
+      $('type-toggle').setAttribute('aria-pressed',String(typing));
+      $('type-play').classList.toggle('hidden',typing);
+      $('type-pause').classList.toggle('hidden',!typing);
+      clearTimeout(typeTimer);
+      if(typing) typeStep();
+    }
+function typeStep(){
+      if(!typing)return;
+      const target=copy();
+      if(typeIndex>target.length)typeIndex=target.length;
+      if(!deleting){typeIndex++;if(typeIndex>=target.length)deleting=true;}
+      else {typeIndex--;if(typeIndex<=0)deleting=false;}
+      $('type-output').textContent=target.slice(0,typeIndex);
+      const factor=100/Number($('motion-speed').value);
+      const delay=typeIndex===target.length?950*factor:typeIndex===0?360*factor:(deleting?48:85)*factor;
+      typeTimer=setTimeout(typeStep,Math.max(25,delay));
+    }
+$('type-toggle').addEventListener('click',()=>setTyping(!typing));
+$('custom-copy').addEventListener('input',()=>{
+      stopScramble();
+      $('scramble-output').textContent=copy();
+      typeIndex=0;deleting=false;
+      $('type-output').textContent=typing?'':copy();
+      if(typing){clearTimeout(typeTimer);typeStep();}
+    });
+const scroller=$('scroll-box');
+reduced.addEventListener('change',()=>{
+      if(reduced.matches){
+        stopScramble();setTyping(false);
+        $('scramble-output').textContent=copy();
+        $('type-output').textContent=copy();
+        scroller.dispatchEvent(new Event('scroll'));
+      }
+    });
+})();
+</script>

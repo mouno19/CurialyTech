@@ -1,0 +1,41 @@
+{
+  "id": "motion-navigation",
+  "name": "Animated navigation (light)",
+  "mode": "light",
+  "source": "motion-components/08_animated_navigation_components.html",
+  "colors": {
+    "background": "#f5f3ed",
+    "surface": "#ffffff",
+    "surface2": "#edf2ec",
+    "border": "#d9dfdc",
+    "text": "#172124",
+    "muted": "#657174",
+    "accent": "#d8ef61",
+    "positive": "#263323",
+    "negative": "#532a29",
+    "warning": "#d8ef61",
+    "series1": "#172124",
+    "series2": "#d8ef61",
+    "series3": "#263323",
+    "series4": "#202b3a",
+    "series5": "#532a29",
+    "series6": "#657174"
+  },
+  "fonts": {
+    "sans": "\"DM Sans\", system-ui, sans-serif",
+    "display": "\"Fraunces\", Georgia, serif",
+    "mono": "\"Space Mono\", ui-monospace, monospace"
+  },
+  "radius": {
+    "card": "22px",
+    "control": "12px"
+  },
+  "spacing": "20px",
+  "motion": {
+    "ease": "cubic-bezier(0.22, 1, 0.36, 1)",
+    "fast": "150ms",
+    "base": "300ms",
+    "reveal": "800ms",
+    "stagger": "80ms"
+  }
+}

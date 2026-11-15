@@ -1,0 +1,78 @@
+{
+  "id": "motion-scroll-text-mask",
+  "name": "Text mask reveal",
+  "description": "Text mask reveal: lines rise from behind a clipping edge. From the Scroll motion patterns suite: re-skin it to the design's tokens and timing (--cx-ease, --cx-duration-*), keep its reduced-motion end state, and mix it with other pieces, never the whole suite. (In the source: \"Some words deserve a little suspense.\".)",
+  "category": "motion",
+  "batch": "motion-scroll",
+  "collection": "Motion: Scroll motion patterns",
+  "kind": "component",
+  "role": "section",
+  "tags": [
+    "motion",
+    "animation",
+    "scroll",
+    "css-animation",
+    "text-mask",
+    "mask-reveal",
+    "line-reveal",
+    "line-chart",
+    "trend",
+    "time-series",
+    "text-analytics",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "animated"
+  ],
+  "dependencies": [
+    {
+      "type": "stylesheet",
+      "id": "motion-scroll"
+    },
+    {
+      "type": "tokens",
+      "id": "motion-scroll"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "section",
+    "span": "full"
+  },
+  "style": {
+    "tokens": "motion-scroll",
+    "mode": "dark",
+    "colors": {
+      "#d5f36a": "series1"
+    }
+  },
+  "source": {
+    "file": "motion-components/06_scroll_animation_showcase.html",
+    "ref": "section id=\"mask\" #0"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "aac1207e9b7a4df5",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

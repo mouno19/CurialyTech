@@ -1,0 +1,33 @@
+<!-- Circular reveal · motion-scroll-circular-reveal: from the Motion: Scroll motion patterns (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/motion-scroll.css, and an ancestor with class="cx-motion-scroll". -->
+<div class="cx-motion-scroll"><div class="w-full">
+<section id="circle" class="demo-section">
+    <div class="max-w-7xl mx-auto px-5 md:px-10 grid lg:grid-cols-[310px_1fr] gap-8 lg:gap-16">
+     <div>
+      <p class="eyebrow">08 / Expansion</p>
+      <h2 class=" serif mt-4 mb-4" style="color: rgb(241, 238, 228); font-weight: 400; font-style: normal; font-size: 24px;">Circular reveal</h2>
+      <p class=" leading-relaxed" style="color: rgb(174, 184, 170); font-weight: 400; font-style: normal; font-size: 16px;">A new scene grows outward from a single point of focus.</p><button id="circle-button" type="button" class=" action mt-7" style="background: rgb(213, 243, 106); color: rgb(16, 22, 19); font-weight: 700; font-style: normal; font-size: 16px;">Toggle reveal ↗</button>
+      <p class="setting mt-5">Adjust data-duration and data-easing on the preview.</p>
+     </div>
+     <div id="circle-preview" data-duration="1200" data-easing="cubic-bezier(.3,.7,.2,1)" class=" demo-panel flex items-center justify-center p-8" style="background: rgb(28, 37, 32);">
+      <span class="preview-label">FROM A SINGLE POINT</span>
+      <div id="circle-cover" class="circle-cover flex items-center justify-center p-8">
+       <h3 class=" serif text-center" style="color: rgb(16, 22, 19); font-weight: 400; font-style: normal; font-size: 43px;">A whole new world.</h3>
+      </div>
+     </div>
+    </div>
+   </section>
+</div></div>
+<script>
+(() => {
+const setting = (el,key,fallback) => Number.isFinite(Number(el.dataset[key])) ? Number(el.dataset[key]) : fallback;
+const circle=document.getElementById('circle-cover');
+document.getElementById('circle-button').addEventListener('click',()=>{
+      const panel=document.getElementById('circle-preview');
+      circle.style.transitionDuration=`${Math.max(200,setting(panel,'duration',1200))}ms`;
+      circle.style.transitionTimingFunction=panel.dataset.easing || 'ease';
+      circle.classList.add('animate');
+      circle.classList.toggle('open');
+    });
+})();
+</script>

@@ -1,0 +1,24 @@
+<!-- Skeleton screen · motion-loader-skeleton: from the Motion: Loading states (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/motion-loading.css, and an ancestor with class="cx-motion-loading". -->
+<div class="cx-motion-loading"><div data-state="loading" data-mode="determinate">
+<article class=" card panel p-5" style="background: rgb(20, 35, 41);">
+      <div class="flex justify-between gap-2 items-start">
+       <h2 class=" font-semibold" style="color: rgb(237, 246, 244); font-weight: 600; font-style: normal; font-size: 23px;">Skeleton</h2><span class="mono text-xs text-[#718a91]">08</span>
+      </div>
+      <div class="stage motion" aria-hidden="true">
+       <div class="skeleton">
+        <div class="avatar"></div>
+        <div class="lines">
+         <i></i><i></i><i></i>
+        </div>
+       </div>
+      </div>
+      <p class=" mt-auto" style="color: rgb(130, 144, 155); font-weight: 400; font-style: normal; font-size: 12px;">Content taking form</p>
+      <p class="component-status mono text-xs mt-2" role="status"></p>
+     </article>
+</div></div>
+<script>
+(() => {
+const statuses = document.querySelectorAll('.component-status');
+})();
+</script>

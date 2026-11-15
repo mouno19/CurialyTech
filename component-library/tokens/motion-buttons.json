@@ -1,0 +1,41 @@
+{
+  "id": "motion-buttons",
+  "name": "Interactive buttons (dark)",
+  "mode": "dark",
+  "source": "motion-components/10_interactive_button_showcase.html",
+  "colors": {
+    "background": "#171b19",
+    "surface": "#252d3a",
+    "surface2": "#2a312c",
+    "border": "#353b36",
+    "text": "#f4f4ee",
+    "muted": "#9ca89e",
+    "accent": "#c9f27c",
+    "positive": "#398d7d",
+    "negative": "#fa677e",
+    "warning": "#ffe2a0",
+    "series1": "#c9f27c",
+    "series2": "#ff89df",
+    "series3": "#fa677e",
+    "series4": "#398d7d",
+    "series5": "#ffe2a0",
+    "series6": "#172b40"
+  },
+  "fonts": {
+    "sans": "\"DM Sans\", system-ui, sans-serif",
+    "display": "\"Fraunces\", Georgia, serif",
+    "mono": "\"Space Mono\", ui-monospace, monospace"
+  },
+  "radius": {
+    "card": "22px",
+    "control": "12px"
+  },
+  "spacing": "20px",
+  "motion": {
+    "ease": "cubic-bezier(0.22, 1, 0.36, 1)",
+    "fast": "150ms",
+    "base": "300ms",
+    "reveal": "800ms",
+    "stagger": "80ms"
+  }
+}

@@ -1,0 +1,110 @@
+<!-- Layered parallax · motion-3d-layered-parallax: from the Motion: 3D motion (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/motion-3d.css, and an ancestor with class="cx-motion-3d". -->
+<div class="cx-motion-3d"><div class="w-full">
+<article class=" scene-card" style="background: rgb(16, 35, 38);">
+      <div class="card-head">
+       <span class="number">06</span>
+       <div>
+        <h2 style="color: rgb(234, 236, 232); font-weight: 700; font-style: normal; font-size: 23px;">Layered parallax</h2>
+        <p style="color: rgb(154, 172, 168); font-weight: 400; font-style: normal; font-size: 15px;">Shift perspective across stacked planes.</p>
+       </div>
+      </div>
+      <div class="stage" tabindex="0" aria-label="Layered parallax; move pointer or use arrow keys">
+       <div class="parallax">
+        <div class="para-layer">
+         <div class="para-sun"></div>
+        </div>
+        <div class="para-layer"></div>
+        <div class="para-layer"></div>
+       </div>
+      </div>
+      <footer>
+       <span class="micro">POINTER · ARROW KEYS</span>
+      </footer>
+     </article>
+<!-- Present for the suite's shared script (its settings, with their defaults, and parts of other pieces it also drives); hidden: -->
+<div hidden><div class="cube" id="cube">
+        <div class="cube-face">
+         A
+        </div>
+        <div class="cube-face">
+         B
+        </div>
+        <div class="cube-face">
+         C
+        </div>
+        <div class="cube-face">
+         D
+        </div>
+       </div>
+<div class="carousel" id="carousel">
+        <div class="carousel-slide">
+         <strong>01</strong><span>EXPLORE</span>
+        </div>
+        <div class="carousel-slide">
+         <strong>02</strong><span>CREATE</span>
+        </div>
+        <div class="carousel-slide">
+         <strong>03</strong><span>MOVE</span>
+        </div>
+       </div>
+<path id="liquid-path"></path></div>
+</div></div>
+<script>
+(() => {
+let cubeAngle=-25;
+let carouselAngle=0;
+const cube=document.getElementById('cube');
+const carousel=document.getElementById('carousel');
+function turnCube(dir){cubeAngle+=dir*90;cube.style.setProperty('--cube-angle',cubeAngle+'deg')}
+function turnCarousel(dir){carouselAngle+=dir*120;carousel.style.setProperty('--carousel-angle',carouselAngle+'deg')}
+const liquidPath=document.getElementById('liquid-path');
+function drawLiquid(px=0,py=0){
+        const n=32, pts=[];
+        for(let i=0;i<n;i++){
+          const a=i*Math.PI*2/n;
+          const pull=Math.max(0,Math.cos(a-Math.atan2(py,px)))*Math.min(13,Math.hypot(px,py)*12);
+          const r=72+pull+2*Math.sin(a*3);
+          pts.push([100+r*Math.cos(a),100+r*Math.sin(a)]);
+        }
+        const mid=(a,b)=>[(a[0]+b[0])/2,(a[1]+b[1])/2];
+        let d=`M ${mid(pts[n-1],pts[0]).join(' ')}`;
+        for(let i=0;i<n;i++){const m=mid(pts[i],pts[(i+1)%n]);d+=` Q ${pts[i].join(' ')} ${m.join(' ')}`}
+        liquidPath.setAttribute('d',d+' Z');
+      }
+document.querySelectorAll('.stage').forEach(stage=>{
+        let down=null;
+        function position(e){
+          const r=stage.getBoundingClientRect();
+          const x=Math.max(-1,Math.min(1,((e.clientX-r.left)/r.width-.5)*2));
+          const y=Math.max(-1,Math.min(1,((e.clientY-r.top)/r.height-.5)*2));
+          stage.style.setProperty('--px',x.toFixed(2));
+          stage.style.setProperty('--py',y.toFixed(2));
+          if(stage.classList.contains('liquid-stage'))drawLiquid(x,y);
+        }
+        stage.addEventListener('pointermove',position);
+        stage.addEventListener('pointerdown',e=>{down={x:e.clientX,y:e.clientY};stage.setPointerCapture(e.pointerId);position(e)});
+        stage.addEventListener('pointerup',e=>{
+          if(!down)return;
+          const dx=e.clientX-down.x;
+          if(Math.abs(dx)>25){
+            if(stage.contains(cube))turnCube(dx>0?1:-1);
+            if(stage.contains(carousel))turnCarousel(dx>0?1:-1);
+          }
+          down=null;
+        });
+        stage.addEventListener('pointerleave',()=>{if(!down){stage.style.setProperty('--px',0);stage.style.setProperty('--py',0);if(stage.classList.contains('liquid-stage'))drawLiquid()}});
+        stage.addEventListener('keydown',e=>{
+          const delta={ArrowLeft:[-.15,0],ArrowRight:[.15,0],ArrowUp:[0,-.15],ArrowDown:[0,.15]}[e.key];
+          if(!delta)return;
+          e.preventDefault();
+          if(stage.contains(cube))turnCube(e.key==='ArrowLeft'?1:e.key==='ArrowRight'?-1:0);
+          if(stage.contains(carousel))turnCarousel(e.key==='ArrowLeft'?1:e.key==='ArrowRight'?-1:0);
+          const x=Math.max(-1,Math.min(1,Number(stage.style.getPropertyValue('--px')||0)+delta[0]));
+          const y=Math.max(-1,Math.min(1,Number(stage.style.getPropertyValue('--py')||0)+delta[1]));
+          stage.style.setProperty('--px',x);stage.style.setProperty('--py',y);
+          if(stage.classList.contains('liquid-stage'))drawLiquid(x,y);
+        });
+      });
+})();
+</script>

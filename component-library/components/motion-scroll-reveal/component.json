@@ -1,0 +1,74 @@
+{
+  "id": "motion-scroll-reveal",
+  "name": "Scroll reveal",
+  "description": "Scroll reveal: content eases in as it enters the viewport (direction, duration, delay, threshold). From the Scroll motion patterns suite: re-skin it to the design's tokens and timing (--cx-ease, --cx-duration-*), keep its reduced-motion end state, and mix it with other pieces, never the whole suite. (In the source: \"Make an entrance. Leave an impression.\".)",
+  "category": "motion",
+  "batch": "motion-scroll",
+  "collection": "Motion: Scroll motion patterns",
+  "kind": "component",
+  "role": "section",
+  "tags": [
+    "motion",
+    "animation",
+    "scroll",
+    "interactive",
+    "scroll-reveal",
+    "reveal-on-scroll",
+    "fade-in-on-scroll",
+    "animate-on-scroll",
+    "scroll-animation",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "animated"
+  ],
+  "dependencies": [
+    {
+      "type": "stylesheet",
+      "id": "motion-scroll"
+    },
+    {
+      "type": "tokens",
+      "id": "motion-scroll"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "section",
+    "span": "full"
+  },
+  "style": {
+    "tokens": "motion-scroll",
+    "mode": "dark",
+    "colors": {}
+  },
+  "source": {
+    "file": "motion-components/06_scroll_animation_showcase.html",
+    "ref": "section id=\"reveal\" #0"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "ba8662ea1c5e6cc4",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

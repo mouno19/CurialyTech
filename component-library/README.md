@@ -80,6 +80,21 @@ template's colour fails contrast.
 After changing archetypes.ts run `node node_modules/tsx/dist/cli.mjs scripts/components/export-archetypes.mts`,
 then the importer.
 
+## The motion library
+
+`motion-components/` holds ten motion suites of ten pieces (canvas studies, kinetic type, 3D, animated
+backgrounds, animated charts, scroll patterns, cards, navigation, loading states, buttons), and
+`motion-mocks/scroll-transition-showcase/` a React 19 + Tailwind v4 scroll motion app. The catalog is
+in server/agent/design/knowledge/motion.ts (`MOTION_FAMILIES`, `MOTION_PIECES`); 100 HTML pieces are
+registered here (`motion-*`), the mock's ten demos as React versions of the scroll patterns
+(`motion-scroll-*-react`, `variant_of` the HTML piece) and its hooks as `motion-react-scroll-kit`
+(useInView, Reveal, useElementProgress). Each piece runs in its own scope, carries only its own code
+(the suites' shared scripts are cut per piece; parts of other pieces a shared script also drives come
+along hidden), and its suite's Tailwind utilities are compiled into `styles/motion-*.css` (no CDN).
+Every token set's `tokens.css` carries the shared timing (`--cx-ease`, `--cx-duration-*`, `--cx-stagger`).
+After changing motion.ts run `node node_modules/tsx/dist/cli.mjs scripts/components/export-motion.mts`,
+then the importer.
+
 ## The imported Component Atlas
 
 `node scripts/components/import-atlas.mjs` turns `atlas/*.html` into components (configuration in

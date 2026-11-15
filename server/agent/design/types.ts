@@ -94,8 +94,10 @@ export type DesignIntent = {
   reference: boolean;
   /** Style archetypes the design mixes (the base first; synthesis.ts), empty when none apply. */
   styles: string[];
-  /** Looks those archetypes are built on: deliberate here, so neither the brief nor the audit warns against them. */
+  /** Looks those archetypes, and the chosen motion pieces, are built on: deliberate here, so neither the brief nor the audit warns against them. */
   granted: string[];
+  /** Pieces of the motion library the design mixes (synthesis.ts, motionMixture), empty when the request asks for no motion. */
+  motionPicks: string[];
 };
 
 export type BriefRole = "solo" | "architect" | "engineer" | "reviewer";
@@ -108,6 +110,7 @@ export type DesignBrief = {
   visualTest: boolean;
   /** The mixture of style archetypes for this request (synthesis.ts), or null. */
   synthesis?: import("./synthesis").Synthesis | null;
+  motionMixture?: import("./synthesis").MotionMixture | null;
 };
 
 // ---- Audit ----------------------------------------------------------------

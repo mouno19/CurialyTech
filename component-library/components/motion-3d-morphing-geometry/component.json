@@ -1,0 +1,81 @@
+{
+  "id": "motion-3d-morphing-geometry",
+  "name": "Morphing geometry",
+  "description": "Morphing geometry: a solid flows between silhouettes. From the 3D motion suite: re-skin it to the design's tokens and timing (--cx-ease, --cx-duration-*), keep its reduced-motion end state, and mix it with other pieces, never the whole suite.",
+  "category": "motion",
+  "batch": "motion-3d",
+  "collection": "Motion: 3D motion",
+  "kind": "component",
+  "role": "content",
+  "tags": [
+    "motion",
+    "animation",
+    "hero",
+    "css-animation",
+    "morphing-geometry",
+    "morphing-3d",
+    "shape-shifting",
+    "flow",
+    "sankey",
+    "conversion",
+    "geospatial",
+    "map",
+    "location",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "animated",
+    "interactive",
+    "keyboard",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "stylesheet",
+      "id": "motion-3d"
+    },
+    {
+      "type": "tokens",
+      "id": "motion-3d"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "content",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "motion-3d",
+    "mode": "dark",
+    "colors": {}
+  },
+  "source": {
+    "file": "motion-components/03_3d_motion_components.html",
+    "ref": "article data-template-id=\"card-morph\" #0"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "50f8343fae48f089",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

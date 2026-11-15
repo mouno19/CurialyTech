@@ -1,0 +1,86 @@
+{
+  "id": "motion-scroll-progress-react",
+  "name": "Scroll progress (React)",
+  "description": "Scroll progress: a reading progress bar and ring. The React version, from the scroll motion mock (useInView / useElementProgress, one ease): re-skin it to the design's tokens and mix it with other pieces, never the whole mock.",
+  "category": "motion",
+  "batch": "motion-scroll",
+  "collection": "Motion: scroll motion mock (React)",
+  "kind": "component",
+  "role": "section",
+  "tags": [
+    "motion",
+    "animation",
+    "react",
+    "scroll",
+    "scroll-progress",
+    "reading-progress",
+    "progress-indicator",
+    "progress-bar"
+  ],
+  "capabilities": [
+    "responsive",
+    "animated",
+    "reduced-motion",
+    "interactive"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "react",
+      "version": "18.3.1"
+    },
+    {
+      "type": "stylesheet",
+      "id": "motion-scroll-lab"
+    },
+    {
+      "type": "tokens",
+      "id": "motion-scroll-lab"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "react"
+  ],
+  "implementations": [
+    {
+      "framework": "react",
+      "file": "react.jsx",
+      "origin": "page-component"
+    }
+  ],
+  "layout": {
+    "role": "section",
+    "span": "full"
+  },
+  "style": {
+    "tokens": "motion-scroll-lab",
+    "mode": "dark",
+    "colors": {
+      "#080a0a": "background",
+      "#e7e8e2": "series3",
+      "#949994": "series4",
+      "#b8f20d": "series1",
+      "#57e9df": "series2"
+    }
+  },
+  "source": {
+    "file": "motion-mocks/scroll-transition-showcase/src/App.tsx",
+    "ref": "function ProgressDemo"
+  },
+  "variant_of": "motion-scroll-progress",
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "f411f3f561694ff5",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

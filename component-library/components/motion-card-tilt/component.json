@@ -1,0 +1,77 @@
+{
+  "id": "motion-card-tilt",
+  "name": "3D tilt card",
+  "description": "3D tilt card: the card leans toward the pointer with a moving light. From the Animated cards suite: re-skin it to the design's tokens and timing (--cx-ease, --cx-duration-*), keep its reduced-motion end state, and mix it with other pieces, never the whole suite.",
+  "category": "motion",
+  "batch": "motion-card",
+  "collection": "Motion: Animated cards",
+  "kind": "component",
+  "role": "content",
+  "tags": [
+    "motion",
+    "animation",
+    "surface",
+    "interactive",
+    "3d-tilt",
+    "tilt-card",
+    "hover-tilt",
+    "tilt",
+    "scientific",
+    "field",
+    "3d",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "animated",
+    "interactive"
+  ],
+  "dependencies": [
+    {
+      "type": "stylesheet",
+      "id": "motion-cards"
+    },
+    {
+      "type": "tokens",
+      "id": "motion-cards"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "content",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "motion-cards",
+    "mode": "dark",
+    "colors": {}
+  },
+  "source": {
+    "file": "motion-components/07_animated_card_components.html",
+    "ref": "article class=\"demo #0"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "6488d54a04b18067",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

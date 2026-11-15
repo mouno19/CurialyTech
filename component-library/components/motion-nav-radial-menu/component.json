@@ -1,0 +1,79 @@
+{
+  "id": "motion-nav-radial-menu",
+  "name": "Expandable radial menu",
+  "description": "Expandable radial menu: a compact launcher unfolds into four destinations. From the Animated navigation suite: re-skin it to the design's tokens and timing (--cx-ease, --cx-duration-*), keep its reduced-motion end state, and mix it with other pieces, never the whole suite.",
+  "category": "navigation",
+  "batch": "motion-nav",
+  "collection": "Motion: Animated navigation",
+  "kind": "component",
+  "role": "navigation",
+  "tags": [
+    "motion",
+    "animation",
+    "navigation",
+    "css-animation",
+    "radial-menu",
+    "speed-dial",
+    "fab-menu",
+    "circular-menu",
+    "radial",
+    "circular",
+    "light-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "animated",
+    "interactive",
+    "keyboard",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "stylesheet",
+      "id": "motion-navigation"
+    },
+    {
+      "type": "tokens",
+      "id": "motion-navigation"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "frontend-development",
+    "dashboard-builder"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "navigation",
+    "span": "rail"
+  },
+  "style": {
+    "tokens": "motion-navigation",
+    "mode": "light",
+    "colors": {}
+  },
+  "source": {
+    "file": "motion-components/08_animated_navigation_components.html",
+    "ref": "article id=\"component-4\" #0"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "e93aa537c5189154",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

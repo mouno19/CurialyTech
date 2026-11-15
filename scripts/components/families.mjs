@@ -60,6 +60,45 @@ export const TOKEN_SETS = {
   },
 };
 
+// ---- Motion ----
+
+/** Motion tokens every motion family shares (the scroll mock's ease; interface durations). */
+export const MOTION_TIMING = { ease: "cubic-bezier(0.22, 1, 0.36, 1)", fast: "150ms", base: "300ms", reveal: "800ms", stagger: "80ms" };
+const motionSet = (name, mode, source, colors, display) => ({
+  name, mode, source, colors,
+  fonts: { sans: "\"DM Sans\", system-ui, sans-serif", ...(display ? { display } : {}), mono: "\"Space Mono\", ui-monospace, monospace" },
+  radius: { card: "22px", control: "12px" }, spacing: "20px", motion: MOTION_TIMING,
+});
+const series = (...hex) => Object.fromEntries(hex.map((value, index) => [`series${index + 1}`, value]));
+const FRAUNCES = "\"Fraunces\", Georgia, serif";
+export const MOTION_TOKEN_SETS = {
+  "motion-canvas": motionSet("Canvas studies (dark)", "dark", "motion-components/01_creative_canvas_experiments.html",
+    { background: "#101713", surface: "#1d231f", surface2: "#202924", border: "#384138", text: "#e9eae3", muted: "#aaafa4", accent: "#c6f36b", positive: "#c6f36b", negative: "#ff8a76", warning: "#f2d486", ...series("#c6f36b", "#71866b", "#e9eae3", "#aaafa4", "#384138", "#f2d486") }, FRAUNCES),
+  "motion-type": motionSet("Kinetic type (dark)", "dark", "motion-components/02_kinetic_typography_collection.html",
+    { background: "#151918", surface: "#222925", surface2: "#30372c", border: "#435047", text: "#f4f0e8", muted: "#a9adae", accent: "#d9fa59", positive: "#a9c277", negative: "#ff8a76", warning: "#f2d486", ...series("#d9fa59", "#a9c277", "#c5cec1", "#a9adae", "#435047", "#f4f0e8") }, FRAUNCES),
+  "motion-3d": motionSet("3D motion (dark)", "dark", "motion-components/03_3d_motion_components.html",
+    { background: "#0a1719", surface: "#102427", surface2: "#142b2c", border: "#34504e", text: "#eaece8", muted: "#9aaca8", accent: "#a8f4d6", positive: "#a8f4d6", negative: "#ff8a76", warning: "#f2d486", ...series("#a8f4d6", "#719e8e", "#c2d6ce", "#9aaca8", "#34504e", "#183e3e") }),
+  "motion-backgrounds": motionSet("Animated backgrounds (dark)", "dark", "motion-components/04_animated_background_effects.html",
+    { background: "#101b21", surface: "#1b2a31", surface2: "#263c42", border: "#304049", text: "#eaf1f1", muted: "#9aa9b1", accent: "#b9eddb", positive: "#b9eddb", negative: "#ff785f", warning: "#ffb66b", ...series("#36c9ae", "#73dce5", "#c9f8d4", "#9165e6", "#ff785f", "#eda745") }, FRAUNCES),
+  "motion-charts": motionSet("Animated charts (dark)", "dark", "motion-components/05_animated_data_visualizations.html",
+    { background: "#101917", surface: "#192522", surface2: "#234036", border: "#35433c", text: "#f0f3e9", muted: "#a5b8ae", accent: "#a5efca", positive: "#a5efca", negative: "#ff9b82", warning: "#f2d486", ...series("#a5efca", "#ff9b82", "#f2d486", "#bdfcda", "#a5b8ae", "#35433c") }),
+  "motion-scroll": motionSet("Scroll motion (dark)", "dark", "motion-components/06_scroll_animation_showcase.html",
+    { background: "#101613", surface: "#1c2520", surface2: "#384f46", border: "#374139", text: "#f1eee4", muted: "#aeb8aa", accent: "#d5f36a", positive: "#d5f36a", negative: "#e6a869", warning: "#e6a869", ...series("#d5f36a", "#e6a869", "#9a604c", "#aeb8aa", "#455249", "#f1eee4") }, FRAUNCES),
+  "motion-cards": motionSet("Animated cards (dark)", "dark", "motion-components/07_animated_card_components.html",
+    { background: "#111816", surface: "#1c2823", surface2: "#25352b", border: "#30453a", text: "#ecf0e8", muted: "#a5ada6", accent: "#d9ff70", positive: "#d9ff70", negative: "#ff8a76", warning: "#f2d486", ...series("#d9ff70", "#c2cec4", "#a5ada6", "#3e5146", "#30453a", "#ecf0e8") }, FRAUNCES),
+  "motion-navigation": motionSet("Animated navigation (light)", "light", "motion-components/08_animated_navigation_components.html",
+    { background: "#f5f3ed", surface: "#ffffff", surface2: "#edf2ec", border: "#d9dfdc", text: "#172124", muted: "#657174", accent: "#d8ef61", positive: "#263323", negative: "#532a29", warning: "#d8ef61", ...series("#172124", "#d8ef61", "#263323", "#202b3a", "#532a29", "#657174") }, FRAUNCES),
+  "motion-loading": motionSet("Loading states (dark)", "dark", "motion-components/09_loading_animation_components.html",
+    { background: "#0c171c", surface: "#142329", surface2: "#173436", border: "#30464b", text: "#edf6f4", muted: "#82909b", accent: "#65e6cf", positive: "#65e6cf", negative: "#ff8a76", warning: "#f2d486", ...series("#65e6cf", "#385158", "#82909b", "#294047", "#edf6f4", "#30464b") }),
+  "motion-buttons": motionSet("Interactive buttons (dark)", "dark", "motion-components/10_interactive_button_showcase.html",
+    { background: "#171b19", surface: "#252d3a", surface2: "#2a312c", border: "#353b36", text: "#f4f4ee", muted: "#9ca89e", accent: "#c9f27c", positive: "#398d7d", negative: "#fa677e", warning: "#ffe2a0", ...series("#c9f27c", "#ff89df", "#fa677e", "#398d7d", "#ffe2a0", "#172b40") }, FRAUNCES),
+  "motion-scroll-lab": {
+    ...motionSet("Scroll lab (dark)", "dark", "motion-mocks/scroll-transition-showcase/src",
+      { background: "#080a0a", surface: "#111414", surface2: "#191d1c", border: "#2c2e2c", text: "#e7e8e2", muted: "#949994", accent: "#b8f20d", positive: "#b8f20d", negative: "#ff8a76", warning: "#f2d486", ...series("#b8f20d", "#57e9df", "#e7e8e2", "#949994", "#2c2e2c", "#191d1c") }),
+    fonts: { sans: "Manrope, system-ui, sans-serif", mono: "\"DM Mono\", ui-monospace, monospace" },
+  },
+};
+
 const CHART_TOOLS = ["data-analytics", "dashboard-builder", "frontend-development"];
 const UI_TOOLS = ["web-design", "ui-ux-design", "dashboard-builder", "frontend-development"];
 const DATA_UI_TOOLS = ["data-analytics", "dashboard-builder", "web-design", "frontend-development"];
@@ -252,6 +291,56 @@ export function animeCollections(archetypes, dir) {
         tags: [...new Set(["anime", "entertainment", "media", archetype.mode === "dark" ? "dark" : "light", ...archetype.signals.slice(0, 6), ...archetype.fits.slice(0, 4).map(fit => fit.replace(/\s+/g, "-")), ...words.slice(0, 6)])],
         description: `${block.name}: ${block.how}. From the ${archetype.name} archetype (${archetype.style}); re-skin it to the design's tokens and mix it with blocks of other archetypes, never the whole template.`,
         capabilities: ["responsive"],
+      };
+    }),
+  }));
+}
+
+/**
+ * Where each motion piece starts in its suite (component-library/motion-components), by its key in the
+ * catalog. The backgrounds share one preview canvas: each takes it with only its own branch of draw().
+ */
+const byTemplateId = (keys, ids) => Object.fromEntries(keys.map((key, index) => [key, [`<article data-template-id="${ids[index]}"`, 0]]));
+const MOTION_MARKERS = {
+  "motion-canvas": byTemplateId(["cursor-trail", "liquid-image", "morphing-blobs", "magnetic-field", "path-drawing", "spotlight-reveal", "particle-burst", "shape-transition", "audio-spectrum", "gravity-playground"],
+    ["card-trail", "card-liquid", "card-blobs", "card-magnet", "card-path", "card-spotlight", "card-burst", "card-shape", "card-audio", "card-gravity"]),
+  "motion-type": byTemplateId(["kinetic-headline", "text-scramble", "typewriter", "gradient-flow", "split-reveal", "rotating-3d", "variable-weight", "glitch", "circular", "scroll-driven"],
+    Array.from({ length: 10 }, (_, index) => `card-${String(index + 1).padStart(2, "0")}`)),
+  "motion-3d": byTemplateId(["sphere", "product-showcase", "isometric", "cube-gallery", "tunnel", "layered-parallax", "orbit", "morphing-geometry", "liquid-sphere", "card-carousel"],
+    ["card-sphere", "card-product", "card-iso", "card-cube", "card-tunnel", "card-parallax", "card-orbit", "card-morph", "card-liquid", "card-carousel"]),
+  "motion-bg": Object.fromEntries(["aurora", "particle-field", "fluid-mesh", "starfield", "floating-orbs", "digital-matrix", "waveform", "geometric-grid", "noise-grain", "liquid-distortion"].map((key, index) =>
+    [key, ['<section aria-label="Live background preview" id="preview"', 0, { branch: ["effect", ["aurora", "particles", "mesh", "stars", "orbs", "matrix", "waves", "grid", "grain", "liquid"][index]] }]])),
+  // The charts were all drawn by one render(): each block draws its own.
+  "motion-chart": Object.fromEntries(Object.entries(byTemplateId(["momentum-line", "channel-bars", "revenue-donut", "liquid-kpi", "cumulative-area", "radial-indicators", "activity-heatmap", "live-pulse", "network", "funnel"],
+    ["line-card", "bar-card", "donut-card", "kpi-card", "area-card", "radial-card", "heat-card", "pulse-card", "network-card", "funnel-card"]))
+    .map(([key, [marker, index]], at) => [key, [marker, index, { run: `${["line", "bar", "donut", "kpi", "area", "radial", "heat", "pulse", "network", "funnel"][at]}Chart();` }]])),
+  "motion-scroll": Object.fromEntries(["reveal", "staggered-grid", "parallax", "horizontal-story", "sticky-story", "text-mask", "page-curtain", "circular-reveal", "progress", "pin-zoom"].map((key, index) =>
+    [key, [`<section id="${["reveal", "grid", "parallax", "horizontal", "sticky", "mask", "curtain", "circle", "progress", "zoom"][index]}"`, 0]])),
+  "motion-card": Object.fromEntries(["tilt", "flip", "glass", "image-reveal", "parallax", "expandable", "magnetic", "border-glow", "stacked", "spotlight"].map((key, index) => [key, ['<article class="demo', index]])),
+  "motion-nav": Object.fromEntries(["morphing-hamburger", "liquid-indicator", "glass-sidebar", "radial-menu", "fullscreen-overlay", "magnetic", "mega-menu", "floating-dock", "scroll-aware", "vertical-timeline"].map((key, index) => [key, [`<article id="component-${index + 1}"`, 0]])),
+  "motion-loader": byTemplateId(["orbit", "liquid", "dna", "progress-ring", "segments", "wave", "assembly", "skeleton", "ai-thinking", "multi-stage"],
+    ["orbit-card", "liquid-card", "dna-card", "ring-card", "segments-card", "wave-card", "assembly-card", "skeleton-card", "thinking-card", "stages-card"]),
+  "motion-button": byTemplateId(["magnetic", "liquid-morph", "neon", "3d-press", "gradient-flow", "particle-burst", "glass", "border-trace", "morphing-toggle", "ripple"],
+    ["card-magnetic", "card-liquid", "card-neon", "card-press", "card-flow", "card-particle", "card-glass", "card-trace", "card-toggle", "card-ripple"]),
+};
+
+/** The motion suites as block collections (one per suite), from motion-components/catalog.json. */
+export function motionCollections(catalog, dir) {
+  return catalog.families.map(family => ({
+    dir, file: family.file, tokens: family.tokens, collection: `Motion: ${family.name}`, packages: ["lucide"],
+    // Each block runs in its own scope (several from one suite can share a page), and the suite's
+    // Tailwind utilities are compiled into its stylesheet (no CDN at run time).
+    isolate: true, tailwind: true,
+    items: catalog.pieces.filter(piece => piece.family === family.id).map(piece => {
+      const key = piece.id.slice(family.id.length + 1);
+      const [marker, index, options = {}] = MOTION_MARKERS[family.id][key];
+      const words = piece.signals.slice(0, 5).map(signal => signal.replace(/\s+/g, "-"));
+      return {
+        id: piece.id, find: [marker, index], ...options, name: piece.name, summary: piece.how, category: family.category, role: family.role, batch: family.id,
+        tools: family.tools,
+        tags: [...new Set(["motion", "animation", piece.slot, piece.cost === "loop" ? "continuous-animation" : piece.cost === "css" ? "css-animation" : "interactive", ...words])],
+        description: `${piece.name}: ${piece.how}. From the ${family.name} suite: re-skin it to the design's tokens and timing (--cx-ease, --cx-duration-*), keep its reduced-motion end state, and mix it with other pieces, never the whole suite.`,
+        capabilities: ["responsive", "animated", ...(piece.cost === "loop" ? ["continuous-animation"] : [])],
       };
     }),
   }));

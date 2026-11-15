@@ -1,0 +1,24 @@
+<!-- Expandable card · motion-card-expandable: from the Motion: Animated cards (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/motion-cards.css, and an ancestor with class="cx-motion-cards". -->
+<div class="cx-motion-cards"><div class="w-full">
+<article class="demo">
+       <div class="demo-head"><span class="demo-number">06 / DISCLOSURE</span>
+        <h2 class=" demo-title" style="color: rgb(236, 240, 232); font-weight: 600; font-style: normal; font-size: 24px;">Expandable Content</h2>
+        <p class=" demo-description" style="color: rgb(194, 206, 196); font-weight: 400; font-style: normal; font-size: 13px;">A little more room for the full story.</p>
+       </div>
+       <div class="stage"><button id="expand-card" class="sample expand-button" type="button" aria-expanded="false"><span class="orb"></span><strong>Make space.</strong><small>Tap to read more</small><span class="expand-extra">A considered detail can change the whole experience. Let the story unfold at its own pace.</span></button>
+       </div>
+      </article>
+</div></div>
+<script>
+(() => {
+function toggleCard(id, attribute) {
+      const button=document.getElementById(id);
+      button.addEventListener('click',()=>{
+        const active=button.classList.toggle('is-active');
+        button.setAttribute(attribute,String(active));
+      });
+    }
+toggleCard('expand-card','aria-expanded');
+})();
+</script>

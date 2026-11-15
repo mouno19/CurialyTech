@@ -1,0 +1,41 @@
+{
+  "id": "motion-cards",
+  "name": "Animated cards (dark)",
+  "mode": "dark",
+  "source": "motion-components/07_animated_card_components.html",
+  "colors": {
+    "background": "#111816",
+    "surface": "#1c2823",
+    "surface2": "#25352b",
+    "border": "#30453a",
+    "text": "#ecf0e8",
+    "muted": "#a5ada6",
+    "accent": "#d9ff70",
+    "positive": "#d9ff70",
+    "negative": "#ff8a76",
+    "warning": "#f2d486",
+    "series1": "#d9ff70",
+    "series2": "#c2cec4",
+    "series3": "#a5ada6",
+    "series4": "#3e5146",
+    "series5": "#30453a",
+    "series6": "#ecf0e8"
+  },
+  "fonts": {
+    "sans": "\"DM Sans\", system-ui, sans-serif",
+    "display": "\"Fraunces\", Georgia, serif",
+    "mono": "\"Space Mono\", ui-monospace, monospace"
+  },
+  "radius": {
+    "card": "22px",
+    "control": "12px"
+  },
+  "spacing": "20px",
+  "motion": {
+    "ease": "cubic-bezier(0.22, 1, 0.36, 1)",
+    "fast": "150ms",
+    "base": "300ms",
+    "reveal": "800ms",
+    "stagger": "80ms"
+  }
+}

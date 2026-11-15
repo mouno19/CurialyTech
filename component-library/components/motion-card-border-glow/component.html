@@ -1,0 +1,41 @@
+<!-- Border glow card · motion-card-border-glow: from the Motion: Animated cards (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/motion-cards.css, and an ancestor with class="cx-motion-cards". -->
+<div class="cx-motion-cards"><div class="w-full">
+<article class="demo">
+       <div class="demo-head"><span class="demo-number">08 / OUTLINE</span>
+        <h2 class=" demo-title" style="color: rgb(236, 240, 232); font-weight: 600; font-style: normal; font-size: 24px;">Border Glow</h2>
+        <p class=" demo-description" style="color: rgb(194, 206, 196); font-weight: 400; font-style: normal; font-size: 13px;">A bright edge tracks your position along the frame.</p>
+       </div>
+       <div class="stage">
+        <div class="sample border-sample" id="border-card">
+         <div class="orb"></div><strong>Trace the edge.</strong><small>Illuminated outline</small>
+        </div>
+       </div>
+      </article>
+<!-- Present for the suite's shared script (its settings, with their defaults, and parts of other pieces it also drives); hidden: -->
+<div hidden><div class="sample spotlight-sample" id="spotlight-card">
+         <div class="ring"></div><strong>Find the light.</strong><small>Follow your curiosity</small>
+        </div></div>
+</div></div>
+<script>
+(() => {
+const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+let motionOff = reduced.matches;
+function position(event, element) {
+      const box = element.getBoundingClientRect();
+      return { x:(event.clientX-box.left)/box.width, y:(event.clientY-box.top)/box.height };
+    }
+['border-card','spotlight-card'].forEach(id=>{
+      const el=document.getElementById(id);
+      el.addEventListener('pointermove',e=>{
+        if(motionOff || e.pointerType==='touch') return;
+        const p=position(e,el);
+        el.style.setProperty('--mx',(p.x*100)+'%');
+        el.style.setProperty('--my',(p.y*100)+'%');
+      });
+      el.addEventListener('pointerleave',()=>{
+        el.style.setProperty('--mx','50%');el.style.setProperty('--my','50%');
+      });
+    });
+})();
+</script>

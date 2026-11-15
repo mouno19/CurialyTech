@@ -1,0 +1,41 @@
+<!-- Scroll reveal · motion-scroll-reveal: from the Motion: Scroll motion patterns (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/motion-scroll.css, and an ancestor with class="cx-motion-scroll". -->
+<div class="cx-motion-scroll"><div class="w-full">
+<section id="reveal" class="demo-section">
+    <div class="max-w-7xl mx-auto px-5 md:px-10 grid lg:grid-cols-[310px_1fr] gap-8 lg:gap-16">
+     <div>
+      <p class="eyebrow">01 / Entrance</p>
+      <h2 class=" serif mt-4 mb-4" style="color: rgb(241, 238, 228); font-weight: 400; font-style: normal; font-size: 24px;">Scroll reveal</h2>
+      <p class=" leading-relaxed" style="color: rgb(174, 184, 170); font-weight: 400; font-style: normal; font-size: 16px;">A quiet entrance gives content its moment without interrupting the reader.</p>
+      <p class="setting mt-6">Adjust data-duration, data-direction, data-easing and data-trigger on the preview element.</p>
+     </div>
+     <div class=" demo-panel p-8 md:p-14 flex items-center" style="background: rgb(28, 37, 32);">
+      <div class="reveal" data-duration="850" data-direction="up" data-easing="cubic-bezier(.2,.7,.2,1)" data-trigger="0.25">
+       <p class="preview-label mb-5">ENTER THE FRAME</p>
+       <h3 class=" serif max-w-xl leading-tight" style="color: rgb(241, 238, 228); font-weight: 400; font-style: normal; font-size: 42px;">Make an entrance. Leave an impression.</h3>
+      </div>
+     </div>
+    </div>
+   </section>
+</div></div>
+<script>
+(() => {
+const clamp = (n,min=0,max=1) => Math.min(max,Math.max(min,n));
+const setting = (el,key,fallback) => Number.isFinite(Number(el.dataset[key])) ? Number(el.dataset[key]) : fallback;
+const observed = document.querySelectorAll('.reveal,.mask-text');
+observed.forEach(el => {
+      el.style.setProperty('--duration',`${Math.max(0,setting(el,'duration',800))}ms`);
+      el.style.setProperty('--delay',`${Math.max(0,setting(el,'delay',0))}ms`);
+      if (el.dataset.easing) el.style.setProperty('--ease',el.dataset.easing);
+      // Per-element observer gives each reusable preview its own viewport threshold.
+      new IntersectionObserver((entries, ownObserver) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            el.classList.add('is-visible');
+            if (el.dataset.repeat !== 'true') ownObserver.unobserve(el);
+          } else if(el.dataset.repeat === 'true') el.classList.remove('is-visible');
+        });
+      }, {threshold:clamp(setting(el,'trigger',.15))}).observe(el);
+    });
+})();
+</script>

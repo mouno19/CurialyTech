@@ -1,0 +1,113 @@
+<!-- Morphing hamburger · motion-nav-morphing-hamburger: from the Motion: Animated navigation (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/motion-navigation.css, and an ancestor with class="cx-motion-navigation". -->
+<div class="cx-motion-navigation"><div class="w-full">
+<article id="component-1" class="showcase-card">
+      <div class="card-heading">
+       <p class="eyebrow mb-2">01 / INTERACTION</p>
+       <h2 style="color: rgb(23, 33, 36); font-weight: 600; font-style: normal; font-size: 24px;">Morphing Hamburger</h2>
+       <p style="color: rgb(103, 112, 115); font-weight: 400; font-style: normal; font-size: 16px;">A three-line control becomes a close icon.</p>
+      </div>
+      <div id="hamburger-preview" class="preview hamburger-preview">
+       <nav class="hamburger-nav" aria-label="Hamburger demo">
+        <strong>FORM / 01</strong><button id="hamburger-toggle" type="button" class="hamburger-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="hamburger-panel"><span class="hamburger-lines" aria-hidden="true"><span></span><span></span><span></span></span></button>
+       </nav>
+       <p class="mt-16 font-bold" style="font-family:Fraunces,serif;font-size:36px">Less, but better.</p>
+       <div id="hamburger-panel" class="hamburger-panel" inert="">
+        <nav aria-label="Hamburger destinations">
+         <a href="#component-2">Explore patterns ↗</a><a href="#component-7">See mega menu ↗</a><a href="#component-10">View timeline ↗</a>
+        </nav>
+       </div>
+      </div>
+     </article>
+<!-- Present for the suite's shared script (its settings, with their defaults, and parts of other pieces it also drives); hidden: -->
+<div hidden><div id="overlay-preview" class="preview overlay-preview">
+       <div class="flex justify-between items-center">
+        <strong style="font-family:Fraunces,serif;font-size:23px">THE INDEX.</strong><button id="overlay-trigger" class="overlay-trigger" type="button" aria-expanded="false" aria-controls="overlay-sheet">Explore menu ↗</button>
+       </div>
+       <p class="mt-14 max-w-xs" style="font-family:Fraunces,serif;font-size:31px;line-height:1.1">A whole world, one click away.</p>
+       <div id="overlay-sheet" class="overlay-sheet" inert="">
+        <button id="overlay-close" class="overlay-close" type="button" aria-label="Close menu">×</button>
+        <nav aria-label="Fullscreen destinations">
+         <a href="#component-1">The beginning</a><a href="#component-3">The workspace</a><a href="#component-8">The dock</a><a href="#component-10">The journey</a>
+        </nav>
+       </div>
+      </div>
+<button id="overlay-trigger" class="overlay-trigger" type="button" aria-expanded="false" aria-controls="overlay-sheet">Explore menu ↗</button>
+<div id="overlay-sheet" class="overlay-sheet" inert="">
+        <button id="overlay-close" class="overlay-close" type="button" aria-label="Close menu">×</button>
+        <nav aria-label="Fullscreen destinations">
+         <a href="#component-1">The beginning</a><a href="#component-3">The workspace</a><a href="#component-8">The dock</a><a href="#component-10">The journey</a>
+        </nav>
+       </div>
+<div id="mega-preview" class="preview mega-preview">
+       <nav class="mega-top" aria-label="Mega menu">
+        <strong>ATLAS®</strong><button id="mega-trigger" class="mega-trigger" type="button" aria-expanded="false" aria-controls="mega-panel">Explore ↓</button>
+       </nav>
+       <p class="mt-16" style="font-family:Fraunces,serif;font-size:33px">Everything, in its place.</p>
+       <div id="mega-panel" class="mega-panel" inert="">
+        <div class="mega-categories" role="tablist" aria-label="Explore categories">
+         <button type="button" role="tab" class="active" aria-selected="true" data-category="Product">Product</button><button type="button" role="tab" aria-selected="false" data-category="Resources">Resources</button><button type="button" role="tab" aria-selected="false" data-category="Company">Company</button>
+        </div>
+        <div class="mega-detail">
+         <h3 id="mega-heading">Build your next idea.</h3>
+         <p id="mega-description" class="text-sm mb-4">Flexible tools for ambitious teams.</p><a id="mega-link-one" href="#component-2">Components ↗</a><a id="mega-link-two" href="#component-3">Workspace ↗</a>
+        </div>
+       </div>
+      </div>
+<button id="mega-trigger" class="mega-trigger" type="button" aria-expanded="false" aria-controls="mega-panel">Explore ↓</button>
+<div id="mega-panel" class="mega-panel" inert="">
+        <div class="mega-categories" role="tablist" aria-label="Explore categories">
+         <button type="button" role="tab" class="active" aria-selected="true" data-category="Product">Product</button><button type="button" role="tab" aria-selected="false" data-category="Resources">Resources</button><button type="button" role="tab" aria-selected="false" data-category="Company">Company</button>
+        </div>
+        <div class="mega-detail">
+         <h3 id="mega-heading">Build your next idea.</h3>
+         <p id="mega-description" class="text-sm mb-4">Flexible tools for ambitious teams.</p><a id="mega-link-one" href="#component-2">Components ↗</a><a id="mega-link-two" href="#component-3">Workspace ↗</a>
+        </div>
+       </div>
+<nav id="radial-wrap" class="radial-wrap" aria-label="Radial navigation"><button id="radial-toggle" class="radial-center" type="button" aria-label="Open radial menu" aria-expanded="false" aria-controls="radial-options">+</button>
+        <div id="radial-options" style="display:contents" inert=""><button class="radial-item" type="button" data-view="Home">Home</button><button class="radial-item" type="button" data-view="Work">Work</button><button class="radial-item" type="button" data-view="Notes">Notes</button><button class="radial-item" type="button" data-view="Profile">Profile</button>
+        </div>
+       </nav>
+<button id="radial-toggle" class="radial-center" type="button" aria-label="Open radial menu" aria-expanded="false" aria-controls="radial-options">+</button>
+<div id="radial-options" style="display:contents" inert=""><button class="radial-item" type="button" data-view="Home">Home</button><button class="radial-item" type="button" data-view="Work">Work</button><button class="radial-item" type="button" data-view="Notes">Notes</button><button class="radial-item" type="button" data-view="Profile">Profile</button>
+        </div></div>
+</div></div>
+<script>
+(() => {
+const $ = (selector, root=document) => root.querySelector(selector);
+const $$ = (selector, root=document) => [...root.querySelectorAll(selector)];
+function togglePanel(preview, trigger, panel, force) {
+      const open = force === undefined ? !preview.classList.contains('open') : force;
+      preview.classList.toggle('open', open);
+      trigger.setAttribute('aria-expanded', String(open));
+      panel.inert = !open;
+      return open;
+    }
+$('#hamburger-toggle').addEventListener('click', () => {
+      const open = togglePanel($('#hamburger-preview'), $('#hamburger-toggle'), $('#hamburger-panel'));
+      $('#hamburger-toggle').setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
+      if (open) $('#hamburger-panel a').focus();
+    });
+$$('#hamburger-panel a').forEach(link => link.addEventListener('click', () => togglePanel($('#hamburger-preview'), $('#hamburger-toggle'), $('#hamburger-panel'), false)));
+function closeOverlay() {
+      togglePanel($('#overlay-preview'), $('#overlay-trigger'), $('#overlay-sheet'), false);
+      $('#overlay-trigger').focus();
+    }
+document.addEventListener('keydown', event => {
+      if (event.key !== 'Escape') return;
+      if ($('#overlay-preview').classList.contains('open')) closeOverlay();
+      if ($('#hamburger-preview').classList.contains('open')) {
+        togglePanel($('#hamburger-preview'), $('#hamburger-toggle'), $('#hamburger-panel'), false);
+        $('#hamburger-toggle').focus();
+      }
+      if ($('#mega-preview').classList.contains('open')) {
+        togglePanel($('#mega-preview'), $('#mega-trigger'), $('#mega-panel'), false);
+        $('#mega-trigger').focus();
+      }
+      if ($('#radial-wrap').classList.contains('open')) {
+        togglePanel($('#radial-wrap'), $('#radial-toggle'), $('#radial-options'), false);
+        $('#radial-toggle').focus();
+      }
+    });
+})();
+</script>

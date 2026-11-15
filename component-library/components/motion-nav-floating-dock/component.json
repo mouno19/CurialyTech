@@ -1,0 +1,76 @@
+{
+  "id": "motion-nav-floating-dock",
+  "name": "Bottom floating dock",
+  "description": "Bottom floating dock: a dock that magnifies the selected item. From the Animated navigation suite: re-skin it to the design's tokens and timing (--cx-ease, --cx-duration-*), keep its reduced-motion end state, and mix it with other pieces, never the whole suite.",
+  "category": "navigation",
+  "batch": "motion-nav",
+  "collection": "Motion: Animated navigation",
+  "kind": "component",
+  "role": "navigation",
+  "tags": [
+    "motion",
+    "animation",
+    "navigation",
+    "interactive",
+    "floating-dock",
+    "bottom-dock",
+    "dock",
+    "bottom-navigation",
+    "light-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "animated",
+    "interactive",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "stylesheet",
+      "id": "motion-navigation"
+    },
+    {
+      "type": "tokens",
+      "id": "motion-navigation"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "frontend-development",
+    "dashboard-builder"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "navigation",
+    "span": "rail"
+  },
+  "style": {
+    "tokens": "motion-navigation",
+    "mode": "light",
+    "colors": {}
+  },
+  "source": {
+    "file": "motion-components/08_animated_navigation_components.html",
+    "ref": "article id=\"component-8\" #0"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "1793f7c925e54c6f",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

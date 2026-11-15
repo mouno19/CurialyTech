@@ -1,0 +1,28 @@
+<!-- Liquid morph button · motion-button-liquid-morph: from the Motion: Interactive buttons (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/motion-buttons.css, and an ancestor with class="cx-motion-buttons". -->
+<div class="cx-motion-buttons"><div class="w-full">
+<article class=" tile" style="background: rgb(32, 36, 33);">
+      <div class=" stage liquid-stage" style="background: rgb(41, 36, 35);">
+       <button id="liquid" type="button" class=" demo liquid" style="background: rgb(255, 157, 112);"><span style="color: rgb(42, 23, 18); font-weight: 700; font-style: normal; font-size: 16px;">Go with the flow</span></button>
+      </div>
+      <div class="tile-meta">
+       <span class="number">02</span>
+       <div>
+        <h2 style="color: rgb(244, 244, 238); font-weight: 700; font-style: normal; font-size: 24px;">Liquid Morph</h2>
+        <p style="color: rgb(174, 183, 174); font-weight: 400; font-style: normal; font-size: 16px;">An organic silhouette that refuses to sit still.</p>
+       </div>
+      </div>
+     </article>
+</div></div>
+<script>
+(() => {
+const liquid = document.getElementById('liquid');
+liquid.addEventListener('click', () => {
+      liquid.classList.remove('is-active');
+      void liquid.offsetWidth;
+      liquid.classList.add('is-active');
+      clearTimeout(liquid._resetTimer);
+      liquid._resetTimer = setTimeout(() => liquid.classList.remove('is-active'), 420);
+    });
+})();
+</script>

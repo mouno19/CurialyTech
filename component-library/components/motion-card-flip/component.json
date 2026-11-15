@@ -1,0 +1,73 @@
+{
+  "id": "motion-card-flip",
+  "name": "Flip card",
+  "description": "Flip card: a tap or click turns it to the back. From the Animated cards suite: re-skin it to the design's tokens and timing (--cx-ease, --cx-duration-*), keep its reduced-motion end state, and mix it with other pieces, never the whole suite.",
+  "category": "motion",
+  "batch": "motion-card",
+  "collection": "Motion: Animated cards",
+  "kind": "component",
+  "role": "content",
+  "tags": [
+    "motion",
+    "animation",
+    "surface",
+    "css-animation",
+    "flip-card",
+    "card-flip",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "animated",
+    "interactive",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "stylesheet",
+      "id": "motion-cards"
+    },
+    {
+      "type": "tokens",
+      "id": "motion-cards"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "content",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "motion-cards",
+    "mode": "dark",
+    "colors": {}
+  },
+  "source": {
+    "file": "motion-components/07_animated_card_components.html",
+    "ref": "article class=\"demo #1"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "3c9bd406b36c3f7c",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

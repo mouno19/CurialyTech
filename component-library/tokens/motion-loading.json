@@ -1,0 +1,40 @@
+{
+  "id": "motion-loading",
+  "name": "Loading states (dark)",
+  "mode": "dark",
+  "source": "motion-components/09_loading_animation_components.html",
+  "colors": {
+    "background": "#0c171c",
+    "surface": "#142329",
+    "surface2": "#173436",
+    "border": "#30464b",
+    "text": "#edf6f4",
+    "muted": "#82909b",
+    "accent": "#65e6cf",
+    "positive": "#65e6cf",
+    "negative": "#ff8a76",
+    "warning": "#f2d486",
+    "series1": "#65e6cf",
+    "series2": "#385158",
+    "series3": "#82909b",
+    "series4": "#294047",
+    "series5": "#edf6f4",
+    "series6": "#30464b"
+  },
+  "fonts": {
+    "sans": "\"DM Sans\", system-ui, sans-serif",
+    "mono": "\"Space Mono\", ui-monospace, monospace"
+  },
+  "radius": {
+    "card": "22px",
+    "control": "12px"
+  },
+  "spacing": "20px",
+  "motion": {
+    "ease": "cubic-bezier(0.22, 1, 0.36, 1)",
+    "fast": "150ms",
+    "base": "300ms",
+    "reveal": "800ms",
+    "stagger": "80ms"
+  }
+}

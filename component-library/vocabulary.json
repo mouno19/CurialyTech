@@ -1017,7 +1017,10 @@
         "cyber-pop",
         "y2k",
         "holographic",
-        "multiverse"
+        "multiverse",
+        "kinetic",
+        "motion design",
+        "interactive"
       ]
     },
     {
@@ -1110,6 +1113,257 @@
         "brand manifesto",
         "philosophy section",
         "statement section"
+      ]
+    },
+    {
+      "id": "scroll-motion",
+      "tools": [
+        "web-design",
+        "ui-ux-design",
+        "frontend-development"
+      ],
+      "role": "section",
+      "terms": [
+        "scroll reveal",
+        "reveal on scroll",
+        "fade in on scroll",
+        "animate on scroll",
+        "scroll animation",
+        "scroll animations",
+        "scroll effects",
+        "parallax",
+        "staggered",
+        "stagger",
+        "staggered grid",
+        "scrollytelling",
+        "sticky storytelling",
+        "horizontal scroll",
+        "pin and zoom",
+        "zoom on scroll",
+        "text mask",
+        "page transition",
+        "page curtain",
+        "circular reveal",
+        "scroll progress",
+        "reading progress"
+      ]
+    },
+    {
+      "id": "kinetic-type",
+      "tools": [
+        "web-design",
+        "ui-ux-design",
+        "frontend-development"
+      ],
+      "role": "header",
+      "terms": [
+        "kinetic typography",
+        "kinetic type",
+        "kinetic headline",
+        "text scramble",
+        "typewriter",
+        "typing effect",
+        "gradient text",
+        "split text",
+        "text reveal",
+        "rotating text",
+        "variable font",
+        "glitch text",
+        "circular text",
+        "animated headline"
+      ]
+    },
+    {
+      "id": "motion-3d",
+      "tools": [
+        "web-design",
+        "ui-ux-design",
+        "frontend-development"
+      ],
+      "role": "content",
+      "terms": [
+        "3d object",
+        "3d scene",
+        "interactive sphere",
+        "product viewer",
+        "drag to rotate",
+        "isometric",
+        "cube gallery",
+        "perspective tunnel",
+        "orbiting",
+        "3d carousel",
+        "morphing geometry"
+      ]
+    },
+    {
+      "id": "animated-background",
+      "tools": [
+        "web-design",
+        "ui-ux-design",
+        "frontend-development"
+      ],
+      "role": "header",
+      "terms": [
+        "animated background",
+        "background animation",
+        "aurora",
+        "particle background",
+        "particle field",
+        "mesh gradient",
+        "starfield",
+        "floating orbs",
+        "waveform",
+        "film grain",
+        "digital rain",
+        "living background"
+      ]
+    },
+    {
+      "id": "interactive-card",
+      "tools": [
+        "web-design",
+        "ui-ux-design",
+        "frontend-development"
+      ],
+      "role": "content",
+      "terms": [
+        "tilt card",
+        "3d tilt",
+        "hover tilt",
+        "flip card",
+        "glass card",
+        "glassmorphism",
+        "spotlight card",
+        "border glow",
+        "stacked cards",
+        "expandable card",
+        "hover card",
+        "card hover effect"
+      ]
+    },
+    {
+      "id": "micro-interaction",
+      "tools": [
+        "web-design",
+        "ui-ux-design",
+        "frontend-development"
+      ],
+      "role": "content",
+      "terms": [
+        "micro-interaction",
+        "micro-interactions",
+        "microinteraction",
+        "magnetic button",
+        "magnetic",
+        "ripple",
+        "ripple effect",
+        "button animation",
+        "animated button",
+        "animated buttons",
+        "neon button",
+        "glass button",
+        "morphing toggle",
+        "press effect",
+        "hover effect",
+        "confetti"
+      ]
+    },
+    {
+      "id": "animated-navigation",
+      "tools": [
+        "web-design",
+        "ui-ux-design",
+        "frontend-development",
+        "dashboard-builder"
+      ],
+      "role": "navigation",
+      "terms": [
+        "hamburger",
+        "morphing hamburger",
+        "animated menu",
+        "mega menu",
+        "radial menu",
+        "floating dock",
+        "bottom dock",
+        "scroll-aware header",
+        "shrinking header",
+        "sticky header",
+        "liquid tabs",
+        "tab indicator",
+        "fullscreen menu",
+        "scrollspy"
+      ]
+    },
+    {
+      "id": "loading-state",
+      "tools": [
+        "web-design",
+        "ui-ux-design",
+        "frontend-development",
+        "dashboard-builder",
+        "data-analytics"
+      ],
+      "role": "content",
+      "terms": [
+        "loader",
+        "loaders",
+        "loading",
+        "loading state",
+        "loading states",
+        "spinner",
+        "skeleton",
+        "skeleton screen",
+        "shimmer",
+        "progress ring",
+        "thinking indicator",
+        "typing indicator",
+        "upload progress"
+      ]
+    },
+    {
+      "id": "canvas-interaction",
+      "tools": [
+        "web-design",
+        "ui-ux-design",
+        "frontend-development"
+      ],
+      "role": "content",
+      "terms": [
+        "canvas",
+        "cursor trail",
+        "cursor effect",
+        "particles",
+        "particle burst",
+        "gravity",
+        "physics playground",
+        "liquid image",
+        "image distortion",
+        "audio visualizer",
+        "spotlight reveal",
+        "path drawing"
+      ]
+    },
+    {
+      "id": "animated-chart",
+      "tools": [
+        "data-analytics",
+        "dashboard-builder",
+        "web-design",
+        "frontend-development"
+      ],
+      "role": "chart",
+      "terms": [
+        "animated chart",
+        "animated charts",
+        "chart animation",
+        "animated line chart",
+        "animated bar chart",
+        "animated donut",
+        "liquid kpi",
+        "live data",
+        "real-time chart",
+        "realtime chart",
+        "live chart"
       ]
     },
     {

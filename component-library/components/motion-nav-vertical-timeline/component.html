@@ -1,0 +1,70 @@
+<!-- Vertical timeline navigation · motion-nav-vertical-timeline: from the Motion: Animated navigation (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/motion-navigation.css, and an ancestor with class="cx-motion-navigation". -->
+<div class="cx-motion-navigation"><div class="w-full">
+<article id="component-10" class="showcase-card">
+      <div class="card-heading">
+       <p class="eyebrow mb-2">10 / PROGRESS</p>
+       <h2 style="color: rgb(23, 33, 36); font-weight: 600; font-style: normal; font-size: 24px;">Vertical Timeline</h2>
+       <p style="color: rgb(103, 112, 115); font-weight: 400; font-style: normal; font-size: 16px;">A section marker follows the story as you scroll.</p>
+      </div>
+      <div id="timeline-preview" class="preview timeline-preview" tabindex="0" aria-label="Scrollable timeline preview">
+       <nav class="timeline-nav" aria-label="Timeline sections">
+        <a href="#timeline-intro" class="active" aria-current="location">01 Intro</a><a href="#timeline-process">02 Process</a><a href="#timeline-future">03 Future</a>
+       </nav>
+       <div class="timeline-sections">
+        <section id="timeline-intro">
+         <p class="eyebrow">CHAPTER 01</p>
+         <h3>Begin here.</h3>
+         <p>Every story starts with a single step.</p>
+        </section>
+        <section id="timeline-process">
+         <p class="eyebrow">CHAPTER 02</p>
+         <h3>Find your way.</h3>
+         <p>Follow the marker as the journey continues.</p>
+        </section>
+        <section id="timeline-future">
+         <p class="eyebrow">CHAPTER 03</p>
+         <h3>Keep going.</h3>
+         <p>Good navigation makes exploration effortless.</p>
+        </section>
+       </div>
+      </div>
+     </article>
+<!-- Present for the suite's shared script (its settings, with their defaults, and parts of other pieces it also drives); hidden: -->
+<div hidden><nav id="liquid-nav" class="liquid-bar" aria-label="Liquid navigation">
+        <span class="liquid-pill" aria-hidden="true"></span><button type="button" class="active" aria-current="page" data-view="Discover">Discover</button><button type="button" data-view="Projects">Projects</button><button type="button" data-view="Studio">Studio</button><button type="button" data-view="Journal">Journal</button>
+       </nav></div>
+</div></div>
+<script>
+(() => {
+const $ = (selector, root=document) => root.querySelector(selector);
+const $$ = (selector, root=document) => [...root.querySelectorAll(selector)];
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+function positionPill() {
+      const nav = $('#liquid-nav'), active = $('.active', nav), pill = $('.liquid-pill', nav);
+      pill.style.left = active.offsetLeft + 'px';
+      pill.style.width = active.offsetWidth + 'px';
+    }
+$$('.scroll-nav a, .timeline-nav a').forEach(link => link.addEventListener('click', event => {
+      const target = $(link.getAttribute('href'));
+      if (!target) return;
+      event.preventDefault();
+      target.scrollIntoView({behavior:reducedMotion?'instant':'smooth',block:'start'});
+    }));
+function updateTimeline() {
+      const preview = $('#timeline-preview');
+      const sections = $$('.timeline-sections section');
+      let current = sections[0];
+      sections.forEach(section => {
+        if (section.offsetTop - preview.scrollTop < preview.clientHeight * .48) current = section;
+      });
+      $$('.timeline-nav a').forEach(link => {
+        const active = link.getAttribute('href') === '#' + current.id;
+        link.classList.toggle('active', active);
+        if (active) link.setAttribute('aria-current','location');
+        else link.removeAttribute('aria-current');
+      });
+    }
+$('#timeline-preview').addEventListener('scroll', updateTimeline, {passive:true});
+})();
+</script>

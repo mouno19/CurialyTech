@@ -1,0 +1,40 @@
+{
+  "id": "motion-charts",
+  "name": "Animated charts (dark)",
+  "mode": "dark",
+  "source": "motion-components/05_animated_data_visualizations.html",
+  "colors": {
+    "background": "#101917",
+    "surface": "#192522",
+    "surface2": "#234036",
+    "border": "#35433c",
+    "text": "#f0f3e9",
+    "muted": "#a5b8ae",
+    "accent": "#a5efca",
+    "positive": "#a5efca",
+    "negative": "#ff9b82",
+    "warning": "#f2d486",
+    "series1": "#a5efca",
+    "series2": "#ff9b82",
+    "series3": "#f2d486",
+    "series4": "#bdfcda",
+    "series5": "#a5b8ae",
+    "series6": "#35433c"
+  },
+  "fonts": {
+    "sans": "\"DM Sans\", system-ui, sans-serif",
+    "mono": "\"Space Mono\", ui-monospace, monospace"
+  },
+  "radius": {
+    "card": "22px",
+    "control": "12px"
+  },
+  "spacing": "20px",
+  "motion": {
+    "ease": "cubic-bezier(0.22, 1, 0.36, 1)",
+    "fast": "150ms",
+    "base": "300ms",
+    "reveal": "800ms",
+    "stagger": "80ms"
+  }
+}

@@ -1,0 +1,29 @@
+<!-- Split text reveal · motion-type-split-reveal: from the Motion: Kinetic typography (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/motion-type.css, and an ancestor with class="cx-motion-type". -->
+<div class="cx-motion-type"><div class="w-full">
+<article class=" demo-card" style="background: rgb(34, 41, 37);">
+       <div class="card-top">
+        <span class="card-index">05 / ARRIVE</span>
+        <h3 class=" card-title" style="font-weight: 400; font-style: normal; font-size: 19px;">Split text reveal</h3>
+       </div>
+       <div class="stage">
+        <div id="split-line" class="demo-text split-line play">
+         <span class="split-mask"><span style="--i: 0; font-weight: 400; font-style: normal; font-size: 16px;">Ideas</span></span><span class="split-mask"><span style="--i: 1; font-weight: 400; font-style: normal; font-size: 16px;">take</span></span><span class="split-mask"><span style="--i: 2; font-weight: 400; font-style: normal; font-size: 16px;">shape.</span></span>
+        </div>
+       </div>
+       <div class="card-foot">
+        <p class=" hint" style="color: rgb(171, 185, 173); font-weight: 400; font-style: normal; font-size: 16px;">A layered entrance.</p><button id="replay-button" type="button" class=" action" style="background: rgb(48, 60, 49); color: rgb(233, 246, 215); font-weight: 400; font-style: normal; font-size: 16px;">Replay ↗</button>
+       </div>
+      </article>
+</div></div>
+<script>
+(() => {
+const $=id=>document.getElementById(id);
+$('replay-button').addEventListener('click',()=>{
+      const line=$('split-line');
+      line.classList.remove('play');
+      void line.offsetWidth;
+      line.classList.add('play');
+    });
+})();
+</script>

@@ -1,7 +1,7 @@
 import { ruleText } from "./knowledge";
 import { allowedLooks, analyzeRequest } from "./intent";
 import { selectEntries } from "./retrieve";
-import { renderSynthesis, synthesize } from "./synthesis";
+import { motionMixture, renderMotionMixture, renderSynthesis, synthesize } from "./synthesis";
 import type { BriefRole, DesignBrief, DesignEntry, DesignIntent, Surface, WorkspaceFacts } from "./types";
 import { workspaceFacts } from "./workspace";
 
@@ -24,7 +24,8 @@ export function buildBrief(input: { root: string; original: string; latest: stri
   if (!intent.ui) return null;
   const { core, chosen } = selectEntries(intent, budgetFor(intent));
   const synthesis = intent.styles.length ? synthesize({ text: intent.text, ui: intent.ui, avoid: intent.avoid }) : null;
-  return { intent, facts, entries: [...core, ...chosen], visualTest: input.visualTest ?? true, synthesis };
+  const mixture = intent.motionPicks.length ? motionMixture({ text: intent.text, ui: intent.ui, surface: intent.surface, motion: intent.motion, needs: intent.needs, avoid: intent.avoid, synthesis }) : null;
+  return { intent, facts, entries: [...core, ...chosen], visualTest: input.visualTest ?? true, synthesis, motionMixture: mixture };
 }
 
 function projectLine(facts: WorkspaceFacts) {
@@ -91,6 +92,12 @@ export function renderBrief(brief: DesignBrief, role: BriefRole = "solo") {
     lines.push("", role === "reviewer"
       ? `## Style synthesis\nThe direction mixes ${[brief.synthesis.primary, ...brief.synthesis.partners].map(archetype => archetype.name).join(", ")} (base: ${brief.synthesis.primary.name}) on one token set. A build that reproduces one template, or mixes palettes and radii across sections, is a major issue.`
       : renderSynthesis(brief.synthesis));
+  }
+  // The pieces of the motion library the design mixes, when the request asks for motion.
+  if (brief.motionMixture) {
+    lines.push("", role === "reviewer"
+      ? `## Motion mixture\nThe motion mixes ${brief.motionMixture.picks.map(pick => pick.piece.name).join(", ")} by job on the design's tokens and timing. A build that ships a whole motion suite or the scroll mock, runs two continuous animations at once, or has no reduced-motion end state is a major issue.`
+      : renderMotionMixture(brief.motionMixture));
   }
   // The Reviewer checks against the floor, the tells and the recipe; it doesn't need the build guidance.
   const entries = role === "reviewer" ? brief.entries.filter(entry => entry.core || entry.discipline === "surface") : brief.entries;

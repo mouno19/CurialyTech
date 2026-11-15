@@ -1,0 +1,23 @@
+<!-- AI thinking indicator · motion-loader-ai-thinking: from the Motion: Loading states (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/motion-loading.css, and an ancestor with class="cx-motion-loading". -->
+<div class="cx-motion-loading"><div data-state="loading" data-mode="determinate">
+<article class=" card panel p-5" style="background: rgb(20, 35, 41);">
+      <div class="flex justify-between gap-2 items-start">
+       <h2 class=" font-semibold" style="color: rgb(237, 246, 244); font-weight: 600; font-style: normal; font-size: 23px;">AI thinking</h2><span class="mono text-xs text-[#718a91]">09</span>
+      </div>
+      <div class="stage motion" aria-hidden="true">
+       <div class="neural">
+        <svg viewBox="0 0 150 110">
+         <line x1="20" y1="25" x2="74" y2="52"></line><line x1="25" y1="85" x2="74" y2="52"></line><line x1="74" y1="52" x2="128" y2="20"></line><line x1="74" y1="52" x2="130" y2="84"></line><line x1="20" y1="25" x2="25" y2="85"></line><line x1="128" y1="20" x2="130" y2="84"></line><circle cx="20" cy="25" r="5"></circle><circle cx="25" cy="85" r="6"></circle><circle cx="74" cy="52" r="10"></circle><circle cx="128" cy="20" r="6"></circle><circle cx="130" cy="84" r="5"></circle>
+        </svg>
+       </div>
+      </div>
+      <p class=" mt-auto" style="color: rgb(130, 144, 155); font-weight: 400; font-style: normal; font-size: 12px;">Signals across nodes</p>
+      <p class="component-status mono text-xs mt-2" role="status"></p>
+     </article>
+</div></div>
+<script>
+(() => {
+const statuses = document.querySelectorAll('.component-status');
+})();
+</script>

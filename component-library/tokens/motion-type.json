@@ -1,0 +1,41 @@
+{
+  "id": "motion-type",
+  "name": "Kinetic type (dark)",
+  "mode": "dark",
+  "source": "motion-components/02_kinetic_typography_collection.html",
+  "colors": {
+    "background": "#151918",
+    "surface": "#222925",
+    "surface2": "#30372c",
+    "border": "#435047",
+    "text": "#f4f0e8",
+    "muted": "#a9adae",
+    "accent": "#d9fa59",
+    "positive": "#a9c277",
+    "negative": "#ff8a76",
+    "warning": "#f2d486",
+    "series1": "#d9fa59",
+    "series2": "#a9c277",
+    "series3": "#c5cec1",
+    "series4": "#a9adae",
+    "series5": "#435047",
+    "series6": "#f4f0e8"
+  },
+  "fonts": {
+    "sans": "\"DM Sans\", system-ui, sans-serif",
+    "display": "\"Fraunces\", Georgia, serif",
+    "mono": "\"Space Mono\", ui-monospace, monospace"
+  },
+  "radius": {
+    "card": "22px",
+    "control": "12px"
+  },
+  "spacing": "20px",
+  "motion": {
+    "ease": "cubic-bezier(0.22, 1, 0.36, 1)",
+    "fast": "150ms",
+    "base": "300ms",
+    "reveal": "800ms",
+    "stagger": "80ms"
+  }
+}

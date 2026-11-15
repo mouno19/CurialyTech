@@ -1,0 +1,83 @@
+<!-- Starfield · motion-bg-starfield: from the Motion: Animated backgrounds (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/motion-backgrounds.css, and an ancestor with class="cx-motion-backgrounds". -->
+<div class="cx-motion-backgrounds"><div class="app-shell">
+<section aria-label="Live background preview" id="preview" class="preview rounded-[24px] border border-[#466065] shadow-[0_28px_80px_rgba(0,0,0,.28)]">
+      <canvas id="scene" aria-hidden="true"></canvas>
+      <div class="preview-scrim"></div>
+      <div class="preview-content min-h-[460px] max-sm:min-h-[390px] flex flex-col justify-between p-6 sm:p-10">
+       <div class="flex justify-between items-start gap-3"><span class=" status-pill rounded-full px-3 py-2 text-[#d4f5e8] text-xs tracking-widest uppercase" style="color: rgb(212, 245, 232); font-weight: 400; font-style: normal; font-size: 15px;">Live canvas / 01</span> <span id="preview-status" class="status-pill rounded-full px-3 py-2 text-xs text-[#e5f2eb]" aria-live="polite">Playing</span>
+       </div>
+       <div class="max-w-xl">
+        <p class=" eyebrow text-[#c2ead9] text-xs font-bold mb-4" style="color: rgb(194, 234, 217); font-weight: 700; font-style: normal; font-size: 15px;">A LITTLE MORE WONDER</p>
+        <h2 class=" display text-[#ffffff] leading-[1.1] mb-4" style="color: rgb(255, 255, 255); font-weight: 500; font-style: normal; font-size: 23px;">Make room for the extraordinary.</h2>
+        <p class=" text-[#e6f0ec] max-w-md leading-relaxed" style="color: rgb(230, 240, 236); font-weight: 400; font-style: normal; font-size: 15px;">An ambient layer with just enough movement to make a moment feel memorable.</p>
+       </div>
+      </div>
+     </section>
+<!-- Used by this block's script (elsewhere on the page it came from): -->
+<button id="pause-button" type="button" class=" px-4 py-2 rounded-full border border-[#76968e] text-[#d3f1e4] hover:bg-[#304d4c] transition-colors"><span id="pause-label" style="color: rgb(211, 241, 228); font-weight: 400; font-style: normal; font-size: 15px;">Pause motion</span><span id="resume-label" hidden="" style="color: rgb(211, 241, 228); font-weight: 400; font-style: normal; font-size: 15px;">Resume motion</span></button>
+<!-- Present for the suite's shared script (its settings, with their defaults, and parts of other pieces it also drives); hidden: -->
+<div hidden><select id="palette" class=" w-full rounded-lg p-2.5"> <option value="lagoon">Lagoon / mint</option><option value="sunset">Sunset / coral</option><option value="violet">After dark / violet</option><option value="gold">Amber / gold</option><option value="ice">Glacier / blue</option> </select>
+<input id="speed" type="range" min="0" max="100" value="50">
+<input id="intensity" type="range" min="0" max="100" value="65">
+<input id="density" type="range" min="0" max="100" value="55">
+<input id="sensitivity" type="range" min="0" max="100" value="50">
+<input id="transparency" type="range" min="0" max="90" value="0"></div>
+</div></div>
+<script>
+(() => {
+const preview=document.getElementById('preview');
+const canvas=document.getElementById('scene');
+const ctx=canvas.getContext('2d',{alpha:true});
+const palettes={lagoon:['#0b2935','#36c9ae','#73dce5','#c9f8d4'],sunset:['#29172c','#ff785f','#ffb66b','#fce1b0'],violet:['#161531','#9165e6','#e78cd4','#8eaeff'],gold:['#292218','#eda745','#f6d278','#fff0b6'],ice:['#0c2440','#428ed4','#8ed5ed','#d4f4ff']};
+const controls={palette:document.getElementById('palette'),speed:document.getElementById('speed'),intensity:document.getElementById('intensity'),density:document.getElementById('density'),sensitivity:document.getElementById('sensitivity'),transparency:document.getElementById('transparency')};
+const reduced=matchMedia('(prefers-reduced-motion: reduce)');
+let effect="stars";
+let paused=false;
+let visible=true;
+let last=0;
+let clock=0;
+let w=1;
+let h=1;
+let particles=[];
+let pointer={x:.5,y:.5,active:false};
+let raf=0;
+const val=k=>+controls[k].value/100;
+const rgba=(hex,a)=>{const n=parseInt(hex.slice(1),16);return `rgba(${n>>16},${(n>>8)&255},${n&255},${Math.max(0,Math.min(1,a))})`};
+const rng=n=>{let x=Math.sin(n*127.1+78.233)*43758.5453;return x-Math.floor(x)};
+function resize(){
+      const r=preview.getBoundingClientRect();w=Math.max(1,r.width);h=Math.max(1,r.height);
+      const d=Math.min(devicePixelRatio||1,2);canvas.width=Math.round(w*d);canvas.height=Math.round(h*d);ctx.setTransform(d,0,0,d,0,0);makeParticles();draw(clock);
+    }
+function makeParticles(){particles=Array.from({length:Math.min(190,Math.round(20+val('density')*145))},(_,i)=>({x:rng(i+1)*w,y:rng(i+300)*h,z:.2+rng(i+600)*.8,r:1+rng(i+900)*2,phase:rng(i+1200)*6.28}));}
+function glow(x,y,r,color,alpha=1){
+      const g=ctx.createRadialGradient(x,y,0,x,y,Math.max(1,r));g.addColorStop(0,rgba(color,alpha));g.addColorStop(1,rgba(color,0));
+      ctx.fillStyle=g;ctx.fillRect(x-r,y-r,r*2,r*2);
+    }
+function base(c){ctx.fillStyle=c[0];ctx.fillRect(0,0,w,h);}
+function draw(t){
+      const c=palettes[controls.palette.value],I=val('intensity'),S=val('sensitivity'),mx=(pointer.x-.5)*S,my=(pointer.y-.5)*S;
+      ctx.clearRect(0,0,w,h);base(c);
+      {
+        particles.forEach((p,i)=>{let z=(p.z-t*(.035+val('speed')*.08)%1+1)%1,x=w/2+(p.x-w/2)*(1.8-z)*1.4+mx*80,y=h/2+(p.y-h/2)*(1.8-z)*1.4+my*80;if(x<0||x>w||y<0||y>h)return;ctx.fillStyle=rgba(c[3],(.2+I*.7)*(1-z*.5));ctx.beginPath();ctx.arc(x,y,Math.max(.4,(1-z)*2.4),0,7);ctx.fill();});
+      }
+      // Alpha is applied to the effect layer; the dark preview and contrast scrim remain stable.
+      canvas.style.opacity=String(1-val('transparency'));
+    }
+function animate(now){raf=0;if(paused||!visible||document.hidden||reduced.matches)return;const dt=Math.min(40,now-(last||now));last=now;clock+=dt*.001*(.12+val('speed')*2.1);draw(clock);raf=requestAnimationFrame(animate);}
+function updateStatus(){document.getElementById('preview-status').textContent=reduced.matches?'Reduced motion':!visible||document.hidden?'Off screen':paused?'Paused':'Playing';}
+function schedule(){cancelAnimationFrame(raf);raf=0;last=0;updateStatus();draw(clock);if(!paused&&visible&&!document.hidden&&!reduced.matches)raf=requestAnimationFrame(animate);}
+Object.entries(controls).forEach(([key,el])=>el.addEventListener(key==='palette'?'change':'input',()=>{if(key!=='palette')document.getElementById(key+'-value').textContent=el.value+'%';if(key==='density')makeParticles();draw(clock);}));
+const pause=document.getElementById('pause-button');
+pause.addEventListener('click',()=>{paused=!paused;document.getElementById('pause-label').hidden=paused;document.getElementById('resume-label').hidden=!paused;pause.setAttribute('aria-label',paused?'Resume motion':'Pause motion');schedule();});
+function point(e){const r=preview.getBoundingClientRect();pointer.x=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));pointer.y=Math.max(0,Math.min(1,(e.clientY-r.top)/r.height));pointer.active=true;if(paused||reduced.matches)draw(clock);}
+preview.addEventListener('pointermove',point);
+preview.addEventListener('pointerleave',()=>{pointer.active=false;pointer.x=.5;pointer.y=.5;if(paused||reduced.matches)draw(clock);});
+document.addEventListener('visibilitychange',schedule);
+const observer=new IntersectionObserver(entries=>{visible=entries[0].isIntersecting;schedule()},{threshold:.01});
+observer.observe(preview);
+new ResizeObserver(resize).observe(preview);
+resize();
+schedule();
+})();
+</script>

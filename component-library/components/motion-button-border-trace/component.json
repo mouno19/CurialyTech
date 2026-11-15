@@ -1,0 +1,72 @@
+{
+  "id": "motion-button-border-trace",
+  "name": "Border trace button",
+  "description": "Border trace button: a glint travels around the edge. From the Interactive buttons suite: re-skin it to the design's tokens and timing (--cx-ease, --cx-duration-*), keep its reduced-motion end state, and mix it with other pieces, never the whole suite.",
+  "category": "motion",
+  "batch": "motion-button",
+  "collection": "Motion: Interactive buttons",
+  "kind": "component",
+  "role": "content",
+  "tags": [
+    "motion",
+    "animation",
+    "control",
+    "css-animation",
+    "border-trace",
+    "animated-border",
+    "traveling-border",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "animated"
+  ],
+  "dependencies": [
+    {
+      "type": "stylesheet",
+      "id": "motion-buttons"
+    },
+    {
+      "type": "tokens",
+      "id": "motion-buttons"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "content",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "motion-buttons",
+    "mode": "dark",
+    "colors": {}
+  },
+  "source": {
+    "file": "motion-components/10_interactive_button_showcase.html",
+    "ref": "article data-template-id=\"card-trace\" #0"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "7c67db53194826db",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

@@ -160,6 +160,29 @@ of several archetypes to one theme, and a plan that leans on one archetype says 
 copies are text-safe in their own theme too: the importer writes shorthand colours in full and puts
 the token set's `replaced` shades in place of the template colours that fail.
 
+## Motion library and mixture
+
+The ten motion suites and the scroll motion mock (`component-library/motion-components`,
+`component-library/motion-mocks`) are catalogued in `knowledge/motion.ts`: ten families and 100
+pieces, each with a slot (hero, type, scroll, surface, control, navigation, feedback, data,
+ambient), a cost (CSS, script on events, continuous loop), request signals, the looks it is built
+on, and whether it is a study made for show (glitch, digital rain, gravity, particle bursts, cursor
+trails, audio visualizers). New rules: `motion-mixture` (a few pieces by job, one continuous
+animation, the design's tokens and timing, reduced-motion end states), `interactive-motion`
+(magnetic pull, tilt, press, pointer light, with numbers) and `scroll-kit` (the mock's reveal and
+progress recipes).
+
+`synthesis.ts` (`motionMixture`) applies when a request names pieces or asks for motion: what it
+names, longest phrase first (a phrase inside a longer match belongs to that one); then, for a
+request that asks for motion in general, defaults that suit its kind of site (landing, portfolio,
+dashboard, docs, storefront, media, game…), one per open slot, varied by the request's text. At most
+one continuous animation from the defaults (two only when the user names them, never on screen
+together); a hero loop by default only when nothing is named or the hero or background is
+mentioned; studies made for show only by name; "no 3d", "no particles", "static" are honoured. Only
+the pieces the user named make their looks deliberate (glass, gradient text, violet). The brief gets
+a "Motion mixture" section with the pieces and their component ids, the shared timing tokens, the
+budget and the reduced-motion rule; the pieces go on the style synthesis's tokens when there is one.
+
 ## What the benchmark changed
 
 Six benchmark tasks were run on production before and after the release. In the after set, a blind

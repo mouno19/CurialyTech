@@ -1,0 +1,141 @@
+<!-- Parallax layers · motion-scroll-parallax: from the Motion: Scroll motion patterns (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/motion-scroll.css, and an ancestor with class="cx-motion-scroll". -->
+<div class="cx-motion-scroll"><div class="w-full">
+<section id="parallax" class="demo-section">
+    <div class="max-w-7xl mx-auto px-5 md:px-10 grid lg:grid-cols-[310px_1fr] gap-8 lg:gap-16">
+     <div>
+      <p class="eyebrow">03 / Depth</p>
+      <h2 class=" serif mt-4 mb-4" style="color: rgb(241, 238, 228); font-weight: 400; font-style: normal; font-size: 24px;">Parallax layers</h2>
+      <p class=" leading-relaxed" style="color: rgb(174, 184, 170); font-weight: 400; font-style: normal; font-size: 16px;">Different speeds create a subtle sense of distance and depth.</p>
+      <p class="setting mt-6">Set data-speed on each layer. The page keeps its native scroll.</p>
+     </div>
+     <div id="parallax-preview" class=" demo-panel parallax-window" style="background: rgb(28, 37, 32);">
+      <div class="parallax-back" data-parallax="" data-speed="0.16"></div>
+      <div class="parallax-orb" data-parallax="" data-speed="-0.12"></div>
+      <div class="absolute z-10 top-9 left-9">
+       <span class="preview-label">A LANDSCAPE IN LAYERS</span>
+      </div>
+      <div class="parallax-front" data-parallax="" data-speed="-0.22"></div>
+     </div>
+    </div>
+   </section>
+<!-- Used by this block's script (elsewhere on the page it came from): -->
+<div data-template-id="progress-track" class=" w-full" role="progressbar" aria-label="Reading progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" style="background: rgb(55, 65, 57);">
+    <div id="reading-fill" class="reading-fill"></div>
+   </div>
+<!-- Present for the suite's shared script (its settings, with their defaults, and parts of other pieces it also drives); hidden: -->
+<div hidden><div id="horizontal-stage" class="scroll-stage" data-travel="1">
+      <div class=" demo-panel stage-sticky" style="background: rgb(28, 37, 32);">
+       <div id="journey-track" class="journey-track">
+        <article class="journey-card bg-[#d5f36a] text-[#101613]">
+         <span>CHAPTER 01 — ORIGIN</span>
+         <h3 class=" serif" style="color: rgb(16, 22, 19); font-weight: 400; font-style: normal; font-size: 40px;">Every journey begins somewhere.</h3><span>↓ SCROLL TO CONTINUE</span>
+        </article>
+        <article class="journey-card bg-[#d9a88d] text-[#101613]">
+         <span>CHAPTER 02 — MOTION</span>
+         <h3 class=" serif" style="color: rgb(16, 22, 19); font-weight: 400; font-style: normal; font-size: 40px;">Find a different rhythm.</h3><span>THE STORY MOVES SIDEWAYS →</span>
+        </article>
+        <article class="journey-card bg-[#b9cbbf] text-[#101613]">
+         <span>CHAPTER 03 — ARRIVAL</span>
+         <h3 class=" serif" style="color: rgb(16, 22, 19); font-weight: 400; font-style: normal; font-size: 40px;">See where it takes you.</h3><span>THE NEXT CHAPTER IS YOURS ↗</span>
+        </article>
+       </div>
+      </div>
+     </div>
+<div id="story-stage" class="story-stage" data-scenes="3">
+      <div class=" demo-panel story-sticky" style="background: rgb(28, 37, 32);">
+       <div class="story-scene active bg-[#33564d]">
+        <div>
+         <span class="preview-label">SCENE / 01</span>
+         <h3 class=" serif mt-4" style="color: rgb(241, 238, 228); font-weight: 400; font-style: normal; font-size: 47px;">First, imagine the possibility.</h3>
+        </div>
+       </div>
+       <div class="story-scene bg-[#86584b]">
+        <div>
+         <span class="preview-label">SCENE / 02</span>
+         <h3 class=" serif mt-4" style="color: rgb(241, 238, 228); font-weight: 400; font-style: normal; font-size: 47px;">Then, follow the feeling.</h3>
+        </div>
+       </div>
+       <div class="story-scene bg-[#343c60]">
+        <div>
+         <span class="preview-label">SCENE / 03</span>
+         <h3 class=" serif mt-4" style="color: rgb(241, 238, 228); font-weight: 400; font-style: normal; font-size: 47px;">Finally, make it real.</h3>
+        </div>
+       </div><span class="absolute right-7 top-7 z-10 preview-label">SCROLL TO CHANGE THE SCENE</span>
+      </div>
+     </div>
+<div id="zoom-stage" class="zoom-stage" data-max-scale="1.38">
+      <div class=" demo-panel zoom-sticky" style="background: rgb(28, 37, 32);"><img id="zoom-image" class=" zoom-image" loading="lazy" src="https://images.pexels.com/photos/167964/pexels-photo-167964.jpeg?auto=compress&amp;cs=tinysrgb&amp;w=1280" alt="Sunlight breaking through a mountain landscape">
+       <div class="image-shade"></div>
+       <div class="absolute bottom-8 left-8 md:bottom-14 md:left-14">
+        <span class="preview-label">LOOK A LITTLE CLOSER</span>
+        <h3 class=" serif mt-3" style="color: rgb(241, 238, 228); font-weight: 400; font-style: normal; font-size: 46px;">The details change everything.</h3>
+       </div>
+      </div>
+     </div>
+<circle id="progress-ring" cx="80" cy="80" r="68" fill="none" stroke="#d5f36a" stroke-width="5" stroke-linecap="round" stroke-dasharray="427.26" stroke-dashoffset="427.26"></circle>
+<span id="progress-value" class="absolute inset-0 flex items-center justify-center serif text-4xl" aria-live="off">0%</span>
+<div id="journey-track" class="journey-track">
+        <article class="journey-card bg-[#d5f36a] text-[#101613]">
+         <span>CHAPTER 01 — ORIGIN</span>
+         <h3 class=" serif" style="color: rgb(16, 22, 19); font-weight: 400; font-style: normal; font-size: 40px;">Every journey begins somewhere.</h3><span>↓ SCROLL TO CONTINUE</span>
+        </article>
+        <article class="journey-card bg-[#d9a88d] text-[#101613]">
+         <span>CHAPTER 02 — MOTION</span>
+         <h3 class=" serif" style="color: rgb(16, 22, 19); font-weight: 400; font-style: normal; font-size: 40px;">Find a different rhythm.</h3><span>THE STORY MOVES SIDEWAYS →</span>
+        </article>
+        <article class="journey-card bg-[#b9cbbf] text-[#101613]">
+         <span>CHAPTER 03 — ARRIVAL</span>
+         <h3 class=" serif" style="color: rgb(16, 22, 19); font-weight: 400; font-style: normal; font-size: 40px;">See where it takes you.</h3><span>THE NEXT CHAPTER IS YOURS ↗</span>
+        </article>
+       </div>
+<img id="zoom-image" class=" zoom-image" loading="lazy" src="https://images.pexels.com/photos/167964/pexels-photo-167964.jpeg?auto=compress&amp;cs=tinysrgb&amp;w=1280" alt="Sunlight breaking through a mountain landscape"></div>
+</div></div>
+<script>
+(() => {
+const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+const clamp = (n,min=0,max=1) => Math.min(max,Math.max(min,n));
+const setting = (el,key,fallback) => Number.isFinite(Number(el.dataset[key])) ? Number(el.dataset[key]) : fallback;
+const parallax = document.getElementById('parallax-preview');
+const horizontal = document.getElementById('horizontal-stage');
+const story = document.getElementById('story-stage');
+const zoom = document.getElementById('zoom-stage');
+const progressTrack = document.querySelector('[data-template-id="progress-track"]');
+function stageProgress(el) {
+      const rect = el.getBoundingClientRect();
+      return clamp(-rect.top / Math.max(1,rect.height-window.innerHeight));
+    }
+function renderScroll() {
+      const maxScroll = Math.max(1,document.documentElement.scrollHeight-window.innerHeight);
+      const percent = clamp(window.scrollY/maxScroll);
+      document.getElementById('reading-fill').style.width = `${percent*100}%`;
+      document.getElementById('progress-ring').style.strokeDashoffset = String(427.26*(1-percent));
+      document.getElementById('progress-value').textContent = `${Math.round(percent*100)}%`;
+      progressTrack.setAttribute('aria-valuenow',String(Math.round(percent*100)));
+      if (reduced.matches) {
+        parallax.querySelectorAll('[data-parallax]').forEach(layer => layer.style.transform='none');
+        document.getElementById('journey-track').style.transform='none';
+        document.getElementById('zoom-image').style.transform='none';
+      } else {
+        const parRect=parallax.getBoundingClientRect();
+        if(parRect.bottom>0 && parRect.top<window.innerHeight) {
+          const offset=parRect.top+parRect.height/2-window.innerHeight/2;
+          parallax.querySelectorAll('[data-parallax]').forEach(layer => {
+            layer.style.transform=`translate3d(0,${-offset*setting(layer,'speed',.1)}px,0)`;
+          });
+        }
+        const track=document.getElementById('journey-track');
+        const travel=Math.max(0,track.scrollWidth-horizontal.clientWidth);
+        track.style.transform=`translate3d(${-travel*stageProgress(horizontal)*setting(horizontal,'travel',1)}px,0,0)`;
+        const img=document.getElementById('zoom-image');
+        const scale=1+(Math.max(1,setting(zoom,'maxScale',1.38))-1)*stageProgress(zoom);
+        img.style.transform=`scale(${scale})`;
+      }
+      const scenes=[...story.querySelectorAll('.story-scene')];
+      const active=Math.min(scenes.length-1,Math.floor(stageProgress(story)*scenes.length));
+      scenes.forEach((scene,i)=>scene.classList.toggle('active',i===active));
+      ticking=false;
+    }
+let ticking=false;
+})();
+</script>

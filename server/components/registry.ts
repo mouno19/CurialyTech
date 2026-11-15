@@ -61,6 +61,8 @@ export type TokenSet = {
   aliases?: Record<string, string>;
   /** Colours of the source the library copy replaced with a text-safe shade (source → shade). */
   replaced?: Record<string, string>;
+  /** Timing (ease, durations, stagger); tokens.css falls back to the shared motion timing. */
+  motion?: Record<string, string>;
 };
 
 export type Concept = { id: string; tools: string[]; role: string; terms: string[] };

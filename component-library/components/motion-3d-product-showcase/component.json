@@ -1,0 +1,77 @@
+{
+  "id": "motion-3d-product-showcase",
+  "name": "Product showcase",
+  "description": "Product showcase: drag to rotate a dimensional product. From the 3D motion suite: re-skin it to the design's tokens and timing (--cx-ease, --cx-duration-*), keep its reduced-motion end state, and mix it with other pieces, never the whole suite.",
+  "category": "motion",
+  "batch": "motion-3d",
+  "collection": "Motion: 3D motion",
+  "kind": "component",
+  "role": "content",
+  "tags": [
+    "motion",
+    "animation",
+    "hero",
+    "interactive",
+    "product-showcase",
+    "product-viewer",
+    "drag-to-rotate",
+    "360-view",
+    "rotate-product",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "animated",
+    "interactive",
+    "keyboard",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "stylesheet",
+      "id": "motion-3d"
+    },
+    {
+      "type": "tokens",
+      "id": "motion-3d"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "content",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "motion-3d",
+    "mode": "dark",
+    "colors": {}
+  },
+  "source": {
+    "file": "motion-components/03_3d_motion_components.html",
+    "ref": "article data-template-id=\"card-product\" #0"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "71fe1b53c88786b2",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

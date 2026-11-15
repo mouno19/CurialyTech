@@ -1,0 +1,84 @@
+{
+  "id": "motion-nav-vertical-timeline",
+  "name": "Vertical timeline navigation",
+  "description": "Vertical timeline navigation: a marker follows the section being read. From the Animated navigation suite: re-skin it to the design's tokens and timing (--cx-ease, --cx-duration-*), keep its reduced-motion end state, and mix it with other pieces, never the whole suite. (In the source: \"Begin here.\".)",
+  "category": "navigation",
+  "batch": "motion-nav",
+  "collection": "Motion: Animated navigation",
+  "kind": "component",
+  "role": "navigation",
+  "tags": [
+    "motion",
+    "animation",
+    "navigation",
+    "interactive",
+    "timeline-navigation",
+    "scrollspy",
+    "section-marker",
+    "table-of-contents",
+    "line-chart",
+    "trend",
+    "time-series",
+    "timeline",
+    "schedule",
+    "planning",
+    "project-management",
+    "light-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "animated",
+    "interactive",
+    "keyboard",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "stylesheet",
+      "id": "motion-navigation"
+    },
+    {
+      "type": "tokens",
+      "id": "motion-navigation"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "frontend-development",
+    "dashboard-builder"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "navigation",
+    "span": "rail"
+  },
+  "style": {
+    "tokens": "motion-navigation",
+    "mode": "light",
+    "colors": {}
+  },
+  "source": {
+    "file": "motion-components/08_animated_navigation_components.html",
+    "ref": "article id=\"component-10\" #0"
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "07735f4edebb03bb",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

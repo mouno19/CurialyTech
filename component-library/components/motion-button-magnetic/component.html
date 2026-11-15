@@ -1,0 +1,35 @@
+<!-- Magnetic button · motion-button-magnetic: from the Motion: Interactive buttons (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/motion-buttons.css, and an ancestor with class="cx-motion-buttons". -->
+<div class="cx-motion-buttons"><div class="w-full">
+<article class=" tile" style="background: rgb(32, 36, 33);">
+      <div class=" stage mag-stage" style="background: radial-gradient(circle, rgb(44, 64, 52), rgb(23, 35, 30) 70%);">
+       <button id="magnetic" type="button" class=" demo magnetic" style="background: rgb(201, 242, 124);"><span style="color: rgb(23, 32, 25); font-weight: 700; font-style: normal; font-size: 16px;">Come closer ↗</span></button>
+      </div>
+      <div class="tile-meta">
+       <span class="number">01</span>
+       <div>
+        <h2 style="color: rgb(244, 244, 238); font-weight: 700; font-style: normal; font-size: 24px;">Magnetic Button</h2>
+        <p style="color: rgb(174, 183, 174); font-weight: 400; font-style: normal; font-size: 16px;">A gentle pull that follows your pointer.</p>
+       </div>
+      </div>
+     </article>
+<!-- Present for the suite's shared script (its settings, with their defaults, and parts of other pieces it also drives); hidden: -->
+<div hidden><input id="effect-intensity" type="range" min="50" max="150" value="100"></div>
+</div></div>
+<script>
+(() => {
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+const magnetic = document.getElementById('magnetic');
+const magneticStage = magnetic.parentElement;
+magneticStage.addEventListener('pointermove', e => {
+      if (reducedMotion.matches || e.pointerType === 'touch') return;
+      const bounds = magneticStage.getBoundingClientRect();
+      const strength = Number(document.getElementById('effect-intensity').value) / 100;
+      const x = Math.max(-35, Math.min(35, (e.clientX - bounds.left - bounds.width / 2) * .17 * strength));
+      const y = Math.max(-25, Math.min(25, (e.clientY - bounds.top - bounds.height / 2) * .22 * strength));
+      magnetic.style.transform = `translate(${x}px, ${y}px)`;
+    });
+magneticStage.addEventListener('pointerleave', () => { magnetic.style.transform = ''; });
+magnetic.addEventListener('blur', () => { magnetic.style.transform = ''; });
+})();
+</script>
