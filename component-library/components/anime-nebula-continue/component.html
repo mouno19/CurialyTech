@@ -1,0 +1,52 @@
+<!-- Continue watching shelf (Nebula Anime) · anime-nebula-continue: from the Anime archetype: Nebula Anime (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/anime-streaming-nebula-cosmic.css, and an ancestor with class="cx-anime-streaming-nebula-cosmic". -->
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+<div class="cx-anime-streaming-nebula-cosmic">
+<section id="continue" class="shelf" aria-labelledby="continue-title">
+     <div class="shelf-heading">
+      <div>
+       <h2 id="continue-title">Continue Watching</h2>
+       <p>Pick up where the story left off</p>
+      </div>
+      <div class="shelf-controls">
+       <button class="arrow" data-scroll="continue-row" data-direction="-1" aria-label="Scroll Continue Watching left"><i data-lucide="chevron-left"></i></button><button class="arrow" data-scroll="continue-row" data-direction="1" aria-label="Scroll Continue Watching right"><i data-lucide="chevron-right"></i></button>
+      </div>
+     </div>
+     <div id="continue-row" class="cards"></div>
+     <p class="empty">No titles match your search.</p>
+    </section>
+<!-- Used by this block's script (elsewhere on the page it came from): -->
+<button id="search-toggle" class="icon-button" aria-label="Search titles" aria-expanded="false"><i data-lucide="search"></i></button>
+<div id="search-wrap" class="search-wrap">
+    <label for="search-input" style="position:absolute;left:-9999px">Search anime titles</label><input id="search-input" type="search" placeholder="Search the nebula…">
+   </div>
+</div>
+<script>
+const titles={
+      neon:{name:"Neon Requiem",image:"neon",genre:"Sci-Fi · Action",year:"2025",label:"EP 08",description:"In a city where memories are currency, one runaway discovers a secret powerful enough to rewrite the stars."},
+      astral:{name:"Astral Children",image:"prince",genre:"Fantasy · Adventure",year:"2025",label:"EP 12",description:"A constellation of unlikely heroes follows a mysterious signal across the edge of the universe."},
+      midnight:{name:"Midnight District",image:"city",genre:"Mystery · Sci-Fi",year:"2024",label:"EP 06",description:"Every street hides a secret in a city that only comes alive after dark."},
+      crimson:{name:"Crimson Horizon",image:"mountain",genre:"Action · Fantasy",year:"2025",label:"EP 10",description:"A young guardian journeys beyond the mountains to confront the coming crimson dawn."},
+      verdant:{name:"The Verdant Oath",image:"forest",genre:"Fantasy · Drama",year:"2024",label:"EP 04",description:"Deep in an ancient forest, a forgotten promise binds two worlds together."},
+      echo:{name:"Echoes of Tomorrow",image:"future",genre:"Sci-Fi · Thriller",year:"2025",label:"EP 03",description:"A time-worn signal gives one explorer a glimpse of a future that should not exist."},
+      phantom:{name:"Phantom Bloom",image:"cosplay",genre:"Supernatural · Action",year:"2025",label:"EP 09",description:"A fearless outsider discovers extraordinary powers beneath the city's ordinary facade."},
+      paper:{name:"Paper Moon Tokyo",image:"mural",genre:"Slice of Life · Drama",year:"2024",label:"EP 07",description:"Art, friendship, and second chances collide under the lights of Osaka."},
+      after:{name:"Afterglow 2099",image:"diner",genre:"Cyberpunk · Mystery",year:"2025",label:"NEW",description:"A neon-lit diner becomes the unlikely meeting point for people caught between two realities."}
+    };
+const searchToggle=document.getElementById("search-toggle"),searchWrap=document.getElementById("search-wrap"),searchInput=document.getElementById("search-input");
+document.querySelectorAll("[data-scroll]").forEach(button=>button.addEventListener("click",()=>{
+      const row=document.getElementById(button.dataset.scroll);
+      row.scrollBy({left:Number(button.dataset.direction)*(row.querySelector(".anime-card").getBoundingClientRect().width+17)*2,behavior:"smooth"});
+    }));
+function filterCards(){
+      const query=searchInput.value.trim().toLowerCase();
+      document.querySelectorAll(".shelf").forEach(shelf=>{
+        let visible=0;
+        shelf.querySelectorAll(".anime-card").forEach(card=>{
+          const match=titles[card.dataset.title].name.toLowerCase().includes(query)||titles[card.dataset.title].genre.toLowerCase().includes(query);
+          card.hidden=!match;card.style.display=match?"":"none";if(match)visible++;
+        });
+        shelf.querySelector(".empty").style.display=visible?"none":"block";
+      });
+    }
+</script>

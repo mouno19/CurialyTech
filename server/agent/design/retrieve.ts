@@ -10,11 +10,15 @@ const BASE: Record<Discipline, number> = {
   process: 0, surface: 0, typography: 4, color: 4, layout: 3, components: 2, copy: 2, imagery: 2, motion: 2, accessibility: 1, performance: 1, immersive: 2,
 };
 
-/** A rule survives unless the request asked for exactly what it warns against (a refusal like "no glass" keeps it). */
-export const keepRule = (rule: Rule, intent: Pick<DesignIntent, "original" | "latest">) => typeof rule === "string" || !askedFor(intent, rule.unless);
+/**
+ * A rule survives unless the request asked for exactly what it warns against (a refusal like "no
+ * glass" keeps it), or a style archetype the design deliberately mixes is built on that look.
+ */
+export const keepRule = (rule: Rule, intent: Pick<DesignIntent, "original" | "latest"> & { granted?: string[] }) =>
+  typeof rule === "string" || !(askedFor(intent, rule.unless) || (rule.look !== undefined && (intent.granted ?? []).includes(rule.look)));
 
 /** The entry as the request will see it: its rules filtered by what the user asked for. */
-export function applicable(entry: DesignEntry, intent: Pick<DesignIntent, "original" | "latest">): DesignEntry | null {
+export function applicable(entry: DesignEntry, intent: Pick<DesignIntent, "original" | "latest"> & { granted?: string[] }): DesignEntry | null {
   const rules = entry.rules.filter(rule => keepRule(rule, intent));
   return rules.length ? { ...entry, rules } : null;
 }

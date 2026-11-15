@@ -1,6 +1,7 @@
 import { ruleText } from "./knowledge";
 import { allowedLooks, analyzeRequest } from "./intent";
 import { selectEntries } from "./retrieve";
+import { renderSynthesis, synthesize } from "./synthesis";
 import type { BriefRole, DesignBrief, DesignEntry, DesignIntent, Surface, WorkspaceFacts } from "./types";
 import { workspaceFacts } from "./workspace";
 
@@ -14,7 +15,7 @@ const budgetFor = (intent: DesignIntent) => KNOWLEDGE_BUDGET + (intent.needs.inc
 
 const SURFACE_LABEL: Record<Surface, string> = {
   landing: "product landing page", storefront: "storefront", dashboard: "data dashboard", editorial: "long-form editorial page", showcase: "product showcase",
-  app: "app interface", portfolio: "portfolio site", docs: "documentation site", game: "browser game", general: "web interface",
+  app: "app interface", portfolio: "portfolio site", docs: "documentation site", game: "browser game", media: "anime, streaming or entertainment site", general: "web interface",
 };
 
 export function buildBrief(input: { root: string; original: string; latest: string; imageAttached: boolean; facts?: WorkspaceFacts; visualTest?: boolean }): DesignBrief | null {
@@ -22,7 +23,8 @@ export function buildBrief(input: { root: string; original: string; latest: stri
   const intent = analyzeRequest({ original: input.original, latest: input.latest, imageAttached: input.imageAttached, facts });
   if (!intent.ui) return null;
   const { core, chosen } = selectEntries(intent, budgetFor(intent));
-  return { intent, facts, entries: [...core, ...chosen], visualTest: input.visualTest ?? true };
+  const synthesis = intent.styles.length ? synthesize({ text: intent.text, ui: intent.ui, avoid: intent.avoid }) : null;
+  return { intent, facts, entries: [...core, ...chosen], visualTest: input.visualTest ?? true, synthesis };
 }
 
 function projectLine(facts: WorkspaceFacts) {
@@ -84,6 +86,12 @@ export function renderBrief(brief: DesignBrief, role: BriefRole = "solo") {
   if (intent.avoid.length) lines.push(`The user asked to avoid: ${intent.avoid.map(cue => `"${cue}"`).join(", ")}.`);
   if (intent.reference) lines.push("An image is attached: treat it as the reference to match before adding anything of your own.");
   lines.push("", "## How to work", ...workflow(role, intent, facts, brief.visualTest));
+  // The mixture of style archetypes, when the request calls for them: the direction to plan, build and check against.
+  if (brief.synthesis) {
+    lines.push("", role === "reviewer"
+      ? `## Style synthesis\nThe direction mixes ${[brief.synthesis.primary, ...brief.synthesis.partners].map(archetype => archetype.name).join(", ")} (base: ${brief.synthesis.primary.name}) on one token set. A build that reproduces one template, or mixes palettes and radii across sections, is a major issue.`
+      : renderSynthesis(brief.synthesis));
+  }
   // The Reviewer checks against the floor, the tells and the recipe; it doesn't need the build guidance.
   const entries = role === "reviewer" ? brief.entries.filter(entry => entry.core || entry.discipline === "surface") : brief.entries;
   lines.push("", "## Guidance", ...entries.map(section));

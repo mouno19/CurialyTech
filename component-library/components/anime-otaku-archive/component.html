@@ -1,0 +1,52 @@
+<!-- Archive of dossier cards (Otaku OS) · anime-otaku-archive: from the Anime archetype: Otaku OS (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/anime-terminal-otaku-os.css, and an ancestor with class="cx-anime-terminal-otaku-os". -->
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+<div class="cx-anime-terminal-otaku-os">
+<section id="archive" aria-labelledby="archive-title">
+     <div class="section-header">
+      <div>
+       <div class="section-kicker">
+        CURATED FOR YOUR FREQUENCY
+       </div>
+       <h2 id="archive-title">Explore the archive<span style="color:var(--cyan)">_</span></h2>
+      </div>
+      <div class="result-count" id="result-count" aria-live="polite">
+       08 FILES FOUND
+      </div>
+     </div>
+     <div class="filters" role="group" aria-label="Filter by genre"><button type="button" class="filter active" data-filter="All" aria-pressed="true">ALL SIGNALS</button> <button type="button" class="filter" data-filter="Cyberpunk" aria-pressed="false">CYBERPUNK</button> <button type="button" class="filter" data-filter="Action" aria-pressed="false">ACTION</button> <button type="button" class="filter" data-filter="Mystery" aria-pressed="false">MYSTERY</button> <button type="button" class="filter" data-filter="Slice of Life" aria-pressed="false">SLICE OF LIFE</button>
+     </div>
+     <div class="cards" id="cards"></div>
+     <div class="empty" id="empty">
+      <i data-lucide="search-x"></i>
+      <h3>No matching signals</h3>
+      <p>Try another keyword or switch to all signals.</p>
+     </div>
+    </section>
+<!-- Used by this block's script (elsewhere on the page it came from): -->
+<input id="search" type="search" aria-label="Search the anime archive" placeholder="Search the archive by title, genre, or keyword..." autocomplete="off">
+<button class="clear-search" id="clear-search" type="button" aria-label="Clear search"><i data-lucide="x"></i></button>
+</div>
+<script>
+const titles=[
+      {id:"neon",title:"Neon Requiem",genre:"Cyberpunk",rating:"9.4",year:"2025",tag:"FEATURED",image:"https://images.pexels.com/photos/31971485/pexels-photo-31971485.jpeg",alt:"A person in neon cyberpunk costume poses dramatically at night.",description:"In a city where memories are currency, one rogue runner discovers the truth buried beneath the neon."},
+      {id:"ghost",title:"Ghost Protocol",genre:"Cyberpunk",rating:"9.2",year:"2024",tag:"TRENDING",image:"https://images.pexels.com/photos/31971471/pexels-photo-31971471.jpeg",alt:"Cosplayer in neon lighting with cyberpunk mask at night, capturing a futuristic aesthetic.",description:"A masked operative follows a signal through the city's underground networks and uncovers a dangerous digital conspiracy."},
+      {id:"tokyo",title:"Tokyo Afterglow",genre:"Slice of Life",rating:"8.8",year:"2025",tag:"NEW DROP",image:"https://images.pexels.com/photos/18867525/pexels-photo-18867525.jpeg",alt:"Vibrant Tokyo street scene at night with neon lights and wet pavement reflections.",description:"On rain-washed streets, a group of night-shift strangers find unexpected friendship in the hours before dawn."},
+      {id:"void",title:"Void Runner",genre:"Action",rating:"9.1",year:"2023",tag:"TOP RATED",image:"https://images.pexels.com/photos/8107980/pexels-photo-8107980.jpeg",alt:"A woman in cyberpunk attire with neon lighting creating a futuristic scene.",description:"An outlaw courier races across a fractured megacity carrying a secret that could change everything."},
+      {id:"midnight",title:"Midnight District",genre:"Mystery",rating:"8.9",year:"2024",tag:"EDITOR'S PICK",image:"https://images.pexels.com/photos/30780336/pexels-photo-30780336.jpeg",alt:"Illuminated Tokyo street with vibrant signs at night, showcasing urban Japan.",description:"When the city's lights begin to flicker in a mysterious pattern, a young detective follows the clues into its hidden past."},
+      {id:"relic",title:"Relic Sequence",genre:"Action",rating:"8.7",year:"2022",tag:"CLASSIC",image:"https://images.pexels.com/photos/5795428/pexels-photo-5795428.jpeg",alt:"Figurines from movie placed in glass case with blue illumination in dark room",description:"Ancient relics awaken across the world, pulling an unlikely crew into a battle between myth and machine."},
+      {id:"signal",title:"Signal//Lost",genre:"Mystery",rating:"9.0",year:"2025",tag:"NEW DROP",image:"https://images.pexels.com/photos/19758432/pexels-photo-19758432.jpeg",alt:"A narrow, neon-lit alleyway in Tokyo, Japan, showcasing urban night life with glowing signs and street lights.",description:"A transmission from a vanished friend draws a radio engineer into the city's most forbidden frequency."},
+      {id:"starlight",title:"Starlight Arcade",genre:"Slice of Life",rating:"8.6",year:"2023",tag:"COMFORT WATCH",image:"https://images.pexels.com/photos/5795416/pexels-photo-5795416.jpeg",alt:"Collection of different figurines placed on shelf near glass wall with neon light",description:"A small neighborhood arcade becomes a home for dreamers, rivals, and the stories they share between games."}
+    ];
+let genre="All",lastFocus=null;
+function render(){
+      const q=search.value.trim().toLowerCase();
+      const shown=titles.filter(t=>(genre==="All"||t.genre===genre)&&`${t.title} ${t.genre} ${t.description}`.toLowerCase().includes(q));
+      cards.innerHTML=shown.map((t,i)=>`<article class="card"><div class="card-image-wrap"><img id="card-image-${t.id}" class="card-image" src="${t.image}" alt="${t.alt}" loading="lazy"><span class="card-badge">${t.tag}</span><span class="card-number">0${i+1} / FILE</span></div><div class="card-body"><div class="card-type">${t.genre}</div><h3>${t.title}</h3><div class="card-footer"><span class="card-meta">★ ${t.rating} &nbsp;·&nbsp; ${t.year}</span><button type="button" class="card-action" data-detail="${t.id}" aria-label="View ${t.title} dossier"><i data-lucide="arrow-up-right"></i></button></div></div></article>`).join("");
+      count.textContent=`${String(shown.length).padStart(2,"0")} ${shown.length===1?"FILE":"FILES"} FOUND`;
+      empty.style.display=shown.length?"none":"block";clear.style.display=q?"grid":"none";
+      lucide.createIcons();
+    }
+const cards=document.getElementById("cards"),search=document.getElementById("search"),count=document.getElementById("result-count"),empty=document.getElementById("empty"),clear=document.getElementById("clear-search");
+document.querySelectorAll(".filter").forEach(btn=>btn.addEventListener("click",()=>{genre=btn.dataset.filter;document.querySelectorAll(".filter").forEach(b=>{b.classList.toggle("active",b===btn);b.setAttribute("aria-pressed",String(b===btn))});render()}));
+</script>

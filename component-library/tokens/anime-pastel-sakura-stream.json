@@ -1,0 +1,33 @@
+{
+  "id": "anime-pastel-sakura-stream",
+  "name": "Sakura Stream (light)",
+  "mode": "light",
+  "source": "anime-templates/09_sakura_stream_pastel_romance.html",
+  "colors": {
+    "background": "#f8f6f2",
+    "surface": "#ffffff",
+    "surface2": "#fbe0df",
+    "border": "#eae5e4",
+    "text": "#221d2b",
+    "muted": "#736e76",
+    "accent": "#e46b70",
+    "positive": "#cf5d69",
+    "negative": "#e46b70",
+    "warning": "#cf5d69",
+    "series1": "#e46b70",
+    "series2": "#cf5d69",
+    "series3": "#736e76",
+    "series4": "#221d2b",
+    "series5": "#eae5e4"
+  },
+  "aliases": {
+    "#827d86": "series2"
+  },
+  "fonts": {
+    "display": "\"DM Serif Display\", serif",
+    "sans": "\"DM Sans\", system-ui, sans-serif"
+  },
+  "radius": {
+    "card": "15-16px cards, 99px pills"
+  }
+}

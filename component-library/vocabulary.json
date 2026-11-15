@@ -1,5 +1,5 @@
 {
-  "about": "Concepts the component search understands. A request phrase or a component's own text that uses any of a concept's terms is about that concept, so 'spending' finds budget charts and 'API logs' finds data tables. tools: which of the user-selectable tools provide the concept. role: the layout region its components usually take. Add concepts or terms here; no code changes are needed.",
+  "about": "Concepts the component search understands. A request phrase or a component's own text that uses any of a concept's terms is about that concept, so 'spending' finds budget charts and 'API logs' finds data tables. tools: which of the user-selectable tools provide the concept. role: the layout region its components usually take. Add concepts or terms here; no code changes are needed. prefer (products): tags whose components fit that kind of product a little better.",
   "concepts": [
     {
       "id": "navigation",
@@ -405,7 +405,7 @@
         "tokens",
         "model usage",
         "llm usage",
-        "calls"
+        "api calls"
       ]
     },
     {
@@ -572,7 +572,10 @@
         "pagination",
         "query builder",
         "facets",
-        "model filters"
+        "model filters",
+        "filterable",
+        "filter sidebar",
+        "genre filters"
       ]
     },
     {
@@ -656,7 +659,6 @@
         "call to action",
         "cta",
         "faq",
-        "footer",
         "signup section",
         "logo cloud"
       ]
@@ -671,10 +673,10 @@
       "role": "content",
       "terms": [
         "kanban",
-        "board",
         "task board",
         "columns of cards",
-        "drag and drop"
+        "drag and drop",
+        "kanban board"
       ]
     },
     {
@@ -758,6 +760,242 @@
         "authentication service",
         "rest api",
         "graphql"
+      ]
+    },
+    {
+      "id": "media-browsing",
+      "tools": [
+        "web-design",
+        "ui-ux-design"
+      ],
+      "role": "content",
+      "terms": [
+        "anime",
+        "streaming shelf",
+        "shelf",
+        "shelves",
+        "poster grid",
+        "posters",
+        "titles",
+        "shows",
+        "trending shows",
+        "new releases",
+        "recently added",
+        "popular this week",
+        "top rated",
+        "discovery grid",
+        "seasonal lineup",
+        "browse titles",
+        "catalog",
+        "catalogue",
+        "filterable catalog",
+        "title catalog"
+      ]
+    },
+    {
+      "id": "media-detail",
+      "tools": [
+        "web-design",
+        "ui-ux-design"
+      ],
+      "role": "content",
+      "terms": [
+        "episode guide",
+        "episode list",
+        "episodes",
+        "title detail",
+        "show page",
+        "film notes",
+        "synopsis",
+        "season list",
+        "chapters",
+        "ongoing episodes"
+      ]
+    },
+    {
+      "id": "continue-watching",
+      "tools": [
+        "web-design",
+        "ui-ux-design",
+        "dashboard-builder"
+      ],
+      "role": "insight",
+      "terms": [
+        "continue watching",
+        "watch progress",
+        "resume watching",
+        "recently watched",
+        "watchlist",
+        "watch list",
+        "up next",
+        "reading progress"
+      ]
+    },
+    {
+      "id": "gamification",
+      "tools": [
+        "web-design",
+        "ui-ux-design",
+        "dashboard-builder"
+      ],
+      "role": "insight",
+      "terms": [
+        "streak",
+        "streaks",
+        "achievements",
+        "badges",
+        "player hub",
+        "xp",
+        "level up",
+        "quests"
+      ]
+    },
+    {
+      "id": "membership",
+      "tools": [
+        "web-design",
+        "ui-ux-design"
+      ],
+      "role": "insight",
+      "terms": [
+        "membership",
+        "perks",
+        "subscription plans",
+        "vip",
+        "premium plan",
+        "members club",
+        "club perks"
+      ]
+    },
+    {
+      "id": "reviews",
+      "tools": [
+        "web-design",
+        "ui-ux-design"
+      ],
+      "role": "insight",
+      "terms": [
+        "critics",
+        "review score",
+        "reviews",
+        "rating card",
+        "critic review",
+        "editor's pick"
+      ]
+    },
+    {
+      "id": "characters",
+      "tools": [
+        "web-design",
+        "ui-ux-design"
+      ],
+      "role": "content",
+      "terms": [
+        "characters",
+        "cast cards",
+        "character cards",
+        "champions",
+        "heroes",
+        "cast"
+      ]
+    },
+    {
+      "id": "editorial-cover",
+      "tools": [
+        "web-design",
+        "ui-ux-design"
+      ],
+      "role": "header",
+      "terms": [
+        "cover story",
+        "masthead",
+        "magazine cover",
+        "issue tracker",
+        "volume and issue"
+      ]
+    },
+    {
+      "id": "featured-hero",
+      "tools": [
+        "web-design",
+        "ui-ux-design"
+      ],
+      "role": "header",
+      "terms": [
+        "featured title",
+        "hero banner",
+        "spotlight",
+        "key art",
+        "tonight's pick",
+        "featured show",
+        "featured series"
+      ]
+    },
+    {
+      "id": "mobile-dock",
+      "tools": [
+        "web-design",
+        "ui-ux-design"
+      ],
+      "role": "navigation",
+      "terms": [
+        "bottom dock",
+        "bottom navigation",
+        "mobile nav",
+        "mobile dock",
+        "floating dock"
+      ]
+    },
+    {
+      "id": "ticker",
+      "tools": [
+        "web-design",
+        "ui-ux-design"
+      ],
+      "role": "header",
+      "terms": [
+        "ticker",
+        "live ticker",
+        "news ticker",
+        "marquee",
+        "breaking news bar"
+      ]
+    },
+    {
+      "id": "visual-style",
+      "tools": [
+        "web-design",
+        "ui-ux-design"
+      ],
+      "role": "content",
+      "terms": [
+        "synthwave",
+        "cyberpunk",
+        "pastel",
+        "kawaii",
+        "washi",
+        "inkan",
+        "pixel art",
+        "glassmorphism",
+        "obsidian and gold",
+        "shonen",
+        "cozy",
+        "editorial magazine"
+      ]
+    },
+    {
+      "id": "footer",
+      "tools": [
+        "web-design",
+        "ui-ux-design"
+      ],
+      "role": "content",
+      "terms": [
+        "footer",
+        "site footer",
+        "footer links",
+        "bottom status",
+        "status line"
       ]
     }
   ],
@@ -859,6 +1097,34 @@
         "calendar",
         "progress charts",
         "task table"
+      ]
+    },
+    {
+      "id": "media-site",
+      "match": [
+        "anime site",
+        "anime website",
+        "anime streaming",
+        "streaming site",
+        "streaming platform",
+        "streaming website",
+        "fan site",
+        "manga site",
+        "manga reader",
+        "video platform",
+        "watch site",
+        "webtoon site"
+      ],
+      "implies": [
+        "top navigation",
+        "featured title hero",
+        "trending shelf",
+        "title detail with episode guide",
+        "continue watching",
+        "filters for browsing titles"
+      ],
+      "prefer": [
+        "entertainment"
       ]
     }
   ]

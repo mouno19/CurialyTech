@@ -1,0 +1,97 @@
+{
+  "id": "anime-otaku-archive",
+  "name": "Archive of dossier cards (Otaku OS)",
+  "description": "Archive of dossier cards: cards numbered as files (01 / FILE). From the Otaku OS archetype (Cyberpunk terminal, futuristic desktop OS); re-skin it to the design's tokens and mix it with blocks of other archetypes, never the whole template. (In the source: \"No matching signals\".)",
+  "category": "media-browsing",
+  "batch": "anime-terminal-otaku-os",
+  "collection": "Anime archetype: Otaku OS",
+  "kind": "component",
+  "role": "content",
+  "tags": [
+    "anime",
+    "entertainment",
+    "media",
+    "dark",
+    "cyberpunk",
+    "terminal",
+    "cli",
+    "command line",
+    "hacker",
+    "developer portal",
+    "developer-portal",
+    "cybersecurity-dashboard",
+    "cli-tool",
+    "terminal-app",
+    "archive",
+    "dossier",
+    "cards",
+    "numbered",
+    "files",
+    "network",
+    "relationships",
+    "graph",
+    "ranking",
+    "api-monitoring",
+    "usage",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "interactive",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "lucide",
+      "version": "0.577.0"
+    },
+    {
+      "type": "stylesheet",
+      "id": "anime-terminal-otaku-os"
+    },
+    {
+      "type": "tokens",
+      "id": "anime-terminal-otaku-os"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "content",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "anime-terminal-otaku-os",
+    "mode": "dark",
+    "colors": {}
+  },
+  "source": {
+    "file": "anime-templates/08_otaku_os_cyberpunk_terminal.html",
+    "ref": "section id=\"archive\" #0"
+  },
+  "archetype": "anime-terminal-otaku-os",
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "887a1c74a5d8402e",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

@@ -1,0 +1,97 @@
+{
+  "id": "anime-arcade-discovery",
+  "name": "Arcade discovery grid (Anime Arcade)",
+  "description": "Arcade discovery grid: world filter pills and cards with gradient covers, stars and badges. From the Anime Arcade archetype (Retro synthwave and pixel arcade); re-skin it to the design's tokens and mix it with blocks of other archetypes, never the whole template.",
+  "category": "layout",
+  "batch": "anime-retro-arcade-synthwave",
+  "collection": "Anime archetype: Anime Arcade",
+  "kind": "component",
+  "role": "header",
+  "tags": [
+    "anime",
+    "entertainment",
+    "media",
+    "dark",
+    "retro",
+    "arcade",
+    "pixel",
+    "8-bit",
+    "synthwave",
+    "vaporwave",
+    "gaming",
+    "web3",
+    "crypto",
+    "nft",
+    "discovery",
+    "grid",
+    "world",
+    "filter",
+    "pills",
+    "heatmap",
+    "matrix",
+    "density",
+    "network",
+    "relationships",
+    "graph",
+    "geospatial",
+    "map",
+    "location",
+    "api-monitoring",
+    "usage",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "accessible",
+    "animated"
+  ],
+  "dependencies": [
+    {
+      "type": "stylesheet",
+      "id": "anime-retro-arcade-synthwave"
+    },
+    {
+      "type": "tokens",
+      "id": "anime-retro-arcade-synthwave"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "header",
+    "span": "full"
+  },
+  "style": {
+    "tokens": "anime-retro-arcade-synthwave",
+    "mode": "dark",
+    "colors": {}
+  },
+  "source": {
+    "file": "anime-templates/03_anime_arcade_synthwave.html",
+    "ref": "section id=\"discovery\" #0"
+  },
+  "archetype": "anime-retro-arcade-synthwave",
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "89e22c2774bca40c",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

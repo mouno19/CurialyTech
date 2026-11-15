@@ -124,6 +124,33 @@ Entries live in `server/agent/design/knowledge/*.ts`. Each entry is one object:
   collector, a rule in `audit.ts`, and a fixture test. The collector runs in the page as source
   text, so it must stay self-contained and must not touch storage.
 
+## Style archetypes and synthesis
+
+Ten complete visual systems from the staged anime and entertainment templates
+(`component-library/anime-templates/`) are in `server/agent/design/knowledge/archetypes.ts`: Slice
+of Life, Kuro Cinema, Anime Arcade, Frame Anime, Shonen Hub, Nebula Anime, Anime Grid, Otaku OS,
+Sakura Stream and Kitsune Flix. Each has the template's own tokens (with a text-safe shade where a
+template's muted or accent colour is under 4.5:1 as text), its font pairing, its signature blocks,
+layout and motion, the subjects it suits beyond anime (`fits`: Kuro for premium SaaS and fashion,
+Otaku OS for developer portals, Anime Grid for catalogs and job boards…), request signals, and the
+looks it is built on (`grants`).
+
+`synthesis.ts` decides when they apply and how they mix: anime or entertainment work (unambiguous
+words: anime, manga, streaming site, episodes…), or a subject or style that clearly fits one (two
+signals or a fit). A design is never one template: the base archetype gives tokens, type, layout and
+motion; one or two partners lend named blocks (what the request asks for, else their signature
+block) rebuilt in the base's language; at most half of one archetype's blocks. The brief gets a
+"Style synthesis" section with the one token set (`--bg`, `--surface`, `--line`, `--text`,
+`--muted`, `--accent`, `--on-accent`, radius, fonts), the blocks to combine, and the rules. The
+looks the base and the borrowed blocks are built on (violet, glass, marquee, tasteful, eyebrow,
+reflex type, numerals) are deliberate there, so the matching generic-tell rules (`look` on a rule)
+and audit notes are dropped. A refused look ("no neon") rules out the archetypes built on it.
+
+Their blocks are registered in the component library (`anime-*` ids, `archetype` in the metadata)
+with one token set per archetype (`component-library/tokens/anime-*.json`, written by
+`scripts/components/export-archetypes.mts` from archetypes.ts), so `add_components` re-skins blocks
+of several archetypes to one theme, and a plan that leans on one archetype says to mix.
+
 ## What the benchmark changed
 
 Six benchmark tasks were run on production before and after the release. In the after set, a blind

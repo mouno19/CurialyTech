@@ -1,0 +1,16 @@
+<!-- Status bar with prompt search (Otaku OS) · anime-otaku-statusbar: from the Anime archetype: Otaku OS (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/anime-terminal-otaku-os.css, and an ancestor with class="cx-anime-terminal-otaku-os". -->
+<div class="cx-anime-terminal-otaku-os">
+<header class="topbar">
+     <div class="breadcrumb">
+      HOME <span>/</span> DASHBOARD
+     </div>
+     <div class="topright">
+      <span class="clock" id="clock">00:00:00</span><span class="online">SYSTEM ONLINE</span>
+     </div>
+    </header>
+</div>
+<script>
+function updateClock(){document.getElementById("clock").textContent=new Date().toLocaleTimeString("en-GB",{hour12:false})}
+updateClock();
+</script>

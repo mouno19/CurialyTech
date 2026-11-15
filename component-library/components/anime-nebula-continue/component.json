@@ -1,0 +1,110 @@
+{
+  "id": "anime-nebula-continue",
+  "name": "Continue watching shelf (Nebula Anime)",
+  "description": "Continue watching shelf: cards with a play reveal on hover and a progress bar. From the Nebula Anime archetype (Cosmic neon streaming, glassmorphism platform); re-skin it to the design's tokens and mix it with blocks of other archetypes, never the whole template.",
+  "category": "engagement",
+  "batch": "anime-streaming-nebula-cosmic",
+  "collection": "Anime archetype: Nebula Anime",
+  "kind": "component",
+  "role": "insight",
+  "tags": [
+    "anime",
+    "entertainment",
+    "media",
+    "dark",
+    "streaming",
+    "netflix",
+    "video platform",
+    "cosmic",
+    "space",
+    "galaxy",
+    "saas-product-tour",
+    "video-platform",
+    "music-streaming",
+    "multimedia-discovery",
+    "continue",
+    "watching",
+    "shelf",
+    "cards",
+    "with",
+    "play",
+    "bar-chart",
+    "comparison",
+    "ranking",
+    "categorical",
+    "area-chart",
+    "trend",
+    "time-series",
+    "volume",
+    "kpi",
+    "target",
+    "progress",
+    "performance",
+    "network",
+    "relationships",
+    "graph",
+    "api-monitoring",
+    "usage",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "interactive",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "lucide",
+      "version": "0.577.0"
+    },
+    {
+      "type": "stylesheet",
+      "id": "anime-streaming-nebula-cosmic"
+    },
+    {
+      "type": "tokens",
+      "id": "anime-streaming-nebula-cosmic"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "insight",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "anime-streaming-nebula-cosmic",
+    "mode": "dark",
+    "colors": {}
+  },
+  "source": {
+    "file": "anime-templates/06_nebula_anime_cosmic_streaming.html",
+    "ref": "section id=\"continue\" #0"
+  },
+  "archetype": "anime-streaming-nebula-cosmic",
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "a031ff6240b836f6",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

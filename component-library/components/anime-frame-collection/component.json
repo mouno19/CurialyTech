@@ -1,0 +1,96 @@
+{
+  "id": "anime-frame-collection",
+  "name": "Poster grid with genre filters (Frame Anime)",
+  "description": "Poster grid with genre filters: posters with filter tabs and a search overlay. From the Frame Anime archetype (Avant-garde print editorial, magazine masthead); re-skin it to the design's tokens and mix it with blocks of other archetypes, never the whole template. (In the source: \"Where the Sky Begins\".)",
+  "category": "data-management",
+  "batch": "anime-editorial-frame-magazine",
+  "collection": "Anime archetype: Frame Anime",
+  "kind": "component",
+  "role": "filters",
+  "tags": [
+    "anime",
+    "entertainment",
+    "media",
+    "light",
+    "magazine",
+    "editorial",
+    "newspaper",
+    "masthead",
+    "print",
+    "journal",
+    "literary-magazine",
+    "art-blog",
+    "newsletter",
+    "creative-portfolio",
+    "poster",
+    "grid",
+    "with",
+    "genre",
+    "filters",
+    "posters",
+    "heatmap",
+    "matrix",
+    "density",
+    "network",
+    "relationships",
+    "graph",
+    "api-monitoring",
+    "usage",
+    "light-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "interactive",
+    "keyboard",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "stylesheet",
+      "id": "anime-editorial-frame-magazine"
+    },
+    {
+      "type": "tokens",
+      "id": "anime-editorial-frame-magazine"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "filters",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "anime-editorial-frame-magazine",
+    "mode": "light",
+    "colors": {}
+  },
+  "source": {
+    "file": "anime-templates/04_frame_anime_editorial.html",
+    "ref": "section id=\"collection\" #0"
+  },
+  "archetype": "anime-editorial-frame-magazine",
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "7845ead9e4661a6b",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

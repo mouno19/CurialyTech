@@ -1,0 +1,34 @@
+{
+  "id": "anime-traditional-kitsune-flix",
+  "name": "Kitsune Flix (light)",
+  "mode": "light",
+  "source": "anime-templates/10_kitsune_flix_traditional_japanese.html",
+  "colors": {
+    "background": "#f6f2e9",
+    "surface": "#eee8dc",
+    "surface2": "#e8dfd1",
+    "border": "#d9d0c1",
+    "text": "#282724",
+    "muted": "#6b665d",
+    "accent": "#a9362d",
+    "positive": "#76271f",
+    "negative": "#a9362d",
+    "warning": "#76271f",
+    "series1": "#a9362d",
+    "series2": "#76271f",
+    "series3": "#6b665d",
+    "series4": "#282724",
+    "series5": "#d9d0c1"
+  },
+  "aliases": {
+    "#777268": "series2"
+  },
+  "fonts": {
+    "display": "\"Shippori Mincho\", serif",
+    "sans": "\"DM Sans\", system-ui, sans-serif",
+    "extra": "\"Noto Sans JP\", system-ui, sans-serif"
+  },
+  "radius": {
+    "card": "none, except the circular seal"
+  }
+}

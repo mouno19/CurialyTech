@@ -1,0 +1,102 @@
+{
+  "id": "anime-grid-intro",
+  "name": "Catalog intro (Anime Grid)",
+  "description": "Catalog intro: title, count and category tabs. From the Anime Grid archetype (Structured tech catalog, deep filtering index); re-skin it to the design's tokens and mix it with blocks of other archetypes, never the whole template.",
+  "category": "layout",
+  "batch": "anime-catalog-anime-grid",
+  "collection": "Anime archetype: Anime Grid",
+  "kind": "component",
+  "role": "header",
+  "tags": [
+    "anime",
+    "entertainment",
+    "media",
+    "dark",
+    "catalog",
+    "catalogue",
+    "directory",
+    "listings",
+    "job board",
+    "marketplace",
+    "e-commerce-catalog",
+    "job-board",
+    "real-estate-listings",
+    "intro",
+    "title",
+    "count",
+    "category",
+    "tabs",
+    "finance",
+    "market",
+    "stock",
+    "comparison",
+    "time-series",
+    "radial",
+    "circular",
+    "heatmap",
+    "matrix",
+    "density",
+    "network",
+    "relationships",
+    "graph",
+    "events",
+    "monitoring",
+    "operations",
+    "api-monitoring",
+    "usage",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "stylesheet",
+      "id": "anime-catalog-anime-grid"
+    },
+    {
+      "type": "tokens",
+      "id": "anime-catalog-anime-grid"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "header",
+    "span": "full"
+  },
+  "style": {
+    "tokens": "anime-catalog-anime-grid",
+    "mode": "dark",
+    "colors": {}
+  },
+  "source": {
+    "file": "anime-templates/07_anime_grid_catalog_index.html",
+    "ref": "section class=\"intro\" #0"
+  },
+  "archetype": "anime-catalog-anime-grid",
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "f7674340252778e5",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

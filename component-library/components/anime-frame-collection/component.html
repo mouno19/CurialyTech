@@ -1,0 +1,93 @@
+<!-- Poster grid with genre filters (Frame Anime) · anime-frame-collection: from the Anime archetype: Frame Anime (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/anime-editorial-frame-magazine.css, and an ancestor with class="cx-anime-editorial-frame-magazine". -->
+<div class="cx-anime-editorial-frame-magazine">
+<section id="collection" class="shell section" aria-labelledby="collection-title">
+    <div class="collection-top">
+     <div class="section-heading">
+      <span class="section-kicker">04 / The collection</span>
+      <h2 id="collection-title">Curated for<br>
+       the curious.</h2>
+     </div>
+     <p class="section-intro">A considered shelf of worlds to enter, moods to follow, and stories to keep.</p>
+    </div>
+    <div class="filters" role="group" aria-label="Filter collection">
+     <button class="filter active" data-filter="all" aria-pressed="true">All stories</button><button class="filter" data-filter="drama" aria-pressed="false">Drama</button><button class="filter" data-filter="fantasy" aria-pressed="false">Fantasy</button><button class="filter" data-filter="mystery" aria-pressed="false">Mystery</button>
+    </div>
+    <div class="poster-grid">
+     <article class="poster" tabindex="0" role="button" data-story="sky" data-genre="drama" aria-label="Explore Where the Sky Begins">
+      <div class="image-wrap">
+       <img id="poster-sky" src="https://images.pexels.com/photos/34455955/pexels-photo-34455955.jpeg" alt="A girl stands in solitude against a backdrop of dramatic clouds, capturing a moment of introspection and freedom." loading="lazy">
+      </div>
+      <div class="card-meta">
+       01 &nbsp; / &nbsp; Drama
+      </div>
+      <h3>Where the Sky Begins</h3>
+      <p>For the dreamers who look up.</p>
+     </article>
+     <article class="poster" tabindex="0" role="button" data-story="afterlight" data-genre="mystery" aria-label="Explore Afterlight District">
+      <div class="image-wrap">
+       <img id="poster-afterlight" src="https://images.pexels.com/photos/27781680/pexels-photo-27781680.jpeg" alt="Atmospheric night scene in Shibuya, Tokyo showcasing people with umbrellas on a rainy street." loading="lazy">
+      </div>
+      <div class="card-meta">
+       02 &nbsp; / &nbsp; Mystery
+      </div>
+      <h3>Afterlight District</h3>
+      <p>A signal from somewhere else.</p>
+     </article>
+     <article class="poster" tabindex="0" role="button" data-story="paper" data-genre="fantasy" aria-label="Explore Paper Moons">
+      <div class="image-wrap">
+       <img id="poster-paper" src="https://images.pexels.com/photos/20629880/pexels-photo-20629880.jpeg" alt="A serene abstract landscape with mist, birds, and artistic elements creating a mystical atmosphere." loading="lazy">
+      </div>
+      <div class="card-meta">
+       03 &nbsp; / &nbsp; Fantasy
+      </div>
+      <h3>Paper Moons</h3>
+      <p>Find a world between the pages.</p>
+     </article>
+     <article class="poster" tabindex="0" role="button" data-story="midnight" data-genre="drama" aria-label="Explore Midnight Lines">
+      <div class="image-wrap">
+       <img id="poster-midnight" src="https://images.pexels.com/photos/36898814/pexels-photo-36898814.jpeg" alt="Rain-soaked streets reflect vibrant neon lights in a city at night, creating a moody urban atmosphere." loading="lazy">
+      </div>
+      <div class="card-meta">
+       04 &nbsp; / &nbsp; Drama
+      </div>
+      <h3>Midnight Lines</h3>
+      <p>The long way home changes everything.</p>
+     </article>
+    </div>
+   </section>
+<!-- Used by this block's script (elsewhere on the page it came from): -->
+<div id="story-overlay" class="overlay" aria-hidden="true">
+   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+    <button id="story-close" class="close" aria-label="Close story"><i data-lucide="x"></i></button><span id="dialog-kicker" class="eyebrow"></span>
+    <h2 id="dialog-title"></h2>
+    <p id="dialog-description"></p>
+    <p id="dialog-note"></p>
+    <div id="dialog-details" class="dialog-details"></div>
+   </div>
+  </div>
+<div id="search-overlay" class="overlay" aria-hidden="true">
+   <div class="dialog search-dialog" role="dialog" aria-modal="true" aria-labelledby="search-label">
+    <button id="search-close" class="close" aria-label="Close search"><i data-lucide="x"></i></button><label id="search-label" for="search-input">Find your next story.</label>
+    <div class="search-field">
+     <i data-lucide="search"></i><input id="search-input" type="search" placeholder="Search titles or genres…" autocomplete="off">
+    </div>
+    <div id="search-results" class="results" aria-live="polite"></div>
+   </div>
+  </div>
+</div>
+<script>
+const stories={
+      sky:{title:"Where the Sky Begins",genre:"Drama",format:"12 episodes",description:"When a young archivist returns to her coastal hometown, she discovers a collection of letters addressed to the sky. Each one leads her closer to a childhood promise—and a friendship she believed had vanished with the years.",note:"The editor’s note: Patient, luminous, and full of small emotional discoveries, this is a story that trusts its quiet moments."},
+      afterlight:{title:"Afterlight District",genre:"Sci-fi / Mystery",format:"10 episodes",description:"Every night at 11:17, a strange transmission cuts through the city’s ordinary noise. A radio repairer and a night-shift courier follow its fragments through rain-soaked streets, uncovering a history the district has tried to forget.",note:"The critic’s note: Its neon-drenched world is arresting, but its real achievement is the gentle humanity beneath the mystery."},
+      paper:{title:"Paper Moons",genre:"Fantasy / Adventure",format:"8 episodes",description:"A young bookbinder discovers that unfinished stories have been escaping their pages. To bring them home, she must travel through landscapes shaped by abandoned ideas, accompanied by a curious paper bird.",note:"The editor’s note: An imaginative, wistful fable about finding courage in things that are not yet complete."},
+      midnight:{title:"Midnight Lines",genre:"Drama",format:"Film",description:"On the final service of a city tram line, four strangers find their journeys unexpectedly intertwined. Through missed stops and unplanned conversations, each begins to imagine a different way forward.",note:"The editor’s note: A beautifully restrained portrait of connection in a city always rushing past itself."}
+    };
+const storyOverlay=document.getElementById("story-overlay"),searchOverlay=document.getElementById("search-overlay");
+let lastFocus=null;
+function openOverlay(el){lastFocus=document.activeElement;el.classList.add("open");el.setAttribute("aria-hidden","false");document.body.style.overflow="hidden";el.querySelector("button, input").focus()}
+function showStory(key){const s=stories[key];if(!s)return;document.getElementById("dialog-kicker").textContent="FRAME / Story profile";document.getElementById("dialog-title").textContent=s.title;document.getElementById("dialog-description").textContent=s.description;document.getElementById("dialog-note").textContent=s.note;document.getElementById("dialog-details").textContent=s.genre+"  /  "+s.format;closeSearchIfOpen();openOverlay(storyOverlay)}
+function closeSearchIfOpen(){if(searchOverlay.classList.contains("open")){searchOverlay.classList.remove("open");searchOverlay.setAttribute("aria-hidden","true")}}
+document.querySelectorAll("[data-story]").forEach(el=>{el.addEventListener("click",()=>showStory(el.dataset.story));if(el.getAttribute("role")==="button")el.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();showStory(el.dataset.story)}})});
+document.querySelectorAll(".filter").forEach(btn=>btn.addEventListener("click",()=>{document.querySelectorAll(".filter").forEach(b=>{b.classList.remove("active");b.setAttribute("aria-pressed","false")});btn.classList.add("active");btn.setAttribute("aria-pressed","true");document.querySelectorAll(".poster").forEach(card=>card.hidden=btn.dataset.filter!=="all"&&card.dataset.genre!==btn.dataset.filter)}));
+</script>

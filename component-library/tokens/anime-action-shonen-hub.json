@@ -1,0 +1,31 @@
+{
+  "id": "anime-action-shonen-hub",
+  "name": "Shonen Hub (dark)",
+  "mode": "dark",
+  "source": "anime-templates/05_shonen_hub_action.html",
+  "colors": {
+    "background": "#0b0b0d",
+    "surface": "#17171a",
+    "surface2": "#202024",
+    "border": "#393134",
+    "text": "#fff8f3",
+    "muted": "#aaa5a4",
+    "accent": "#f03b32",
+    "positive": "#ff8c32",
+    "negative": "#f03b32",
+    "warning": "#ff8c32",
+    "series1": "#f03b32",
+    "series2": "#ff8c32",
+    "series3": "#aaa5a4",
+    "series4": "#fff8f3",
+    "series5": "#393134"
+  },
+  "aliases": {},
+  "fonts": {
+    "display": "\"Barlow Condensed\", system-ui, sans-serif",
+    "sans": "\"DM Sans\", system-ui, sans-serif"
+  },
+  "radius": {
+    "card": "none; skewed (-8 to -12deg) badges and buttons"
+  }
+}

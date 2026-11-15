@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Mobile bottom dock (Sakura Stream) · anime-sakura-mobile-dock</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=DM+Serif+Display:ital@0;1&display=swap">
+<style>html,body{margin:0;background:#f8f6f2}.preview-root{padding:24px;max-width:1180px;margin:0 auto}</style>
+<style>
+    .cx-anime-pastel-sakura-stream{--bg:#f8f6f2;--paper:#fff;--ink:#221d2b;--muted:#827d86;--accent:#e46b70;--line:#eae5e4}
+    .cx-anime-pastel-sakura-stream *,.cx-anime-pastel-sakura-stream{box-sizing:border-box}
+    .cx-anime-pastel-sakura-stream{scroll-behavior:smooth}
+    .cx-anime-pastel-sakura-stream{margin:0;background:var(--bg);color:var(--ink);font-family:"DM Sans",sans-serif}
+    .cx-anime-pastel-sakura-stream button,.cx-anime-pastel-sakura-stream input{font-family:"DM Sans",sans-serif}
+    .cx-anime-pastel-sakura-stream button{cursor:pointer}
+    .cx-anime-pastel-sakura-stream a{color:inherit;text-decoration:none}
+    .cx-anime-pastel-sakura-stream button:focus-visible,.cx-anime-pastel-sakura-stream a:focus-visible,.cx-anime-pastel-sakura-stream input:focus-visible{outline:3px solid var(--accent);outline-offset:4px}
+    .cx-anime-pastel-sakura-stream .app{max-width:1500px;margin:auto;padding:0 clamp(22px,5vw,80px)}
+    .cx-anime-pastel-sakura-stream .sidebar{height:88px;display:flex;align-items:center;justify-content:space-between;gap:30px;border-bottom:1px solid var(--line)}
+    .cx-anime-pastel-sakura-stream .brand{display:inline-flex;align-items:center;gap:10px;font-family:"DM Serif Display",serif;font-size:25px;white-space:nowrap;letter-spacing:-.5px}
+    .cx-anime-pastel-sakura-stream .brand-mark{display:grid;place-items:center;width:37px;height:37px;border-radius:12px;background:#fbe0df;color:#cf5d69;font-family:serif;font-size:27px}
+    .cx-anime-pastel-sakura-stream .brand span:last-child{color:var(--accent)}
+    .cx-anime-pastel-sakura-stream .side-label,.cx-anime-pastel-sakura-stream .side-bottom{display:none}
+    .cx-anime-pastel-sakura-stream .nav-list{display:flex;align-items:center;gap:32px}
+    .cx-anime-pastel-sakura-stream .nav-link{display:inline-flex;align-items:center;gap:7px;color:#77717c;font-size:13px;font-weight:700;transition:color .2s}
+    .cx-anime-pastel-sakura-stream .nav-link:hover,.cx-anime-pastel-sakura-stream .nav-link.active{color:var(--accent)}
+    .cx-anime-pastel-sakura-stream .nav-link svg{display:none}
+    .cx-anime-pastel-sakura-stream .header-right{display:flex;align-items:center;gap:14px}
+    .cx-anime-pastel-sakura-stream .header-pill{border:1px solid var(--line);padding:10px 16px;border-radius:99px;color:#5e5360;font-size:12px;font-weight:700;white-space:nowrap}
+    .cx-anime-pastel-sakura-stream .header-pill:hover{border-color:var(--accent);color:var(--accent)}
+    .cx-anime-pastel-sakura-stream .main{padding:34px 0 65px}
+    .cx-anime-pastel-sakura-stream .topbar{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:25px}
+    .cx-anime-pastel-sakura-stream .eyebrow,.cx-anime-pastel-sakura-stream .overline{font-size:10px;letter-spacing:2.5px;text-transform:uppercase;font-weight:800;color:var(--accent)}
+    .cx-anime-pastel-sakura-stream .topbar h1{font-family:"DM Serif Display",serif;font-size:clamp(29px,3vw,42px);font-weight:400;letter-spacing:-.8px;margin:5px 0 0}
+    .cx-anime-pastel-sakura-stream .top-actions{display:flex;align-items:center;gap:14px}
+    .cx-anime-pastel-sakura-stream .search{height:46px;width:260px;background:#fff;border:1px solid var(--line);border-radius:99px;display:flex;align-items:center;gap:10px;padding:0 17px;color:#978d98}
+    .cx-anime-pastel-sakura-stream .search svg{width:18px;height:18px}
+    .cx-anime-pastel-sakura-stream .search input{border:0;outline:0;background:transparent;width:100%;min-width:0;color:var(--ink);font-size:12px}
+    .cx-anime-pastel-sakura-stream .search input::placeholder{color:#aaa3aa}
+    .cx-anime-pastel-sakura-stream .avatar{display:grid;place-items:center;width:44px;height:44px;border-radius:50%;background:#f6e0df;font-size:20px}
+    .cx-anime-pastel-sakura-stream .hero{height:clamp(380px,39vw,535px);position:relative;overflow:hidden;border-radius:24px;display:flex;align-items:center;padding:clamp(30px,6vw,88px);background:#5c454f;isolation:isolate}
+    .cx-anime-pastel-sakura-stream .hero-photo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center 48%;z-index:-2}
+    .cx-anime-pastel-sakura-stream .hero:before{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(28,23,35,.88),rgba(36,26,38,.62) 42%,rgba(38,25,37,.06) 100%);z-index:-1}
+    .cx-anime-pastel-sakura-stream .hero-content{color:#fff;max-width:590px}
+    .cx-anime-pastel-sakura-stream .hero-kicker{display:inline-flex;align-items:center;gap:9px;font-size:11px;text-transform:uppercase;letter-spacing:2.3px;font-weight:800;color:#ffd5cf}
+    .cx-anime-pastel-sakura-stream .hero-kicker:before{content:"";height:7px;width:7px;background:#ff9e9c;border-radius:50%}
+    .cx-anime-pastel-sakura-stream .hero h2{font-family:"DM Serif Display",serif;font-size:clamp(48px,6.5vw,92px);font-weight:400;letter-spacing:-2.5px;line-height:.99;margin:22px 0}
+    .cx-anime-pastel-sakura-stream .hero h2 em{font-weight:400;color:#ffc1b7}
+    .cx-anime-pastel-sakura-stream .hero p{font-size:14px;line-height:1.8;color:#f1e8e8;max-width:390px;margin:0 0 28px}
+    .cx-anime-pastel-sakura-stream .primary-btn,.cx-anime-pastel-sakura-stream .watch-btn{border:0;background:#e97477;color:white;border-radius:99px;padding:15px 22px;font-size:12px;font-weight:800;display:inline-flex;align-items:center;gap:12px;transition:transform .2s,background .2s}
+    .cx-anime-pastel-sakura-stream .primary-btn:hover,.cx-anime-pastel-sakura-stream .watch-btn:hover{transform:translateY(-2px);background:#d85c63}
+    .cx-anime-pastel-sakura-stream .primary-btn svg,.cx-anime-pastel-sakura-stream .watch-btn svg{width:16px;height:16px}
+    .cx-anime-pastel-sakura-stream .hero-index{position:absolute;right:32px;bottom:27px;color:white;font-size:12px;letter-spacing:2px;font-weight:700}
+    .cx-anime-pastel-sakura-stream .hero-index span{opacity:.55}
+    .cx-anime-pastel-sakura-stream .section{margin-top:68px;scroll-margin-top:25px}
+    .cx-anime-pastel-sakura-stream .section-head{display:flex;align-items:end;justify-content:space-between;gap:20px;margin-bottom:23px}
+    .cx-anime-pastel-sakura-stream .section-title{font-family:"DM Serif Display",serif;font-weight:400;font-size:clamp(29px,3.3vw,42px);letter-spacing:-.7px;margin:5px 0 0}
+    .cx-anime-pastel-sakura-stream .section-sub{font-size:13px;color:var(--muted);margin:7px 0 0}
+    .cx-anime-pastel-sakura-stream .text-link{display:inline-flex;align-items:center;gap:8px;border:0;background:transparent;color:var(--accent);font-size:12px;font-weight:800;white-space:nowrap;padding:8px 0}
+    .cx-anime-pastel-sakura-stream .text-link svg{width:16px;height:16px}
+    .cx-anime-pastel-sakura-stream .chips{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 24px}
+    .cx-anime-pastel-sakura-stream .chip{background:transparent;border:1px solid #dfd9d9;color:#716a74;border-radius:99px;padding:9px 17px;font-size:11px;font-weight:800}
+    .cx-anime-pastel-sakura-stream .chip.active,.cx-anime-pastel-sakura-stream .chip:hover{background:var(--ink);color:#fff;border-color:var(--ink)}
+    .cx-anime-pastel-sakura-stream .card-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:20px}
+    .cx-anime-pastel-sakura-stream .anime-card,.cx-anime-pastel-sakura-stream .popular-card,.cx-anime-pastel-sakura-stream .recent-card{border:0;background:none;text-align:left;padding:0;color:inherit;min-width:0}
+    .cx-anime-pastel-sakura-stream .poster{position:relative;overflow:hidden;border-radius:15px;background:#dbd1d2;aspect-ratio:4/5}
+    .cx-anime-pastel-sakura-stream .poster img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .35s}
+    .cx-anime-pastel-sakura-stream .anime-card:hover .poster img,.cx-anime-pastel-sakura-stream .popular-card:hover img,.cx-anime-pastel-sakura-stream .recent-card:hover img{transform:scale(1.055)}
+    .cx-anime-pastel-sakura-stream .poster:after{content:"";position:absolute;inset:45% 0 0;background:linear-gradient(transparent,#211a2990);pointer-events:none}
+    .cx-anime-pastel-sakura-stream .poster-tag{position:absolute;z-index:1;top:14px;left:14px;background:#fff;color:#3f3440;border-radius:99px;padding:7px 10px;font-size:9px;font-weight:800;letter-spacing:.8px}
+    .cx-anime-pastel-sakura-stream .poster-number{position:absolute;z-index:1;bottom:14px;left:16px;color:#fff;font-family:"DM Serif Display",serif;font-size:30px}
+    .cx-anime-pastel-sakura-stream .card-info{padding:15px 2px 0}
+    .cx-anime-pastel-sakura-stream .card-info h3{font-family:"DM Serif Display",serif;font-size:22px;line-height:1.2;font-weight:400;margin:0 0 7px}
+    .cx-anime-pastel-sakura-stream .meta{display:flex;align-items:center;gap:8px;color:#827a83;font-size:11px}
+    .cx-anime-pastel-sakura-stream .rating{color:#d26967;font-weight:800;margin-left:auto}
+    .cx-anime-pastel-sakura-stream .popular-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
+    .cx-anime-pastel-sakura-stream .popular-card{display:flex;align-items:center;gap:15px;background:#fff;border:1px solid var(--line);border-radius:16px;padding:10px;transition:box-shadow .2s}
+    .cx-anime-pastel-sakura-stream .popular-card:hover,.cx-anime-pastel-sakura-stream .recent-card:hover{box-shadow:0 12px 30px #3f293013}
+    .cx-anime-pastel-sakura-stream .popular-card .thumb,.cx-anime-pastel-sakura-stream .recent-card .thumb{width:82px;height:96px;flex:none;overflow:hidden;border-radius:10px}
+    .cx-anime-pastel-sakura-stream .thumb img{width:100%;height:100%;display:block;object-fit:cover;transition:transform .35s}
+    .cx-anime-pastel-sakura-stream .popular-card h3,.cx-anime-pastel-sakura-stream .recent-card h3{font-family:"DM Serif Display",serif;font-weight:400;font-size:19px;margin:0 0 8px}
+    .cx-anime-pastel-sakura-stream .popular-card p,.cx-anime-pastel-sakura-stream .recent-card p{color:var(--muted);font-size:11px;margin:0 0 10px}
+    .cx-anime-pastel-sakura-stream .popular-card .rating{margin:0}
+    .cx-anime-pastel-sakura-stream .recent-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+    .cx-anime-pastel-sakura-stream .recent-card{display:flex;align-items:center;gap:17px;background:#fff;border:1px solid var(--line);border-radius:16px;padding:10px}
+    .cx-anime-pastel-sakura-stream .recent-card .thumb{width:110px;height:105px}
+    .cx-anime-pastel-sakura-stream .recent-body{min-width:0}
+    .cx-anime-pastel-sakura-stream .recent-card .text-link{padding:0}
+    .cx-anime-pastel-sakura-stream .empty{grid-column:1/-1;background:#fff;padding:35px;border-radius:15px;color:var(--muted);font-size:13px;text-align:center}
+    .cx-anime-pastel-sakura-stream .footer{border-top:1px solid var(--line);margin-top:75px;padding:27px 0 0;display:flex;justify-content:space-between;gap:20px;color:#928a92;font-size:11px}
+    .cx-anime-pastel-sakura-stream .mobile-nav{display:none}
+    .cx-anime-pastel-sakura-stream .modal-backdrop{position:fixed;inset:0;z-index:30;background:#17121dbb;display:none;align-items:center;justify-content:center;padding:20px}
+    .cx-anime-pastel-sakura-stream .modal-backdrop.open{display:flex}
+    .cx-anime-pastel-sakura-stream .modal{background:var(--bg);border-radius:20px;max-width:760px;width:100%;display:grid;grid-template-columns:42% 1fr;overflow:hidden;position:relative;box-shadow:0 30px 90px #0004}
+    .cx-anime-pastel-sakura-stream .modal-image{width:100%;height:100%;min-height:410px;object-fit:cover}
+    .cx-anime-pastel-sakura-stream .modal-content{padding:44px 36px;align-self:center}
+    .cx-anime-pastel-sakura-stream .modal-content h2{font-family:"DM Serif Display",serif;font-size:40px;font-weight:400;line-height:1.1;margin:13px 0}
+    .cx-anime-pastel-sakura-stream .modal-content p{font-size:13px;line-height:1.8;color:#736b75;margin:24px 0 0}
+    .cx-anime-pastel-sakura-stream .modal-close{position:absolute;right:16px;top:16px;width:36px;height:36px;border:0;border-radius:50%;background:#fff;display:grid;place-items:center}
+    .cx-anime-pastel-sakura-stream .modal-close svg{width:17px}
+    @media(max-width:1050px){.cx-anime-pastel-sakura-stream .nav-list{gap:16px}.cx-anime-pastel-sakura-stream .header-pill{display:none}.cx-anime-pastel-sakura-stream .card-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.cx-anime-pastel-sakura-stream .popular-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    @media(max-width:700px){.cx-anime-pastel-sakura-stream .app{padding:0 18px}.cx-anime-pastel-sakura-stream .sidebar{height:70px}.cx-anime-pastel-sakura-stream .brand{font-size:22px}.cx-anime-pastel-sakura-stream .nav-list{display:none}.cx-anime-pastel-sakura-stream .main{padding-top:25px}.cx-anime-pastel-sakura-stream .topbar h1{font-size:30px}.cx-anime-pastel-sakura-stream .topbar .eyebrow{font-size:9px}.cx-anime-pastel-sakura-stream .search{width:44px;padding:0 12px;transition:width .2s}.cx-anime-pastel-sakura-stream .search:focus-within{width:175px}.cx-anime-pastel-sakura-stream .search input{width:0}.cx-anime-pastel-sakura-stream .search:focus-within input{width:100%}.cx-anime-pastel-sakura-stream .avatar{display:none}.cx-anime-pastel-sakura-stream .hero{height:450px;padding:30px;align-items:end}.cx-anime-pastel-sakura-stream .hero:before{background:linear-gradient(0deg,#211724eb 0%,#281b2677 60%,transparent)}.cx-anime-pastel-sakura-stream .hero h2{font-size:53px}.cx-anime-pastel-sakura-stream .hero-index{display:none}.cx-anime-pastel-sakura-stream .section{margin-top:53px}.cx-anime-pastel-sakura-stream .popular-grid,.cx-anime-pastel-sakura-stream .recent-list{grid-template-columns:1fr}.cx-anime-pastel-sakura-stream .footer{margin-top:55px}.cx-anime-pastel-sakura-stream .mobile-nav{position:fixed;z-index:20;bottom:0;left:0;right:0;display:flex;justify-content:space-around;background:#fffefef2;backdrop-filter:blur(14px);border-top:1px solid var(--line);padding:10px 8px max(10px,env(safe-area-inset-bottom))}.cx-anime-pastel-sakura-stream .mobile-nav a{display:grid;justify-items:center;gap:4px;color:#8d828d;font-size:9px;font-weight:700}.cx-anime-pastel-sakura-stream .mobile-nav a.active{color:var(--accent)}.cx-anime-pastel-sakura-stream .mobile-nav svg{width:19px;height:19px}.cx-anime-pastel-sakura-stream .main{padding-bottom:110px}}
+    @media(max-width:480px){.cx-anime-pastel-sakura-stream .topbar{align-items:end}.cx-anime-pastel-sakura-stream .topbar h1{font-size:26px}.cx-anime-pastel-sakura-stream .hero{height:420px}.cx-anime-pastel-sakura-stream .hero h2{font-size:48px}.cx-anime-pastel-sakura-stream .card-grid{gap:13px}.cx-anime-pastel-sakura-stream .card-info h3{font-size:18px}.cx-anime-pastel-sakura-stream .meta{font-size:10px;gap:4px}.cx-anime-pastel-sakura-stream .poster-tag{font-size:8px;left:9px;top:9px}.cx-anime-pastel-sakura-stream .section-title{font-size:30px}.cx-anime-pastel-sakura-stream .modal{display:block;max-height:90vh;overflow:auto}.cx-anime-pastel-sakura-stream .modal-image{height:200px;min-height:0}.cx-anime-pastel-sakura-stream .modal-content{padding:23px}.cx-anime-pastel-sakura-stream .modal-content h2{font-size:31px}}
+  </style>
+</head><body><div class="preview-root" data-component="anime-sakura-mobile-dock">
+<!-- Mobile bottom dock (Sakura Stream) · anime-sakura-mobile-dock: from the Anime archetype: Sakura Stream (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/anime-pastel-sakura-stream.css, and an ancestor with class="cx-anime-pastel-sakura-stream". -->
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+<div class="cx-anime-pastel-sakura-stream">
+<nav class="mobile-nav" aria-label="Mobile navigation"><a href="#home" class="active"><i data-lucide="house"></i>Home</a> <a href="#seasonal"><i data-lucide="sparkles"></i>Stories</a> <a href="#popular"><i data-lucide="heart"></i>Popular</a> <a href="#recent"><i data-lucide="bookmark"></i>Picks</a>
+  </nav>
+</div>
+<script>
+lucide.createIcons();
+</script>
+
+</div></body></html>

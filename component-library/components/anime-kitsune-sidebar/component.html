@@ -1,0 +1,18 @@
+<!-- Seal sidebar with vertical text (Kitsune Flix) · anime-kitsune-sidebar: from the Anime archetype: Kitsune Flix (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/anime-traditional-kitsune-flix.css, and an ancestor with class="cx-anime-traditional-kitsune-flix". -->
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+<div class="cx-anime-traditional-kitsune-flix">
+<aside class="sidebar" aria-label="Primary sidebar">
+    <a class="brand-mark" href="#top" aria-label="Kitsune Flix home"><span>狐</span></a>
+    <div class="side-rule" aria-hidden="true"></div>
+    <nav class="side-nav" aria-label="Sections">
+     <a class="side-link active" href="#featured"><i data-lucide="sparkles"></i><span>Featured</span></a> <a class="side-link" href="#seasonal"><i data-lucide="grid-2x2"></i><span>Seasonal</span></a> <a class="side-link" href="#collection"><i data-lucide="bookmark"></i><span>About</span></a>
+    </nav>
+    <div class="side-bottom">
+     物語の世界へ · STORIES AWAIT
+    </div>
+   </aside>
+</div>
+<script>
+document.querySelectorAll(".side-link").forEach(link=>link.addEventListener("click",()=>{document.querySelectorAll(".side-link").forEach(l=>l.classList.remove("active"));link.classList.add("active")}));
+</script>

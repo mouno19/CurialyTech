@@ -1,0 +1,53 @@
+<!-- Seasonal chips and posters (Sakura Stream) · anime-sakura-seasonal: from the Anime archetype: Sakura Stream (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/anime-pastel-sakura-stream.css, and an ancestor with class="cx-anime-pastel-sakura-stream". -->
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+<div class="cx-anime-pastel-sakura-stream">
+<section id="seasonal" class="section" aria-labelledby="seasonal-title">
+     <div class="section-head">
+      <div>
+       <div class="overline">
+        The collection · 2025
+       </div>
+       <h2 id="seasonal-title" class="section-title">This season's daydreams</h2>
+       <p class="section-sub">Handpicked worlds for whatever mood you're in.</p>
+      </div><button id="show-all" class="text-link" type="button">View all stories <i data-lucide="arrow-up-right"></i></button>
+     </div>
+     <div class="chips" role="group" aria-label="Filter by genre"><button type="button" class="chip active" data-genre="All" aria-pressed="true">All stories</button> <button type="button" class="chip" data-genre="Romance" aria-pressed="false">Romance</button> <button type="button" class="chip" data-genre="Fantasy" aria-pressed="false">Fantasy</button> <button type="button" class="chip" data-genre="Slice of life" aria-pressed="false">Slice of life</button> <button type="button" class="chip" data-genre="Adventure" aria-pressed="false">Adventure</button>
+     </div>
+     <div id="seasonal-grid" class="card-grid"></div>
+    </section>
+<!-- Used by this block's script (elsewhere on the page it came from): -->
+<div id="popular-grid" class="popular-grid"></div>
+<div id="recent-list" class="recent-list"></div>
+<button id="explore-btn" class="primary-btn" type="button">Explore the collection <i data-lucide="arrow-up-right"></i></button>
+<input id="search-input" type="search" placeholder="Search stories..." aria-label="Search stories">
+</div>
+<script>
+lucide.createIcons();
+const shows=[
+      {id:'moonlit',title:'Moonlit Letters',genre:'Romance',year:'2025',rating:'4.9',tag:'NEW STORY',image:'https://images.pexels.com/photos/7532500/pexels-photo-7532500.jpeg',alt:'A tranquil Japanese garden with a stone lantern and cherry blossoms',description:'Two unlikely friends discover that the letters they leave beneath an old cherry tree can reach across time.'},
+      {id:'cloud',title:'Beyond the Clouds',genre:'Adventure',year:'2025',rating:'4.8',tag:'ADVENTURE',image:'https://images.pexels.com/photos/35976322/pexels-photo-35976322.jpeg',alt:'Mount Fuji at sunrise above misty mountains',description:'A young sky-cartographer sets off to find the floating islands hidden beyond the edge of every map.'},
+      {id:'tea',title:'The Tea House Spell',genre:'Fantasy',year:'2025',rating:'4.9',tag:'EDITOR’S PICK',image:'https://images.pexels.com/photos/31395602/pexels-photo-31395602.jpeg',alt:'Japanese tea house with glowing lanterns and greenery',description:'In a little tea shop between worlds, every cup comes with a touch of unexpected magic.'},
+      {id:'garden',title:'Our Little Garden',genre:'Slice of life',year:'2025',rating:'4.7',tag:'COZY PICK',image:'https://images.pexels.com/photos/2187298/pexels-photo-2187298.jpeg',alt:'Rustic bridge surrounded by cherry blossoms in spring',description:'A gentle story about new neighbors, shared gardens, and the joy of growing together.'},
+      {id:'starlight',title:'Starlight Postcards',genre:'Fantasy',year:'2024',rating:'4.8',tag:'FAN FAVORITE',image:'https://images.pexels.com/photos/31419072/pexels-photo-31419072.jpeg',alt:'Colorful neon-lit Osaka street at night',description:'A wandering postcard collector follows a trail of stars to a forgotten seaside town.'},
+      {id:'summer',title:'Summer After Rain',genre:'Romance',year:'2024',rating:'4.7',tag:'HEARTWARMING',image:'https://images.pexels.com/photos/978344/pexels-photo-978344.jpeg',alt:'Warm sunset over the ocean in Fujisawa, Japan',description:'An unexpected summer friendship becomes a beautiful new beginning.'}
+    ];
+let genre='All',query='',previousFocus=null;
+const image=s=>`<img src="${s.image}" alt="${s.alt}" loading="lazy">`;
+function card(s){return `<button type="button" class="anime-card" data-show="${s.id}" aria-label="Read about ${s.title}"><div class="poster">${image(s)}<span class="poster-tag">${s.tag}</span><span class="poster-number">✿</span></div><div class="card-info"><h3>${s.title}</h3><div class="meta"><span>${s.genre}</span><span>·</span><span>${s.year}</span><span class="rating">★ ${s.rating}</span></div></div></button>`}
+function smallCard(s){return `<button type="button" class="popular-card" data-show="${s.id}" aria-label="Read about ${s.title}"><div class="thumb">${image(s)}</div><div><h3>${s.title}</h3><p>${s.genre} · ${s.year}</p><span class="meta"><span class="rating">★ ${s.rating}</span> &nbsp; Reader favorite</span></div></button>`}
+function pickCard(s){return `<button type="button" class="recent-card" data-show="${s.id}" aria-label="Read about ${s.title}"><div class="thumb">${image(s)}</div><div class="recent-body"><h3>${s.title}</h3><p>${s.genre} · A story to savor</p><span class="text-link">Discover the story ↗</span></div></button>`}
+function render(){
+      const matches=s=>s.title.toLowerCase().includes(query)||s.genre.toLowerCase().includes(query);
+      const seasonal=shows.filter(s=>(genre==='All'||s.genre===genre)&&matches(s));
+      const popular=[shows[2],shows[4],shows[1]].filter(matches);
+      const picks=[shows[0],shows[3]].filter(matches);
+      document.getElementById('seasonal-grid').innerHTML=seasonal.length?seasonal.map(card).join(''):'<div class="empty">No stories found. Try another search or genre. ✿</div>';
+      document.getElementById('popular-grid').innerHTML=popular.length?popular.map(smallCard).join(''):'<div class="empty">No matching stories here yet.</div>';
+      document.getElementById('recent-list').innerHTML=picks.length?picks.map(pickCard).join(''):'<div class="empty">No matching editor’s picks.</div>';
+    }
+document.querySelectorAll('[data-genre]').forEach(btn=>btn.addEventListener('click',()=>{genre=btn.dataset.genre;document.querySelectorAll('[data-genre]').forEach(b=>{b.classList.toggle('active',b===btn);b.setAttribute('aria-pressed',String(b===btn))});render()}));
+document.getElementById('explore-btn').addEventListener('click',()=>document.getElementById('seasonal').scrollIntoView({behavior:'smooth'}));
+document.getElementById('show-all').addEventListener('click',()=>{query='';document.getElementById('search-input').value='';document.querySelector('[data-genre="All"]').click();document.getElementById('seasonal').scrollIntoView({behavior:'smooth'})});
+render();
+</script>

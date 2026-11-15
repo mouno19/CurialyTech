@@ -185,3 +185,60 @@ export const BLOCKS = {
     ].map(([id, name, tags], index) => ({ id, find: ['<article class="table-chart-card', index], name, category: "data-management", batch: "table-charts", role: "table", tools: DATA_UI_TOOLS, tags: ["table", "data-table", ...tags], description: `${name}: a table that makes comparisons visible without leaving the rows.`, capabilities: ["responsive"] })),
   ],
 };
+
+/** Where each archetype block starts in its template (after the authoring tool's class names are removed). */
+const ANIME_MARKERS = {
+  "anime-cozy-header": ['<header class="site-header"', 0], "anime-cozy-hero": ['<section class="hero"', 0], "anime-cozy-mood-filters": ['<section id="discover"', 0],
+  "anime-cozy-tonight": ['<section id="tonight"', 0], "anime-cozy-collections": ['<section id="collections"', 0], "anime-cozy-continue": ['<section id="continue"', 0],
+  "anime-kuro-topbar": ['<header class="topbar shell"', 0], "anime-kuro-hero": ['<section id="home"', 0], "anime-kuro-premieres": ['<section id="premieres"', 0],
+  "anime-kuro-collections": ['<section id="collections"', 0], "anime-kuro-membership": ['<section id="membership"', 0], "anime-kuro-detail": ['<section id="detail"', 0, { addClass: "active" }],
+  "anime-arcade-header": ['<header class="site-header"', 0], "anime-arcade-hero": ['<section id="featured"', 0], "anime-arcade-player-hub": ['<section id="player-stats"', 0],
+  "anime-arcade-discovery": ['<section id="discovery"', 0],
+  "anime-frame-masthead": ["<header>", 0], "anime-frame-cover": ['<section class="shell cover"', 0], "anime-frame-premieres": ['<section id="premieres"', 0],
+  "anime-frame-critics": ['<section id="critics"', 0], "anime-frame-season": ['<section id="editorial"', 0], "anime-frame-collection": ['<section id="collection"', 0],
+  "anime-shonen-header": ['<header class="site-header"', 0], "anime-shonen-hero": ['<section class="hero"', 0], "anime-shonen-trending": ['<section id="trending"', 0],
+  "anime-shonen-discover": ['<section id="discover"', 0], "anime-shonen-episodes": ['<section id="episodes"', 0], "anime-shonen-characters": ['<section id="characters"', 0],
+  "anime-nebula-nav": ['<header class="site-header"', 0], "anime-nebula-hero": ['<section class="hero"', 0], "anime-nebula-shelf-trending": ['<section id="trending"', 0],
+  "anime-nebula-shelf-popular": ['<section id="popular"', 0], "anime-nebula-shelf-recent": ['<section id="recent"', 0], "anime-nebula-continue": ['<section id="continue"', 0],
+  "anime-grid-topbar": ['<header class="topbar"', 0], "anime-grid-intro": ['<section class="intro"', 0], "anime-grid-filters": ['<aside class="sidebar"', 0],
+  "anime-grid-results": ['<section class="results"', 0],
+  "anime-otaku-dock": ['<aside class="sidebar"', 0], "anime-otaku-statusbar": ['<header class="topbar"', 0], "anime-otaku-featured": ['<section id="featured"', 0],
+  "anime-otaku-archive": ['<section id="archive"', 0], "anime-otaku-status-footer": ['<footer class="bottom-status"', 0],
+  "anime-sakura-sidebar": ['<header class="sidebar"', 0], "anime-sakura-hero": ['<section class="hero"', 0], "anime-sakura-seasonal": ['<section id="seasonal"', 0],
+  "anime-sakura-popular": ['<section id="popular"', 0], "anime-sakura-recent": ['<section id="recent"', 0], "anime-sakura-mobile-dock": ['<nav class="mobile-nav"', 0, { previewWidth: 390 }],
+  "anime-kitsune-sidebar": ['<aside class="sidebar"', 0], "anime-kitsune-topbar": ['<header class="topbar"', 0], "anime-kitsune-featured": ['<section id="featured"', 0],
+  "anime-kitsune-seasonal": ['<section id="seasonal"', 0], "anime-kitsune-collection": ['<section id="collection"', 0],
+};
+
+/** A block's place in the library, from what it is. */
+function placeOf(name) {
+  if (/footer|status line/i.test(name)) return { category: "navigation", role: "content" };
+  if (/filter|mood/i.test(name)) return { category: "data-management", role: "filters" };
+  if (/pagination/i.test(name)) return { category: "navigation", role: "filters" };
+  if (/sidebar|dock|nav\b|navigation/i.test(name)) return { category: "navigation", role: "navigation" };
+  if (/header|topbar|masthead|status bar/i.test(name)) return { category: "navigation", role: "header" };
+  if (/hero|cover|featured|intro/i.test(name)) return { category: "layout", role: "header" };
+  if (/detail|episode|spotlight/i.test(name)) return { category: "media-detail", role: "content" };
+  if (/continue|player hub|tonight|membership|perks|status line/i.test(name)) return { category: "engagement", role: "insight" };
+  if (/critic|review|banner|philosophy/i.test(name)) return { category: "editorial", role: "insight" };
+  return { category: "media-browsing", role: "content" };
+}
+
+/** The anime archetypes' blocks as block collections (one per template), from anime-templates/archetypes.json. */
+export function animeCollections(archetypes, dir) {
+  return archetypes.map(archetype => ({
+    dir, file: archetype.file, tokens: archetype.id, archetype: archetype.id, collection: `Anime archetype: ${archetype.name}`, packages: ["lucide"],
+    items: archetype.blocks.map(block => {
+      const place = placeOf(block.name);
+      const words = `${block.name} ${block.how}`.toLowerCase().split(/[^a-z0-9]+/).filter(word => word.length > 3);
+      const [marker, index, options = {}] = ANIME_MARKERS[block.id];
+      return {
+        id: block.id, find: [marker, index], ...options, name: `${block.name} (${archetype.name})`, ...place, batch: archetype.id,
+        tools: place.role === "insight" ? [...UI_TOOLS] : ["web-design", "ui-ux-design", "frontend-development"],
+        tags: [...new Set(["anime", "entertainment", "media", archetype.mode === "dark" ? "dark" : "light", ...archetype.signals.slice(0, 6), ...archetype.fits.slice(0, 4).map(fit => fit.replace(/\s+/g, "-")), ...words.slice(0, 6)])],
+        description: `${block.name}: ${block.how}. From the ${archetype.name} archetype (${archetype.style}); re-skin it to the design's tokens and mix it with blocks of other archetypes, never the whole template.`,
+        capabilities: ["responsive"],
+      };
+    }),
+  }));
+}

@@ -1,0 +1,53 @@
+<!-- Player hub (Anime Arcade) · anime-arcade-player-hub: from the Anime archetype: Anime Arcade (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/anime-retro-arcade-synthwave.css, and an ancestor with class="cx-anime-retro-arcade-synthwave". -->
+<div class="cx-anime-retro-arcade-synthwave">
+<section id="player-stats" class="shell section">
+    <div class="section-head">
+     <div>
+      <p class="kicker pixel">// PLAYER HUB</p>
+      <h2 class="pixel">YOUR ARCADE CORNER</h2>
+     </div>
+    </div>
+    <div class="dashboard">
+     <div class="dash-card">
+      <div class="dash-label pixel">
+       WATCH STREAK · SAMPLE
+      </div>
+      <div class="dash-big pixel">
+       05 DAYS <span aria-hidden="true">⚡</span>
+      </div>
+      <p>A little inspiration for your next anime marathon.</p>
+      <div class="streak-days" aria-label="Sample five-day streak">
+       <span class="day on"><b>✓</b>M</span><span class="day on"><b>✓</b>T</span><span class="day on"><b>✓</b>W</span><span class="day on"><b>✓</b>T</span><span class="day on"><b>✓</b>F</span><span class="day"><b>·</b>S</span><span class="day"><b>·</b>S</span>
+      </div>
+     </div>
+     <div class="dash-card">
+      <div class="dash-label pixel">
+       ACHIEVEMENT SHOWCASE
+      </div>
+      <div class="achievement-tabs" role="group" aria-label="Sample achievements">
+       <button type="button" data-achievement="0" aria-pressed="true" aria-label="First Quest achievement">🏆</button><button type="button" data-achievement="1" aria-pressed="false" aria-label="Night Owl achievement">🌙</button><button type="button" data-achievement="2" aria-pressed="false" aria-label="Genre Hopper achievement">🎮</button>
+      </div>
+      <div id="achievement-name" class="achievement-name">
+       FIRST QUEST
+      </div>
+      <p id="achievement-description">The adventure begins with one great series.</p>
+     </div>
+     <div class="dash-card">
+      <div class="dash-label pixel">
+       ON THE RADAR
+      </div>
+      <div class="now-playing">
+       <div class="mini-disc" aria-hidden="true"></div>
+       <div>
+        <strong>Level up your queue</strong><span>Browse the catalog below ↓</span>
+       </div>
+      </div>
+     </div>
+    </div>
+   </section>
+</div>
+<script>
+const achievements=[["FIRST QUEST","The adventure begins with one great series."],["NIGHT OWL","For stories that shine after sunset."],["GENRE HOPPER","A new world is always one genre away."]];
+document.querySelectorAll("[data-achievement]").forEach(btn=>btn.addEventListener("click",()=>{document.querySelectorAll("[data-achievement]").forEach(b=>b.setAttribute("aria-pressed",String(b===btn)));const a=achievements[Number(btn.dataset.achievement)];document.getElementById("achievement-name").textContent=a[0];document.getElementById("achievement-description").textContent=a[1]}));
+</script>

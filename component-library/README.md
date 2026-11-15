@@ -67,6 +67,16 @@ vocabulary or orchestration change is needed. Minimal example:
 - A folder that doesn't validate is skipped and reported (`registry().problems`), never fatal.
 - To teach the search new words, add terms or concepts to `vocabulary.json`.
 
+## The anime style archetypes
+
+`anime-templates/` holds ten complete anime and entertainment site templates. They are the source
+of the design intelligence's style archetypes (server/agent/design/knowledge/archetypes.ts) and of
+54 blocks registered here (`anime-*`, with `archetype` set): headers, heroes, shelves, filter
+sidebars, episode guides, streak trackers, critics' scores, seals and more. A design mixes blocks of
+several archetypes on one token set (`tokens/anime-*.json`); a whole template is never reproduced.
+After changing archetypes.ts run `node node_modules/tsx/dist/cli.mjs scripts/components/export-archetypes.mts`,
+then the importer.
+
 ## The imported Component Atlas
 
 `node scripts/components/import-atlas.mjs` turns `atlas/*.html` into components (configuration in

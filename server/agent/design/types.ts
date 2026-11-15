@@ -16,7 +16,7 @@ export type Discipline =
   | "surface";
 
 /** What kind of interface is being built; decides which recipe and examples apply. */
-export type Surface = "landing" | "storefront" | "dashboard" | "editorial" | "showcase" | "app" | "portfolio" | "docs" | "game" | "general";
+export type Surface = "landing" | "storefront" | "dashboard" | "editorial" | "showcase" | "app" | "portfolio" | "docs" | "game" | "media" | "general";
 
 /** Visual register: how expressive the design should be. */
 export type Register = "brand" | "product" | "editorial" | "playful";
@@ -27,8 +27,11 @@ export type MotionLevel = "subtle" | "expressive";
 /** Request traits some entries need before they are worth their tokens. */
 export type Need = "motion" | "immersive" | "data" | "forms" | "commerce" | "scroll";
 
-/** A guideline line; `unless` names request words that mean the user asked for exactly this (then it is dropped). */
-export type Rule = string | { text: string; unless: string[] };
+/**
+ * A guideline line; `unless` names request words that mean the user asked for exactly this (then it
+ * is dropped). `look`: a look a chosen style archetype is built on also drops it (synthesis.ts).
+ */
+export type Rule = string | { text: string; unless: string[]; look?: string };
 
 export type DesignEntry = {
   /** Stable kebab-case id (cited in tests, docs and audits). */
@@ -89,6 +92,10 @@ export type DesignIntent = {
   latest: string;
   /** An image is attached (a mockup or reference to follow). */
   reference: boolean;
+  /** Style archetypes the design mixes (the base first; synthesis.ts), empty when none apply. */
+  styles: string[];
+  /** Looks those archetypes are built on: deliberate here, so neither the brief nor the audit warns against them. */
+  granted: string[];
 };
 
 export type BriefRole = "solo" | "architect" | "engineer" | "reviewer";
@@ -99,6 +106,8 @@ export type DesignBrief = {
   entries: DesignEntry[];
   /** test_preview_visual is offered in this run (it needs the cloud browser). */
   visualTest: boolean;
+  /** The mixture of style archetypes for this request (synthesis.ts), or null. */
+  synthesis?: import("./synthesis").Synthesis | null;
 };
 
 // ---- Audit ----------------------------------------------------------------

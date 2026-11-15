@@ -1,0 +1,104 @@
+{
+  "id": "anime-sakura-mobile-dock",
+  "name": "Mobile bottom dock (Sakura Stream)",
+  "description": "Mobile bottom dock: a floating bottom navigation on phones. From the Sakura Stream archetype (Romantic pastel, delicate Japanese spring); re-skin it to the design's tokens and mix it with blocks of other archetypes, never the whole template.",
+  "category": "navigation",
+  "batch": "anime-pastel-sakura-stream",
+  "collection": "Anime archetype: Sakura Stream",
+  "kind": "component",
+  "role": "navigation",
+  "tags": [
+    "anime",
+    "entertainment",
+    "media",
+    "light",
+    "pastel",
+    "romance",
+    "romantic",
+    "sakura",
+    "cherry blossom",
+    "blossom",
+    "florist",
+    "wedding",
+    "romance-novels",
+    "beauty-brand",
+    "mobile",
+    "bottom",
+    "dock",
+    "floating",
+    "navigation",
+    "area-chart",
+    "trend",
+    "time-series",
+    "volume",
+    "radial",
+    "circular",
+    "network",
+    "relationships",
+    "graph",
+    "api-monitoring",
+    "usage",
+    "light-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "lucide",
+      "version": "0.577.0"
+    },
+    {
+      "type": "stylesheet",
+      "id": "anime-pastel-sakura-stream"
+    },
+    {
+      "type": "tokens",
+      "id": "anime-pastel-sakura-stream"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "navigation",
+    "span": "rail"
+  },
+  "style": {
+    "tokens": "anime-pastel-sakura-stream",
+    "mode": "light",
+    "colors": {}
+  },
+  "source": {
+    "file": "anime-templates/09_sakura_stream_pastel_romance.html",
+    "ref": "nav class=\"mobile-nav\" #0"
+  },
+  "archetype": "anime-pastel-sakura-stream",
+  "preview": {
+    "width": 390
+  },
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "06927d47efba733f",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

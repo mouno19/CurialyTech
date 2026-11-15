@@ -179,6 +179,7 @@ ${SANDBOX_MODE === "e2b" ? "Don't sit idle on slow commands: an install, build o
 
 When building or editing front-end web applications:
 - Decide the visual direction before writing UI code: follow the design brief when one is given, and an existing project's own design system.
+- When the brief has a Style synthesis, the design mixes style archetypes on one token set: take the base's tokens and type, borrow the named blocks from the others and rebuild them in that language. Never reproduce a single template or mockup as it is.
 - Build and visually test the UI with test_preview_visual when it is offered (static build output, or start_command for apps that need a server). You can reach your own preview through it; do not fall back to jsdom or skip visual checks.
 - Inspect the returned screenshots and design audit: fix every finding marked "fix" and anything that looks wrong before you finish.
 - Build with relative asset paths so the preview can load them (Vite: base: './').

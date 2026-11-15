@@ -1,0 +1,125 @@
+/* Anime archetype: Kuro Cinema: the family's styles, scoped to .cx-anime-luxury-kuro-cinema (put the blocks inside an element with that class). */
+
+    .cx-anime-luxury-kuro-cinema{--bg:#090a09;--surface:#111310;--surface2:#171914;--gold:#d5bb82;--gold-light:#f0dfb6;--muted:#a3a39a;--line:#36362f;--white:#f3f0e8}
+    .cx-anime-luxury-kuro-cinema *,.cx-anime-luxury-kuro-cinema{box-sizing:border-box}
+    .cx-anime-luxury-kuro-cinema{scroll-behavior:smooth}
+    .cx-anime-luxury-kuro-cinema{margin:0;background:var(--bg);color:var(--white);font-family:"DM Sans",sans-serif}
+    .cx-anime-luxury-kuro-cinema button,.cx-anime-luxury-kuro-cinema input{font-family:"DM Sans",sans-serif}
+    .cx-anime-luxury-kuro-cinema button,.cx-anime-luxury-kuro-cinema a{ -webkit-tap-highlight-color:transparent}
+    .cx-anime-luxury-kuro-cinema button{cursor:pointer}
+    .cx-anime-luxury-kuro-cinema a{color:inherit;text-decoration:none}
+    .cx-anime-luxury-kuro-cinema :focus-visible{outline:2px solid var(--gold-light);outline-offset:4px}
+    .cx-anime-luxury-kuro-cinema .shell{max-width:1600px;margin:auto;padding:0 5.3%}
+    .cx-anime-luxury-kuro-cinema .topbar{height:88px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #ffffff16;position:relative;z-index:10;background:#090a09}
+    .cx-anime-luxury-kuro-cinema .brand{display:flex;align-items:center;gap:13px;white-space:nowrap}
+    .cx-anime-luxury-kuro-cinema .brand-mark{width:26px;height:26px;border:1px solid var(--gold);transform:rotate(45deg);display:grid;place-items:center}
+    .cx-anime-luxury-kuro-cinema .brand-mark:after{content:"";width:12px;height:12px;border:1px solid var(--gold)}
+    .cx-anime-luxury-kuro-cinema .brand-name{font-family:"Playfair Display",serif;font-size:20px;letter-spacing:.2em;font-weight:600}
+    .cx-anime-luxury-kuro-cinema .brand-name span{color:var(--gold)}
+    .cx-anime-luxury-kuro-cinema .nav{display:flex;gap:38px;align-items:center}
+    .cx-anime-luxury-kuro-cinema .nav a{font-size:11px;text-transform:uppercase;letter-spacing:.2em;color:#c5c4bb;transition:color .2s}
+    .cx-anime-luxury-kuro-cinema .nav a:hover,.cx-anime-luxury-kuro-cinema .nav a.active{color:var(--gold)}
+    .cx-anime-luxury-kuro-cinema .header-actions{display:flex;align-items:center;gap:23px}
+    .cx-anime-luxury-kuro-cinema .icon-btn{border:0;background:none;color:var(--white);padding:7px;display:grid;place-items:center}
+    .cx-anime-luxury-kuro-cinema .icon-btn svg{width:19px;height:19px}
+    .cx-anime-luxury-kuro-cinema .member-badge{border:1px solid #8e7953;color:var(--gold-light);padding:11px 16px;font-size:10px;text-transform:uppercase;letter-spacing:.18em;white-space:nowrap}
+    .cx-anime-luxury-kuro-cinema .mobile-toggle{display:none}
+    .cx-anime-luxury-kuro-cinema .search-wrap{position:absolute;right:5.3%;top:76px;background:#171914;border:1px solid var(--line);padding:12px;box-shadow:0 16px 45px #0009;display:none;width:min(340px,90vw)}
+    .cx-anime-luxury-kuro-cinema .search-wrap.open{display:block}
+    .cx-anime-luxury-kuro-cinema .search-wrap input{width:100%;background:#0c0d0b;color:var(--white);border:1px solid var(--line);padding:12px 14px;outline:none}
+    .cx-anime-luxury-kuro-cinema .search-wrap input:focus{border-color:var(--gold)}
+    .cx-anime-luxury-kuro-cinema .hero{min-height:680px;position:relative;display:flex;align-items:center;overflow:hidden;background:#151310}
+    .cx-anime-luxury-kuro-cinema .hero-image{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center 42%;opacity:.75;transition:opacity .3s}
+    .cx-anime-luxury-kuro-cinema .hero:before{content:"";position:absolute;inset:0;background:linear-gradient(90deg,#090a09 0%,#090a09f0 23%,#090a09a8 47%,#090a091a 78%),linear-gradient(0deg,#090a09 0%,transparent 35%);z-index:1}
+    .cx-anime-luxury-kuro-cinema .hero-content{position:relative;z-index:2;width:100%;padding-top:55px;padding-bottom:75px}
+    .cx-anime-luxury-kuro-cinema .eyebrow{color:var(--gold);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.32em;display:flex;align-items:center;gap:14px}
+    .cx-anime-luxury-kuro-cinema .eyebrow:before{content:"";height:1px;width:34px;background:var(--gold)}
+    .cx-anime-luxury-kuro-cinema .hero h1{font:500 clamp(68px,9vw,142px)/.96 "Playfair Display",serif;letter-spacing:-.055em;max-width:740px;margin:26px 0 24px;text-shadow:0 3px 30px #0008}
+    .cx-anime-luxury-kuro-cinema .hero h1 em{font-weight:400;color:var(--gold-light)}
+    .cx-anime-luxury-kuro-cinema .hero-desc{max-width:490px;color:#d6d4cb;line-height:1.85;font-size:14px;margin:0 0 26px}
+    .cx-anime-luxury-kuro-cinema .meta{display:flex;gap:20px;align-items:center;color:#e2ded3;font-size:11px;letter-spacing:.12em;text-transform:uppercase;flex-wrap:wrap}
+    .cx-anime-luxury-kuro-cinema .meta span+span:before{content:"•";color:var(--gold);margin-right:20px}
+    .cx-anime-luxury-kuro-cinema .hero-actions{display:flex;gap:16px;margin-top:37px;align-items:center}
+    .cx-anime-luxury-kuro-cinema .gold-btn,.cx-anime-luxury-kuro-cinema .outline-btn{min-height:49px;padding:0 23px;display:inline-flex;align-items:center;gap:12px;text-transform:uppercase;letter-spacing:.17em;font-size:10px;font-weight:700;transition:background .2s,transform .2s;border:1px solid var(--gold)}
+    .cx-anime-luxury-kuro-cinema .gold-btn{background:var(--gold);color:#17150f}
+    .cx-anime-luxury-kuro-cinema .gold-btn:hover{background:var(--gold-light);transform:translateY(-2px)}
+    .cx-anime-luxury-kuro-cinema .outline-btn{background:#090a0950;color:var(--gold-light)}
+    .cx-anime-luxury-kuro-cinema .outline-btn:hover{background:#d5bb821c}
+    .cx-anime-luxury-kuro-cinema .gold-btn svg,.cx-anime-luxury-kuro-cinema .outline-btn svg{width:15px;height:15px}
+    .cx-anime-luxury-kuro-cinema .hero-bottom{position:absolute;z-index:2;bottom:34px;left:5.3%;right:5.3%;display:flex;justify-content:space-between;align-items:end}
+    .cx-anime-luxury-kuro-cinema .hero-counter{font-family:"Playfair Display",serif;font-size:15px;color:#d7d2c6}
+    .cx-anime-luxury-kuro-cinema .hero-counter strong{font-size:26px;color:var(--gold-light);font-weight:400}
+    .cx-anime-luxury-kuro-cinema .hero-controls{display:flex;gap:8px}
+    .cx-anime-luxury-kuro-cinema .hero-controls button{width:43px;height:43px;border:1px solid #a79b7770;background:#0a0b0a7a;color:var(--white);display:grid;place-items:center}
+    .cx-anime-luxury-kuro-cinema .hero-controls button:hover{background:var(--gold);color:#111}
+    .cx-anime-luxury-kuro-cinema .hero-controls svg{width:17px;height:17px}
+    .cx-anime-luxury-kuro-cinema .section{padding-top:100px;padding-bottom:30px}
+    .cx-anime-luxury-kuro-cinema .section-heading{display:flex;justify-content:space-between;align-items:end;gap:20px;margin-bottom:32px}
+    .cx-anime-luxury-kuro-cinema .section-kicker{color:var(--gold);font-size:10px;text-transform:uppercase;letter-spacing:.3em;font-weight:700;margin:0 0 12px}
+    .cx-anime-luxury-kuro-cinema h2{font:400 clamp(36px,4vw,56px)/1.1 "Playfair Display",serif;letter-spacing:-.035em;margin:0}
+    .cx-anime-luxury-kuro-cinema .section-heading p:last-child{color:var(--muted);font-size:13px;max-width:340px;line-height:1.7;margin:0}
+    .cx-anime-luxury-kuro-cinema .premiere-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+    .cx-anime-luxury-kuro-cinema .poster-card{min-width:0;cursor:pointer;text-align:left;background:none;border:0;color:inherit;padding:0}
+    .cx-anime-luxury-kuro-cinema .poster-frame{height:390px;position:relative;overflow:hidden;border:1px solid #6d624a;background:#1c1c1a}
+    .cx-anime-luxury-kuro-cinema .poster-frame img{width:100%;height:100%;object-fit:cover;transition:transform .5s;display:block}
+    .cx-anime-luxury-kuro-cinema .poster-card:hover img,.cx-anime-luxury-kuro-cinema .collection-card:hover img{transform:scale(1.06)}
+    .cx-anime-luxury-kuro-cinema .poster-frame:after{content:"";position:absolute;inset:0;background:linear-gradient(0deg,#080907db,transparent 52%)}
+    .cx-anime-luxury-kuro-cinema .poster-top{position:absolute;z-index:1;top:17px;left:17px;font-size:9px;letter-spacing:.2em;text-transform:uppercase;background:#0c0d0bcc;border:1px solid #bdab7a;padding:9px 11px;color:var(--gold-light)}
+    .cx-anime-luxury-kuro-cinema .poster-number{position:absolute;z-index:1;right:19px;bottom:15px;font:italic 31px "Playfair Display",serif;color:#e8dcc0}
+    .cx-anime-luxury-kuro-cinema .card-meta{color:var(--gold);font-size:10px;letter-spacing:.18em;text-transform:uppercase;margin:18px 0 7px}
+    .cx-anime-luxury-kuro-cinema .poster-card h3{font:400 26px "Playfair Display",serif;margin:0 0 8px}
+    .cx-anime-luxury-kuro-cinema .poster-card .sub{color:var(--muted);font-size:12px;margin:0}
+    .cx-anime-luxury-kuro-cinema .divider{height:1px;background:var(--line);margin-top:80px}
+    .cx-anime-luxury-kuro-cinema .collections{padding-top:80px}
+    .cx-anime-luxury-kuro-cinema .collection-grid{display:grid;grid-template-columns:1.35fr 1fr;gap:20px}
+    .cx-anime-luxury-kuro-cinema .collection-card{height:320px;position:relative;overflow:hidden;border:1px solid #675b42;cursor:pointer;text-align:left;padding:0;background:#171914;color:var(--white)}
+    .cx-anime-luxury-kuro-cinema .collection-card img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .5s}
+    .cx-anime-luxury-kuro-cinema .collection-card:after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,#090a09de,#090a0920),linear-gradient(0deg,#090a0980,transparent 60%)}
+    .cx-anime-luxury-kuro-cinema .collection-copy{position:absolute;z-index:1;left:35px;bottom:32px}
+    .cx-anime-luxury-kuro-cinema .collection-copy small{color:var(--gold);font-size:10px;letter-spacing:.22em;text-transform:uppercase}
+    .cx-anime-luxury-kuro-cinema .collection-copy h3{font:400 clamp(29px,3.4vw,46px) "Playfair Display",serif;margin:10px 0}
+    .cx-anime-luxury-kuro-cinema .collection-copy span{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#ddd8cd}
+    .cx-anime-luxury-kuro-cinema .membership{margin-top:100px;background:linear-gradient(115deg,#1b1b15,#10110e);border-top:1px solid #6b5d41;border-bottom:1px solid #6b5d41}
+    .cx-anime-luxury-kuro-cinema .membership-inner{display:grid;grid-template-columns:1fr 1fr;gap:45px;align-items:center;padding-top:65px;padding-bottom:65px}
+    .cx-anime-luxury-kuro-cinema .membership h2{max-width:530px;margin:14px 0}
+    .cx-anime-luxury-kuro-cinema .membership p{color:#bcbab0;line-height:1.8;font-size:13px;max-width:440px}
+    .cx-anime-luxury-kuro-cinema .perks{display:grid;grid-template-columns:1fr 1fr;gap:26px}
+    .cx-anime-luxury-kuro-cinema .perk{border-left:1px solid #74664b;padding-left:20px}
+    .cx-anime-luxury-kuro-cinema .perk svg{width:22px;height:22px;color:var(--gold);margin-bottom:13px}
+    .cx-anime-luxury-kuro-cinema .perk h3{font:400 20px "Playfair Display",serif;margin:0 0 8px}
+    .cx-anime-luxury-kuro-cinema .perk p{font-size:11px;margin:0}
+    .cx-anime-luxury-kuro-cinema footer{padding-top:55px!important;padding-bottom:45px!important;display:flex;justify-content:space-between;gap:20px;align-items:center;color:#8c8d84;font-size:11px}
+    .cx-anime-luxury-kuro-cinema footer .brand-name{font-size:15px;color:var(--white)}
+    .cx-anime-luxury-kuro-cinema .detail{display:none}
+    .cx-anime-luxury-kuro-cinema .detail.active{display:block}
+    .cx-anime-luxury-kuro-cinema .catalog.hidden{display:none}
+    .cx-anime-luxury-kuro-cinema .detail-hero{position:relative;min-height:610px;display:flex;align-items:end;background:#171914}
+    .cx-anime-luxury-kuro-cinema .detail-hero>img{position:absolute;width:100%;height:100%;object-fit:cover;object-position:center 40%;opacity:.74}
+    .cx-anime-luxury-kuro-cinema .detail-hero:after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,#090a09e8,#090a0955 70%),linear-gradient(0deg,#090a09,transparent 65%)}
+    .cx-anime-luxury-kuro-cinema .detail-hero .shell{position:relative;z-index:1;width:100%;padding-bottom:62px}
+    .cx-anime-luxury-kuro-cinema .back-btn{background:none;border:0;color:var(--gold);display:flex;align-items:center;gap:10px;font-size:10px;text-transform:uppercase;letter-spacing:.2em;padding:0;margin-bottom:70px}
+    .cx-anime-luxury-kuro-cinema .back-btn svg{width:16px}
+    .cx-anime-luxury-kuro-cinema .detail-hero h1{font:400 clamp(65px,9vw,125px)/1 "Playfair Display",serif;letter-spacing:-.05em;margin:17px 0 23px;max-width:850px}
+    .cx-anime-luxury-kuro-cinema .detail-body{display:grid;grid-template-columns:1.4fr .6fr;gap:75px;padding-top:65px;padding-bottom:85px}
+    .cx-anime-luxury-kuro-cinema .detail-body h2{font-size:38px;margin-bottom:20px}
+    .cx-anime-luxury-kuro-cinema .detail-body p{font-size:14px;line-height:1.9;color:#bcbcb3}
+    .cx-anime-luxury-kuro-cinema .detail-side{border-left:1px solid var(--line);padding-left:40px}
+    .cx-anime-luxury-kuro-cinema .detail-side dl{margin:0}
+    .cx-anime-luxury-kuro-cinema .detail-side dt{font-size:10px;text-transform:uppercase;letter-spacing:.22em;color:var(--gold);margin-top:24px}
+    .cx-anime-luxury-kuro-cinema .detail-side dd{margin:8px 0 0;font:19px "Playfair Display",serif}
+    .cx-anime-luxury-kuro-cinema .episodes{border-top:1px solid var(--line);padding-top:55px;padding-bottom:100px}
+    .cx-anime-luxury-kuro-cinema .episode-layout{display:grid;grid-template-columns:1fr 1fr;gap:65px;margin-top:30px}
+    .cx-anime-luxury-kuro-cinema .episode-list{display:grid;gap:8px}
+    .cx-anime-luxury-kuro-cinema .episode-btn{background:var(--surface);border:1px solid var(--line);color:var(--white);padding:20px 22px;display:flex;align-items:center;gap:20px;text-align:left;width:100%}
+    .cx-anime-luxury-kuro-cinema .episode-btn.selected{border-color:var(--gold);background:#252217}
+    .cx-anime-luxury-kuro-cinema .episode-btn .num{color:var(--gold);font:25px "Playfair Display",serif}
+    .cx-anime-luxury-kuro-cinema .episode-btn strong{font-size:13px;font-weight:500}
+    .cx-anime-luxury-kuro-cinema .episode-preview{background:var(--surface);border:1px solid var(--line);padding:35px;min-height:210px}
+    .cx-anime-luxury-kuro-cinema .episode-preview small{color:var(--gold);letter-spacing:.2em;text-transform:uppercase;font-size:10px}
+    .cx-anime-luxury-kuro-cinema .episode-preview h3{font:30px "Playfair Display",serif;margin:15px 0}
+    .cx-anime-luxury-kuro-cinema .episode-preview p{color:#bcbcb3;font-size:13px;line-height:1.8}
+    .cx-anime-luxury-kuro-cinema .empty{display:none;color:var(--muted);padding:30px 0}
+    @media(max-width:900px){.cx-anime-luxury-kuro-cinema .nav{gap:18px}.cx-anime-luxury-kuro-cinema .nav a{font-size:10px}.cx-anime-luxury-kuro-cinema .member-badge{display:none}.cx-anime-luxury-kuro-cinema .hero{min-height:620px}.cx-anime-luxury-kuro-cinema .poster-frame{height:300px}.cx-anime-luxury-kuro-cinema .detail-body{gap:35px}}
+    @media(max-width:680px){.cx-anime-luxury-kuro-cinema .shell{padding-left:6%;padding-right:6%}.cx-anime-luxury-kuro-cinema .topbar{height:72px}.cx-anime-luxury-kuro-cinema .brand-name{font-size:17px}.cx-anime-luxury-kuro-cinema .nav{display:none;position:absolute;top:72px;left:0;right:0;background:#111310;border-bottom:1px solid var(--line);padding:25px 6%;flex-direction:column;align-items:start;gap:24px}.cx-anime-luxury-kuro-cinema .nav.open{display:flex}.cx-anime-luxury-kuro-cinema .mobile-toggle{display:grid}.cx-anime-luxury-kuro-cinema .header-actions{gap:7px}.cx-anime-luxury-kuro-cinema .search-wrap{top:65px;right:6%}.cx-anime-luxury-kuro-cinema .hero{min-height:660px;align-items:end}.cx-anime-luxury-kuro-cinema .hero-image{object-position:65% center}.cx-anime-luxury-kuro-cinema .hero:before{background:linear-gradient(0deg,#090a09 1%,#090a09d9 38%,#090a091a 100%),linear-gradient(90deg,#090a0977,transparent)}.cx-anime-luxury-kuro-cinema .hero-content{padding-top:120px;padding-bottom:110px}.cx-anime-luxury-kuro-cinema .hero h1{font-size:clamp(61px,16vw,90px)}.cx-anime-luxury-kuro-cinema .hero-desc{font-size:13px}.cx-anime-luxury-kuro-cinema .hero-bottom{left:6%;right:6%}.cx-anime-luxury-kuro-cinema .section{padding-top:70px}.cx-anime-luxury-kuro-cinema .section-heading{display:block}.cx-anime-luxury-kuro-cinema .section-heading p:last-child{margin-top:14px}.cx-anime-luxury-kuro-cinema .premiere-grid{grid-template-columns:1fr 1fr;gap:24px 13px}.cx-anime-luxury-kuro-cinema .poster-frame{height:270px}.cx-anime-luxury-kuro-cinema .poster-card h3{font-size:21px}.cx-anime-luxury-kuro-cinema .poster-top{font-size:8px;padding:7px}.cx-anime-luxury-kuro-cinema .collection-grid{grid-template-columns:1fr}.cx-anime-luxury-kuro-cinema .collection-card{height:260px}.cx-anime-luxury-kuro-cinema .membership{margin-top:70px}.cx-anime-luxury-kuro-cinema .membership-inner{grid-template-columns:1fr}.cx-anime-luxury-kuro-cinema .perks{gap:24px}.cx-anime-luxury-kuro-cinema .detail-hero{min-height:560px}.cx-anime-luxury-kuro-cinema .detail-body,.cx-anime-luxury-kuro-cinema .episode-layout{grid-template-columns:1fr;gap:30px}.cx-anime-luxury-kuro-cinema .detail-side{border-left:0;border-top:1px solid var(--line);padding:10px 0 0}.cx-anime-luxury-kuro-cinema .detail-hero h1{font-size:62px}.cx-anime-luxury-kuro-cinema .back-btn{margin-bottom:75px}.cx-anime-luxury-kuro-cinema footer{flex-direction:column;align-items:start}}
+    @media(max-width:410px){.cx-anime-luxury-kuro-cinema .premiere-grid{grid-template-columns:1fr 1fr}.cx-anime-luxury-kuro-cinema .poster-frame{height:225px}.cx-anime-luxury-kuro-cinema .poster-card h3{font-size:18px}.cx-anime-luxury-kuro-cinema .meta{gap:9px;font-size:9px}.cx-anime-luxury-kuro-cinema .meta span+span:before{margin-right:9px}.cx-anime-luxury-kuro-cinema .perks{grid-template-columns:1fr}}
+  

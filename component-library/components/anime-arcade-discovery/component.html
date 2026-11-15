@@ -1,0 +1,40 @@
+<!-- Arcade discovery grid (Anime Arcade) · anime-arcade-discovery: from the Anime archetype: Anime Arcade (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/anime-retro-arcade-synthwave.css, and an ancestor with class="cx-anime-retro-arcade-synthwave". -->
+<div class="cx-anime-retro-arcade-synthwave">
+<section id="discovery" class="shell section">
+    <div class="section-head">
+     <div>
+      <p class="kicker pixel">// SELECT YOUR NEXT WORLD</p>
+      <h2 class="pixel">DISCOVERY GRID</h2>
+      <p class="section-sub">Big adventures, cozy detours, and a few hidden bonus levels.</p>
+     </div>
+    </div>
+    <div id="filters" class="filters" role="group" aria-label="Filter anime by category"></div>
+    <p id="result-count" class="result-count" aria-live="polite"></p>
+    <div id="anime-grid" class="grid"></div>
+    <div id="empty-state" class="empty">
+     <strong class="pixel">NO MATCH FOUND</strong>Try a different title or pick another category.
+    </div>
+   </section>
+</div>
+<script>
+const shows=[
+      {title:"Neon Spirit Runners",type:"Original",genre:"Action",tags:["Action","Sci-Fi"],rating:"9.2",year:"2025",episodes:"12 episodes",icon:"⚡",colors:["#d754ac","#4332a1"],short:"A glitchy city. A fearless crew. One last run.",description:"When the city glitches after dark, a crew of unlikely heroes races between worlds to put the night back together. A high-energy original adventure with neon streets, strange spirits, and plenty of heart."},
+      {title:"Demon Slayer",type:"Anime",genre:"Action",tags:["Action","Fantasy"],rating:"9.4",year:"2019",episodes:"Multiple seasons",icon:"⚔️",colors:["#348777","#172e59"],short:"A brother's journey through a world of demons.",description:"Tanjiro sets out on a dangerous journey to help his sister and face the demons that changed their family forever. An acclaimed action-fantasy adventure."},
+      {title:"Frieren: Beyond Journey's End",type:"Anime",genre:"Fantasy",tags:["Fantasy","Adventure"],rating:"9.6",year:"2023",episodes:"28 episodes",icon:"🪄",colors:["#79afc7","#42549a"],short:"An adventure begins after the heroes' victory.",description:"Long after a legendary quest ends, an elven mage discovers the meaning of time, friendship, and the moments she once overlooked."},
+      {title:"Pixel Moon Café",type:"Original",genre:"Cozy",tags:["Cozy","Slice of Life"],rating:"8.8",year:"2025",episodes:"10 episodes",icon:"☕",colors:["#f3a0be","#8961b0"],short:"Late-night snacks for travelers between worlds.",description:"At a tiny café that appears only at midnight, a cheerful cook serves comfort food to visitors from impossible places. An original, gentle slice-of-life escape."},
+      {title:"Jujutsu Kaisen",type:"Anime",genre:"Action",tags:["Action","Supernatural"],rating:"9.3",year:"2020",episodes:"Multiple seasons",icon:"👁️",colors:["#674dc4","#202653"],short:"Curses, courage, and an extraordinary new world.",description:"Yuji Itadori enters a hidden world of jujutsu sorcerers, where friendships are forged amid dangerous encounters with curses."},
+      {title:"Starlight Mecha Club",type:"Original",genre:"Sci-Fi",tags:["Sci-Fi","Adventure"],rating:"8.9",year:"2025",episodes:"12 episodes",icon:"🤖",colors:["#4abbd0","#5351ad"],short:"After-school inventors take to the stars.",description:"A team of young makers turns a forgotten robot into the heart of an interstellar adventure. An original story about teamwork, inventions, and cosmic surprises."},
+      {title:"Spy x Family",type:"Anime",genre:"Comedy",tags:["Comedy","Action"],rating:"9.1",year:"2022",episodes:"Multiple seasons",icon:"🕵️",colors:["#82ac7b","#366475"],short:"One unusual family. A very secret mission.",description:"A spy, an assassin, and a telepath each have a secret to keep in this funny, warmhearted story about an unconventional family."},
+      {title:"One Piece",type:"Anime",genre:"Adventure",tags:["Adventure","Action"],rating:"9.5",year:"1999",episodes:"Ongoing",icon:"🏴‍☠️",colors:["#ee9a58","#ae496b"],short:"Set sail for the greatest treasure of all.",description:"Monkey D. Luffy and the Straw Hat crew sail across a vast world in pursuit of the legendary One Piece, finding friends and adventures along the way."},
+      {title:"Arcade Hearts 1999",type:"Original",genre:"Romance",tags:["Romance","Cozy"],rating:"8.7",year:"2025",episodes:"12 episodes",icon:"💖",colors:["#e763aa","#6847b2"],short:"Two rivals, one arcade, infinite continues.",description:"Two leaderboard rivals discover that their favorite neighborhood arcade holds more than high scores. An original nostalgia-soaked romantic comedy."},
+      {title:"Haikyu!!",type:"Anime",genre:"Sports",tags:["Sports","Comedy"],rating:"9.2",year:"2014",episodes:"Multiple seasons",icon:"🏐",colors:["#f5a43d","#ae523e"],short:"Every point is a chance to fly higher.",description:"Shoyo Hinata joins his high-school volleyball team and finds that fierce competition, determination, and teamwork can take him further than he imagined."},
+      {title:"Midnight Dungeon Radio",type:"Original",genre:"Fantasy",tags:["Fantasy","Mystery"],rating:"8.8",year:"2025",episodes:"8 episodes",icon:"📻",colors:["#8960c7","#253b80"],short:"Tune in. The dungeon is listening.",description:"A mysterious radio host guides adventurers through a shifting labyrinth, but every broadcast reveals another clue about the world outside. An original fantasy mystery."},
+      {title:"My Neighbor Totoro",type:"Anime",genre:"Cozy",tags:["Cozy","Fantasy"],rating:"9.3",year:"1988",episodes:"Film",icon:"🌱",colors:["#83b98c","#537b9d"],short:"A magical friendship blooms in the countryside.",description:"Two sisters settle into a new home and encounter wondrous forest spirits in this beloved, gentle animated film."}
+    ];
+let featureIndex=0,activeFilter="All",query="",lastFocus=null;
+function escapeHTML(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+const grid=document.getElementById("anime-grid"),filters=document.getElementById("filters");
+function renderGrid(){const visible=shows.filter(s=>(activeFilter==="All"||s.tags.includes(activeFilter))&&(`${s.title} ${s.genre} ${s.tags.join(" ")} ${s.short} ${s.description}`.toLowerCase().includes(query)));grid.innerHTML=visible.map(s=>{const i=shows.indexOf(s);return `<article class="anime-card"><div class="cover" style="background:linear-gradient(145deg,${s.colors[0]},${s.colors[1]})"><span class="cover-badge pixel">${s.type==="Original"?"ORIGINAL":"ANIME"}</span><span class="cover-icon" aria-hidden="true">${s.icon}</span><span class="cover-title pixel">${escapeHTML(s.title)}</span></div><div class="card-body"><div class="card-top"><h3>${escapeHTML(s.title)}</h3><span class="rating">★ ${s.rating}</span></div><p>${escapeHTML(s.short)}</p><div class="card-bottom"><span class="genre">${escapeHTML(s.genre)} · ${escapeHTML(s.year)}</span><button class="explore" type="button" data-show="${i}" aria-label="Explore ${escapeHTML(s.title)}">EXPLORE →</button></div></div></article>`}).join("");document.getElementById("result-count").textContent=`${visible.length} ${visible.length===1?"series":"series"} found`;document.getElementById("empty-state").style.display=visible.length?"none":"block"}
+renderGrid();
+</script>

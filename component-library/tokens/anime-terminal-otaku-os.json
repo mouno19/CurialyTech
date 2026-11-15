@@ -1,0 +1,31 @@
+{
+  "id": "anime-terminal-otaku-os",
+  "name": "Otaku OS (dark)",
+  "mode": "dark",
+  "source": "anime-templates/08_otaku_os_cyberpunk_terminal.html",
+  "colors": {
+    "background": "#07090e",
+    "surface": "#0e131c",
+    "surface2": "#121a26",
+    "border": "#273443",
+    "text": "#edf7fb",
+    "muted": "#8799a8",
+    "accent": "#54f5f4",
+    "positive": "#54f5f4",
+    "negative": "#ff6b6b",
+    "warning": "#fa55cb",
+    "series1": "#54f5f4",
+    "series2": "#fa55cb",
+    "series3": "#8799a8",
+    "series4": "#edf7fb",
+    "series5": "#273443"
+  },
+  "aliases": {},
+  "fonts": {
+    "display": "\"Space Grotesk\", system-ui, sans-serif",
+    "sans": "\"DM Sans\", system-ui, sans-serif"
+  },
+  "radius": {
+    "card": "3-8px; hairline borders"
+  }
+}

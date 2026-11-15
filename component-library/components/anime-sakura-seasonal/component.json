@@ -1,0 +1,101 @@
+{
+  "id": "anime-sakura-seasonal",
+  "name": "Seasonal chips and posters (Sakura Stream)",
+  "description": "Seasonal chips and posters: filter chips and 4:5 posters with a gentle hover. From the Sakura Stream archetype (Romantic pastel, delicate Japanese spring); re-skin it to the design's tokens and mix it with blocks of other archetypes, never the whole template.",
+  "category": "media-browsing",
+  "batch": "anime-pastel-sakura-stream",
+  "collection": "Anime archetype: Sakura Stream",
+  "kind": "component",
+  "role": "content",
+  "tags": [
+    "anime",
+    "entertainment",
+    "media",
+    "light",
+    "pastel",
+    "romance",
+    "romantic",
+    "sakura",
+    "cherry blossom",
+    "blossom",
+    "florist",
+    "wedding",
+    "romance-novels",
+    "beauty-brand",
+    "seasonal",
+    "chips",
+    "posters",
+    "filter",
+    "area-chart",
+    "trend",
+    "time-series",
+    "volume",
+    "radial",
+    "circular",
+    "network",
+    "relationships",
+    "graph",
+    "api-monitoring",
+    "usage",
+    "light-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "interactive",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "lucide",
+      "version": "0.577.0"
+    },
+    {
+      "type": "stylesheet",
+      "id": "anime-pastel-sakura-stream"
+    },
+    {
+      "type": "tokens",
+      "id": "anime-pastel-sakura-stream"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "content",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "anime-pastel-sakura-stream",
+    "mode": "light",
+    "colors": {}
+  },
+  "source": {
+    "file": "anime-templates/09_sakura_stream_pastel_romance.html",
+    "ref": "section id=\"seasonal\" #0"
+  },
+  "archetype": "anime-pastel-sakura-stream",
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "8574129b974740ae",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

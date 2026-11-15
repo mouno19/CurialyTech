@@ -1,0 +1,31 @@
+{
+  "id": "anime-catalog-anime-grid",
+  "name": "Anime Grid (dark)",
+  "mode": "dark",
+  "source": "anime-templates/07_anime_grid_catalog_index.html",
+  "colors": {
+    "background": "#101116",
+    "surface": "#191b22",
+    "surface2": "#20222b",
+    "border": "#30323b",
+    "text": "#f3f2ef",
+    "muted": "#9698a3",
+    "accent": "#ff6b57",
+    "positive": "#ffb197",
+    "negative": "#ff6b57",
+    "warning": "#ffb197",
+    "series1": "#ff6b57",
+    "series2": "#ffb197",
+    "series3": "#9698a3",
+    "series4": "#f3f2ef",
+    "series5": "#30323b"
+  },
+  "aliases": {},
+  "fonts": {
+    "display": "\"Space Grotesk\", system-ui, sans-serif",
+    "sans": "\"DM Sans\", system-ui, sans-serif"
+  },
+  "radius": {
+    "card": "4-9px controls and posters"
+  }
+}

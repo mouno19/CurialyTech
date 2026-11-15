@@ -1,0 +1,103 @@
+{
+  "id": "anime-sakura-hero",
+  "name": "Photographic hero (Sakura Stream)",
+  "description": "Photographic hero: warm image with a rounded pill action. From the Sakura Stream archetype (Romantic pastel, delicate Japanese spring); re-skin it to the design's tokens and mix it with blocks of other archetypes, never the whole template.",
+  "category": "layout",
+  "batch": "anime-pastel-sakura-stream",
+  "collection": "Anime archetype: Sakura Stream",
+  "kind": "component",
+  "role": "header",
+  "tags": [
+    "anime",
+    "entertainment",
+    "media",
+    "light",
+    "pastel",
+    "romance",
+    "romantic",
+    "sakura",
+    "cherry blossom",
+    "blossom",
+    "florist",
+    "wedding",
+    "romance-novels",
+    "beauty-brand",
+    "photographic",
+    "hero",
+    "warm",
+    "image",
+    "with",
+    "rounded",
+    "area-chart",
+    "trend",
+    "time-series",
+    "volume",
+    "radial",
+    "circular",
+    "network",
+    "relationships",
+    "graph",
+    "api-monitoring",
+    "usage",
+    "light-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "interactive",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "lucide",
+      "version": "0.577.0"
+    },
+    {
+      "type": "stylesheet",
+      "id": "anime-pastel-sakura-stream"
+    },
+    {
+      "type": "tokens",
+      "id": "anime-pastel-sakura-stream"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "header",
+    "span": "full"
+  },
+  "style": {
+    "tokens": "anime-pastel-sakura-stream",
+    "mode": "light",
+    "colors": {}
+  },
+  "source": {
+    "file": "anime-templates/09_sakura_stream_pastel_romance.html",
+    "ref": "section class=\"hero\" #0"
+  },
+  "archetype": "anime-pastel-sakura-stream",
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "f5ed5e2550c4afa8",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

@@ -1,0 +1,60 @@
+<!-- Critics review (Frame Anime) · anime-frame-critics: from the Anime archetype: Frame Anime (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/anime-editorial-frame-magazine.css, and an ancestor with class="cx-anime-editorial-frame-magazine". -->
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+<div class="cx-anime-editorial-frame-magazine">
+<section id="critics" class="shell section critics-layout" aria-labelledby="critics-title">
+    <div class="critics-side">
+     <span class="section-kicker">02 / The critic’s note</span>
+     <h2 id="critics-title">Worth a<br>
+      closer look.</h2>
+     <p>Not just what to watch next. Why it stays with you long after the credits roll.</p>
+     <div class="quote-mark" aria-hidden="true">
+      “
+     </div>
+    </div>
+    <div class="critic-main">
+     <img id="critic-image" src="https://images.pexels.com/photos/31002116/pexels-photo-31002116.jpeg" alt="Bright neon sign with Japanese characters over anime-themed background in Tokyo, Japan." loading="lazy">
+     <div class="critic-copy">
+      <div class="score">
+       9.2<span> / 10 &nbsp; Editor’s score</span>
+      </div>
+      <h3>Neon, nostalgia, and the things we leave unsaid.</h3>
+      <p><em>Afterlight District</em> finds its power in the pause between spectacle and silence. Beneath the electric skyline is a surprisingly human story about searching for a voice you thought you’d lost.</p><button class="text-link" data-story="afterlight">Read the recommendation <i data-lucide="arrow-up-right"></i></button>
+     </div>
+    </div>
+   </section>
+<!-- Used by this block's script (elsewhere on the page it came from): -->
+<div id="story-overlay" class="overlay" aria-hidden="true">
+   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+    <button id="story-close" class="close" aria-label="Close story"><i data-lucide="x"></i></button><span id="dialog-kicker" class="eyebrow"></span>
+    <h2 id="dialog-title"></h2>
+    <p id="dialog-description"></p>
+    <p id="dialog-note"></p>
+    <div id="dialog-details" class="dialog-details"></div>
+   </div>
+  </div>
+<div id="search-overlay" class="overlay" aria-hidden="true">
+   <div class="dialog search-dialog" role="dialog" aria-modal="true" aria-labelledby="search-label">
+    <button id="search-close" class="close" aria-label="Close search"><i data-lucide="x"></i></button><label id="search-label" for="search-input">Find your next story.</label>
+    <div class="search-field">
+     <i data-lucide="search"></i><input id="search-input" type="search" placeholder="Search titles or genres…" autocomplete="off">
+    </div>
+    <div id="search-results" class="results" aria-live="polite"></div>
+   </div>
+  </div>
+</div>
+<script>
+lucide.createIcons();
+const stories={
+      sky:{title:"Where the Sky Begins",genre:"Drama",format:"12 episodes",description:"When a young archivist returns to her coastal hometown, she discovers a collection of letters addressed to the sky. Each one leads her closer to a childhood promise—and a friendship she believed had vanished with the years.",note:"The editor’s note: Patient, luminous, and full of small emotional discoveries, this is a story that trusts its quiet moments."},
+      afterlight:{title:"Afterlight District",genre:"Sci-fi / Mystery",format:"10 episodes",description:"Every night at 11:17, a strange transmission cuts through the city’s ordinary noise. A radio repairer and a night-shift courier follow its fragments through rain-soaked streets, uncovering a history the district has tried to forget.",note:"The critic’s note: Its neon-drenched world is arresting, but its real achievement is the gentle humanity beneath the mystery."},
+      paper:{title:"Paper Moons",genre:"Fantasy / Adventure",format:"8 episodes",description:"A young bookbinder discovers that unfinished stories have been escaping their pages. To bring them home, she must travel through landscapes shaped by abandoned ideas, accompanied by a curious paper bird.",note:"The editor’s note: An imaginative, wistful fable about finding courage in things that are not yet complete."},
+      midnight:{title:"Midnight Lines",genre:"Drama",format:"Film",description:"On the final service of a city tram line, four strangers find their journeys unexpectedly intertwined. Through missed stops and unplanned conversations, each begins to imagine a different way forward.",note:"The editor’s note: A beautifully restrained portrait of connection in a city always rushing past itself."}
+    };
+const storyOverlay=document.getElementById("story-overlay"),searchOverlay=document.getElementById("search-overlay");
+let lastFocus=null;
+function openOverlay(el){lastFocus=document.activeElement;el.classList.add("open");el.setAttribute("aria-hidden","false");document.body.style.overflow="hidden";el.querySelector("button, input").focus()}
+function showStory(key){const s=stories[key];if(!s)return;document.getElementById("dialog-kicker").textContent="FRAME / Story profile";document.getElementById("dialog-title").textContent=s.title;document.getElementById("dialog-description").textContent=s.description;document.getElementById("dialog-note").textContent=s.note;document.getElementById("dialog-details").textContent=s.genre+"  /  "+s.format;closeSearchIfOpen();openOverlay(storyOverlay)}
+function closeSearchIfOpen(){if(searchOverlay.classList.contains("open")){searchOverlay.classList.remove("open");searchOverlay.setAttribute("aria-hidden","true")}}
+document.querySelectorAll("[data-story]").forEach(el=>{el.addEventListener("click",()=>showStory(el.dataset.story));if(el.getAttribute("role")==="button")el.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();showStory(el.dataset.story)}})});
+</script>

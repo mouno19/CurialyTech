@@ -41,6 +41,10 @@ export const componentSchema = z.object({
   layout: z.object({ role, span: z.enum(["rail", "full", "wide", "half", "third"]).optional() }).optional(),
   style: z.object({ tokens: z.string(), mode: z.enum(["light", "dark"]).optional(), colors: z.record(z.string(), z.string()).optional() }).optional(),
   variant_of: z.string().optional(),
+  /** The style archetype a block comes from (the design mixes several; see server/agent/design/synthesis.ts). */
+  archetype: z.string().optional(),
+  /** The width its preview is checked at (a phone-only block). */
+  preview: z.object({ width: z.number().int().min(280).max(2560) }).optional(),
   composes: z.array(z.string()).optional(),
   network: z.array(z.string()).optional(),
   source: z.object({ file: z.string(), ref: z.string().optional() }).optional(),
@@ -56,7 +60,7 @@ export type TokenSet = {
 };
 
 export type Concept = { id: string; tools: string[]; role: string; terms: string[] };
-export type Product = { id: string; match: string[]; implies: string[] };
+export type Product = { id: string; match: string[]; implies: string[]; /** Tags whose components suit this kind of product a little better. */ prefer?: string[] };
 
 /** A registered component: its metadata, where it lives, and whose it is (null: the library's). inline: a saved candidate's files. */
 export type Entry = ComponentMeta & { dir: string; owner: string | null; inline?: Record<string, string> };

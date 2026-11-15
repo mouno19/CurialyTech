@@ -1,4 +1,5 @@
 import type { DesignIntent, Need, Register, Surface, WorkspaceFacts } from "./types";
+import { synthesize } from "./synthesis";
 
 // Reads a request (and the workspace it lands in) for what kind of interface it asks for. Pure and
 // deterministic: the same request always gets the same brief, which keeps the prompt cacheable.
@@ -16,12 +17,14 @@ const SURFACE_PHRASES: Record<Exclude<Surface, "general">, Weighted> = {
   app: [["mobile-first", 3], ["mobile first", 3], ["app interface", 3], ["web app", 3], ["mobile app", 3], ["single page app", 3], ["single-page app", 3], ["pwa", 3], ["tracker", 3], ["todo", 3], ["to-do", 3], ["planner", 2], ["habit", 2], ["streak", 1], ["sheet", 1], ["tab bar", 2], ["onboarding", 1]],
   portfolio: [["portfolio", 4], ["personal site", 3], ["personal website", 3], ["resume", 2], ["case studies", 2]],
   docs: [["documentation", 4], ["docs site", 4], ["api reference", 3], ["knowledge base", 3], ["developer docs", 4]],
-  game: [["game", 4], ["playable", 3], ["arcade", 3], ["platformer", 3], ["puzzle", 1]],
+  game: [["game", 4], ["playable", 3], ["platformer", 3], ["puzzle", 1]],
+  // Anime, streaming and entertainment sites (the style archetypes' home ground).
+  media: [["anime", 4], ["manga", 3], ["webtoon", 3], ["streaming", 3], ["watchlist", 3], ["watch list", 3], ["episode", 2], ["fan site", 3], ["fansite", 3], ["k-drama", 3], ["kdrama", 3], ["movie", 2], ["cinema", 2], ["trailer", 2], ["series", 1], ["season", 1], ["otaku", 3], ["vtuber", 3], ["cosplay", 2], ["music streaming", 3], ["video platform", 3]],
 };
 
 const REGISTER_OF: Record<Surface, Register> = {
   landing: "brand", storefront: "brand", showcase: "brand", portfolio: "brand",
-  editorial: "editorial", dashboard: "product", app: "product", docs: "product", game: "playful", general: "product",
+  editorial: "editorial", dashboard: "product", app: "product", docs: "product", game: "playful", media: "brand", general: "product",
 };
 
 /** Unmistakably interface work: these hold even when backend words appear too. */
@@ -30,13 +33,14 @@ const STRONG_UI_WORDS = [
   "landing page", "landing", "dashboard", "storefront", "portfolio", "css", "tailwind", "react", "vue", "svelte", "next.js", "nextjs", "astro",
   "web design", "ui design", "design system", "redesign", "restyle", "styling", "navbar", "nav bar", "sidebar", "modal", "mockup", "wireframe", "figma",
   "dark mode", "light mode", "responsive", "mobile view", "hero section", "component library", "docs site", "documentation site", "documentation website",
+  "developer portal", "customer portal", "web portal", "member portal", "fan site", "streaming site",
 ];
 /** Interface words on their own (a "page", a "button"), unless backend work is named too. */
 const UI_WORDS = [...STRONG_UI_WORDS, "page", "site", "component", "html", "vite", "layout", "screen", "theme", "footer", "button", "hero", "animation", "animated"];
 /** Things people build with an interface but rarely call one ("a recipe app"): UI evidence in a new workspace, unless backend words appear. */
 const WEAK_UI_WORDS = ["app", "interface", "form", "blog", "widget", "board", "calculator", "timer", "clock", "quiz", "chat", "game", "gallery", "editor", "player"];
 /** "Build a page that ...", "make a todo app with ...": an interface is the thing being built. */
-const BUILDS_UI = /\b(?:build|make|create|design|code|develop|prototype|redesign)\b((?:\s+[\w'-]+){0,4}?)\s+(?:page|site|website|web app|app|interface|ui|dashboard|form|component|screen|frontend|front-end|storefront|portfolio|landing page|widget|layout)s?\b/g;
+const BUILDS_UI = /\b(?:build|make|create|design|code|develop|prototype|redesign)\b((?:\s+[\w'-]+){0,4}?)\s+(?:page|site|website|web app|app|interface|ui|dashboard|form|component|screen|frontend|front-end|storefront|portfolio|landing page|widget|layout|portal)s?\b/g;
 /** Visual words: in a project that already has a UI, these make a short follow-up design work too. */
 const VISUAL_WORDS = ["color", "colour", "font", "spacing", "padding", "margin", "bigger", "smaller", "align", "look", "looks", "premium", "modern", "cleaner", "prettier", "ugly", "style", "icon", "image", "logo", "background", "contrast", "mobile", "phone", "tablet", "desktop", "animate", "motion", "card", "grid", "section"];
 /** Work that has nothing to do with an interface. */
@@ -218,7 +222,8 @@ export function analyzeRequest(input: { original: string; latest: string; imageA
   if (surface === "dashboard" && !needs.includes("data")) needs.push("data");
   if (surface === "storefront" && !needs.includes("commerce")) needs.push("commerce");
   if (surface === "game" && !needs.includes("immersive")) needs.push("immersive");
-  return { ui, surface, register, motion, needs, cues, avoid, text, original, latest, reference: input.imageAttached };
+  const synthesis = synthesize({ text, ui, avoid });
+  return { ui, surface, register, motion, needs, cues, avoid, text, original, latest, reference: input.imageAttached, styles: synthesis ? [synthesis.primary.id, ...synthesis.partners.map(partner => partner.id)] : [], granted: synthesis?.grants ?? [] };
 }
 
 /** Looks the user asked for, so neither the brief nor the audit discourages them (a negated mention doesn't count). */
@@ -234,5 +239,7 @@ export function allowedLooks(intent: DesignIntent) {
   if (has(["bounce", "bouncy", "elastic", "playful", "cartoon"])) allowed.add("bounce");
   if (has(["marquee", "ticker"])) allowed.add("marquee");
   if (has(["cream", "paper", "serif", "editorial", "newspaper", "earthy", "vintage", "print", "letterpress"])) allowed.add("tasteful");
+  // Looks the chosen style archetypes are built on (the audit keys among them).
+  for (const look of intent.granted ?? []) if (["violet", "glass", "marquee", "tasteful", "eyebrow"].includes(look)) allowed.add(look);
   return [...allowed].sort();
 }

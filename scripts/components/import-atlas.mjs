@@ -11,7 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
-import { BLOCKS, FAMILIES, graphId, LEXICON, ROLES, TOKEN_SETS } from "./families.mjs";
+import { animeCollections, BLOCKS, FAMILIES, graphId, LEXICON, ROLES, TOKEN_SETS } from "./families.mjs";
 import { closure, declarations, references, scopeCss } from "./bundle.mjs";
 
 const require = createRequire(import.meta.url);
@@ -114,8 +114,12 @@ const packagesIn = source => unique([...source.matchAll(/^\s*import\s+(?:[^'"]+\
 /** Render results of the previous import, kept for components whose files did not change. */
 const previous = new Map();
 
+/** Folders written by this run: once it has finished, generated folders not among them are stale and removed. */
+const written = new Set();
+
 function write(id, files) {
   const dir = path.join(OUT, id);
+  written.add(id);
   const meta = JSON.parse(files["component.json"]);
   const hash = createHash("sha256").update(Object.entries(files).filter(([name]) => name !== "component.json").sort().map(([name, content]) => `${name}\n${content}`).join("\n")).digest("hex").slice(0, 16);
   const before = previous.get(id);
@@ -350,6 +354,8 @@ function importFamily(family) {
 /** The element that starts at `start`, through its matching closing tag. */
 function element(html, start) {
   const tag = /^<([a-zA-Z][\w-]*)/.exec(html.slice(start))[1].toLowerCase();
+  // Void elements have no closing tag: the element is the tag itself.
+  if (/^(input|img|br|hr|meta|link|source|area|col|embed|track|wbr)$/.test(tag)) return html.slice(start, html.indexOf(">", start) + 1);
   const pattern = new RegExp(`<(/?)${tag}\\b[^>]*?(/?)>`, "gi");
   pattern.lastIndex = start;
   let depth = 0;
@@ -386,12 +392,18 @@ function nth(html, marker, index) {
   return at;
 }
 
-function importBlocks() {
-  const file = path.join(ATLAS, BLOCKS.file);
+/** A token set by id: the atlas families' (TOKEN_SETS), or one written to tokens/ (the anime archetypes). */
+function tokenSetOf(id) {
+  if (TOKEN_SETS[id]) return TOKEN_SETS[id];
+  return JSON.parse(fs.readFileSync(path.join(LIBRARY, "tokens", `${id}.json`), "utf8"));
+}
+
+function importBlocks(BLOCKS) {
+  const file = path.join(BLOCKS.dir ?? ATLAS, BLOCKS.file);
   const html = clean(fs.readFileSync(file, "utf8"));
   const { styles, scripts, fonts } = pieces(html);
   const body = html.slice(html.indexOf("<body"));
-  const tokenSet = TOKEN_SETS[BLOCKS.tokens];
+  const tokenSet = tokenSetOf(BLOCKS.tokens);
   const scope = `cx-${BLOCKS.tokens}`;
   const scoped = scopeCss(styles, scope).css;
   // One stylesheet for the family, loaded once however many of its blocks a page uses.
@@ -406,8 +418,11 @@ function importBlocks() {
     const ast = parse(code, { sourceType: "script" });
     for (const node of ast.program.body) {
       const text = code.slice(node.start, node.end);
-      const touches = unique([...text.matchAll(/getElementById\(\s*['"]([^'"]+)['"]/g)].map(match => `#${match[1]}`)
-        .concat([...text.matchAll(/querySelector(?:All)?\(\s*['"]([^'"]+)['"]/g)].map(match => match[1])));
+      // What a statement touches: ids it looks up (getElementById, querySelector, a $("id") helper), and
+      // ids a call hands to a helper as plain strings (makeChecks("genre-list", …)).
+      const calls = node.type === "ExpressionStatement" && node.expression.type === "CallExpression" ? [...text.matchAll(/["'`]([a-z][\w-]*)["'`]/gi)].map(match => `#${match[1]}`) : [];
+      const touches = unique([...text.matchAll(/(?:getElementById|\$)\(\s*['"]([^'"]+)['"]/g)].map(match => `#${match[1]}`)
+        .concat([...text.matchAll(/querySelector(?:All)?\(\s*['"]([^'"]+)['"]/g)].map(match => match[1]), calls));
       statements.push({ node, text, touches, setup: /^(lucide\.createIcons|Chart\.defaults)/.test(text) });
     }
     for (const [name, decl] of declarations(code)) decls.set(name, decl);
@@ -416,7 +431,9 @@ function importBlocks() {
   for (const block of BLOCKS.items) {
     if (ONLY && !block.id.startsWith(ONLY)) continue;
     const notes = [];
-    const markup = element(body, nth(body, block.find[0], block.find[1]));
+    let markup = element(body, nth(body, block.find[0], block.find[1]));
+    // A view the page shows on demand (a title detail) is registered open.
+    if (block.addClass) markup = markup.replace(/^(<[a-z][\w-]*[^>]*?\bclass=")([^"]*)"/i, (_, start, classes) => `${start}${classes} ${block.addClass}"`);
     const ids = new Set([...markup.matchAll(/\bid="([^"]+)"/g)].map(match => match[1]));
     const classes = new Set([...markup.matchAll(/\bclass="([^"]+)"/g)].flatMap(match => match[1].split(/\s+/)));
     const attrs = new Set([...markup.matchAll(/\s(data-[a-z-]+)=/g)].map(match => match[1]));
@@ -436,21 +453,34 @@ function importBlocks() {
     let needed = "";
     try {
       // Declarations that read the page are fine only when their elements are in this block (then they were chosen).
-      needed = closure(decls, refs, { skip: declared });
+      // A block runs in a page with its markup (and the elements its script uses), so declarations that look elements up at load are fine.
+      needed = closure(decls, refs, { skip: declared, allowPage: true });
     } catch (error) {
       notes.push(`script: ${error.message}`);
     }
     const usesCharts = /new Chart\(/.test([...chosen].map(statement => statement.text).join(""));
-    const usesIcons = /data-lucide=/.test(markup);
-    const setup = statements.filter(statement => statement.setup && (usesCharts || !/^Chart/.test(statement.text)) && (usesIcons || !/^lucide/.test(statement.text))).map(statement => statement.text);
     const ordered = statements.filter(statement => chosen.has(statement)).map(statement => statement.text);
     const script = [needed, ...ordered].filter(Boolean).join("\n");
+    const usesIcons = /data-lucide=/.test(markup) || /\blucide\./.test(script);
+    const setup = statements.filter(statement => statement.setup && (usesCharts || !/^Chart/.test(statement.text)) && (usesIcons || !/^lucide/.test(statement.text))).map(statement => statement.text);
+    // Elements the block's script uses that sit elsewhere on the page (a detail dialog, a toast): they come along.
+    const supporting = [];
+    for (const id of new Set([...script.matchAll(/(?:getElementById|\$)\(\s*['"]([^'"]+)['"]|querySelector\(\s*['"]#([\w-]+)['"]/g)].map(match => match[1] ?? match[2]))) {
+      if (ids.has(id)) continue;
+      const at = body.search(new RegExp(`<[a-z][\\w-]*[^>]*\\sid="${id}"`));
+      if (at < 0) continue;
+      let extra = "";
+      try { extra = element(body, at); } catch { continue; }
+      if (extra.length <= 25_000 && !extra.includes(markup) && !supporting.some(item => item.includes(extra))) supporting.push(extra);
+    }
+    // An element inside another one that comes along is already there (no duplicate ids).
+    for (let index = supporting.length - 1; index >= 0; index--) if (supporting.some((other, at) => at !== index && other.includes(supporting[index]))) supporting.splice(index, 1);
     const title = /<h3[^>]*>([^<]+)</.exec(markup)?.[1]?.trim();
     const packages = unique([usesCharts && "chart.js", usesIcons && "lucide"]);
     const snippet = `<!-- ${block.name} · ${block.id}: from the ${BLOCKS.collection} (Curialy component library). Sample data is fictional.
      Needs the stylesheet styles/${BLOCKS.tokens}.css, and an ancestor with class="${scope}". -->
 ${packages.includes("chart.js") ? `<script src="https://cdn.jsdelivr.net/npm/chart.js@${PACKAGES["chart.js"]}/dist/chart.umd.min.js"></script>\n` : ""}${packages.includes("lucide") ? `<script src="https://cdn.jsdelivr.net/npm/lucide@${PACKAGES.lucide}/dist/umd/lucide.min.js"></script>\n` : ""}<div class="${scope}">
-${markup}
+${markup}${supporting.length ? `\n<!-- Used by this block's script (elsewhere on the page it came from): -->\n${supporting.join("\n")}` : ""}
 </div>
 <script>
 ${[...setup, script].filter(Boolean).join("\n")}
@@ -473,15 +503,17 @@ ${snippet}
       collection: BLOCKS.collection,
       kind: block.composes ? "pattern" : "component",
       role: block.role,
-      tags: unique([...block.tags, ...lexiconTags(`${block.name} ${block.description}`), "light-theme"]),
+      tags: unique([...block.tags, ...lexiconTags(`${block.name} ${block.description}`), tokenSet.mode === "dark" ? "dark-theme" : "light-theme"]),
       capabilities: unique([...block.capabilities, ...capabilities(markup + script, null)]),
       dependencies: [...packages.map(pkg => ({ type: "package", name: pkg, version: PACKAGES[pkg] })), { type: "stylesheet", id: BLOCKS.tokens }, { type: "tokens", id: BLOCKS.tokens }],
       compatible_tools: block.tools,
       frameworks: ["html"],
       implementations: [{ framework: "html", file: "component.html", origin: "page-block" }],
       layout: { role: block.role, span: block.role === "navigation" ? "rail" : ["header", "table", "timeline", "kpi", "section"].includes(block.role) ? "full" : "half" },
-      style: { tokens: BLOCKS.tokens, mode: tokenSet.mode, colors: colorRoles(markup + script, tokenSet) },
-      source: { file: `atlas/${BLOCKS.file}`, ref: `${block.find[0].replace(/^</, "")} #${block.find[1]}` },
+      style: { tokens: BLOCKS.tokens, mode: tokenSet.mode, colors: colorRoles(markup + script, tokenSet, Object.fromEntries(Object.entries(tokenSet.aliases ?? {}).map(([hex, role]) => [hex, role]))) },
+      source: { file: `${path.basename(BLOCKS.dir ?? ATLAS)}/${BLOCKS.file}`, ref: `${block.find[0].replace(/^</, "")} #${block.find[1]}` },
+      ...(BLOCKS.archetype ? { archetype: BLOCKS.archetype } : {}),
+      ...(block.previewWidth ? { preview: { width: block.previewWidth } } : {}),
       ...(block.composes ? { composes: block.composes } : {}),
       status: notes.length ? "needs-review" : "active",
       quality: { compiled: !notes.length, rendered: null, notes },
@@ -504,7 +536,6 @@ for (const name of fs.existsSync(OUT) ? fs.readdirSync(OUT) : []) {
   const meta = JSON.parse(fs.readFileSync(file, "utf8"));
   if (meta.generated_by !== GENERATOR) continue;
   previous.set(name, meta.quality ?? {});
-  if (!ONLY) fs.rmSync(path.join(OUT, name), { recursive: true, force: true });
 }
 const tokensDir = path.join(LIBRARY, "tokens");
 fs.mkdirSync(tokensDir, { recursive: true });
@@ -518,7 +549,17 @@ for (const family of FAMILIES) {
   summary.push(`${family.file}: ${results.length} components (${results.filter(meta => meta.status !== "active").length} need review)${errors.length ? `; page script notes: ${errors.join("; ")}` : ""}`);
   for (const meta of results.filter(meta => meta.status !== "active")) summary.push(`  ${meta.id}: ${meta.quality.notes.join("; ")}`);
 }
-const blocks = importBlocks();
+const blocks = importBlocks(BLOCKS);
 summary.push(`${BLOCKS.file}: ${blocks.length} components`);
+// The anime archetypes' blocks (from anime-templates/archetypes.json, written by export-archetypes.mts).
+const ANIME = path.join(LIBRARY, "anime-templates");
+for (const collection of animeCollections(JSON.parse(fs.readFileSync(path.join(ANIME, "archetypes.json"), "utf8")), ANIME)) {
+  const made = importBlocks(collection);
+  summary.push(`${collection.file}: ${made.length} components`);
+  for (const block of made) summary.push(`  ${block.id}: "${block._title ?? "?"}" ${block.status}`);
+}
 for (const block of blocks) summary.push(`  ${block.id}: "${block._title ?? "?"}" ${block.dependencies.filter(dep => dep.type === "package").map(dep => dep.name).join("+") || "markup only"}`);
+// Only after everything was written: generated components that no longer exist in the sources go
+// (a run that fails halfway leaves the library as it was, with its render results).
+if (!ONLY) for (const name of previous.keys()) if (!written.has(name)) { fs.rmSync(path.join(OUT, name), { recursive: true, force: true }); summary.push(`removed ${name} (no longer in the sources)`); }
 console.log(summary.join("\n"));

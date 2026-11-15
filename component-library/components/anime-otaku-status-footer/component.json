@@ -1,0 +1,100 @@
+{
+  "id": "anime-otaku-status-footer",
+  "name": "Bottom status line (Otaku OS)",
+  "description": "Bottom status line: system readouts in a footer bar. From the Otaku OS archetype (Cyberpunk terminal, futuristic desktop OS); re-skin it to the design's tokens and mix it with blocks of other archetypes, never the whole template.",
+  "category": "navigation",
+  "batch": "anime-terminal-otaku-os",
+  "collection": "Anime archetype: Otaku OS",
+  "kind": "component",
+  "role": "content",
+  "tags": [
+    "anime",
+    "entertainment",
+    "media",
+    "dark",
+    "cyberpunk",
+    "terminal",
+    "cli",
+    "command line",
+    "hacker",
+    "developer portal",
+    "developer-portal",
+    "cybersecurity-dashboard",
+    "cli-tool",
+    "terminal-app",
+    "bottom",
+    "status",
+    "line",
+    "system",
+    "readouts",
+    "footer",
+    "bar-chart",
+    "comparison",
+    "ranking",
+    "categorical",
+    "line-chart",
+    "trend",
+    "time-series",
+    "network",
+    "relationships",
+    "graph",
+    "events",
+    "monitoring",
+    "operations",
+    "api-monitoring",
+    "usage",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "responsive"
+  ],
+  "dependencies": [
+    {
+      "type": "stylesheet",
+      "id": "anime-terminal-otaku-os"
+    },
+    {
+      "type": "tokens",
+      "id": "anime-terminal-otaku-os"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "content",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "anime-terminal-otaku-os",
+    "mode": "dark",
+    "colors": {}
+  },
+  "source": {
+    "file": "anime-templates/08_otaku_os_cyberpunk_terminal.html",
+    "ref": "footer class=\"bottom-status\" #0"
+  },
+  "archetype": "anime-terminal-otaku-os",
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "d5d5a503acd0efd3",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

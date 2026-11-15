@@ -1,0 +1,51 @@
+<!-- Seasonal row with kanji numbering (Kitsune Flix) · anime-kitsune-seasonal: from the Anime archetype: Kitsune Flix (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/anime-traditional-kitsune-flix.css, and an ancestor with class="cx-anime-traditional-kitsune-flix". -->
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+<div class="cx-anime-traditional-kitsune-flix">
+<section id="seasonal" aria-labelledby="seasonal-title">
+     <div class="section-head">
+      <div>
+       <div class="eyebrow">
+        Handpicked for you
+       </div>
+       <h2 id="seasonal-title">This season <span class="ornament">✳</span></h2>
+      </div>
+      <p id="result-count" aria-live="polite">04 stories to discover</p>
+     </div>
+     <div class="filters" role="group" aria-label="Filter series by genre">
+      <button type="button" class="filter active" data-filter="All" aria-pressed="true">All stories</button> <button type="button" class="filter" data-filter="Fantasy" aria-pressed="false">Fantasy</button> <button type="button" class="filter" data-filter="Drama" aria-pressed="false">Drama</button> <button type="button" class="filter" data-filter="Slice of Life" aria-pressed="false">Slice of Life</button>
+     </div>
+     <div id="cards" class="cards"></div>
+     <div id="empty-state" class="empty" hidden>
+      No stories found. Try another search or genre.
+     </div>
+    </section>
+<!-- Used by this block's script (elsewhere on the page it came from): -->
+<input id="search-input" type="search" placeholder="Search stories..." autocomplete="off">
+</div>
+<script>
+const series = [
+      {id:"crimson",title:"The Crimson Oath",jp:"紅の誓い",genre:"Fantasy",secondary:"Adventure",episodes:12,image:"https://images.pexels.com/photos/30526809/pexels-photo-30526809.jpeg",alt:"A captivating portrait of a samurai cosplayer with a sword, backlit by an intense red glow, creating an artistic ambiance.",description:"When an ancient promise awakens, one wandering swordswoman must choose between the world she knows and the one she was born to protect."},
+      {id:"shrine",title:"Where Spirits Gather",jp:"精霊の集う場所",genre:"Fantasy",secondary:"Mystery",episodes:10,image:"https://images.pexels.com/photos/33250726/pexels-photo-33250726.jpeg",alt:"A beautiful torii gate set amidst vibrant autumn foliage in a tranquil forest setting.",description:"Deep in an autumn forest, a forgotten shrine becomes the meeting place between ordinary lives and extraordinary spirits."},
+      {id:"midnight",title:"After Midnight, Tokyo",jp:"真夜中の東京",genre:"Drama",secondary:"City Life",episodes:12,image:"https://images.pexels.com/photos/15971283/pexels-photo-15971283.png",alt:"Explore a tranquil Japanese street at night, showcasing traditional architecture and soft lighting.",description:"On the last train home, two strangers begin a conversation that changes the shape of their nights—and their futures."},
+      {id:"bloom",title:"The Season We Bloomed",jp:"花咲く季節",genre:"Slice of Life",secondary:"Coming of Age",episodes:8,image:"https://images.pexels.com/photos/18189541/pexels-photo-18189541.jpeg",alt:"A lone cherry blossom tree blooms against a mountainous backdrop in spring.",description:"A tender story about friendship, finding your own path, and all the beautiful things that arrive in their own time."},
+      {id:"moon",title:"Moonlit Wanderer",jp:"月夜の旅人",genre:"Drama",secondary:"Adventure",episodes:11,image:"https://images.pexels.com/photos/31403466/pexels-photo-31403466.jpeg",alt:"A striking anime-inspired cosplay portrait featuring intricate hand placement and character styling.",description:"A young traveler follows a trail of old letters across the country, uncovering a family story hidden in plain sight."}
+    ];
+const seasonal = series.slice(1);
+let activeFilter = "All", lastTrigger = null;
+const cards = document.getElementById("cards"), search = document.getElementById("search-input");
+function renderCards(){
+      const q=search.value.trim().toLowerCase();
+      const shown=seasonal.filter(s=>(activeFilter==="All"||s.genre===activeFilter)&&[s.title,s.jp,s.genre,s.secondary,s.description].join(" ").toLowerCase().includes(q));
+      cards.innerHTML=shown.map((s)=>`<article class="card"><div class="card-image-wrap"><img id="image-${s.id}" class="card-image" src="${s.image}" alt="${s.alt}" loading="lazy"><span class="card-number">${String(series.indexOf(s)+1).padStart(2,"0")}</span></div><div class="card-body"><div class="card-topline"><span>${s.genre}</span><span>${s.episodes} Episodes</span></div><h3>${s.title}</h3><div class="card-jp" lang="ja">${s.jp}</div><button type="button" class="card-link" data-series="${s.id}">View details <i data-lucide="arrow-up-right"></i></button></div></article>`).join("");
+      document.getElementById("empty-state").hidden=shown.length!==0;
+      document.getElementById("result-count").textContent=`${String(shown.length).padStart(2,"0")} ${shown.length===1?"story":"stories"} to discover`;
+      lucide.createIcons();
+    }
+document.querySelectorAll(".filter").forEach(btn=>btn.addEventListener("click",()=>{
+      activeFilter=btn.dataset.filter;
+      document.querySelectorAll(".filter").forEach(b=>{b.classList.toggle("active",b===btn);b.setAttribute("aria-pressed",String(b===btn))});
+      renderCards();
+    }));
+renderCards();
+</script>

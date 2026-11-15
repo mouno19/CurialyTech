@@ -1,0 +1,32 @@
+{
+  "id": "anime-retro-arcade-synthwave",
+  "name": "Anime Arcade (dark)",
+  "mode": "dark",
+  "source": "anime-templates/03_anime_arcade_synthwave.html",
+  "colors": {
+    "background": "#0c0a22",
+    "surface": "#17143a",
+    "surface2": "#211c50",
+    "border": "#6159a7",
+    "text": "#f8f5ff",
+    "muted": "#aea9d1",
+    "accent": "#ff5cc8",
+    "positive": "#64c8ff",
+    "negative": "#ff6b6b",
+    "warning": "#ffe17b",
+    "series1": "#ff5cc8",
+    "series2": "#64c8ff",
+    "series3": "#ffe17b",
+    "series4": "#9b75ff",
+    "series5": "#aea9d1",
+    "series6": "#f8f5ff"
+  },
+  "aliases": {},
+  "fonts": {
+    "display": "\"Press Start 2P\", system-ui, sans-serif",
+    "sans": "\"DM Sans\", system-ui, sans-serif"
+  },
+  "radius": {
+    "card": "small (7px) or none; pixel-stepped borders"
+  }
+}

@@ -1,0 +1,104 @@
+{
+  "id": "anime-nebula-nav",
+  "name": "Floating glass nav (Nebula Anime)",
+  "description": "Floating glass nav: a pill navigation with backdrop blur (the one glass element). From the Nebula Anime archetype (Cosmic neon streaming, glassmorphism platform); re-skin it to the design's tokens and mix it with blocks of other archetypes, never the whole template.",
+  "category": "navigation",
+  "batch": "anime-streaming-nebula-cosmic",
+  "collection": "Anime archetype: Nebula Anime",
+  "kind": "component",
+  "role": "navigation",
+  "tags": [
+    "anime",
+    "entertainment",
+    "media",
+    "dark",
+    "streaming",
+    "netflix",
+    "video platform",
+    "cosmic",
+    "space",
+    "galaxy",
+    "saas-product-tour",
+    "video-platform",
+    "music-streaming",
+    "multimedia-discovery",
+    "floating",
+    "glass",
+    "pill",
+    "navigation",
+    "with",
+    "backdrop",
+    "area-chart",
+    "trend",
+    "time-series",
+    "volume",
+    "network",
+    "relationships",
+    "graph",
+    "api-monitoring",
+    "usage",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "interactive",
+    "accessible",
+    "animated"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "lucide",
+      "version": "0.577.0"
+    },
+    {
+      "type": "stylesheet",
+      "id": "anime-streaming-nebula-cosmic"
+    },
+    {
+      "type": "tokens",
+      "id": "anime-streaming-nebula-cosmic"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "navigation",
+    "span": "rail"
+  },
+  "style": {
+    "tokens": "anime-streaming-nebula-cosmic",
+    "mode": "dark",
+    "colors": {
+      "#a875ff": "series1"
+    }
+  },
+  "source": {
+    "file": "anime-templates/06_nebula_anime_cosmic_streaming.html",
+    "ref": "header class=\"site-header\" #0"
+  },
+  "archetype": "anime-streaming-nebula-cosmic",
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "6ac31904d5c70481",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

@@ -49,8 +49,10 @@ export function declarations(code) {
       : node.type === "VariableDeclaration" ? node.declarations.flatMap(d => (d.id.type === "Identifier" ? [d.id.name] : [])) : [];
     if (!names.length) continue;
     const text = code.slice(node.start, node.end);
-    // One entry per statement, shared by every name it declares (so it is emitted once).
-    const entry = { node, text, start: node.start, refs: references(node), pageBound: PAGE_BOUND.test(text) };
+    // One entry per statement, shared by every name it declares (so it is emitted once). Only what
+    // runs at load can read a page that isn't there: a function touches the page when it is called.
+    const deferred = node.type === "FunctionDeclaration" || (node.type === "VariableDeclaration" && node.declarations.every(d => d.init && /^(ArrowFunctionExpression|FunctionExpression)$/.test(d.init.type)));
+    const entry = { node, text, start: node.start, refs: references(node), pageBound: !deferred && PAGE_BOUND.test(text) };
     for (const name of names) byName.set(name, entry);
   }
   return byName;

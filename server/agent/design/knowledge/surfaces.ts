@@ -131,4 +131,19 @@ export const SURFACES: DesignEntry[] = [
     ],
     sources: ["corpus:froessell-562325", "corpus:niegramotny-197521", "corpus:op7418-814408"],
   },
+  {
+    id: "surface-media",
+    title: "Recipe: anime, streaming or entertainment site",
+    discipline: "surface",
+    surfaces: ["media"],
+    related: ["collections", "overlays", "navigation", "imagery"],
+    rules: [
+      "Titles lead: one featured title with its key art, a one-line hook, genre, episodes or runtime and one action (watch, read, add to list); then rows or a grid of titles, then the detail view.",
+      "Posters in one aspect ratio (2:3 or 4:5) across a row; each card is one link with title, year or season and one fact (rating, episodes); progress bars and \"new episode\" badges only where the data is real.",
+      "Horizontal shelves: scroll-snap rows with visible previous and next buttons (keyboard reachable, labelled), the row scrolls inside itself (never the page sideways), and the last card partly visible to show there is more.",
+      "The detail view is a <dialog> or its own page: synopsis, an episode or chapter list with numbers, durations and watched state, cast, and related titles; spoilers stay out of synopses and episode names unless the user opts in.",
+      "No artwork? Draw composed key art in CSS or SVG in the subject's palette (a silhouette, a horizon, a seal or kanji watermark), never grey boxes; titles and studios are original names, not real franchises.",
+    ],
+    sources: ["component-library/anime-templates (10 archetypes)", "WAI-ARIA APG carousel pattern", "WAI-ARIA APG dialog pattern"],
+  },
 ];

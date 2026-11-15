@@ -1,0 +1,93 @@
+{
+  "id": "anime-shonen-episodes",
+  "name": "Ongoing spotlight (Shonen Hub)",
+  "description": "Ongoing spotlight: feature panel with an episode thumbnail list. From the Shonen Hub archetype (High-octane action, aggressive angular); re-skin it to the design's tokens and mix it with blocks of other archetypes, never the whole template. (In the source: \"CRIMSON\".)",
+  "category": "media-detail",
+  "batch": "anime-action-shonen-hub",
+  "collection": "Anime archetype: Shonen Hub",
+  "kind": "component",
+  "role": "content",
+  "tags": [
+    "anime",
+    "entertainment",
+    "media",
+    "dark",
+    "shonen",
+    "battle",
+    "fight",
+    "sports",
+    "gym",
+    "fitness",
+    "competitive-gaming",
+    "ongoing",
+    "spotlight",
+    "feature",
+    "panel",
+    "with",
+    "episode",
+    "network",
+    "relationships",
+    "graph",
+    "api-monitoring",
+    "usage",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "lucide",
+      "version": "0.577.0"
+    },
+    {
+      "type": "stylesheet",
+      "id": "anime-action-shonen-hub"
+    },
+    {
+      "type": "tokens",
+      "id": "anime-action-shonen-hub"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "content",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "anime-action-shonen-hub",
+    "mode": "dark",
+    "colors": {}
+  },
+  "source": {
+    "file": "anime-templates/05_shonen_hub_action.html",
+    "ref": "section id=\"episodes\" #0"
+  },
+  "archetype": "anime-action-shonen-hub",
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "b7137fc4e71bd033",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

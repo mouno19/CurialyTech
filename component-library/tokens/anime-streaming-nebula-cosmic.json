@@ -1,0 +1,31 @@
+{
+  "id": "anime-streaming-nebula-cosmic",
+  "name": "Nebula Anime (dark)",
+  "mode": "dark",
+  "source": "anime-templates/06_nebula_anime_cosmic_streaming.html",
+  "colors": {
+    "background": "#080910",
+    "surface": "#151621",
+    "surface2": "#1d1e2c",
+    "border": "#2a2b3a",
+    "text": "#f7f6ff",
+    "muted": "#a9a9bd",
+    "accent": "#a875ff",
+    "positive": "#d7b6ff",
+    "negative": "#ff6b6b",
+    "warning": "#d7b6ff",
+    "series1": "#a875ff",
+    "series2": "#d7b6ff",
+    "series3": "#a9a9bd",
+    "series4": "#f7f6ff",
+    "series5": "#2a2b3a"
+  },
+  "aliases": {},
+  "fonts": {
+    "display": "\"Space Grotesk\", system-ui, sans-serif",
+    "sans": "\"DM Sans\", system-ui, sans-serif"
+  },
+  "radius": {
+    "card": "18px panels, 50px pills, 5px chips"
+  }
+}

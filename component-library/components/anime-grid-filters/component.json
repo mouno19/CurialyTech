@@ -1,0 +1,119 @@
+{
+  "id": "anime-grid-filters",
+  "name": "Filter sidebar (Anime Grid)",
+  "description": "Filter sidebar: genre checkboxes, year, format, status and a minimum-rating slider. From the Anime Grid archetype (Structured tech catalog, deep filtering index); re-skin it to the design's tokens and mix it with blocks of other archetypes, never the whole template. (In the source: \"Genre\".)",
+  "category": "data-management",
+  "batch": "anime-catalog-anime-grid",
+  "collection": "Anime archetype: Anime Grid",
+  "kind": "component",
+  "role": "filters",
+  "tags": [
+    "anime",
+    "entertainment",
+    "media",
+    "dark",
+    "catalog",
+    "catalogue",
+    "directory",
+    "listings",
+    "job board",
+    "marketplace",
+    "e-commerce-catalog",
+    "job-board",
+    "real-estate-listings",
+    "filter",
+    "sidebar",
+    "genre",
+    "checkboxes",
+    "year",
+    "format",
+    "finance",
+    "market",
+    "stock",
+    "comparison",
+    "time-series",
+    "bar-chart",
+    "ranking",
+    "categorical",
+    "radial",
+    "circular",
+    "distribution",
+    "statistics",
+    "latency",
+    "variance",
+    "heatmap",
+    "matrix",
+    "density",
+    "network",
+    "relationships",
+    "graph",
+    "events",
+    "monitoring",
+    "operations",
+    "api-monitoring",
+    "usage",
+    "sparkline",
+    "compact",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "interactive",
+    "tooltips",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "package",
+      "name": "lucide",
+      "version": "0.577.0"
+    },
+    {
+      "type": "stylesheet",
+      "id": "anime-catalog-anime-grid"
+    },
+    {
+      "type": "tokens",
+      "id": "anime-catalog-anime-grid"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "filters",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "anime-catalog-anime-grid",
+    "mode": "dark",
+    "colors": {}
+  },
+  "source": {
+    "file": "anime-templates/07_anime_grid_catalog_index.html",
+    "ref": "aside class=\"sidebar\" #0"
+  },
+  "archetype": "anime-catalog-anime-grid",
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "e96fcc6e71386667",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

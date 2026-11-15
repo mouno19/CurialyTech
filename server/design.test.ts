@@ -39,7 +39,7 @@ describe("knowledge base", () => {
   it("is valid: unique kebab-case ids, sources on every entry, rules short enough to retrieve, recipes for every surface", () => {
     expect(knowledgeProblems()).toEqual([]);
     const recipes = KNOWLEDGE.filter(entry => entry.discipline === "surface").flatMap(entry => entry.surfaces);
-    expect(new Set(recipes)).toEqual(new Set(["landing", "storefront", "dashboard", "editorial", "showcase", "app", "portfolio", "docs", "game"]));
+    expect(new Set(recipes)).toEqual(new Set(["landing", "storefront", "dashboard", "editorial", "showcase", "app", "portfolio", "docs", "game", "media"]));
   });
 
   it("reports the problems it guards against", () => {

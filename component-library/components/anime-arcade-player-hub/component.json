@@ -1,0 +1,93 @@
+{
+  "id": "anime-arcade-player-hub",
+  "name": "Player hub (Anime Arcade)",
+  "description": "Player hub: 5-day streak tracker, achievement tabs and a spinning disc. From the Anime Arcade archetype (Retro synthwave and pixel arcade); re-skin it to the design's tokens and mix it with blocks of other archetypes, never the whole template.",
+  "category": "engagement",
+  "batch": "anime-retro-arcade-synthwave",
+  "collection": "Anime archetype: Anime Arcade",
+  "kind": "component",
+  "role": "insight",
+  "tags": [
+    "anime",
+    "entertainment",
+    "media",
+    "dark",
+    "retro",
+    "arcade",
+    "pixel",
+    "8-bit",
+    "synthwave",
+    "vaporwave",
+    "gaming",
+    "web3",
+    "crypto",
+    "nft",
+    "player",
+    "streak",
+    "tracker",
+    "achievement",
+    "tabs",
+    "spinning",
+    "network",
+    "relationships",
+    "graph",
+    "api-monitoring",
+    "usage",
+    "dark-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "interactive",
+    "accessible"
+  ],
+  "dependencies": [
+    {
+      "type": "stylesheet",
+      "id": "anime-retro-arcade-synthwave"
+    },
+    {
+      "type": "tokens",
+      "id": "anime-retro-arcade-synthwave"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "insight",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "anime-retro-arcade-synthwave",
+    "mode": "dark",
+    "colors": {}
+  },
+  "source": {
+    "file": "anime-templates/03_anime_arcade_synthwave.html",
+    "ref": "section id=\"player-stats\" #0"
+  },
+  "archetype": "anime-retro-arcade-synthwave",
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "3659bd64046961ef",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

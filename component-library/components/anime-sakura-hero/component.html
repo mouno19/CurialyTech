@@ -1,0 +1,33 @@
+<!-- Photographic hero (Sakura Stream) · anime-sakura-hero: from the Anime archetype: Sakura Stream (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/anime-pastel-sakura-stream.css, and an ancestor with class="cx-anime-pastel-sakura-stream". -->
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+<div class="cx-anime-pastel-sakura-stream">
+<section class="hero" aria-labelledby="hero-title"><img id="hero-blossoms" class="hero-photo" src="https://images.pexels.com/photos/2187307/pexels-photo-2187307.jpeg" alt="Peaceful river framed by blooming cherry blossom trees" loading="lazy">
+     <div class="hero-content"><span class="hero-kicker">Welcome to Sakura Stream</span>
+      <h2 id="hero-title">A little magic,<br><em>every day.</em></h2>
+      <p>Step into a collection of heartfelt worlds, quiet wonders, and stories that stay with you.</p><button id="explore-btn" class="primary-btn" type="button">Explore the collection <i data-lucide="arrow-up-right"></i></button>
+     </div>
+     <div class="hero-index" aria-hidden="true">
+      01 <span>/ 06</span>
+     </div>
+    </section>
+<!-- Used by this block's script (elsewhere on the page it came from): -->
+<section id="seasonal" class="section" aria-labelledby="seasonal-title">
+     <div class="section-head">
+      <div>
+       <div class="overline">
+        The collection · 2025
+       </div>
+       <h2 id="seasonal-title" class="section-title">This season's daydreams</h2>
+       <p class="section-sub">Handpicked worlds for whatever mood you're in.</p>
+      </div><button id="show-all" class="text-link" type="button">View all stories <i data-lucide="arrow-up-right"></i></button>
+     </div>
+     <div class="chips" role="group" aria-label="Filter by genre"><button type="button" class="chip active" data-genre="All" aria-pressed="true">All stories</button> <button type="button" class="chip" data-genre="Romance" aria-pressed="false">Romance</button> <button type="button" class="chip" data-genre="Fantasy" aria-pressed="false">Fantasy</button> <button type="button" class="chip" data-genre="Slice of life" aria-pressed="false">Slice of life</button> <button type="button" class="chip" data-genre="Adventure" aria-pressed="false">Adventure</button>
+     </div>
+     <div id="seasonal-grid" class="card-grid"></div>
+    </section>
+</div>
+<script>
+lucide.createIcons();
+document.getElementById('explore-btn').addEventListener('click',()=>document.getElementById('seasonal').scrollIntoView({behavior:'smooth'}));
+</script>

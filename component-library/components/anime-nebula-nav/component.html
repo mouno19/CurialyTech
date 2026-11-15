@@ -1,0 +1,94 @@
+<!-- Floating glass nav (Nebula Anime) · anime-nebula-nav: from the Anime archetype: Nebula Anime (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/anime-streaming-nebula-cosmic.css, and an ancestor with class="cx-anime-streaming-nebula-cosmic". -->
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+<div class="cx-anime-streaming-nebula-cosmic">
+<header class="site-header">
+   <nav class="nav-shell" aria-label="Main navigation"><a class="brand" href="#home" aria-label="Nebula Anime home"><span class="brand-mark" aria-hidden="true">
+      <svg viewbox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg"><defs>
+        <lineargradient id="nebula-gradient" x1="4" y1="4" x2="32" y2="32" gradientunits="userSpaceOnUse">
+         <stop stop-color="#F4B8FF" />
+         <stop offset=".55" stop-color="#A875FF" />
+         <stop offset="1" stop-color="#6C7DFF" />
+        </lineargradient>
+       </defs><circle cx="18" cy="18" r="14.5" stroke="url(#nebula-gradient)" stroke-width="1.4" opacity=".7" /><path d="M10 26V10l16 16V10" stroke="url(#nebula-gradient)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" /><path d="M28.8 4.7l.9 2.5 2.5.9-2.5.9-.9 2.5-.9-2.5-2.5-.9 2.5-.9.9-2.5Z" fill="#E6B7FF" />
+      </svg></span>NEBULA <span>ANIME</span></a>
+    <div class="nav-links">
+     <a class="active" href="#home">Home</a><a href="#trending">Trending</a><a href="#popular">Series</a><a href="#recent">New Releases</a>
+    </div>
+    <div class="nav-actions">
+     <button id="search-toggle" class="icon-button" aria-label="Search titles" aria-expanded="false"><i data-lucide="search"></i></button><button id="my-list" class="list-pill" type="button">My List <b id="list-count">0</b></button>
+    </div>
+   </nav>
+   <div id="search-wrap" class="search-wrap">
+    <label for="search-input" style="position:absolute;left:-9999px">Search anime titles</label><input id="search-input" type="search" placeholder="Search the nebula…">
+   </div>
+  </header>
+<!-- Used by this block's script (elsewhere on the page it came from): -->
+<div id="preview-overlay" class="overlay" role="presentation">
+   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title"><button id="close-dialog" class="close-dialog" aria-label="Close preview"><i data-lucide="x"></i></button>
+    <div class="dialog-art">
+     <img id="dialog-image" src="https://images.pexels.com/photos/36064310/pexels-photo-36064310.jpeg" alt="Dynamic cyberpunk inspired portrait with neon lighting in Mexico City." loading="lazy">
+    </div>
+    <div class="dialog-body">
+     <div id="dialog-meta" class="dialog-meta"></div>
+     <h2 id="dialog-title"></h2>
+     <p id="dialog-description"></p>
+     <div class="dialog-note">
+      Explore this fictional title in the NEBULA ANIME concept collection. Video playback is not available in this preview.
+     </div>
+    </div>
+   </div>
+  </div>
+<button id="add-list" class="secondary-btn" type="button" aria-pressed="false"><i data-lucide="plus"></i><span>Add to List</span></button>
+</div>
+<script>
+const images={
+      neon:{src:"https://images.pexels.com/photos/36064310/pexels-photo-36064310.jpeg",alt:"Dynamic cyberpunk inspired portrait with neon lighting in Mexico City."},
+      city:{src:"https://images.pexels.com/photos/40492947/pexels-photo-40492947.jpeg",alt:"Bustling Tokyo street at night with colorful neon signs and people walking."},
+      prince:{src:"https://images.pexels.com/photos/35418284/pexels-photo-35418284.jpeg",alt:"Vibrant neon artwork depicting the Little Prince with beautiful glowing colors perfect for artistic themes."},
+      mountain:{src:"https://images.pexels.com/photos/8991531/pexels-photo-8991531.jpeg",alt:"Silhouetted mountain at sunset in Japan with vivid red sky and clouds."},
+      forest:{src:"https://images.pexels.com/photos/14332269/pexels-photo-14332269.jpeg",alt:"A serene scene of foggy forests, mountains, and a flowing river at sunrise."},
+      cosplay:{src:"https://images.pexels.com/photos/25972408/pexels-photo-25972408.jpeg",alt:"Dynamic cosplay portrait showcasing a vibrant green-haired character with unique styling."},
+      future:{src:"https://images.pexels.com/photos/20434858/pexels-photo-20434858.jpeg",alt:"Sci-fi inspired portrait of a woman in a silver suit and illuminated goggles."},
+      mural:{src:"https://images.pexels.com/photos/27082677/pexels-photo-27082677.jpeg",alt:"Vibrant mural on a building wall in urban Osaka, Japan, at night."},
+      diner:{src:"https://images.pexels.com/photos/31002131/pexels-photo-31002131.jpeg",alt:"Dark, moody Tokyo diner with neon signs and anime decor, capturing cyberpunk culture."}
+    };
+const titles={
+      neon:{name:"Neon Requiem",image:"neon",genre:"Sci-Fi · Action",year:"2025",label:"EP 08",description:"In a city where memories are currency, one runaway discovers a secret powerful enough to rewrite the stars."},
+      astral:{name:"Astral Children",image:"prince",genre:"Fantasy · Adventure",year:"2025",label:"EP 12",description:"A constellation of unlikely heroes follows a mysterious signal across the edge of the universe."},
+      midnight:{name:"Midnight District",image:"city",genre:"Mystery · Sci-Fi",year:"2024",label:"EP 06",description:"Every street hides a secret in a city that only comes alive after dark."},
+      crimson:{name:"Crimson Horizon",image:"mountain",genre:"Action · Fantasy",year:"2025",label:"EP 10",description:"A young guardian journeys beyond the mountains to confront the coming crimson dawn."},
+      verdant:{name:"The Verdant Oath",image:"forest",genre:"Fantasy · Drama",year:"2024",label:"EP 04",description:"Deep in an ancient forest, a forgotten promise binds two worlds together."},
+      echo:{name:"Echoes of Tomorrow",image:"future",genre:"Sci-Fi · Thriller",year:"2025",label:"EP 03",description:"A time-worn signal gives one explorer a glimpse of a future that should not exist."},
+      phantom:{name:"Phantom Bloom",image:"cosplay",genre:"Supernatural · Action",year:"2025",label:"EP 09",description:"A fearless outsider discovers extraordinary powers beneath the city's ordinary facade."},
+      paper:{name:"Paper Moon Tokyo",image:"mural",genre:"Slice of Life · Drama",year:"2024",label:"EP 07",description:"Art, friendship, and second chances collide under the lights of Osaka."},
+      after:{name:"Afterglow 2099",image:"diner",genre:"Cyberpunk · Mystery",year:"2025",label:"NEW",description:"A neon-lit diner becomes the unlikely meeting point for people caught between two realities."}
+    };
+const overlay=document.getElementById("preview-overlay"),closeButton=document.getElementById("close-dialog");
+let lastFocus;
+function openPreview(key){
+      const t=titles[key],img=images[t.image];lastFocus=document.activeElement;
+      document.getElementById("dialog-image").src=img.src;
+      document.getElementById("dialog-image").alt=img.alt;
+      document.getElementById("dialog-title").textContent=t.name;
+      document.getElementById("dialog-meta").textContent=`${t.year}  ·  ${t.genre}  ·  ${t.label}`;
+      document.getElementById("dialog-description").textContent=t.description;
+      overlay.classList.add("open");document.body.style.overflow="hidden";closeButton.focus();
+    }
+let saved=false;
+const addButton=document.getElementById("add-list");
+addButton.addEventListener("click",()=>{
+      saved=!saved;
+      addButton.querySelector("span").textContent=saved?"Added to List":"Add to List";
+      addButton.querySelector("svg")?.remove();
+      addButton.insertAdjacentHTML("afterbegin",`<i data-lucide="${saved?'check':'plus'}"></i>`);
+      addButton.setAttribute("aria-pressed",String(saved));
+      document.getElementById("list-count").textContent=saved?"1":"0";
+      lucide.createIcons();
+    });
+document.getElementById("my-list").addEventListener("click",()=>{
+      if(saved)openPreview("neon");
+      else {document.getElementById("add-list").focus();document.getElementById("add-list").animate([{transform:"scale(1)"},{transform:"scale(1.08)"},{transform:"scale(1)"}],{duration:350})}
+    });
+const searchToggle=document.getElementById("search-toggle"),searchWrap=document.getElementById("search-wrap"),searchInput=document.getElementById("search-input");
+</script>

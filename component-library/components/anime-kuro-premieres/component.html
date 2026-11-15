@@ -1,0 +1,101 @@
+<!-- Numbered premiere grid (Kuro Cinema) · anime-kuro-premieres: from the Anime archetype: Kuro Cinema (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/anime-luxury-kuro-cinema.css, and an ancestor with class="cx-anime-luxury-kuro-cinema". -->
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+<div class="cx-anime-luxury-kuro-cinema">
+<section id="premieres" class="section shell">
+     <div class="section-heading">
+      <div>
+       <p class="section-kicker">01 / Now showing</p>
+       <h2>Exclusive premieres</h2>
+      </div>
+      <p>Extraordinary worlds. Unforgettable stories. A selection made for those who look closer.</p>
+     </div>
+     <div id="premiere-grid" class="premiere-grid"></div>
+     <p id="empty-results" class="empty">No titles found. Try another search.</p>
+     <div class="divider"></div>
+    </section>
+<!-- Used by this block's script (elsewhere on the page it came from): -->
+<section id="detail" class="detail" aria-label="Title details">
+    <div class="detail-hero">
+     <img id="detail-image" src="https://images.pexels.com/photos/38480954/pexels-photo-38480954.jpeg" alt="A masked samurai in traditional attire holds a katana at sunset in a grassy field." loading="lazy">
+     <div class="shell">
+      <button id="back-button" class="back-btn" type="button"><i data-lucide="arrow-left"></i> Back to discover</button>
+      <div class="eyebrow">
+       The Kuro Selection
+      </div>
+      <h1 id="detail-title">The Last Shogun</h1>
+      <div id="detail-meta" class="meta"></div>
+     </div>
+    </div>
+    <div class="detail-body shell">
+     <div>
+      <p class="section-kicker">The story</p>
+      <h2>Beyond the frame</h2>
+      <p id="detail-synopsis"></p>
+     </div>
+     <aside class="detail-side">
+      <p class="section-kicker">Film notes</p>
+      <dl>
+       <dt>
+        Genre
+       </dt>
+       <dd id="detail-genre"></dd>
+       <dt>
+        Format
+       </dt>
+       <dd id="detail-format"></dd>
+       <dt>
+        Collection
+       </dt>
+       <dd id="detail-collection"></dd>
+      </dl>
+     </aside>
+    </div>
+    <div class="episodes shell">
+     <p class="section-kicker">A closer look</p>
+     <h2>Episode guide</h2>
+     <div class="episode-layout">
+      <div id="episode-list" class="episode-list"></div>
+      <div id="episode-preview" class="episode-preview" aria-live="polite"></div>
+     </div>
+    </div>
+   </section>
+<button id="search-toggle" class="icon-btn" type="button" aria-label="Search titles" aria-expanded="false"><i data-lucide="search"></i></button>
+<div id="search-wrap" class="search-wrap"><label for="title-search" class="section-kicker">Search the collection</label> <input id="title-search" type="search" placeholder="Search titles or genres…">
+   </div>
+</div>
+<script>
+const titles=[
+      {title:"The Last Shogun",hero:"The Last <em>Shogun</em>",year:"2025",genre:"Historical Fantasy",format:"12 Episodes",collection:"Myths & Memory",tag:"Kuro Original",image:"https://images.pexels.com/photos/38480954/pexels-photo-38480954.jpeg",alt:"A masked samurai in traditional attire holds a katana at sunset in a grassy field.",description:"When an empire begins to fade, one warrior must choose between the life he was born into and the future only he can imagine.",synopsis:"At the edge of a changing era, a solitary swordsman is entrusted with a secret that could redraw the fate of his homeland. Crossing a landscape of fragile alliances and ancient rituals, he discovers that the greatest battles are fought far from the battlefield. A sweeping tale of loyalty, loss, and the courage to begin again.",episodes:[["Ashes of an Empire","A message arrives at dawn, drawing a reluctant warrior back into the world he left behind."],["The Quiet Blade","An unlikely alliance takes shape as the past begins to reveal its hidden cost."],["Where the Sun Falls","At the border of two worlds, a choice must be made before the final light disappears."]]},
+      {title:"Neon Reverie",hero:"Neon <em>Reverie</em>",year:"2025",genre:"Sci-Fi Noir",format:"8 Episodes",collection:"After Dark",tag:"Exclusive Premiere",image:"https://images.pexels.com/photos/8107857/pexels-photo-8107857.jpeg",alt:"A striking cyberpunk portrait of a woman illuminated by vibrant neon lights, evoking a futuristic vibe.",description:"In a city that never remembers, a young archivist searches for the one memory no one was meant to find.",synopsis:"Beneath the electric glow of a sleepless metropolis, memories are traded like currency. An archivist tasked with erasing inconvenient histories discovers a fragment of her own forgotten life. Her search pulls her into a labyrinth of identities, loyalties, and impossible truths.",episodes:[["The City Forgets","A routine archive assignment leaves behind a memory that refuses to disappear."],["Ghost Frequency","A voice from the past leads to a meeting beneath the city lights."],["A Name in the Rain","The search for a missing identity reveals a much larger conspiracy."]]},
+      {title:"Lanterns of Kyoto",hero:"Lanterns of <em>Kyoto</em>",year:"2025",genre:"Mystery · Folklore",format:"10 Episodes",collection:"Myths & Memory",tag:"Kuro Original",image:"https://images.pexels.com/photos/36834637/pexels-photo-36834637.jpeg",alt:"Atmospheric night view of a traditional Japanese temple and a street vendor stall, illuminated warmly.",description:"Every lantern holds a story. Some stories have been waiting centuries to be told.",synopsis:"Returning to Kyoto after years away, a young artist finds that the lanterns at her family's old shrine illuminate moments from lives long past. As the city prepares for its annual festival, she follows a trail of beautiful, unsettling visions toward a truth hidden in her own family history.",episodes:[["The First Light","A return home brings an unexpected encounter with a familiar stranger."],["Paper Wishes","An old festival tradition reveals a secret preserved across generations."],["The Unlit Path","The final lantern points toward a place absent from every map."]]}
+    ];
+const $=id=>document.getElementById(id);
+let featured=0,selected=0;
+function iconRefresh(){lucide.createIcons()}
+function showEpisode(i){
+      selected=i;const t=titles[currentDetail];const e=t.episodes[i];
+      document.querySelectorAll(".episode-btn").forEach((b,n)=>{b.classList.toggle("selected",n===i);b.setAttribute("aria-pressed",String(n===i))});
+      $("episode-preview").innerHTML=`<small>Episode ${String(i+1).padStart(2,"0")} / ${t.episodes.length}</small><h3>${e[0]}</h3><p>${e[1]}</p>`;
+    }
+let currentDetail=0;
+function openDetail(i){
+      currentDetail=i;const t=titles[i];
+      $("detail-image").src=t.image;$("detail-image").alt=t.alt;$("detail-title").textContent=t.title;
+      $("detail-meta").innerHTML=`<span>${t.year}</span><span>${t.genre}</span><span>${t.format}</span>`;
+      $("detail-synopsis").textContent=t.synopsis;$("detail-genre").textContent=t.genre;$("detail-format").textContent=t.format;$("detail-collection").textContent=t.collection;
+      $("episode-list").innerHTML=t.episodes.map((e,n)=>`<button class="episode-btn" type="button" data-episode="${n}"><span class="num">${String(n+1).padStart(2,"0")}</span><strong>${e[0]}</strong></button>`).join("");
+      document.querySelectorAll("[data-episode]").forEach(b=>b.addEventListener("click",()=>showEpisode(Number(b.dataset.episode))));
+      showEpisode(0);$("catalog").classList.add("hidden");$("detail").classList.add("active");window.scrollTo({top:0,behavior:"smooth"});iconRefresh();
+    }
+function closeDetail(){$("detail").classList.remove("active");$("catalog").classList.remove("hidden");window.scrollTo({top:0,behavior:"smooth"})}
+function renderCards(filter=""){
+      const matches=titles.filter(t=>(t.title+" "+t.genre+" "+t.collection).toLowerCase().includes(filter.toLowerCase()));
+      $("premiere-grid").innerHTML=matches.map((t)=>{const i=titles.indexOf(t);return `<button class="poster-card" type="button" data-title="${i}" aria-label="Explore ${t.title}"><div class="poster-frame"><img id="poster-image-${i}" src="${t.image}" alt="${t.alt}" loading="lazy"><span class="poster-top">${t.tag}</span><span class="poster-number">${String(i+1).padStart(2,"0")}</span></div><p class="card-meta">${t.genre} · ${t.year}</p><h3>${t.title}</h3><p class="sub">${t.format} &nbsp; / &nbsp; ${t.collection}</p></button>`}).join("");
+      $("empty-results").style.display=matches.length?"none":"block";
+      document.querySelectorAll("[data-title]").forEach(b=>b.addEventListener("click",()=>openDetail(Number(b.dataset.title))));
+    }
+$("search-toggle").addEventListener("click",()=>{const open=$("search-wrap").classList.toggle("open");$("search-toggle").setAttribute("aria-expanded",String(open));if(open){closeDetail();$("title-search").focus();$("premieres").scrollIntoView({behavior:"smooth"})}});
+document.querySelectorAll("[data-collection]").forEach(b=>b.addEventListener("click",()=>{const query=b.dataset.collection==="night"?"After Dark":"Myths & Memory";$("title-search").value=query;renderCards(query);$("premieres").scrollIntoView({behavior:"smooth"});$("search-wrap").classList.remove("open");$("search-toggle").setAttribute("aria-expanded","false")}));
+renderCards();
+</script>

@@ -1,0 +1,34 @@
+{
+  "id": "anime-cozy-slice-of-life",
+  "name": "Slice of Life (light)",
+  "mode": "light",
+  "source": "anime-templates/01_slice_of_life_cozy.html",
+  "colors": {
+    "background": "#f8f6ef",
+    "surface": "#fffdf8",
+    "surface2": "#dbe5d7",
+    "border": "#e8e8dc",
+    "text": "#303d32",
+    "muted": "#677166",
+    "accent": "#375d48",
+    "positive": "#375d48",
+    "negative": "#c2413b",
+    "warning": "#f3e4d5",
+    "series1": "#375d48",
+    "series2": "#a67d66",
+    "series3": "#f3e4d5",
+    "series4": "#677166",
+    "series5": "#303d32",
+    "series6": "#e8e8dc"
+  },
+  "aliases": {
+    "#788477": "series2"
+  },
+  "fonts": {
+    "display": "\"Fraunces\", serif",
+    "sans": "\"DM Sans\", system-ui, sans-serif"
+  },
+  "radius": {
+    "card": "15-25px cards, pill buttons and search"
+  }
+}

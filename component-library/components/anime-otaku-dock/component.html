@@ -1,0 +1,33 @@
+<!-- App dock with signal monitor (Otaku OS) · anime-otaku-dock: from the Anime archetype: Otaku OS (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/anime-terminal-otaku-os.css, and an ancestor with class="cx-anime-terminal-otaku-os". -->
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+<div class="cx-anime-terminal-otaku-os">
+<aside class="sidebar" aria-label="Operating system navigation"><a href="#dashboard" class="brand" aria-label="Otaku OS home"><span class="brand-mark"><span>O</span></span><span><span class="brand-name">OTAKU <b>OS</b></span><span class="brand-sub">ENTERTAINMENT SYSTEM</span></span></a>
+    <nav aria-label="Main navigation">
+     <div class="nav-label">
+      SYSTEM / MENU
+     </div>
+     <div class="nav-links"><a class="nav-link active" href="#dashboard"><i data-lucide="layout-dashboard"></i> Dashboard</a> <a class="nav-link" href="#featured"><i data-lucide="zap"></i> Featured</a> <a class="nav-link" href="#archive"><i data-lucide="grid-2x2"></i> Anime archive</a>
+     </div>
+    </nav>
+    <div class="sidebar-bottom">
+     <div class="signal-panel">
+      <div class="signal-head">
+       SYSTEM STATUS <span class="pulse"></span>
+      </div>
+      <div class="bars" aria-hidden="true">
+       <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+      </div>
+      <div class="signal-copy">
+       All systems operational
+      </div>
+     </div>
+     <div class="sidebar-foot">
+      OTAKU OS / BUILD 01.24
+     </div>
+    </div>
+   </aside>
+</div>
+<script>
+document.querySelectorAll(".nav-link").forEach(link=>link.addEventListener("click",()=>{document.querySelectorAll(".nav-link").forEach(l=>l.classList.remove("active"));link.classList.add("active")}));
+</script>

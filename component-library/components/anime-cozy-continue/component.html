@@ -1,0 +1,75 @@
+<!-- Continue watching (Slice of Life) · anime-cozy-continue: from the Anime archetype: Slice of Life (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/anime-cozy-slice-of-life.css, and an ancestor with class="cx-anime-cozy-slice-of-life". -->
+<div class="cx-anime-cozy-slice-of-life">
+<section id="continue" class="section continue-section" aria-labelledby="continue-title">
+    <div class="section-head">
+     <div>
+      <span class="eyebrow">Pick up where you left off</span>
+      <h2 id="continue-title">Recently watched</h2>
+     </div><span class="section-sub">A few familiar places to return to</span>
+    </div>
+    <div class="episodes">
+     <article class="episode">
+      <button class="episode-thumb" type="button" data-detail="little"><img id="episode-image-little" src="https://images.pexels.com/photos/30918045/pexels-photo-30918045.jpeg" alt="A serene scene of a woman reading by the window in a cozy Warsaw cafe, surrounded by a warm atmosphere." loading="lazy"></button>
+      <div class="episode-info">
+       <small>EP 04 · 12 min left</small>
+       <h3>The Little Things We Say</h3>
+       <p>The place we always meet</p>
+       <div class="progress" aria-label="Episode 60 percent complete">
+        <span style="width:60%"></span>
+       </div>
+      </div>
+     </article>
+     <article class="episode">
+      <button class="episode-thumb" type="button" data-detail="apartment"><img id="episode-image-apartment" src="https://images.pexels.com/photos/40352919/pexels-photo-40352919.jpeg" alt="A cozy setup with cereal, books, and a laptop screen showing a vibrant animation scene." loading="lazy"></button>
+      <div class="episode-info">
+       <small>EP 02 · 8 min left</small>
+       <h3>Apartment 3B</h3>
+       <p>The mysterious houseplant</p>
+       <div class="progress" aria-label="Episode 73 percent complete">
+        <span style="width:73%"></span>
+       </div>
+      </div>
+     </article>
+     <article class="episode">
+      <button class="episode-thumb" type="button" data-detail="train"><img id="episode-image-train" src="https://images.pexels.com/photos/29175926/pexels-photo-29175926.jpeg" alt="Train moving through vibrant green forest at golden hour, capturing a serene travel experience." loading="lazy"></button>
+      <div class="episode-info">
+       <small>EP 06 · 17 min left</small>
+       <h3>The Last Train Home</h3>
+       <p>Somewhere past the hills</p>
+       <div class="progress" aria-label="Episode 35 percent complete">
+        <span style="width:35%"></span>
+       </div>
+      </div>
+     </article>
+    </div>
+   </section>
+<!-- Used by this block's script (elsewhere on the page it came from): -->
+<div id="details-backdrop" class="modal-backdrop" aria-hidden="true">
+   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-describedby="modal-description">
+    <button id="modal-close" class="modal-close" type="button" aria-label="Close details"><i data-lucide="x"></i></button><img id="modal-image" src="https://images.pexels.com/photos/37886752/pexels-photo-37886752.jpeg" alt="Cozy living room" loading="lazy">
+    <div class="modal-body">
+     <span id="modal-category" class="eyebrow"></span>
+     <h2 id="modal-title"></h2>
+     <p id="modal-description"></p>
+     <div id="modal-note" class="modal-note"></div>
+    </div>
+   </div>
+  </div>
+</div>
+<script>
+const details={
+      hero:{title:"Stay a Little Longer",category:"Evening feature · Romance",description:"After years away, Mina returns to her hometown and finds that the smallest routines—an open shop, a shared walk, a familiar voice—can make a place feel like home again.",note:"12 episodes · Warm & wistful",image:"https://images.pexels.com/photos/37886752/pexels-photo-37886752.jpeg",alt:"A cozy living room with a cup of tea on a table, bathed in warm sunlight through curtains."},
+      little:{title:"The Little Things We Say",category:"Romance · Slice of life",description:"Two old friends keep missing the right moment to say what's on their minds. Luckily, their favorite café gives them plenty of chances to try again.",note:"12 episodes · Quiet moments, loud feelings",image:"https://images.pexels.com/photos/30918045/pexels-photo-30918045.jpeg",alt:"A serene scene of a woman reading by the window in a cozy Warsaw cafe, surrounded by a warm atmosphere."},
+      apartment:{title:"Apartment 3B",category:"Comedy · Friendship",description:"A misdelivered package brings three very different neighbors together. Soon, shared dinners and tiny mishaps turn their hallway into a home.",note:"10 episodes · Good neighbors, great chaos",image:"https://images.pexels.com/photos/40352919/pexels-photo-40352919.jpeg",alt:"A cozy setup with cereal, books, and a laptop screen showing a vibrant animation scene."},
+      train:{title:"The Last Train Home",category:"Slice of life · Drama",description:"On the same evening train, a group of strangers slowly become part of each other's lives. Every stop offers a new beginning.",note:"12 episodes · Every stop tells a story",image:"https://images.pexels.com/photos/29175926/pexels-photo-29175926.jpeg",alt:"Train moving through vibrant green forest at golden hour, capturing a serene travel experience."},
+      rain:{title:"After the Rain Café",category:"Drama · Romance",description:"When a quiet café reopens after a long rainy season, its regulars discover that second chances often arrive in ordinary ways.",note:"8 episodes · A fresh start, one cup at a time",image:"https://images.pexels.com/photos/36672314/pexels-photo-36672314.jpeg",alt:"Enjoy the calming atmosphere of two glasses of Turkish tea by a rainy window overlooking a serene outdoor setting."},
+      lights:{title:"When the Lights Come On",category:"Tonight's gentle pick",description:"In a neighborhood where everyone knows the glow of each other's windows, a newcomer learns that belonging starts with a simple hello.",note:"A cozy evening recommendation",image:"https://images.pexels.com/photos/39970861/pexels-photo-39970861.jpeg",alt:"Warm-lit room peeking through a window at night, creating a cozy home ambiance."},
+      slow:{title:"Slow Sunday Mornings",category:"Relaxing collection",description:"Unhurried stories for cups of tea, open windows, and the luxury of having nowhere else to be. Featuring gentle romance, friendship, and everyday adventures.",note:"5 gentle stories to explore",image:"https://images.pexels.com/photos/15124864/pexels-photo-15124864.jpeg",alt:"A cozy indoor scene with a rustic table, potted plants, and a cup of tea, creating a warm atmosphere."},
+      rainy:{title:"Rainy Day Comforts",category:"Relaxing collection",description:"A little warmth for grey skies: café conversations, unexpected friendships, and endings that feel like coming in from the rain.",note:"6 cozy stories to explore",image:"https://images.pexels.com/photos/30775114/pexels-photo-30775114.jpeg",alt:"Charming street cafe in Istanbul with warm lighting on a rainy night."}
+    };
+const backdrop=document.getElementById("details-backdrop"),closeButton=document.getElementById("modal-close");
+let previousFocus;
+function openDetails(key){const d=details[key];if(!d)return;previousFocus=document.activeElement;document.getElementById("modal-title").textContent=d.title;document.getElementById("modal-category").textContent=d.category;document.getElementById("modal-description").textContent=d.description;document.getElementById("modal-note").textContent=d.note;const image=document.getElementById("modal-image");image.src=d.image;image.alt=d.alt;backdrop.classList.add("open");backdrop.setAttribute("aria-hidden","false");closeButton.focus()}
+document.querySelectorAll("[data-detail]").forEach(button=>button.addEventListener("click",()=>openDetails(button.dataset.detail)));
+</script>

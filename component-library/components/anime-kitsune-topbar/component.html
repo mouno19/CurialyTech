@@ -1,0 +1,19 @@
+<!-- Quiet topbar (Kitsune Flix) · anime-kitsune-topbar: from the Anime archetype: Kitsune Flix (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/anime-traditional-kitsune-flix.css, and an ancestor with class="cx-anime-traditional-kitsune-flix". -->
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+<div class="cx-anime-traditional-kitsune-flix">
+<header class="topbar">
+     <a href="#top" class="wordmark" aria-label="Kitsune Flix home">KITSUNE <em>FLIX</em><span style="color:var(--red)">.</span></a>
+     <div class="top-right">
+      <span class="edition">A curated world of anime &nbsp; / &nbsp; 2026</span>
+      <div class="search">
+       <i data-lucide="search" aria-hidden="true"></i> <label for="search-input" class="sr-only" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0">Search series</label> <input id="search-input" type="search" placeholder="Search stories..." autocomplete="off">
+      </div>
+     </div>
+    </header>
+<!-- Used by this block's script (elsewhere on the page it came from): -->
+<div id="cards" class="cards"></div>
+</div>
+<script>
+const cards = document.getElementById("cards"), search = document.getElementById("search-input");
+</script>

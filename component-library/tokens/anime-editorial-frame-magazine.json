@@ -1,0 +1,33 @@
+{
+  "id": "anime-editorial-frame-magazine",
+  "name": "Frame Anime (light)",
+  "mode": "light",
+  "source": "anime-templates/04_frame_anime_editorial.html",
+  "colors": {
+    "background": "#f5f3ee",
+    "surface": "#fffdf8",
+    "surface2": "#ebe8e0",
+    "border": "#d4d3cb",
+    "text": "#20211f",
+    "muted": "#6d6e68",
+    "accent": "#bb4c3e",
+    "positive": "#20211f",
+    "negative": "#bb4c3e",
+    "warning": "#20211f",
+    "series1": "#bb4c3e",
+    "series2": "#20211f",
+    "series3": "#6d6e68",
+    "series4": "#d4d3cb"
+  },
+  "aliases": {
+    "#777872": "series2"
+  },
+  "fonts": {
+    "display": "\"Playfair Display\", serif",
+    "sans": "\"DM Sans\", system-ui, sans-serif",
+    "extra": "\"Manrope\", system-ui, sans-serif"
+  },
+  "radius": {
+    "card": "none (print); the one circle is the cover's action button"
+  }
+}

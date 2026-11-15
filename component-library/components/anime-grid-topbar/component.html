@@ -1,0 +1,79 @@
+<!-- Header with slash search (Anime Grid) · anime-grid-topbar: from the Anime archetype: Anime Grid (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/anime-catalog-anime-grid.css, and an ancestor with class="cx-anime-catalog-anime-grid". -->
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+<div class="cx-anime-catalog-anime-grid">
+<header class="topbar">
+   <a class="brand" href="#" aria-label="Anime Grid home" id="brand-link"><span class="brand-mark"><i data-lucide="grid-2x2"></i></span>ANIME<span>GRID</span></a>
+   <nav class="topnav" aria-label="Catalog categories" id="category-nav">
+    <button class="active" data-category="All" type="button">Discover</button> <button data-category="Trending" type="button">Trending</button> <button data-category="Top Rated" type="button">Top Rated</button> <button data-category="New Releases" type="button">New Releases</button>
+   </nav>
+   <div class="header-right">
+    <div class="search-wrap"><i data-lucide="search"></i><label for="search" class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)">Search anime</label><input id="search" type="search" placeholder="Search anime, genres..." autocomplete="off"><span class="search-shortcut">/</span>
+    </div>
+   </div>
+  </header>
+<!-- Used by this block's script (elsewhere on the page it came from): -->
+<h2 id="results-title">Discover anime <span id="result-count"></span></h2>
+<div id="anime-grid" class="grid" aria-live="polite"></div>
+<nav id="pagination" class="pagination" aria-label="Result pages"></nav>
+<div id="active-chips" class="chips" aria-label="Active filters"></div>
+<select class="select-filter" id="year-filter"><option value="all">Any year</option><option value="2020s">2020–2025</option><option value="2010s">2010–2019</option><option value="2000s">Before 2010</option></select>
+<input id="rating-filter" type="range" min="0" max="9.5" step="0.5" value="0">
+<strong id="rating-value">Any</strong>
+<div class="overlay" id="detail-overlay" role="presentation">
+   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><button class="modal-close" id="modal-close" type="button" aria-label="Close details"><i data-lucide="x"></i></button>
+    <div class="modal-top" id="modal-top"><span class="modal-kicker" id="modal-kicker"></span>
+     <h2 id="modal-title"></h2>
+    </div>
+    <div class="modal-body">
+     <div class="modal-facts" id="modal-facts"></div>
+     <p id="modal-description"></p>
+     <div class="modal-genres" id="modal-genres"></div>
+    </div>
+   </div>
+  </div>
+</div>
+<script>
+const anime=[
+      ["Frieren: Beyond Journey's End",2023,9.4,28,"TV","Completed",["Fantasy","Adventure","Drama"],"A thoughtful journey begins after the legendary quest has already ended.","#153b4b","#7ab8a8","#d9e8d8","葬",98],
+      ["Attack on Titan",2013,9.1,87,"TV","Completed",["Action","Drama","Mystery"],"Humanity fights for survival beyond the walls in an epic story of freedom and consequence.","#4e2726","#bb6141","#e4ba83","進",97],
+      ["Demon Slayer",2019,8.8,63,"TV","Airing",["Action","Fantasy","Adventure"],"A determined swordsman takes on demons while searching for a cure for his sister.","#234b4a","#dc725d","#f7bf88","鬼",96],
+      ["Jujutsu Kaisen",2020,8.8,47,"TV","Airing",["Action","Supernatural","Fantasy"],"A student enters the hidden world of curses and sorcerers.","#303d65","#a85c9c","#e8a5a5","呪",95],
+      ["Fullmetal Alchemist: Brotherhood",2009,9.2,64,"TV","Completed",["Action","Adventure","Fantasy"],"Two brothers pursue the Philosopher's Stone to restore what they lost.","#775038","#dfad65","#f5d4a5","鋼",94],
+      ["Chainsaw Man",2022,8.6,12,"TV","Airing",["Action","Horror","Supernatural"],"A devil hunter's life changes when he gains a fearsome new power.","#8e482d","#d8a140","#f5ca72","鋸",93],
+      ["Spy x Family",2022,8.5,37,"TV","Airing",["Comedy","Action","Slice of Life"],"A spy, an assassin, and a telepath become an unlikely family.","#527564","#c69d80","#f5d1aa","家",92],
+      ["One Piece",1999,8.9,1100,"TV","Airing",["Adventure","Action","Fantasy"],"A pirate crew sails the Grand Line in search of the ultimate treasure.","#166185","#e1a65c","#f4cc8c","海",91],
+      ["Vinland Saga",2019,8.9,48,"TV","Completed",["Action","Drama","Adventure"],"A young warrior seeks purpose amid a brutal Viking age.","#5a4c40","#a8a275","#e1d4aa","戦",90],
+      ["Death Note",2006,8.6,37,"TV","Completed",["Mystery","Thriller","Supernatural"],"A brilliant student finds a notebook with terrifying power.","#27283b","#71627b","#bfb2c5","死",89],
+      ["Mob Psycho 100",2016,8.8,37,"TV","Completed",["Comedy","Action","Supernatural"],"An earnest psychic learns that growing up takes more than extraordinary power.","#75478d","#e99b68","#f4d2a2","超",88],
+      ["Solo Leveling",2024,8.5,25,"TV","Airing",["Action","Fantasy","Adventure"],"The weakest hunter discovers a unique path to become stronger.","#1e2e59","#6859ad","#bb9ce4","影",87],
+      ["Your Name",2016,8.9,1,"Movie","Completed",["Romance","Drama","Fantasy"],"Two strangers find their lives mysteriously intertwined across distance and time.","#315f86","#e79391","#f7c4ae","君",86],
+      ["Haikyu!!",2014,8.7,85,"TV","Completed",["Sports","Comedy","Drama"],"An ambitious volleyball player discovers the power of teamwork.","#a04d2b","#efac52","#ffe0a4","飛",85],
+      ["Cyberpunk: Edgerunners",2022,8.6,10,"TV","Completed",["Action","Sci-Fi","Drama"],"A street kid tries to survive in a neon-soaked city obsessed with technology.","#3c4679","#ca558c","#eddc68","電",84],
+      ["Steins;Gate",2011,9.0,24,"TV","Completed",["Sci-Fi","Thriller","Drama"],"An eccentric group of friends accidentally discovers a way to change the past.","#423c49","#a27476","#dfbd9b","時",83],
+      ["Blue Lock",2022,8.2,24,"TV","Airing",["Sports","Drama","Thriller"],"Elite young strikers compete in an intense program to redefine Japanese football.","#174b85","#2fa6c9","#a7dce7","青",82],
+      ["The Apothecary Diaries",2023,8.9,24,"TV","Airing",["Mystery","Drama","Romance"],"A clever apothecary solves mysteries within the imperial palace.","#42634a","#a4a56a","#e7d5a6","薬",81],
+      ["Violet Evergarden",2018,8.7,13,"TV","Completed",["Drama","Fantasy","Slice of Life"],"A former soldier learns to understand emotion through writing letters.","#4d6787","#b1a6b5","#f4d8c5","花",80],
+      ["Cowboy Bebop",1998,8.8,26,"TV","Completed",["Sci-Fi","Action","Drama"],"A crew of bounty hunters drifts through a stylish, lonely solar system.","#524e43","#b08154","#e2b771","星",79],
+      ["A Silent Voice",2016,8.9,1,"Movie","Completed",["Drama","Romance","Slice of Life"],"A young man seeks redemption and connection after a painful childhood.","#527d9b","#b1c3c6","#e9ddd0","聲",78],
+      ["Dandadan",2024,8.5,12,"TV","Airing",["Action","Comedy","Supernatural"],"Two classmates collide with aliens, spirits, and increasingly strange adventures.","#764260","#df7464","#f6bb8e","怪",77],
+      ["Princess Mononoke",1997,8.7,1,"Movie","Completed",["Fantasy","Adventure","Drama"],"A young prince is drawn into a conflict between nature and industry.","#3a594a","#8fa277","#d9cda3","森",76],
+      ["Delicious in Dungeon",2024,8.6,24,"TV","Completed",["Fantasy","Adventure","Comedy"],"A dungeon party turns monster encounters into an imaginative culinary quest.","#68754a","#c09c58","#e4d29b","食",75]
+    ].map((a,i)=>({id:i,title:a[0],year:a[1],rating:a[2],episodes:a[3],format:a[4],status:a[5],genres:a[6],description:a[7],colors:a.slice(8,11),glyph:a[11],popularity:a[12]}));
+const state={category:"All",search:"",genres:new Set(),formats:new Set(),statuses:new Set(),year:"all",rating:0,sort:"popular",page:1};
+const perPage=10,$=id=>document.getElementById(id);
+function iconRefresh(){if(window.lucide)lucide.createIcons()}
+function filtered(){let list=anime.filter(a=>{let q=state.search.toLowerCase();return (!q||[a.title,a.description,...a.genres].some(t=>t.toLowerCase().includes(q)))&&(!state.genres.size||[...state.genres].some(g=>a.genres.includes(g)))&&(!state.formats.size||state.formats.has(a.format))&&(!state.statuses.size||state.statuses.has(a.status))&&(state.year==="all"||(state.year==="2020s"?a.year>=2020:state.year==="2010s"?a.year>=2010&&a.year<2020:a.year<2010))&&a.rating>=state.rating&&(state.category==="All"||state.category==="Trending"&&a.popularity>=84||state.category==="Top Rated"&&a.rating>=8.9||state.category==="New Releases"&&a.year>=2023)});
+      return list.sort((a,b)=>state.sort==="rating"?b.rating-a.rating||b.popularity-a.popularity:state.sort==="newest"?b.year-a.year||b.popularity-a.popularity:state.sort==="oldest"?a.year-b.year:state.sort==="az"?a.title.localeCompare(b.title):b.popularity-a.popularity)}
+function render(){const list=filtered(),pages=Math.ceil(list.length/perPage);state.page=Math.min(state.page,Math.max(1,pages));$("result-count").textContent=`${list.length} title${list.length===1?"":"s"}`;$("results-title").firstChild.textContent=state.category==="All"?"Discover anime ":state.category+" ";
+      const pageList=list.slice((state.page-1)*perPage,state.page*perPage);
+      $("anime-grid").innerHTML=pageList.length?pageList.map(a=>`<article class="card"><button class="poster-button" type="button" data-id="${a.id}" aria-label="View details for ${a.title}"><div class="poster" style="--c1:${a.colors[0]};--c2:${a.colors[1]};--c3:${a.colors[2]}"><div class="poster-shape"></div><span class="poster-glyph" aria-hidden="true">${a.glyph}</span><span class="poster-title"><small>Anime grid / ${a.year}</small>${a.title}</span></div><span class="corner-badge"><i data-lucide="star"></i> ${a.rating.toFixed(1)}</span><span class="type-badge">${a.format.toUpperCase()}</span></button><div class="card-info"><h3 class="card-title" title="${a.title}">${a.title}</h3><div class="card-meta"><span>${a.year}</span><span class="dot"></span><span>${a.episodes} ${a.format==="Movie"?"film":"eps"}</span></div><div class="genres">${a.genres.slice(0,2).map(g=>`<span class="genre-tag">${g}</span>`).join("")}</div><div class="status"><span class="status-dot ${a.status.toLowerCase()}"></span>${a.status}</div></div></article>`).join(""):`<div class="empty" style="grid-column:1/-1"><i data-lucide="search-x"></i><h3>No anime found</h3><p>Try adjusting your search or clearing a filter.</p></div>`;
+      $("pagination").innerHTML=pages>1?`<button data-page="${state.page-1}" ${state.page===1?"disabled":""} aria-label="Previous page"><i data-lucide="chevron-left"></i></button>${Array.from({length:pages},(_,i)=>`<button class=" ${state.page===i+1?"active":""}" data-page="${i+1}" ${state.page===i+1?'aria-current="page"':""}>${i+1}</button>`).join("")}<button data-page="${state.page+1}" ${state.page===pages?"disabled":""} aria-label="Next page"><i data-lucide="chevron-right"></i></button>`:"";
+      const chips=[...[...state.genres].map(x=>["genres",x]),...[...state.formats].map(x=>["formats",x]),...[...state.statuses].map(x=>["statuses",x])];if(state.year!=="all")chips.push(["year",state.year]);if(state.rating)chips.push(["rating",state.rating+"+ rating"]);$("active-chips").innerHTML=chips.map(([k,v])=>`<button class="chip" data-chip="${k}" data-value="${v}" aria-label="Remove ${v} filter">${v}<i data-lucide="x"></i></button>`).join("");iconRefresh()}
+function reset(){state.genres.clear();state.formats.clear();state.statuses.clear();state.year="all";state.rating=0;state.page=1;$("year-filter").value="all";$("rating-filter").value=0;$("rating-value").textContent="Any";document.querySelectorAll('[data-filter]').forEach(x=>x.checked=false);render()}
+function closeModal(){$("detail-overlay").classList.remove("open");document.body.style.overflow="";$("detail-overlay").setAttribute("role","presentation")}
+$("search").addEventListener("input",e=>{state.search=e.target.value.trim();state.page=1;render()});
+$("category-nav").addEventListener("click",e=>{const b=e.target.closest("[data-category]");if(!b)return;state.category=b.dataset.category;state.page=1;document.querySelectorAll("[data-category]").forEach(x=>x.classList.toggle("active",x===b));render()});
+document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();if(e.key==="/"&&document.activeElement.tagName!=="INPUT"){e.preventDefault();$("search").focus()}});
+$("brand-link").addEventListener("click",e=>{e.preventDefault();$("search").value="";state.search="";state.category="All";document.querySelectorAll("[data-category]").forEach(x=>x.classList.toggle("active",x.dataset.category==="All"));reset();window.scrollTo({top:0,behavior:"smooth"})});
+</script>

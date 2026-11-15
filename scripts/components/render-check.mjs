@@ -33,6 +33,8 @@ try {
     page.on("console", message => { if (message.type() === "error") errors.push(`console: ${message.text().slice(0, 200)}`); });
     const started = Date.now();
     let facts = null;
+    const width = JSON.parse(fs.readFileSync(path.join(COMPONENTS, id, "component.json"), "utf8")).preview?.width;
+    if (width) await page.setViewportSize({ width, height: 844 });
     try {
       await page.setContent(fs.readFileSync(path.join(COMPONENTS, id, "preview.html"), "utf8"), { waitUntil: "load", timeout: 45_000 });
       await page.waitForTimeout(SETTLE_MS);

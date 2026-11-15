@@ -48,6 +48,8 @@ export type ComponentMeta = {
   style?: { tokens: string; mode?: "light" | "dark"; colors?: Record<string, string> };
   /** Another component this one is a variant of (one per variant group is picked). */
   variant_of?: string;
+  /** The style archetype a block comes from: a plan mixes archetypes rather than taking one whole. */
+  archetype?: string;
   /** Components this pattern already contains (picking it covers them). */
   composes?: string[];
   /** Hosts the component fetches data from at run time. */
@@ -77,7 +79,7 @@ export type CompositionPlan = {
   product: string;
   tools: { selected: string[]; limited: boolean; relevant: string[] };
   needs: PlanNeed[];
-  components: { id: string; name: string; category: string; batch: string; role: LayoutRole; span: string; frameworks: Framework[]; family: string; covers: string[]; status: ComponentStatus }[];
+  components: { id: string; name: string; category: string; batch: string; role: LayoutRole; span: string; frameworks: Framework[]; family: string; covers: string[]; status: ComponentStatus; archetype?: string }[];
   categories: string[];
   batches: string[];
   layout: { region: string; components: string[] }[];

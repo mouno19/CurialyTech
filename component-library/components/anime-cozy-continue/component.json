@@ -1,0 +1,102 @@
+{
+  "id": "anime-cozy-continue",
+  "name": "Continue watching (Slice of Life)",
+  "description": "Continue watching: cards with episode progress bars. From the Slice of Life archetype (Warm cozy, hearthside minimal); re-skin it to the design's tokens and mix it with blocks of other archetypes, never the whole template. (In the source: \"The Little Things We Say\".)",
+  "category": "engagement",
+  "batch": "anime-cozy-slice-of-life",
+  "collection": "Anime archetype: Slice of Life",
+  "kind": "component",
+  "role": "insight",
+  "tags": [
+    "anime",
+    "entertainment",
+    "media",
+    "light",
+    "cozy",
+    "slice of life",
+    "hygge",
+    "cafe",
+    "café",
+    "reading club",
+    "wellness",
+    "lifestyle-app",
+    "bakery",
+    "continue",
+    "watching",
+    "cards",
+    "with",
+    "episode",
+    "progress",
+    "bar-chart",
+    "comparison",
+    "ranking",
+    "categorical",
+    "kpi",
+    "target",
+    "performance",
+    "network",
+    "relationships",
+    "graph",
+    "api-monitoring",
+    "usage",
+    "sparkline",
+    "compact",
+    "light-theme"
+  ],
+  "capabilities": [
+    "responsive",
+    "interactive",
+    "accessible",
+    "animated"
+  ],
+  "dependencies": [
+    {
+      "type": "stylesheet",
+      "id": "anime-cozy-slice-of-life"
+    },
+    {
+      "type": "tokens",
+      "id": "anime-cozy-slice-of-life"
+    }
+  ],
+  "compatible_tools": [
+    "web-design",
+    "ui-ux-design",
+    "dashboard-builder",
+    "frontend-development"
+  ],
+  "frameworks": [
+    "html"
+  ],
+  "implementations": [
+    {
+      "framework": "html",
+      "file": "component.html",
+      "origin": "page-block"
+    }
+  ],
+  "layout": {
+    "role": "insight",
+    "span": "half"
+  },
+  "style": {
+    "tokens": "anime-cozy-slice-of-life",
+    "mode": "light",
+    "colors": {}
+  },
+  "source": {
+    "file": "anime-templates/01_slice_of_life_cozy.html",
+    "ref": "section id=\"continue\" #0"
+  },
+  "archetype": "anime-cozy-slice-of-life",
+  "status": "active",
+  "quality": {
+    "compiled": true,
+    "rendered": true,
+    "notes": [],
+    "hash": "161ffc4836c45bdd",
+    "checked_at": "2026-11-15"
+  },
+  "generated_by": "atlas-import",
+  "version": 1
+}

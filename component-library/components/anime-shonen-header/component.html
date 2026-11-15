@@ -1,0 +1,19 @@
+<!-- Skewed brand and live ticker (Shonen Hub) · anime-shonen-header: from the Anime archetype: Shonen Hub (Curialy component library). Sample data is fictional.
+     Needs the stylesheet styles/anime-action-shonen-hub.css, and an ancestor with class="cx-anime-action-shonen-hub". -->
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+<div class="cx-anime-action-shonen-hub">
+<header class="site-header"><a class="brand" href="#top" aria-label="SHONEN HUB home"><span class="brand-mark"></span>SHONEN <span>HUB</span></a>
+   <nav class="top-nav" aria-label="Main navigation"><a class="active" href="#top">Home</a><a href="#trending">Trending</a><a href="#discover">Discover</a><a href="#episodes">New Episodes</a><a href="#characters">Characters</a>
+   </nav>
+   <div class="search-wrap">
+    <i data-lucide="search" aria-hidden="true"></i><label for="search" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)">Search series</label><input id="search" type="search" placeholder="Search anime..." autocomplete="off">
+   </div>
+  </header>
+<!-- Used by this block's script (elsewhere on the page it came from): -->
+<div id="discover-grid" class="card-grid"></div>
+<p id="empty-state" class="empty-state">No series match your search. Try another title or genre.</p>
+</div>
+<script>
+lucide.createIcons();
+const search=document.getElementById("search"),grid=document.getElementById("discover-grid"),empty=document.getElementById("empty-state");
+</script>

@@ -1,0 +1,31 @@
+{
+  "id": "anime-luxury-kuro-cinema",
+  "name": "Kuro Cinema (dark)",
+  "mode": "dark",
+  "source": "anime-templates/02_kuro_cinema_luxury.html",
+  "colors": {
+    "background": "#090a09",
+    "surface": "#111310",
+    "surface2": "#171914",
+    "border": "#36362f",
+    "text": "#f3f0e8",
+    "muted": "#a3a39a",
+    "accent": "#d5bb82",
+    "positive": "#f0dfb6",
+    "negative": "#ff6b6b",
+    "warning": "#d5bb82",
+    "series1": "#d5bb82",
+    "series2": "#f0dfb6",
+    "series3": "#a3a39a",
+    "series4": "#f3f0e8",
+    "series5": "#36362f"
+  },
+  "aliases": {},
+  "fonts": {
+    "display": "\"Playfair Display\", serif",
+    "sans": "\"DM Sans\", system-ui, sans-serif"
+  },
+  "radius": {
+    "card": "square (0), hairline gold rules instead of rounded cards"
+  }
+}

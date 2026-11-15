@@ -84,13 +84,14 @@ export function analyze(request: string, needs: string[] | undefined, snapshot: 
     });
     if (!requirements.length && !product) add(request, false);
   }
-  // What the kind of product needs although the request didn't say it.
+  // What the kind of product needs although the request didn't say it — unless something the
+  // user named already covers it (implied parts never rule each other out: a landing page's hero,
+  // pricing and footer are all about a landing page).
   const covered = new Set(requirements.flatMap(req => req.concepts));
   for (const implied of product?.implies ?? []) {
     const ids = conceptIds(implied, concepts);
     if (ids.length && ids.every(id => covered.has(id))) continue;
     add(implied, true);
-    for (const id of ids) covered.add(id);
   }
   const relevantTools = [...new Set(requirements.flatMap(req => req.concepts).flatMap(id => concepts.find(concept => concept.id === id)?.tools ?? []))];
   return { product, requirements, mode, relevantTools };
@@ -153,8 +154,11 @@ export function resolveDependencies(chosen: Entry[], byId: Map<string, Entry>) {
  * components share (in the look the request asks for, when it asks); else, when none of them has
  * that look, the family with that look that the search found most for this request.
  */
-function chooseTheme(chosen: Entry[], tokenSets: Map<string, TokenSet>, mode: "dark" | "light" | null, requested?: string, found: Entry[] = []) {
+function chooseTheme(all: Entry[], tokenSets: Map<string, TokenSet>, mode: "dark" | "light" | null, requested?: string, found: Entry[] = [], prefer: string[] = []) {
   if (requested && tokenSets.has(requested)) return { set: tokenSets.get(requested)!, reason: "requested" };
+  // The components made for this kind of product set the look (a media site's archetype blocks, not a borrowed top bar).
+  const suited = prefer.length ? all.filter(entry => prefer.some(tag => entry.tags.includes(tag))) : [];
+  const chosen = suited.length ? suited : all;
   const counts = new Map<string, number>();
   for (const entry of chosen) if (entry.style?.tokens) counts.set(entry.style.tokens, (counts.get(entry.style.tokens) ?? 0) + (entry.layout?.span === "full" || entry.kind === "pattern" ? 2 : 1));
   const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => tokenSets.get(id)).filter((set): set is TokenSet => Boolean(set));
@@ -207,8 +211,12 @@ export function compose(input: ComposeInput): Composition {
     const families = new Map<string, number>();
     for (const entry of chosen.values()) if (entry.style?.tokens) families.set(entry.style.tokens, (families.get(entry.style.tokens) ?? 0) + 1);
     const dominant = [...families.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+    // Style archetypes are mixed, never taken whole: each block already chosen from one makes its next one rank lower.
+    const fromArchetype = (id?: string) => (id ? [...chosen.values()].filter(entry => entry.archetype === id).length : 0);
+    // Components made for this kind of product (an entertainment block on a media site) rank a little higher.
+    const suits = (tags: string[]) => (intent.product?.prefer?.some(tag => tags.includes(tag)) ? 0.05 : 0);
     const all = search(index, requirement.text, { frameworks }, 12)
-      .map(hit => ({ ...hit, score: Math.round((hit.score + (intent.mode && hit.entry.style?.mode ? (hit.entry.style.mode === intent.mode ? 0.04 : -0.04) : 0) + (dominant && hit.entry.style?.tokens === dominant ? 0.03 : 0)) * 1000) / 1000 }))
+      .map(hit => ({ ...hit, score: Math.round((hit.score + (intent.mode && hit.entry.style?.mode ? (hit.entry.style.mode === intent.mode ? 0.04 : -0.04) : 0) + (dominant && !hit.entry.archetype && hit.entry.style?.tokens === dominant ? 0.03 : 0) - 0.06 * fromArchetype(hit.entry.archetype) + suits(hit.entry.tags)) * 1000) / 1000 }))
       .sort((a, b) => b.score - a.score);
     considered += all.length;
     hits.set(requirement.text, all);
@@ -259,7 +267,7 @@ export function compose(input: ComposeInput): Composition {
     }
   }
   const resolved = resolveDependencies([...chosen.values()], snapshot.byId);
-  const theme = chooseTheme(resolved.components, snapshot.tokens, intent.mode, input.theme, [...hits.values()].flatMap(list => list.slice(0, 5).map(hit => hit.entry)));
+  const theme = chooseTheme(resolved.components, snapshot.tokens, intent.mode, input.theme, [...hits.values()].flatMap(list => list.slice(0, 5).map(hit => hit.entry)), intent.product?.prefer ?? []);
   const ordered = resolved.components.sort((a, b) => SPAN_ORDER.indexOf(a.layout?.role ?? a.role) - SPAN_ORDER.indexOf(b.layout?.role ?? b.role));
   const regions = new Map<string, string[]>();
   for (const entry of ordered) {
@@ -274,6 +282,7 @@ export function compose(input: ComposeInput): Composition {
     components: ordered.map(entry => ({
       id: entry.id, name: entry.name, category: entry.category, batch: entry.batch, role: entry.layout?.role ?? entry.role, span: entry.layout?.span ?? "half",
       frameworks: entry.frameworks, family: entry.style?.tokens ?? "-", covers: covers.get(entry.id) ?? (resolved.added.includes(entry.id) ? ["dependency"] : []), status: entry.status,
+      ...(entry.archetype ? { archetype: entry.archetype } : {}),
     })),
     categories: [...new Set(ordered.map(entry => entry.category))],
     batches: [...new Set(ordered.map(entry => entry.batch))],
@@ -308,6 +317,9 @@ export function planText(plan: CompositionPlan) {
   const blocked = plan.needs.filter(need => need.status === "needs-tool");
   const build = plan.needs.filter(need => need.status === "build");
   lines.push("");
+  const archetypes = [...new Set(plan.components.map(component => component.archetype).filter(Boolean))];
+  if (archetypes.length === 1) lines.push(`Mix: these style blocks all come from one archetype (${archetypes[0]}). Borrow at least one block from another archetype and rebuild everything on one token set; never reproduce one template.`);
+  else if (archetypes.length > 1) lines.push(`Style blocks from ${archetypes.length} archetypes (${archetypes.join(", ")}): put them on one token set (add_components with one theme) and rebuild them in one language, so the page reads as one design, not a collage.`);
   const missingTools = [...new Set(blocked.map(need => toolLabel(need.tool!)))];
   if (blocked.length) lines.push(`Ask the user before going on: ${missingTools.join(" and ")} ${missingTools.length > 1 ? "aren't" : "isn't"} selected, and ${blocked.map(need => `"${need.need}"`).join(", ")} need${blocked.length === 1 ? "s" : ""} ${missingTools.length > 1 ? "them" : "it"}. Explain what is missing and ask them to enable it; don't use those components meanwhile.`);
   if (plan.components.length) lines.push(`Next: add_components with ${plan.components.map(component => component.id).join(", ")} (theme ${plan.theme.id}) copies them into the workspace adapted to one theme. Build what is marked + yourself in the same tokens.`);
