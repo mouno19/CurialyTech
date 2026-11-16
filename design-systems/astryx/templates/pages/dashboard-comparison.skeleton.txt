@@ -1,0 +1,41 @@
+package: @astryxdesign/core
+
+# dashboard-comparison - Comparison-heavy analytics behind a persistent filter bar: tiles that each carry an inline sparkline and several period-over-period deltas, then segmented breakdowns underneath. Every number is shown against another number.
+# Components: Area, AreaChart, AspectRatio, Badge, Bar, BarChart, Card, CartesianGrid, Divider, Grid, Layout, Line, LineChart, ProgressBar, ResponsiveContainer, Selector, Table, Tooltip, XAxis, YAxis
+
+<Layout hasDivider height="fill">
+  /* header: */
+  <LayoutHeader hasDivider>
+    <HStack gap={3}>
+      <VStack gap={0}>
+        <Heading />
+        <Text />
+      </VStack>
+      <HStack gap={1}>
+        <Selector />
+        <Selector />
+        <Selector />
+        <Button variant="secondary" />
+      </HStack>
+    </HStack>
+  </LayoutHeader>
+  /* content: */
+  <LayoutContent padding={6}>
+    <VStack gap={10}>
+      <VStack gap={6}>
+        <SectionHeading />
+        <Grid gap={3} columns={{minWidth: 240, repeat: 'fit'}}>
+          <MetricCard />
+        </Grid>
+      </VStack>
+      <VStack gap={6}>
+        <SectionHeading />
+        <Card padding={6}>
+          <VStack gap={6}>
+            <Text />
+            <ActiveUsersTrend />
+          </VStack>
+        </Card>
+      </VStack>
+      <Divider />
+      ...

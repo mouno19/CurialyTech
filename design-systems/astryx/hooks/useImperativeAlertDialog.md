@@ -1,0 +1,3 @@
+package: @astryxdesign/core
+
+# useImperativeAlertDialog

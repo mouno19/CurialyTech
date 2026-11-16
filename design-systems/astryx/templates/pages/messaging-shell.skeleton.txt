@@ -1,0 +1,15 @@
+package: @astryxdesign/core
+
+# messaging-shell - Four-column nested navigation narrowing left to right (team workspace, channel list, message stream, thread panel) where each column scopes the next. Dense rows, zero cards.
+# Components: Avatar, AvatarStatusDot, Badge, ChatComposer, ChatLayout, ChatMessage, ChatMessageBubble, ChatMessageList, ChatMessageMetadata, ChatSystemMessage, Divider, EmptyState, IconButton, Layout, List, Stack, StatusDot, TextInput, Timestamp
+
+<Layout height="fill">
+  /* start: */
+  <LayoutPanel padding={0} width={68}>
+  </LayoutPanel>
+  <LayoutPanel padding={0} width={260}>
+  </LayoutPanel>
+  /* end: */
+  <LayoutPanel padding={0} width={340}>
+  </LayoutPanel>
+  /* content: */

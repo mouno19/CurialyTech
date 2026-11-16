@@ -38,6 +38,8 @@ import { runStudioTool, STUDIO_SCHEMAS, STUDIO_TOOLS, type StudioToolName } from
 import { studioAvailable } from "./studio";
 import { runWebSearchTool, searchConfigured, WEB_SEARCH_SCHEMAS, WEB_SEARCH_TOOL, type SearchInput } from "./web-search";
 import { COMPONENT_READ_TOOLS, COMPONENT_SCHEMAS, COMPONENT_TOOLS, runComponentTool, type ComponentToolName } from "./component-tools";
+import { ASTRYX_READ_TOOLS, ASTRYX_SCHEMAS, ASTRYX_TOOLS, runAstryxTool, unscopedAstryxDependency, type AstryxToolName } from "./astryx-tools";
+import { astryxAvailable, astryxCommandRefusal } from "../design-systems/astryx";
 import { registry } from "../components/registry";
 import { approveOnGitHub, GITHUB_CI_SCHEMAS, GITHUB_CI_TOOLS, runGitHubCiTool, type GitHubCiToolName } from "./github-ci-tools";
 import { askSecret, taskSecrets, type SecretStore } from "./requests";
@@ -75,6 +77,10 @@ export type ToolContext = {
   mustReadFirst?: (path: string) => string | null;
   /** The tools the user selected for the task (empty or absent: not limited): the component library respects them. */
   selectedTools?: string[];
+  /** The run's mode: chat runs read and plan, agent runs change the workspace. */
+  mode?: "agent" | "chat";
+  /** A read-only Dev Team role (Architect, Reviewer): tools that write files refuse. */
+  readOnly?: boolean;
 };
 
 /**
@@ -191,6 +197,7 @@ const schemas = {
   ...STUDIO_SCHEMAS,
   ...WEB_SEARCH_SCHEMAS,
   ...COMPONENT_SCHEMAS,
+  ...ASTRYX_SCHEMAS,
   request_secret: z.object({ name: secretName, reason: z.string().trim().min(3).max(300) }),
 };
 
@@ -413,18 +420,20 @@ function componentLibraryAvailable() {
   try { return registry().components.length > 0; } catch { return false; }
 }
 
-export function toolsFor(opts: { coding: boolean; web: boolean; eager: boolean; github?: boolean; vercel?: boolean; canva?: boolean; operator?: boolean }): Anthropic.Tool[] {
+export function toolsFor(opts: { coding: boolean; web: boolean; eager: boolean; github?: boolean; vercel?: boolean; canva?: boolean; operator?: boolean; astryx?: boolean }): Anthropic.Tool[] {
   const all = toolList(opts);
   const tools = opts.operator === false ? all.filter(tool => !OPERATOR_TOOLS.has(tool.name)) : all;
   return opts.eager ? tools.map(tool => ({ ...tool, eager_input_streaming: true })) : tools;
 }
 
-function toolList(opts: { coding: boolean; web: boolean; github?: boolean; vercel?: boolean; canva?: boolean }): ToolDef[] {
+function toolList(opts: { coding: boolean; web: boolean; github?: boolean; vercel?: boolean; canva?: boolean; astryx?: boolean }): ToolDef[] {
   const tools: ToolDef[] = [...INSIGHT_TOOLS];
   // Web search in chat and agent mode alike (the Web toggle is for fetching pages and browsing).
   if (searchConfigured()) tools.push(WEB_SEARCH_TOOL);
   // The component library: planning and reading in both modes; copying into the workspace and saving in agent mode.
   if (componentLibraryAvailable()) tools.push(...COMPONENT_TOOLS.filter(tool => opts.coding || COMPONENT_READ_TOOLS.includes(tool.name)));
+  // Astryx, for runs whose interface it fits (the run decides): its docs in both modes, scaffolding in agent mode.
+  if (opts.astryx && astryxAvailable()) tools.push(...ASTRYX_TOOLS.filter(tool => opts.coding || ASTRYX_READ_TOOLS.includes(tool.name)));
   if (opts.coding) tools.push(...CODING_TOOLS, ATTACH_TOOL);
   if (opts.coding && backgroundAvailable()) tools.push(...JOB_TOOLS);
   if (opts.github) tools.push(...(opts.coding ? GITHUB_TOOLS : GITHUB_TOOLS.slice(0, 2)), REMEMBER_TOOL, ...GITHUB_CI_TOOLS);
@@ -685,6 +694,9 @@ async function run(name: ToolName, input: any, ctx: ToolContext): Promise<ToolOu
     case "add_components":
     case "save_component":
       return runComponentTool(name as ComponentToolName, input, ctx);
+    case "astryx":
+    case "astryx_scaffold":
+      return runAstryxTool(name as AstryxToolName, input, ctx);
     case "request_secret": {
       const { name: secret, reason } = input as z.infer<typeof schemas.request_secret>;
       const owner = await taskOwner(ctx.sessionId);
@@ -758,6 +770,9 @@ const FOREGROUND_SEC = 600;
 
 async function runCommandTool(input: z.infer<typeof schemas.run_command>, ctx: ToolContext): Promise<ToolOutcome> {
   const { command, timeout_sec, background } = input;
+  // The unscoped `astryx` npm package is someone else's: never fetched or run in a task's sandbox.
+  const refused = astryxCommandRefusal(command) ?? unscopedAstryxDependency(ctx.root, command);
+  if (refused) return { ok: false, content: refused, summary: "Refused: unrelated astryx package" };
   ctx.onCommand(command);
   const kind = ctx.jobs && background !== false ? jobKind(command) ?? (background ? "task" : null) : null;
   if (kind && ctx.jobs) {

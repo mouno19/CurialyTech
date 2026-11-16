@@ -1,0 +1,41 @@
+package: @astryxdesign/core
+
+# table-inbox - Two-pane message queue: the table indexes a reading pane rather than being the destination, with a divider you drag to resize. Rows stack when the table narrows, not the window; threads read as collapsible messages; replying opens a composer that leaves the list live.
+# Components: Avatar, Badge, BottomSheet, Collapsible, EmptyState, IconButton, Layout, OverflowList, ResizeHandle, Section, Tab, TabList, Table, TextArea, TextInput, Thumbnail, Token, Tokenizer, Toolbar, VisuallyHidden
+
+<Layout padding height="fill" width>
+  /* header: */
+  <LayoutHeader padding={0} hasDivider={isPaneFullWidth}>
+    <VStack gap={0}>
+      <HStack padding={4} gap={3}>
+        <StackItem />
+        <VStack gap={0.5}>
+          <Heading />
+          <Text />
+        </VStack>
+        <Button variant="ghost" />
+        <Button variant="primary" />
+      </HStack>
+      <VStack height={SELECTION_BAR_HEIGHT}>
+        <Section variant="muted">
+          <HStack gap={3}>
+            <StackItem />
+            <HStack gap={1}>
+              <Button variant="ghost" />
+            </HStack>
+            <HStack gap={3}>
+              <Text />
+              <Text />
+              <Button variant="ghost" />
+            </HStack>
+          </HStack>
+        </Section>
+      </VStack>
+      <TabList hasDivider>
+        <Tab />
+        <Badge variant="neutral" />
+        <VisuallyHidden />
+      </TabList>
+    </VStack>
+  </LayoutHeader>
+  ...

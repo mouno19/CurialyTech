@@ -1,0 +1,41 @@
+package: @astryxdesign/core
+
+# ai-chat - Transcript of alternating turns carrying mixed rich content inline (markdown, code blocks, collapsible tool-call output) beside a resizable artifact panel that holds generated output while the stream keeps scrolling.
+# Components: Avatar, Card, ChatComposer, ChatComposerInput, ChatLayout, ChatMessage, ChatMessageBubble, ChatMessageList, ChatMessageMetadata, ChatSystemMessage, ChatTokenizedText, ChatToolCalls, ClickableCard, CodeBlock, Dialog, DropdownMenu, Layout, Markdown, MoreMenu, ResizeHandle, Section, Timestamp, Token, Toolbar
+
+<Layout padding={0} height="fill">
+  /* content: */
+  <LayoutContent padding={0}>
+    <HStack height="100%">
+      <ChatLayout density="spacious" />
+      <ChatComposer />
+      <Button variant="ghost" />
+      <Button variant="ghost" />
+      <DropdownMenu />
+      <ChatMessageList />
+      <ChatSystemMessage variant="divider" />
+      <ChatMessage />
+      <HStack gap={1}>
+        <Token />
+        <Token />
+      </HStack>
+      <ChatMessageBubble />
+      <ChatMessageMetadata />
+      <Timestamp />
+      <ChatTokenizedText />
+      <ChatMessage />
+      <ChatMessageBubble variant="ghost" />
+      <ChatToolCalls />
+      <ChatMessageBubble variant="ghost" />
+      <Markdown density="compact" />
+      <ChatMessageBubble variant="ghost" />
+      <CodeBlock />
+      <ChatToolCalls />
+      <ChatMessageMetadata />
+      <Timestamp />
+      /* footer: */
+      <Text />
+      <ChatMessage />
+      <ChatMessageBubble />
+      <ChatMessageBubble />
+      ...

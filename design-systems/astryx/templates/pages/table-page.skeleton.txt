@@ -1,0 +1,41 @@
+package: @astryxdesign/core
+
+# table-page - Flat table of uniform rows under a block of record-level facts, narrowed three ways at once - a full-text search box, a scope toggle, and per-column popovers - with sortable and filterable columns, per-row hover detail, and totals derived from the visible rows that flag themselves as partial while a filter is on. The shape for one homogeneous list, not nested rows or groups with their own columns.
+# Components: Banner, Divider, EmptyState, HoverCard, Layout, MetadataList, SegmentedControl, Table, TextInput
+
+<Layout padding={0} height="fill">
+  /* content: */
+  <LayoutContent padding={0}>
+    <VStack padding={4} gap={8}>
+      <VStack gap={6}>
+        <HStack gap={3}>
+          <StackItem />
+          <Heading />
+          <Button variant="secondary" />
+        </HStack>
+        <MetadataList columns="multi" />
+        <MetadataListItem />
+      </VStack>
+      <HStack gap={3}>
+        <SegmentedControl />
+        <SegmentedControlItem />
+        <VStack width={300}>
+          <TextInput />
+        </VStack>
+      </HStack>
+      <VStack gap={6}>
+        <EmptyState variant="secondary" />
+        <Button variant="secondary" />
+        <VStack gap={4}>
+          <Table>
+            <VStack gap={3}>
+              <Divider />
+              <TotalRow />
+              <TotalRow />
+              <Divider />
+              <TotalRow />
+              <Divider />
+            </VStack>
+            <Banner variant="secondary" />
+            <Button variant="secondary" />
+            ...

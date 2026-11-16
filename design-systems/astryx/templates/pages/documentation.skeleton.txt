@@ -1,0 +1,35 @@
+package: @astryxdesign/core
+
+# documentation - Reference landing that is pure wayfinding: a banner above a grid of category cards linking into sections, with no article content on the surface itself.
+# Components: Card, ClickableCard, Grid, Layout
+
+<Layout padding={8} height="fill">
+  /* content: */
+  <LayoutContent padding={8}>
+    <VStack gap={10}>
+      <Card padding={10} variant="gray">
+        <HStack gap={8}>
+          <StackItem />
+          <VStack gap={4}>
+            <Text />
+            <Text />
+            <Button variant="primary" />
+          </VStack>
+          <StackItem />
+        </HStack>
+      </Card>
+      <VStack gap={4}>
+        <Heading />
+        <Grid gap={2} columns={{minWidth: 260}}>
+          <ClickableCard />
+          <VStack gap={3}>
+            <Card padding={0} variant="muted" />
+            <VStack gap={0.5}>
+              <Text />
+              <Text />
+            </VStack>
+          </VStack>
+        </Grid>
+      </VStack>
+    </VStack>
+  </LayoutContent>

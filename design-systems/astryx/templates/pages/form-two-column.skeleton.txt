@@ -1,0 +1,41 @@
+package: @astryxdesign/core
+
+# form-two-column - Form split into two columns beneath a hero header: inputs on one flank, a persistent context panel opposite that stays put while the fields scroll. Flat, single submit, no steps.
+# Components: AspectRatio, Card, Center, Divider, Grid, Section, Selector, TextArea, TextInput, Token
+
+<Center>
+  <Section padding={10} variant="transparent" width="100%" maxWidth={1100}>
+    <VStack gap={10}>
+      <Grid gap={10} columns={{minWidth: 320}}>
+        <VStack gap={6}>
+          <VStack gap={3}>
+            <Text />
+            <Text />
+          </VStack>
+          <AspectRatio />
+        </VStack>
+        <Card padding={8}>
+          <VStack gap={4}>
+            <Text />
+            <TextInput />
+            <Grid gap={3} columns={{minWidth: 180}}>
+              <TextInput />
+              <TextInput />
+            </Grid>
+            <Grid gap={3} columns={{minWidth: 180}}>
+              <TextInput />
+              <TextInput />
+            </Grid>
+            <VStack gap={2}>
+              <Text />
+              <HStack gap={2}>
+                <Token />
+              </HStack>
+            </VStack>
+            <Selector />
+            <TextArea />
+            <Button variant="primary" />
+          </VStack>
+        </Card>
+      </Grid>
+      ...

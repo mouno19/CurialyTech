@@ -1,0 +1,1707 @@
+[
+  {
+    "idea": "analytics dashboard",
+    "start": "dashboard",
+    "alternatives": [
+      "dashboard-cohort-funnel",
+      "dashboard-scorecard"
+    ],
+    "pages": [
+      "dashboard",
+      "dashboard-alert-rail",
+      "dashboard-cohort-funnel"
+    ],
+    "blocks": [
+      "DateRangeInputWithPresets",
+      "StepStates"
+    ],
+    "components": [
+      "DateRangeInput",
+      "ChatToolCalls",
+      "InfoTip",
+      "SegmentedControl",
+      "Toolbar"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "settings page",
+    "start": "settings",
+    "alternatives": [
+      "settings-sidebar",
+      "settings-dialog"
+    ],
+    "pages": [
+      "settings",
+      "settings-dialog",
+      "settings-sidebar"
+    ],
+    "blocks": [],
+    "components": [
+      "useTableColumnSettingsState"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "saas admin panel with users table",
+    "start": "shell-top-nav",
+    "alternatives": [
+      "table-collapsible",
+      "table-comparison"
+    ],
+    "pages": [],
+    "blocks": [
+      "TableLeadingMarkSelection",
+      "TableShowcase",
+      "TableRichCellTable",
+      "TablePaginatedTable",
+      "TableFilterableTable"
+    ],
+    "components": [
+      "Collapsible",
+      "Drawer",
+      "Table",
+      "useCollator",
+      "useContainerReveal",
+      "useResizable"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "login page",
+    "start": "login",
+    "alternatives": [
+      "login-card",
+      "login-split"
+    ],
+    "pages": [
+      "login",
+      "login-card",
+      "login-split"
+    ],
+    "blocks": [],
+    "components": [],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "sign up with sso",
+    "start": "login-sso",
+    "alternatives": [
+      "login-card",
+      "login-split"
+    ],
+    "pages": [
+      "login-sso",
+      "login",
+      "login-card"
+    ],
+    "blocks": [],
+    "components": [
+      "StatusDot"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "checkout flow",
+    "start": "shell-top-nav",
+    "alternatives": [
+      "form-wizard"
+    ],
+    "pages": [
+      "checkout-wizard",
+      "payment-form",
+      "detail-page"
+    ],
+    "blocks": [
+      "StepperCustomContent",
+      "BottomSheetSwitcherReviewFlow",
+      "BottomSheetSwitcherShowcase",
+      "StepperShowcase",
+      "StepContent"
+    ],
+    "components": [
+      "BottomSheetSwitcher",
+      "ClickableCard",
+      "Overlay",
+      "SelectableCard",
+      "useAnimator",
+      "useClickableContainer"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "product detail page",
+    "start": "detail-page",
+    "alternatives": [
+      "work-item-detail",
+      "course-detail"
+    ],
+    "pages": [
+      "product-detail",
+      "product-gallery",
+      "detail-page"
+    ],
+    "blocks": [],
+    "components": [
+      "MetadataList",
+      "Drawer"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "payment form",
+    "start": "contact-form",
+    "alternatives": [
+      "form-wizard-inline",
+      "payment-form"
+    ],
+    "pages": [
+      "payment-form",
+      "checkout-wizard",
+      "contact-form"
+    ],
+    "blocks": [
+      "FormLayoutMixedControls",
+      "FormLayoutShowcase",
+      "FormLayoutHorizontal",
+      "FormLayoutHorizontalLabels",
+      "FormLayoutNested"
+    ],
+    "components": [
+      "BottomSheet",
+      "FormLayout",
+      "Field",
+      "ClickableCard",
+      "InputGroup",
+      "Overlay"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "photo gallery",
+    "start": "classic-gallery",
+    "alternatives": [
+      "mixed-gallery",
+      "side-gallery"
+    ],
+    "pages": [
+      "centered-hero",
+      "classic-gallery",
+      "gallery-hero"
+    ],
+    "blocks": [
+      "LightboxHookUsage"
+    ],
+    "components": [
+      "Lightbox",
+      "Avatar",
+      "Carousel",
+      "useLightbox",
+      "Overlay",
+      "Thumbnail"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "kanban board for tasks",
+    "start": "kanban-board",
+    "alternatives": [
+      "work-item-detail"
+    ],
+    "pages": [
+      "kanban-board"
+    ],
+    "blocks": [],
+    "components": [],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "ai chat assistant",
+    "start": "ai-chat",
+    "alternatives": [
+      "ai-chat-landing",
+      "table-inbox"
+    ],
+    "pages": [
+      "ai-chat",
+      "ai-chat-landing"
+    ],
+    "blocks": [
+      "ChatMessageListShowcase",
+      "ChatMessageGhost",
+      "ChatMessageShowcase",
+      "ChatLayoutShowcase",
+      "ChatMessageMetadataFooter"
+    ],
+    "components": [
+      "useStreamingText",
+      "Banner",
+      "TextArea",
+      "Toast",
+      "useToast"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "chat app with conversations",
+    "start": "ai-chat",
+    "alternatives": [
+      "ai-chat-landing",
+      "table-inbox"
+    ],
+    "pages": [
+      "ai-chat",
+      "ai-chat-landing",
+      "messaging-shell"
+    ],
+    "blocks": [
+      "ChatMessageListShowcase",
+      "ChatLayoutShowcase",
+      "ChatSystemMessageStatusUpdates",
+      "ChatMessageListFullFeatured",
+      "ChatMessageMetadataShowcase"
+    ],
+    "components": [
+      "useStreamingText",
+      "Banner",
+      "TextArea",
+      "Toast",
+      "useToast"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "documentation site",
+    "start": "documentation-technical",
+    "alternatives": [
+      "documentation",
+      "documentation-design"
+    ],
+    "pages": [
+      "documentation",
+      "documentation-design",
+      "documentation-technical"
+    ],
+    "blocks": [],
+    "components": [
+      "Outline",
+      "useLinkify"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "api reference docs",
+    "start": "documentation",
+    "alternatives": [
+      "documentation-technical",
+      "documentation-design"
+    ],
+    "pages": [
+      "documentation",
+      "documentation-design",
+      "documentation-technical"
+    ],
+    "blocks": [
+      "CodeInlineInParagraph"
+    ],
+    "components": [
+      "Outline",
+      "useLinkify"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "file explorer",
+    "start": "ide",
+    "alternatives": [
+      "file-explorer",
+      "table-filter"
+    ],
+    "pages": [
+      "file-explorer",
+      "table-filter",
+      "table-tree"
+    ],
+    "blocks": [],
+    "components": [
+      "FileInput",
+      "TreeList"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "code editor ide",
+    "start": "ide",
+    "alternatives": [
+      "canvas-editor",
+      "editor"
+    ],
+    "pages": [
+      "ide"
+    ],
+    "blocks": [
+      "CodeBlockShowcase",
+      "CodeAcrossTextSizes",
+      "CodeBlockHighlightedLines",
+      "CodeShowcase"
+    ],
+    "components": [
+      "Code",
+      "CodeBlock"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "incident response console",
+    "start": "shell-top-nav",
+    "alternatives": [],
+    "pages": [
+      "incident-console"
+    ],
+    "blocks": [],
+    "components": [
+      "useDevWarning"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "crm contacts table with filters",
+    "start": "table-filter",
+    "alternatives": [
+      "table-page",
+      "table-grouped"
+    ],
+    "pages": [
+      "table-filter",
+      "table-grouped",
+      "table-page"
+    ],
+    "blocks": [
+      "TableFilterableTable",
+      "ToolbarTableFilter",
+      "TableInlineFilterTable",
+      "PowerSearchSearchWithTable",
+      "TextInputSizes"
+    ],
+    "components": [
+      "Item",
+      "Table",
+      "useCollator",
+      "usePowerSearchConfig",
+      "useTableColumnSettingsState",
+      "useTableSortableState"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "inbox with message list",
+    "start": "table-inbox",
+    "alternatives": [
+      "ai-chat",
+      "table-tree"
+    ],
+    "pages": [
+      "messaging-shell",
+      "ai-chat-landing",
+      "table-inbox"
+    ],
+    "blocks": [
+      "ListMessageList",
+      "ChatMessageListShowcase",
+      "ChatMessageAvatarName",
+      "ChatMessageMultiBubble",
+      "ChatMessageBubbleGrouping"
+    ],
+    "components": [
+      "ChatMessageList",
+      "Banner",
+      "TextArea",
+      "Toast",
+      "useToast",
+      "List"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "multi step onboarding form",
+    "start": "form-wizard",
+    "alternatives": [
+      "form-wizard-vertical",
+      "contact-form"
+    ],
+    "pages": [
+      "form-wizard",
+      "checkout-wizard",
+      "form-wizard-dialog"
+    ],
+    "blocks": [
+      "StepperCustomContent",
+      "StepContent",
+      "StepperWidthResponsiveCollapse",
+      "StepperShowcase",
+      "StepperIndicatorModes"
+    ],
+    "components": [
+      "Stepper",
+      "BottomSheet",
+      "Step",
+      "FormLayout",
+      "MultiSelector",
+      "useSnapPaging"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "contact form",
+    "start": "contact-form",
+    "alternatives": [
+      "form-wizard-dialog",
+      "form-wizard-inline"
+    ],
+    "pages": [
+      "contact-form",
+      "form-two-column",
+      "payment-form"
+    ],
+    "blocks": [
+      "FormLayoutShowcase",
+      "FormLayoutMixedControls",
+      "FormLayoutHorizontal",
+      "FormLayoutNested",
+      "FormLayoutHorizontalLabels"
+    ],
+    "components": [
+      "BottomSheet",
+      "FormLayout",
+      "Item",
+      "Field",
+      "InputGroup",
+      "TextInput"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "course page for online learning",
+    "start": "course-detail",
+    "alternatives": [],
+    "pages": [
+      "course-detail"
+    ],
+    "blocks": [],
+    "components": [
+      "StatusDot"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "media library",
+    "start": "shell-top-nav",
+    "alternatives": [
+      "library"
+    ],
+    "pages": [
+      "library",
+      "classic-gallery",
+      "login-split"
+    ],
+    "blocks": [
+      "DialogFullscreenDialog",
+      "OverlayShowcase",
+      "ListItemWithMedia",
+      "LightboxHookUsage"
+    ],
+    "components": [
+      "Lightbox",
+      "MediaTheme",
+      "Overlay",
+      "useImageMode",
+      "useLightbox",
+      "useMediaQuery"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "project management work item detail",
+    "start": "work-item-detail",
+    "alternatives": [
+      "detail-page",
+      "library"
+    ],
+    "pages": [
+      "work-item-detail"
+    ],
+    "blocks": [
+      "useClickableContainerHookUsage",
+      "useLinkComponentHookUsage",
+      "InternationalizationProvider04Calendar",
+      "useComboboxHookUsage",
+      "useMultiComboboxHookUsage"
+    ],
+    "components": [
+      "Item",
+      "List",
+      "MetadataList",
+      "Drawer",
+      "Stepper",
+      "CheckboxListItem"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "team directory",
+    "start": "library",
+    "alternatives": [
+      "file-explorer",
+      "login-sso"
+    ],
+    "pages": [
+      "file-explorer",
+      "library",
+      "login-sso"
+    ],
+    "blocks": [],
+    "components": [
+      "AvatarGroup"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "notifications center",
+    "start": "shell-top-nav",
+    "alternatives": [
+      "centered-hero"
+    ],
+    "pages": [
+      "canvas-editor",
+      "classic-gallery",
+      "contact-form"
+    ],
+    "blocks": [
+      "CenterShowcase",
+      "CenterInsideACard",
+      "CenterHorizontal",
+      "EmptyStateCompact",
+      "LayoutContentWidth"
+    ],
+    "components": [
+      "Center",
+      "Banner",
+      "Item",
+      "Toast",
+      "useToast"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "billing and invoices",
+    "start": "shell-top-nav",
+    "alternatives": [
+      "payment-form"
+    ],
+    "pages": [
+      "detail-page",
+      "checkout-wizard",
+      "library"
+    ],
+    "blocks": [
+      "useLocaleHookUsage",
+      "TableShowcase",
+      "TableLeadingMarkSelection",
+      "AnimatorPlayingCards",
+      "CarouselSnapPaging"
+    ],
+    "components": [
+      "ClickableCard",
+      "Overlay",
+      "SelectableCard",
+      "useAnimator",
+      "useClickableContainer",
+      "useHoverCard"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "marketing hero section",
+    "start": "shell-top-nav",
+    "alternatives": [
+      "side-gallery",
+      "centered-hero"
+    ],
+    "pages": [
+      "centered-hero",
+      "side-gallery",
+      "contact-form"
+    ],
+    "blocks": [
+      "MediaThemeImageOverlay",
+      "TopNavMegaMenu",
+      "MediaThemeLightScrim",
+      "BlockquoteTestimonials",
+      "AspectRatioWithSkeleton"
+    ],
+    "components": [
+      "Banner",
+      "SideNavSection"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "sales funnel and retention analytics",
+    "start": "shell-top-nav",
+    "alternatives": [
+      "dashboard-cohort-funnel",
+      "dashboard"
+    ],
+    "pages": [
+      "dashboard-cohort-funnel"
+    ],
+    "blocks": [],
+    "components": [
+      "DateRangeInput",
+      "ChatToolCalls",
+      "SegmentedControl",
+      "InfoTip",
+      "Toolbar"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "kpi scorecard report",
+    "start": "dashboard-scorecard",
+    "alternatives": [
+      "dashboard",
+      "dashboard-cohort-funnel"
+    ],
+    "pages": [
+      "dashboard-scorecard",
+      "dashboard",
+      "dashboard-cohort-funnel"
+    ],
+    "blocks": [],
+    "components": [
+      "DateRangeInput",
+      "InfoTip",
+      "ChatToolCalls",
+      "SegmentedControl",
+      "Toolbar"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "alerts monitoring dashboard",
+    "start": "dashboard-alert-rail",
+    "alternatives": [
+      "dashboard",
+      "dashboard-cohort-funnel"
+    ],
+    "pages": [
+      "dashboard-alert-rail"
+    ],
+    "blocks": [
+      "BannerSectionVariant",
+      "GridDashboardLayout"
+    ],
+    "components": [
+      "AlertDialog",
+      "Banner",
+      "Dialog",
+      "Toast",
+      "useAnnounce",
+      "useToast"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "tree view of files",
+    "start": "table-tree",
+    "alternatives": [
+      "file-explorer"
+    ],
+    "pages": [
+      "table-tree",
+      "file-explorer"
+    ],
+    "blocks": [
+      "TreeListFileTreeWithIcons",
+      "useTreeFocusHookUsage",
+      "TreeListShowcase",
+      "TableTreeTable",
+      "TreeListNavigationTree"
+    ],
+    "components": [
+      "TreeList",
+      "useTreeFocus",
+      "FileInput"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "data table with grouping",
+    "start": "table-collapsible",
+    "alternatives": [
+      "table-grouped",
+      "table-comparison"
+    ],
+    "pages": [
+      "table-collapsible",
+      "table-comparison",
+      "table-filter"
+    ],
+    "blocks": [
+      "TableGroupedRowsTable",
+      "TableTreeTable",
+      "TableLeadingMarkSelection",
+      "TableShowcase",
+      "TablePaginatedTable"
+    ],
+    "components": [
+      "useCalendarDays",
+      "Table",
+      "useTableSortableState",
+      "List",
+      "useCollator",
+      "useTableColumnSettingsState"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "comparison table of plans",
+    "start": "table-comparison",
+    "alternatives": [
+      "table-collapsible",
+      "table-filter"
+    ],
+    "pages": [
+      "dashboard-comparison",
+      "table-comparison",
+      "documentation-design"
+    ],
+    "blocks": [
+      "TableShowcase",
+      "TableGridDividersTable",
+      "TableRichCellTable",
+      "TableLeadingMarkSelection",
+      "TableSortableTable"
+    ],
+    "components": [
+      "Table",
+      "useCollator",
+      "useTableColumnSettingsState",
+      "useTableSortableState",
+      "List",
+      "ComplexSelector"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "design editor canvas",
+    "start": "canvas-editor",
+    "alternatives": [
+      "editor",
+      "ide"
+    ],
+    "pages": [
+      "canvas-editor",
+      "editor",
+      "theme-showcase"
+    ],
+    "blocks": [
+      "useDirectionHookUsage"
+    ],
+    "components": [
+      "useDirection",
+      "useTheme"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "messaging inbox",
+    "start": "table-inbox",
+    "alternatives": [
+      "ai-chat",
+      "ai-chat-landing"
+    ],
+    "pages": [
+      "messaging-shell",
+      "ai-chat",
+      "ai-chat-landing"
+    ],
+    "blocks": [
+      "ListMessageList",
+      "ChatTokenizedTextShowcase",
+      "ChatMessageAvatarName",
+      "ChatMessageListShowcase",
+      "ChatMessageMultiBubble"
+    ],
+    "components": [
+      "Banner",
+      "TextArea",
+      "Toast",
+      "useToast",
+      "useStreamingText",
+      "ChatMessage"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "user profile page",
+    "start": "shell-top-nav",
+    "alternatives": [],
+    "pages": [
+      "ai-chat",
+      "course-detail",
+      "dashboard-composition"
+    ],
+    "blocks": [
+      "AvatarInteractive",
+      "AvatarUserCard",
+      "HoverCardProfileHoverCard",
+      "AvatarInitialsFallback",
+      "TableLeadingMarkSelection"
+    ],
+    "components": [
+      "Avatar",
+      "AvatarGroup",
+      "HoverCard"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "order history table",
+    "start": "table-collapsible",
+    "alternatives": [
+      "table-comparison",
+      "table-filter"
+    ],
+    "pages": [
+      "detail-page",
+      "table-collapsible",
+      "table-comparison"
+    ],
+    "blocks": [
+      "TableShowcase",
+      "TableRichCellTable",
+      "TableLeadingMarkSelection",
+      "TableSortableTable",
+      "TablePaginatedTable"
+    ],
+    "components": [
+      "useTableColumnSettingsState",
+      "List",
+      "Table",
+      "useContainerReveal",
+      "useCollator",
+      "useTableSortableState"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "calendar scheduling",
+    "start": "shell-top-nav",
+    "alternatives": [
+      "form-wizard-dialog"
+    ],
+    "pages": [
+      "form-wizard-dialog"
+    ],
+    "blocks": [
+      "CalendarShowcase",
+      "CalendarConstraints",
+      "CalendarSingle",
+      "CalendarRangeWithValue",
+      "CalendarTwoMonths"
+    ],
+    "components": [
+      "Calendar",
+      "DateRangeInput",
+      "DateTimeInput",
+      "DateInput",
+      "TimeInput",
+      "useCalendarConstraints"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  },
+  {
+    "idea": "landing page for an ai product",
+    "start": "ai-chat-landing",
+    "alternatives": [
+      "product-detail",
+      "product-gallery"
+    ],
+    "pages": [
+      "ai-chat-landing"
+    ],
+    "blocks": [
+      "useOverlayHookUsage",
+      "ChatMessageGhost",
+      "TopNavMegaMenu",
+      "MarkdownCompactAIResponse",
+      "AppShellTopNavOnly"
+    ],
+    "components": [
+      "useStreamingText",
+      "Banner"
+    ],
+    "frame": [
+      "AppShell",
+      "TopNav",
+      "SideNav",
+      "Layout"
+    ],
+    "foundation": [
+      "VStack",
+      "HStack",
+      "Grid",
+      "StackItem",
+      "Card",
+      "Section",
+      "Text",
+      "Heading",
+      "Button",
+      "Icon",
+      "Badge",
+      "Divider"
+    ]
+  }
+]

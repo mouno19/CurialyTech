@@ -183,6 +183,78 @@ the pieces the user named make their looks deliberate (glass, gradient text, vio
 a "Motion mixture" section with the pieces and their component ids, the shared timing tokens, the
 budget and the reduced-motion rule; the pieces go on the style synthesis's tokens when there is one.
 
+## Astryx design system
+
+[Astryx](https://github.com/meta/astryx) is Meta's open-source React 19 design system (MIT). It
+has accessible components, page templates, blocks, themes and docs written for coding agents. The
+agent builds app interfaces on it from a pinned, vetted snapshot (`design-systems/astryx`, see its
+README). The code is in `server/design-systems/astryx.ts` and `server/agent/astryx-tools.ts`.
+
+**When a run builds on it** (`astryxFit`, decided with the brief):
+- *project*: the workspace depends on `@astryxdesign/core`.
+- *requested*: the user names Astryx.
+- *recommended*: app, dashboard and docs surfaces, and general requests with app traits (admin,
+  settings, sign-in, checkout, kanban, inbox, CRUD tables, consoles, portals).
+- *available*: storefronts, and general requests with forms or data. The context mentions Astryx
+  for their app-like parts.
+- *none*:
+  - "no astryx";
+  - another framework, component system or styling stack in the project or the request (Vue,
+    Svelte, MUI, Chakra, Mantine, Radix, shadcn, Headless UI, Bootstrap, Tailwind, plain HTML);
+  - the style archetypes;
+  - brand, editorial, portfolio, showcase, media and game surfaces. A newsletter signup on a
+    landing page is not an app.
+
+In chat mode, Astryx is offered only when the user names it.
+
+**What the agent gets:**
+- A fixed-size context block (about 410 tokens) with the workflow: build, scaffold, read before
+  use, theme, check. The tools add about 630 tokens.
+- In the brief:
+  - the direction becomes an Astryx theme (the closest base, extended with `defineTheme`) instead
+    of CSS custom properties;
+  - the Architect names the template for each screen;
+  - the Reviewer runs `astryx check`.
+- Two tools:
+  - `astryx` answers the CLI's commands from the snapshot: `build` (the official kit, ranked here),
+    `search`, `component`, `hook`, `docs` (by route or short name, by section), `template`
+    (source or skeleton), `themes`, `setup` and `check`.
+  - `astryx_scaffold` writes a template into the workspace with a marker. It never replaces a file
+    of the user's, and read-only roles are refused.
+
+How well `build` matches the official CLI was measured on 40 ideas: our starting template is the
+CLI's in 25, and one of the CLI's candidates in 37. When no template is the page, the kit starts
+from the app shell, as the CLI does.
+
+**Why no Astryx code runs on the server, or in the sandbox:**
+- The CLI ran once, offline, in a no-network systemd jail. It ran against packages installed with
+  `--ignore-scripts`, whose 158 registry signatures and 86 provenance attestations were verified.
+  The server only reads the resulting text and JSON.
+- The task sandboxes run Node 20, and the CLI needs Node 22.13, so the tools answer its commands
+  instead.
+- The CLI's `npx astryx` lines are rewritten. The unscoped npm package `astryx` belongs to someone
+  else, so `run_command` refuses to run or install it, including an install while a `package.json`
+  lists it.
+- Projects pin every `@astryxdesign` package to the snapshot's release.
+
+**Building in a task sandbox:** an Astryx page compiles about 2,400 to 3,800 modules. Node sizes
+its default heap from the sandbox's 470 MB (about 256 MB), so `vite build` aborted. Raising the heap
+without swap thrashed. Every E2B sandbox now gets 1.5 GB of swap, and when swap is active, Node gets
+`--max-old-space-size=1024` (`e2b.ts`). The dashboard template then built in 25 s at about 360 MB
+resident.
+
+This was checked end to end in a default sandbox, with Vite 6.4.6 and @vitejs/plugin-react 4.7.0
+(Vite 7 and later need Node 20.19). The cloud browser's visual check rendered the results without
+console errors:
+- the dashboard on the neutral theme;
+- the dashboard on a runtime `defineTheme`. The seed `#0B5FFF` became an accessible `#0051E8`
+  accent, and the radius changed;
+- a template that calls `stylex.create()`, compiled with `@stylexjs/unplugin`. About 15 page
+  templates and 24 blocks need that compiler, and the scaffold receipt says so.
+
+The templates are content only. The audit flags what the agent must add: a `<main>`, an `h1`,
+names for icon buttons, and the phone layout (the kanban toolbar overflows at 390 px).
+
 ## What the benchmark changed
 
 Six benchmark tasks were run on production before and after the release. In the after set, a blind

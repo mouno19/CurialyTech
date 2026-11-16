@@ -1,0 +1,32 @@
+package: @astryxdesign/core
+
+# kanban-board - Horizontal lanes of draggable cards where the column itself is the status, so drag and drop between lanes is the state change. Fixed columns, variable-height cards.
+# Components: Badge, Card, Divider, EmptyState, IconButton, Layout, MoreMenu, Section, Selector, StatusDot, Toolbar, Tooltip
+
+<BoardCard />
+<Section height="100dvh">
+  <Layout padding={4} hasDivider height="fill">
+    /* header: */
+    <LayoutHeader padding={4} hasDivider>
+      <Toolbar gap={2}>
+        <Heading />
+        <Badge variant="neutral" />
+        <HStack gap={2}>
+          <Selector width={200} />
+          <Divider variant="strong" />
+          <HStack gap={1}>
+            <IconButton />
+            <IconButton />
+            <IconButton />
+          </HStack>
+          <Button variant="primary" />
+        </HStack>
+        /* content: */
+        <LayoutContent padding={0}>
+          <HStack gap={4}>
+            <BoardColumn />
+          </HStack>
+        </LayoutContent>
+        <Card padding={3}>
+          <BoardCardBody />
+        </Card>

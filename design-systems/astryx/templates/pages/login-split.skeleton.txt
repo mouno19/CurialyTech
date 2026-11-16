@@ -1,0 +1,41 @@
+package: @astryxdesign/core
+
+# login-split - Credential form filling one half of a two-pane split, full-bleed media holding the other. Same fields as the card variant, but the layout carries brand imagery.
+# Components: Card, Center, Divider, EmptyState, Grid, Section, TextInput
+
+<Center padding={6}>
+  <VStack gap={4} width="100%">
+    <Card padding={0} width="100%">
+      <Grid gap={8} columns={{minWidth: COLUMN_MIN_WIDTH, repeat: 'fit'}}>
+        <Section padding={0} variant="transparent" height="100%">
+          <VStack gap={4} height="100%">
+            <HStack gap={2}>
+              <Icon />
+              <Text />
+            </HStack>
+            <StackItem />
+            <Center height="100%">
+              <EmptyState />
+              <VStack gap={4} width="100%">
+                <VStack gap={1}>
+                  <Text />
+                  <Text />
+                </VStack>
+                <VStack gap={2}>
+                  <TextInput />
+                  <VStack gap={1}>
+                    <TextInput />
+                    <Link />
+                  </VStack>
+                </VStack>
+              </VStack>
+              <Button variant="primary" />
+              <Divider />
+              <Grid gap={3} columns={2}>
+                <Button variant="secondary" height={16} width={16} />
+                <Button variant="secondary" height={16} width={16} />
+              </Grid>
+            </Center>
+            <Text />
+            <Link />
+            ...

@@ -1,0 +1,41 @@
+package: @astryxdesign/core
+
+# file-explorer - Hierarchical browser that drills through nested levels as adjacent columns rather than replacing the list each time, with breadcrumb history, switchable list and grid density, and a metadata pane for the selected node.
+# Components: Avatar, IconButton, Layout, List, MetadataList, Section, SegmentedControl, Toolbar
+
+<Layout height="fill">
+  /* header: */
+  <Toolbar>
+    <IconButton variant="ghost" />
+    <Icon />
+    <IconButton variant="ghost" />
+    <Icon />
+    <Text />
+    <SegmentedControl />
+    <SegmentedControlItem />
+    <SegmentedControlItem />
+    <SegmentedControlItem />
+    <SegmentedControlItem />
+    <IconButton variant="ghost" />
+    <IconButton variant="ghost" />
+    <IconButton variant="ghost" />
+    <IconButton variant="ghost" />
+    <IconButton variant="ghost" />
+    /* content: */
+    <LayoutContent padding={0}>
+      <HStack height="100%">
+        <StackItem />
+        <Section padding={2} variant="transparent" height="100%" width={240}>
+          <List density="compact">
+            <ListItem />
+            <Icon />
+            <Icon />
+          </List>
+        </Section>
+        <StackItem />
+        <Section padding={6} variant="transparent">
+          <VStack gap={4}>
+            <Avatar />
+            <VStack gap={1}>
+              <Text />
+              ...

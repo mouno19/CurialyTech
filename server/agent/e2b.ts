@@ -43,6 +43,16 @@ const COMMAND_ENV: Record<string, string> = {
   __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS: ".e2b.app", DANGEROUSLY_DISABLE_HOST_CHECK: "true",
 };
 
+/**
+ * Swap for each task sandbox (about 470 MB of memory), and a Node heap that may use it. Node sizes its
+ * default heap limit from physical memory (about 256 MB here), and a Vite build of an app on a large
+ * component library (Astryx: about 2,400 modules) needs more: it aborts at that limit, or thrashes
+ * when the limit is raised with no swap. With 1.5 GB of swap and a 1 GB heap such a build finished in
+ * 17 s at 359 MB resident. Best effort: a sandbox where swapon fails keeps Node's default.
+ */
+const SWAP_SETUP = "sudo -n sh -c 'test -f /swapfile || { fallocate -l 1536M /swapfile && chmod 600 /swapfile && mkswap /swapfile >/dev/null; }; swapon /swapfile 2>/dev/null; true' >/dev/null 2>&1; awk '/^SwapTotal:/ {print $2}' /proc/meminfo";
+export const SWAP_HEAP = { NODE_OPTIONS: "--max-old-space-size=1024" };
+
 type Entry = { size: number; sig: string };
 type Listing = Map<string, Entry>;
 /** A sandbox listing; `partial` when some folder could not be read (its files must not count as deleted). */
@@ -103,11 +113,13 @@ let connect: (taskId: string) => Promise<RemoteBox> = async taskId => {
   const opts = { timeoutMs: IDLE_MS, metadata: { app: "curialy", instance: INSTANCE, taskId }, lifecycle: { onTimeout: "kill" as const } };
   const sandbox = TEMPLATE ? await Sandbox.create(TEMPLATE, opts) : await Sandbox.create(opts);
   await sandbox.commands.run(`mkdir -p ${REMOTE_ROOT}`, { timeoutMs: 30_000 });
+  const swapKb = await sandbox.commands.run(SWAP_SETUP, { timeoutMs: 30_000 }).then(result => Number(result.stdout.trim()) || 0).catch(() => 0);
+  const env = swapKb >= 1_000_000 ? { ...COMMAND_ENV, ...SWAP_HEAP } : COMMAND_ENV;
   return {
     id: sandbox.sandboxId,
     keepAlive: ms => sandbox.setTimeout(ms),
     start: async (command, opts) => {
-      const handle: CommandHandle = await sandbox.commands.run(command, { background: true, envs: { ...COMMAND_ENV, ...(opts.envs ?? {}) }, timeoutMs: opts.timeoutMs, onStdout: opts.onStdout, onStderr: opts.onStderr });
+      const handle: CommandHandle = await sandbox.commands.run(command, { background: true, envs: { ...env, ...(opts.envs ?? {}) }, timeoutMs: opts.timeoutMs, onStdout: opts.onStdout, onStderr: opts.onStderr });
       return {
         wait: async () => {
           try {
@@ -121,7 +133,7 @@ let connect: (taskId: string) => Promise<RemoteBox> = async taskId => {
       };
     },
     exec: async (command, timeoutMs = 60_000) => {
-      const result = await sandbox.commands.run(command, { timeoutMs, envs: COMMAND_ENV });
+      const result = await sandbox.commands.run(command, { timeoutMs, envs: env });
       return result.stdout;
     },
     write: async files => {

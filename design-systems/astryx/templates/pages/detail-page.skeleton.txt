@@ -1,0 +1,26 @@
+package: @astryxdesign/core
+
+# detail-page - Single-record detail in two columns: a summary header with status and actions, a repeating line-item list, a totals block that sums it, and a chronological activity timeline in the rail. The shape for any record holding children plus a history: a customer order with shipping, an invoice, a transaction, or a job.
+# Components: Avatar, Badge, Card, Collapsible, Dialog, Divider, Layout, List, MetadataList, ProgressBar, Section, Tab, TabList, TabMenu, Thumbnail
+
+<Layout defaultHasDividers height="fill" />
+/* header: */
+<PageHeader />
+/* content: */
+<LayoutContent role="main">
+  <VStack gap={4}>
+    <ItemsCard />
+    <InvoiceCard />
+    <TimelineSection />
+  </VStack>
+</LayoutContent>
+/* end: */
+<Dialog variant="fullscreen">
+  <Layout />
+  /* header: */
+  <DialogHeader />
+  /* content: */
+  <LayoutContent padding={4}>
+    <PanelContent />
+  </LayoutContent>
+</Dialog>

@@ -4,6 +4,7 @@ import { selectEntries } from "./retrieve";
 import { motionMixture, renderMotionMixture, renderSynthesis, synthesize } from "./synthesis";
 import type { BriefRole, DesignBrief, DesignEntry, DesignIntent, Surface, WorkspaceFacts } from "./types";
 import { workspaceFacts } from "./workspace";
+import { astryxAvailable, astryxFit, type AstryxFit } from "../../design-systems/astryx";
 
 // The per-run design brief: a system block appended after the static prompt (so that prompt stays
 // cacheable), rendered once per run and identical on every turn. Only UI work gets one.
@@ -25,7 +26,8 @@ export function buildBrief(input: { root: string; original: string; latest: stri
   const { core, chosen } = selectEntries(intent, budgetFor(intent));
   const synthesis = intent.styles.length ? synthesize({ text: intent.text, ui: intent.ui, avoid: intent.avoid }) : null;
   const mixture = intent.motionPicks.length ? motionMixture({ text: intent.text, ui: intent.ui, surface: intent.surface, motion: intent.motion, needs: intent.needs, avoid: intent.avoid, synthesis }) : null;
-  return { intent, facts, entries: [...core, ...chosen], visualTest: input.visualTest ?? true, synthesis, motionMixture: mixture };
+  const system: AstryxFit = astryxAvailable() ? astryxFit(intent, facts) : "none";
+  return { intent, facts, entries: [...core, ...chosen], visualTest: input.visualTest ?? true, synthesis, motionMixture: mixture, system };
 }
 
 function projectLine(facts: WorkspaceFacts) {
@@ -37,17 +39,23 @@ function projectLine(facts: WorkspaceFacts) {
 
 const section = (entry: DesignEntry) => `### ${entry.title}\n${entry.rules.map(rule => `- ${ruleText(rule)}`).join("\n")}`;
 
-function workflow(role: BriefRole, intent: DesignIntent, facts: WorkspaceFacts, visualTest: boolean) {
+/** The interface is built on Astryx: its theme carries the direction instead of hand-written CSS variables. */
+const onAstryx = (system: AstryxFit | undefined) => system === "project" || system === "requested" || system === "recommended";
+
+function workflow(role: BriefRole, intent: DesignIntent, facts: WorkspaceFacts, visualTest: boolean, system?: AstryxFit) {
+  const astryx = onAstryx(system);
   const record = facts.designDoc
     ? `The project's direction is in ${facts.designDoc}: read it first, keep to it, and update it when the user changes the direction.`
     : facts.existing
-      ? "Follow the project's existing design system (tokens, components, fonts); state the direction in your plan rather than adding a DESIGN.md file unless the user asks for one."
-      : "Write the direction to DESIGN.md (about 25 lines: concept, named colors with roles and contrast, type roles and scale, spacing, radius and elevation, motion, what you avoid) before any UI code, then define it as CSS custom properties. If you clone or find an existing project instead, follow its design system and add no DESIGN.md unless asked.";
+      ? `Follow the project's existing design system (${astryx && system === "project" ? "its Astryx theme and components" : "tokens, components, fonts"}); state the direction in your plan rather than adding a DESIGN.md file unless the user asks for one.`
+      : astryx
+        ? "Write the direction to DESIGN.md (about 25 lines: concept, named colors with roles and contrast, type roles and scale, spacing, radius and elevation, motion, what you avoid) before any UI code, then express it as an Astryx theme: the closest base (astryx themes) extended with defineTheme (accent, neutral style, type, radius, motion), not CSS over the components. If you clone or find an existing project instead, follow its design system and add no DESIGN.md unless asked."
+        : "Write the direction to DESIGN.md (about 25 lines: concept, named colors with roles and contrast, type roles and scale, spacing, radius and elevation, motion, what you avoid) before any UI code, then define it as CSS custom properties. If you clone or find an existing project instead, follow its design system and add no DESIGN.md unless asked.";
   switch (role) {
     case "architect":
       return [
         "1. Fill submit_plan's design field: the concept, palette with roles, type, layout and motion, and the generic choices to avoid. Base it on the subject and on what the user said.",
-        `2. Make the first step "Design direction and tokens"${facts.existing ? " (extending the existing system)" : ""}, with acceptance criteria the Reviewer can check: contrast, phone layout at 390 px, focus styles, reduced motion.`,
+        `2. Make the first step "Design direction and ${astryx ? "Astryx theme" : "tokens"}"${facts.existing ? " (extending the existing system)" : ""}, with acceptance criteria the Reviewer can check: contrast, phone layout at 390 px, focus styles, reduced motion.${astryx ? " Name the Astryx page template each screen starts from (astryx build)." : ""}`,
         visualTest
           ? "3. Plan the visual check: the Engineer builds and runs test_preview_visual, and fixes the audit's findings marked \"fix\"."
           : "3. There is no visual test in this environment: plan checks the Engineer can run on the source (contrast of the token pairs, a 390 px layout, focus styles).",
@@ -58,6 +66,7 @@ function workflow(role: BriefRole, intent: DesignIntent, facts: WorkspaceFacts, 
           ? "1. Judge the build against the plan's design direction as well as its function: run test_preview_visual and read both screenshots and the design audit."
           : "1. Judge the build against the plan's design direction as well as its function, from the source (there is no visual test in this environment).",
         "2. Audit findings marked \"fix\" (or the same problems found in the source) are major issues; a generic template choice that contradicts the direction is a minor issue. Visual quality is in scope (only code style is not).",
+        ...(astryx ? ["3. The interface is built on Astryx: run astryx check. Its \"fix\" findings (setup, versions, unknown entries) are major issues; hand-rolled markup, hex colors or px where a component or token exists are minor ones."] : []),
       ];
     default:
       return [
@@ -66,6 +75,7 @@ function workflow(role: BriefRole, intent: DesignIntent, facts: WorkspaceFacts, 
           ? "2. Build, then run test_preview_visual: it returns desktop and phone screenshots and a design audit. Fix every finding marked \"fix\", weigh the \"improve\" ones, and give the reason for any deliberate exception in your summary."
           : "2. Build it. There is no visual test in this environment, so check the quality floor in the source yourself: contrast of every token pair, the layout at 390 px, focus styles, labels, reduced motion.",
         `3. Critique the result against the direction${intent.reference ? " and the reference image" : ""}: fix the weakest section and remove one accessory before you finish.`,
+        ...(astryx ? ["4. On Astryx: start each screen from the template astryx build names (astryx_scaffold), read astryx component <Name> before using a component, and run astryx check before you finish."] : []),
       ];
   }
 }
@@ -81,12 +91,12 @@ export function renderBrief(brief: DesignBrief, role: BriefRole = "solo") {
   const looks = allowedLooks(intent).map(look => LOOK_LABEL[look] ?? look);
   const lines = [
     "Design brief for this task (Curialy design intelligence). Use it while you plan, build and check the interface.",
-    `Detected: ${SURFACE_LABEL[intent.surface]}, ${intent.register} register, ${intent.motion} motion, ${projectLine(facts)}.`,
+    `Detected: ${SURFACE_LABEL[intent.surface]}, ${intent.register} register, ${intent.motion} motion, ${projectLine(facts)}${onAstryx(brief.system) ? ", built on the Astryx design system" : ""}.`,
   ];
   if (intent.cues.length) lines.push(`The user's direction: ${intent.cues.map(cue => `"${cue}"`).join(", ")}. It overrides the defaults below wherever they differ${looks.length ? `; they asked for ${looks.join(", ")}, so do that deliberately and keep the quality floor` : ""}.`);
   if (intent.avoid.length) lines.push(`The user asked to avoid: ${intent.avoid.map(cue => `"${cue}"`).join(", ")}.`);
   if (intent.reference) lines.push("An image is attached: treat it as the reference to match before adding anything of your own.");
-  lines.push("", "## How to work", ...workflow(role, intent, facts, brief.visualTest));
+  lines.push("", "## How to work", ...workflow(role, intent, facts, brief.visualTest, brief.system));
   // The mixture of style archetypes, when the request calls for them: the direction to plan, build and check against.
   if (brief.synthesis) {
     lines.push("", role === "reviewer"

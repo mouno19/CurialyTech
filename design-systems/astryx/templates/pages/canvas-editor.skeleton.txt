@@ -1,0 +1,41 @@
+package: @astryxdesign/core
+
+# canvas-editor - Layered artboard workspace: document tabs over a layer rail, a fixed-size frame you zoom on a muted backdrop, and an inspector of position, type, and filter fields that retargets to the selected layer. Objects hold a coordinate rather than reflowing, so moving one never moves another.
+# Components: AspectRatio, Card, Center, Divider, DropdownMenu, DropdownMenuCheckbox, DropdownMenuDivider, DropdownMenuRadio, DropdownMenuSubMenu, Fragment, IconButton, Item, Layout, List, NumberInput, Popover, ResizeHandle, Section, SegmentedControl, Selector, Slider, TextArea, TextInput, Thumbnail, Toolbar, TreeList
+
+<Theme />
+<Section padding={0} variant="section" height="100%">
+  <Layout padding={0} hasDivider height="fill">
+    /* header: */
+    <LayoutHeader padding={1} hasDivider>
+      <HStack gap={0.5}>
+        <HStack gap={0.5}>
+          <DropdownMenu />
+          <DropdownMenuSubMenu />
+          <DropdownMenuItem />
+          <DropdownMenuItem />
+          <DropdownMenuDivider />
+          <DropdownMenuItem />
+          <DropdownMenuItem />
+          <DropdownMenuSubMenu />
+          <DropdownMenuItem />
+          <DropdownMenuDivider />
+          <DropdownMenuItem />
+          <DropdownMenuSubMenu />
+          <DropdownMenuItem />
+          <DropdownMenuItem />
+          <DropdownMenuDivider />
+          <DropdownMenuItem />
+          <DropdownMenuItem />
+          <DropdownMenuItem />
+          <DropdownMenuDivider />
+          <DropdownMenuItem />
+          <DropdownMenuItem variant="destructive" />
+          <DropdownMenuSubMenu />
+          <DropdownMenuCheckboxItem />
+          <DropdownMenuCheckboxItem />
+          <DropdownMenuCheckboxItem />
+          <DropdownMenuDivider />
+          <DropdownMenuSubMenu />
+          <DropdownMenuRadioGroup />
+          ...

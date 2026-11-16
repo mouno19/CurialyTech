@@ -1,0 +1,14 @@
+package: @astryxdesign/core
+
+# table - Flat row collection where columns sort, rows select into a bulk-action toolbar, and each row carries an overflow menu. Sortable but ungrouped, with no detail pane, the baseline shape.
+# Components: Badge, Layout, Table
+
+<Layout hasDivider>
+  /* header: */
+  <LayoutHeader hasDivider>
+    <Text />
+    <Button variant="primary" />
+  </LayoutHeader>
+  /* content: */
+  <LayoutContent>
+    <Table columns={columns}>

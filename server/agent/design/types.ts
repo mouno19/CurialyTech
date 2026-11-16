@@ -111,6 +111,8 @@ export type DesignBrief = {
   /** The mixture of style archetypes for this request (synthesis.ts), or null. */
   synthesis?: import("./synthesis").Synthesis | null;
   motionMixture?: import("./synthesis").MotionMixture | null;
+  /** Whether the interface is built on Astryx (server/design-systems/astryx.ts astryxFit): "none" when it isn't. */
+  system?: import("../../design-systems/astryx").AstryxFit;
 };
 
 // ---- Audit ----------------------------------------------------------------

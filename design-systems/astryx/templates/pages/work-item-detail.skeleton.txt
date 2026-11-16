@@ -1,0 +1,33 @@
+package: @astryxdesign/core
+
+# work-item-detail - Single work-item detail in two columns: a title with a status selector, a description, a subtask checklist with progress, an attachments block, and a comment and activity feed in the main column, plus a property rail with assignee, dates, labels, and linked items. The shape for any tracked item with children, properties, and a comment history - a task, ticket, issue, story, bug, card, request, or work item.
+# Components: AspectRatio, Avatar, Badge, Card, CheckboxList, ClickableCard, Dialog, Divider, IconButton, Layout, List, MetadataList, MoreMenu, ProgressBar, Section, Selector, StatusDot, TextArea, Timestamp, Token, Tokenizer
+
+<Layout height="fill" />
+/* header: */
+<PageHeader />
+/* content: */
+<LayoutContent padding={6} role="main">
+  <VStack gap={6}>
+    <DescriptionSection />
+    <Divider />
+    <SubtasksSection />
+    <Divider />
+    <AttachmentsSection />
+    <Divider />
+    <ActivitySection />
+  </VStack>
+</LayoutContent>
+/* end: */
+<LayoutPanel padding={6} hasDivider role="complementary" width={340}>
+  <DetailsPanel />
+</LayoutPanel>
+<Dialog variant="fullscreen">
+  <Layout />
+  /* header: */
+  <DialogHeader />
+  /* content: */
+  <LayoutContent padding={4}>
+    <DetailsPanel />
+  </LayoutContent>
+</Dialog>

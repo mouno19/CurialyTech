@@ -1,0 +1,20 @@
+package: @astryxdesign/core
+
+# mixed-gallery - Masonry grid of variable-height tiles that pack against each other instead of cropping to a shared ratio, captioned per tile. Irregular rhythm, unlike the uniform gallery.
+# Components: AspectRatio, Layout
+
+<Layout padding={6} height="fill">
+  /* content: */
+  <LayoutContent padding={6}>
+    <VStack gap={6}>
+      <VStack gap={2}>
+        <Heading />
+        <Text />
+      </VStack>
+      <GalleryCard />
+      <GalleryCard />
+      <GalleryCard />
+      <GalleryCard />
+      <GalleryCard />
+    </VStack>
+  </LayoutContent>

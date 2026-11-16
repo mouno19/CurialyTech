@@ -12,6 +12,7 @@ import { clip, ensureWorkspace, readWorkspaceFile, runCommand, SANDBOX_MODE, wri
 import { loadTaskSkills, renderSavedSkills, replaceTaskSkills, skillsForTask } from "./saved-skills";
 import { addMessage, createAgentTask, getAgentTask, getConversation, setTaskTools, settleTaskWrites, taskOwner, updateAgentTask, type ConversationFormat } from "./store";
 import { componentsContext, wantsComponents } from "./component-tools";
+import { astryxContext, astryxFit, astryxSnapshot, type AstryxFit } from "../design-systems/astryx";
 import { charge, getBalance, outOfCreditsMessage } from "../credits";
 import { voiceConfigured } from "../voice/engines";
 import { creditsFor, modelWeight, OUTPUT_WEIGHT, TOKENS_PER_CREDIT } from "@shared/credits";
@@ -313,6 +314,9 @@ export type RunContext = {
   /** The tools the user selected for the task (empty: not limited), and how the component library is used. */
   selectedTools?: string[];
   componentsContext?: string;
+  /** Astryx fits this run's interface (server/design-systems/astryx.ts): its tools are offered, with how to use them. */
+  astryx?: boolean;
+  astryxContext?: string;
   /** Short id used to build block and call ids. */
   runId: string;
   /** The run's fencing token (chat_sessions.run_id): every write of run data is conditional on it. */
@@ -1114,7 +1118,7 @@ export function latestRequest(conversation: Record<string, unknown>[]) {
 
 /** System blocks after the static prompt: GitHub context, saved skills, the repository's project memory, the design brief. */
 function extraSystem(ctx: RunContext) {
-  return [ctx.context, ctx.vercelContext, ctx.canvaContext, ctx.secretsContext, ctx.studioContext, ctx.componentsContext, ctx.skills, ctx.memory?.text, ctx.designText].filter((text): text is string => Boolean(text));
+  return [ctx.context, ctx.vercelContext, ctx.canvaContext, ctx.secretsContext, ctx.studioContext, ctx.componentsContext, ctx.astryxContext, ctx.skills, ctx.memory?.text, ctx.designText].filter((text): text is string => Boolean(text));
 }
 
 /** Load the linked repository's project memory into the shared slot. Announce only when a saved note arrives. */
@@ -1394,6 +1398,19 @@ async function executeRun(handle: RunHandle, conversation: Record<string, unknow
     // that can call its tools. Other work (a cron job, a bug fix) carries no extra block.
     if (opts.spec.tools && !opts.allowedTools && (runCtx.design || wantsComponents(existing?.prompt || request.text))) {
       runCtx.componentsContext = componentsContext(existing?.tools ?? [], opts.mode) || undefined;
+    }
+    // Astryx, where it fits the interface: the project uses it, the user asked for it, or an app surface
+    // on React (the brief decides). In chat mode only when the user names it.
+    if (opts.spec.tools && !opts.allowedTools) {
+      const original = existing?.prompt || request.text;
+      const fit: AstryxFit = runCtx.design?.system
+        ?? (opts.mode === "chat" ? astryxFit({ ui: true, surface: "general", needs: [], styles: [], original, latest: request.text }, { existing: false, framework: null, styling: [], libraries: [] }) : "none");
+      const snapshot = fit === "requested" || opts.mode === "agent" ? astryxSnapshot() : null;
+      if (snapshot && fit !== "none" && (opts.mode === "agent" || fit === "requested")) {
+        runCtx.astryx = true;
+        runCtx.astryxContext = astryxContext(snapshot, fit, opts.mode) || undefined;
+        if (fit !== "available") emit({ type: "notice", level: "info", message: `Design system: Astryx ${snapshot.manifest.version} (accessible React components, page templates and themes)${fit === "project" ? ", which this project uses" : ""}.` });
+      }
     }
     let answer: string;
     if (opts.team) answer = await runTeam(runCtx, conversation as unknown as Anthropic.MessageParam[]);
@@ -1752,7 +1769,7 @@ async function runAnthropicLoop(ctx: RunContext, conversation: Anthropic.Message
 function contextTools(ctx: RunContext) {
   const coding = ctx.mode === "agent";
   // Eager input streaming lets file bodies stream into the UI as they are generated.
-  const base = toolsFor({ coding, web: ctx.webSearch, eager: ctx.spec.eagerInput && !ctx.flags.noEager, github: ctx.github, vercel: ctx.vercel, canva: ctx.canva, operator: ctx.operator });
+  const base = toolsFor({ coding, web: ctx.webSearch, eager: ctx.spec.eagerInput && !ctx.flags.noEager, github: ctx.github, vercel: ctx.vercel, canva: ctx.canva, operator: ctx.operator, astryx: ctx.astryx });
   const allowed = ctx.allowedTools;
   const offered = allowed ? base.filter(tool => allowed.has(tool.name)) : base;
   return [...offered, ...Object.values(ctx.virtualTools ?? {}).map(tool => tool.definition)];
@@ -2080,7 +2097,7 @@ function openAITools(tools: Anthropic.Tool[]) {
 
 async function runOpenAILoop(ctx: RunContext, conversation: Record<string, unknown>[]) {
   const coding = ctx.mode === "agent";
-  const tools = openAITools(toolsFor({ coding, web: ctx.webSearch, eager: false, github: ctx.github, vercel: ctx.vercel, canva: ctx.canva, operator: ctx.operator }));
+  const tools = openAITools(toolsFor({ coding, web: ctx.webSearch, eager: false, github: ctx.github, vercel: ctx.vercel, canva: ctx.canva, operator: ctx.operator, astryx: ctx.astryx }));
   const system = () => ({ role: "system", content: [coding ? AGENT_SYSTEM : CHAT_SYSTEM, ...extraSystem(ctx)].filter(Boolean).join("\n\n") });
   let healIteration = 0;
   let lastText = "";
@@ -2401,6 +2418,8 @@ async function trackedTool(ctx: RunContext, callId: string, name: string, input:
     emit: ctx.emit,
     grants: ctx.grants,
     selectedTools: ctx.selectedTools,
+    mode: ctx.mode,
+    ...(ctx.readOnly ? { readOnly: true } : {}),
     onPlan: (_steps: PlanStep[]) => undefined,
     onFileChange: file => ctx.changedFiles.add(file),
     onRead: file => work.read.add(file),
