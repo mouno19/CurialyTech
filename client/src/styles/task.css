@@ -177,6 +177,19 @@
 .outcome > :last-child:not(.outcome-actions):not(.outcome-head):not(.outcome-body):not(.sources):not(.sources-none) { padding-bottom: 14px; }
 .outcome > .progress-notes:last-child { margin-bottom: 14px; }
 
+/* ---------- /btw side questions (Btw.tsx) ---------- */
+/* Set apart from the agent's messages: a narrow card with a dashed edge, the run never stopped for it. */
+.btw-card { display: flex; flex-direction: column; gap: 6px; min-width: 0; max-width: 560px; margin-left: auto; padding: 10px 12px; border: 1px dashed var(--border-strong); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--shadow-hair); }
+.btw-card[data-pending] { border-color: var(--progress-border); }
+.btw-q, .btw-a { display: flex; align-items: flex-start; gap: 8px; min-width: 0; margin: 0; font-size: 13.5px; line-height: 1.5; }
+.btw-q { color: var(--text-2); }
+.btw-a { color: var(--text); }
+.btw-a > svg { flex: none; margin-top: 3px; color: var(--text-3); }
+.btw-wait { color: var(--text-3); align-items: center; }
+.btw-text { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.btw-tag { flex: none; padding: 1px 6px; border-radius: 6px; background: var(--surface-sunk); color: var(--text-3); font: 500 11.5px/1.5 var(--font-mono); }
+.btw-chip { align-self: flex-start; gap: 5px; font-size: 11.5px; }
+
 /* ---------- Web search (WebSearch.tsx) ---------- */
 /* The live indicator: a radar that sweeps while the request is out, sources land on it as blips
    once results are back, and it settles (check, cross or dash) when the search is over. Reduced

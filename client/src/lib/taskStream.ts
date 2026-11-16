@@ -46,6 +46,8 @@ export type TimelineItem = ItemBase & (
   | { kind: "media"; mediaId: string | null; filename: string; mimeType: string; caption: string; inlineDataUrl?: string; unavailable: boolean }
   | { kind: "handoff"; from: TeamRole; to: TeamRole | "user"; handoff: "plan" | "review" | "fixes" | "report"; title: string; content: string; round?: number }
   | { kind: "search"; query: string; state: SearchState; sources: WebSource[]; reason?: string; durationMs?: number }
+  /** A /btw side question and its answer (forwarded: the user's words went to the agent as a note). */
+  | { kind: "btw"; query: string; reply: string; forwarded: boolean }
 );
 export type ItemOf<K extends TimelineItem["kind"]> = Extract<TimelineItem, { kind: K }>;
 
@@ -472,6 +474,10 @@ function apply(state: StreamState, event: AgentEvent, at: number) {
       else push(state, event, { kind: "search", id: event.callId, query: event.query, ...update });
       break;
     }
+    case "btw_reply":
+      // Once per question, however often it is replayed.
+      if (!findItem(state, "btw", event.id)) push(state, event, { kind: "btw", id: event.id, query: event.query, reply: event.reply, forwarded: event.forwarded });
+      break;
     case "verify_start":
       push(state, event, { kind: "verify", id: `v${event.iteration}`, iteration: event.iteration, commands: event.commands, results: [] });
       break;
@@ -658,7 +664,7 @@ export type RunView = {
   divider: { trigger: "retry" | "deploy"; attempt: number; ts: string; key: string } | null;
   user: ItemOf<"user"> | null;
   texts: ItemOf<"text">[];
-  /** Browser sessions, attachments and handoffs (team reports are the answer), in order. */
+  /** Browser sessions, attachments, /btw answers and handoffs (team reports are the answer), in order. */
   cards: TimelineItem[];
   /** Everything above, in event order (an active run shows it as it happens). */
   entries: TimelineItem[];
@@ -693,7 +699,7 @@ export function conversationRuns(state: Pick<StreamState, "runs" | "items">): Ru
     } else if (item.kind === "text") {
       view.texts.push(item);
       view.entries.push(item);
-    } else if (item.kind === "browser" || item.kind === "attachments" || (item.kind === "handoff" && item.handoff !== "report")) {
+    } else if (item.kind === "browser" || item.kind === "attachments" || item.kind === "btw" || (item.kind === "handoff" && item.handoff !== "report")) {
       view.cards.push(item);
       view.entries.push(item);
     } else if (item.kind === "search") {

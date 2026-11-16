@@ -7,7 +7,7 @@ import { pipeline } from "node:stream/promises";
 import multer from "multer";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
-import { MODELS, type AgentEvent, type AgentEventBody } from "@shared/agent";
+import { BTW_MAX_CHARS, MODELS, type AgentEvent, type AgentEventBody } from "@shared/agent";
 import { SAVED_SKILL_LIMITS } from "@shared/skills";
 import { isActiveStatus, isFinalStatus } from "@shared/taskStatus";
 import { countMedia, deleteMedia, getMedia, isElsewhere, listMedia, markMediaMissing, mediaIds, mediaStatus, openMedia, storageConfig, storeMedia, assertStorageAvailable, type MediaCursor } from "../media/snowflake";
@@ -24,7 +24,8 @@ import { deployConfigured, deploymentSession, destroyDeployment, listDeployments
 import { appendTaskEvent } from "./events";
 import { countActiveRuns, getLifecycleRow, judgeStaleness } from "./lifecycle";
 import { PROVIDER_ENV, probeProviders } from "./providers";
-import { activeTaskCount, followUp, followUpRepoBlocked, followUpSpec, isBusy, isRunning, requestCancel, RESTARTING, retryTask, startDeployRun, startTask, TaskRejected, type FollowUpRepo } from "./runner";
+import { answerBtw, BtwError } from "./btw";
+import { activeRunId, activeTaskCount, followUp, followUpRepoBlocked, followUpSpec, isBusy, isRunning, requestCancel, RESTARTING, retryTask, startDeployRun, startTask, TaskRejected, type FollowUpRepo } from "./runner";
 import { deleteSavedSkill, listSavedSkills, replaceTaskSkills, saveSavedSkill, SavedSkillError } from "./saved-skills";
 import { admissionRefusal, oneAtATime } from "./admission";
 import { drainQueue, editQueued, listQueue, queueMessage, QueueRejected, removeQueued, requeue } from "./queue";
@@ -77,6 +78,11 @@ const skillWriteSchema = z.object({
   name: z.string().trim().min(1, "Name the skill.").max(SAVED_SKILL_LIMITS.name, `Keep the name under ${SAVED_SKILL_LIMITS.name} characters.`),
   body: z.string().trim().min(1, "Write the procedure.").max(SAVED_SKILL_LIMITS.body, `Keep the procedure under ${SAVED_SKILL_LIMITS.body} characters.`),
 });
+const btwSchema = z.object({
+  query: z.string().trim().min(1, "Type a question after /btw.").max(BTW_MAX_CHARS, `Keep a /btw message under ${BTW_MAX_CHARS} characters.`),
+  clientMessageId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).optional(),
+});
+
 const queueEditSchema = z.object({ prompt: z.string().trim().min(1).max(20_000) });
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** runId: the run the client saw (a stale tab cannot cancel or retry a newer run by accident). */
@@ -431,6 +437,28 @@ export function agentRouter() {
       const started = await followUp(task.id, input.prompt, await resolveAttachments(input.attachmentIds, accountOf(req).id), { clientMessageId: input.clientMessageId, expectedRunId: input.expectedRunId, skillIds: input.skillIds, tools: input.tools ? [...new Set(input.tools)] : undefined, ...extras });
       res.status(202).json({ ok: true, status: "queued", ...started });
     });
+  }));
+
+  // /btw: a side question or note to a running task, answered from its live state while the run goes
+  // on (btw.ts). Charged to the task's account like a model turn; an instruction is passed to the agent.
+  router.post("/tasks/:id/btw", handle(async (req, res) => {
+    const task = await taskOr404(req, res);
+    if (!task) return;
+    const input = btwSchema.parse(req.body ?? {});
+    const runId = activeRunId(task.id);
+    if (!runId || task.status !== "running") return res.status(409).json({ error: "/btw works while the task is running. Send a follow-up instead.", code: "not_running" });
+    if (rateLimited(`btw:${accountOf(req).id}`, 30)) return res.status(429).json({ error: "That's a lot of /btw questions at once. Wait a few minutes and ask again.", code: "rate_limited" });
+    const owner = (await taskOwner(task.id))!;
+    try {
+      const answer = await answerBtw({
+        taskId: task.id, runId, userId: owner, operator: owner === (await adminUserId()), prompt: task.prompt, query: input.query, id: input.clientMessageId,
+        stillRunning: () => activeRunId(task.id) === runId,
+      });
+      res.json(answer);
+    } catch (error) {
+      if (error instanceof BtwError) return res.status(error.status).json({ error: error.message, code: error.code });
+      throw error;
+    }
   }));
 
   // Follow-ups sent while a run is active: they wait, and start by themselves when it ends (queue.ts).

@@ -4,7 +4,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Popover from "@radix-ui/react-popover";
 import type { LucideIcon } from "lucide-react";
-import { Activity, BookOpen, ChartNoAxesColumn, Check, ChevronsUpDown, ExternalLink, House, Images, KeyRound, LayoutDashboard, LifeBuoy, LockKeyhole, LogOut, Menu, MoreHorizontal, PanelLeftClose, PanelLeftOpen, PlugZap, RefreshCw, ShieldCheck, SquareTerminal, Store, Unplug, Wallet, X, Braces } from "lucide-react";
+import { Activity, BookOpen, CalendarClock, ChartNoAxesColumn, Check, ChevronsUpDown, ExternalLink, House, Images, KeyRound, LayoutDashboard, LifeBuoy, LockKeyhole, LogOut, Menu, MoreHorizontal, PanelLeftClose, PanelLeftOpen, PlugZap, RefreshCw, ShieldCheck, SquareTerminal, Store, Unplug, Wallet, X, Braces } from "lucide-react";
 import { toast } from "sonner";
 import { agentApi, authApi, errorMessage, relativeTime, type ProviderProbe } from "@/lib/api";
 import { needsOperator, useCanva, useGitHub, useHealth, useVercel } from "@/lib/appStatus";
@@ -75,6 +75,7 @@ const NAV: { href: string; label: string; icon: LucideIcon; badge?: "tasks" | "s
   { href: "/media", label: "Media Vault", icon: Images },
   { href: "/integrations", label: "System Integrations", icon: PlugZap },
   { href: "/skills", label: "Skill Store", icon: Store },
+  { href: "/schedules", label: "Schedules", icon: CalendarClock },
   { href: "/secrets", label: "Secrets", icon: LockKeyhole },
   { href: "/developer", label: "Developer API", icon: Braces },
   { href: "/billing", label: "Plans & Billing", icon: Wallet },

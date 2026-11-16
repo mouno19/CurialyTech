@@ -915,3 +915,25 @@ input[type="checkbox"].vault-check { position: absolute; top: 4px; left: 4px; z-
   .secret-row-main { flex-wrap: wrap; }
   .secret-row-actions { width: 100%; padding-left: 25px; }
 }
+
+/* ---------- Schedules (Schedules.tsx), on the Secrets page's card and row layout ---------- */
+.sched-form { display: flex; flex-direction: column; gap: 14px; }
+.sched-when { display: flex; flex-direction: column; gap: 10px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.sched-kinds { flex-wrap: wrap; max-width: 100%; }
+.sched-when-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px; min-width: 0; }
+.sched-when-row > .field { min-width: 0; }
+.sched-grow { flex: 1 1 220px; }
+.sched-narrow { width: 140px; max-width: 100%; }
+.sched-preview { margin: 0; }
+.sched-row[data-off] .secret-name { color: var(--text-2); }
+.sched-off { margin-top: 2px; font-size: 12.5px; }
+.sched-prompt { display: -webkit-box; margin-top: 4px; overflow: hidden; font-size: 13px; color: var(--text-2); -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow-wrap: anywhere; }
+.sched-actions { flex-wrap: wrap; align-items: center; justify-content: flex-end; }
+.sched-switch { display: inline-flex; align-items: center; gap: 6px; margin-right: 4px; }
+.sched-runs { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0 0 0 25px; list-style: none; }
+.sched-runs li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.sched-detail { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 560px) {
+  .sched-actions { justify-content: flex-start; }
+  .sched-runs { padding-left: 0; }
+}

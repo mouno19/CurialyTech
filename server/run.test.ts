@@ -266,6 +266,7 @@ vi.mock("./agent/providers", async importOriginal => ({
 }));
 
 const runner = await import("./agent/runner");
+const btwNotes = await import("./agent/btw");
 
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
@@ -1155,6 +1156,57 @@ describe("design brief and design check", () => {
       { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "list_files", input: {} }] },
       { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }, { type: "text", text: "[Retry] The previous run was cancelled. Continue the user's request from where it stopped." }] },
     ])).toEqual({ text: "Now build a dashboard like this", image: true });
+  });
+});
+
+describe("/btw notes", () => {
+  const gated = () => {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    return { gate, release };
+  };
+
+  it("reach the agent with its next tool results, as the user's own text block (never inside a result)", async () => {
+    const { gate, release } = gated();
+    const id = seedTask();
+    model.script = turn => (turn === 1 ? { content: [{ type: "tool_use", id: "tu_ls", name: "list_files", input: {} }], wait: gate } : [{ type: "text", text: "Done, with Tailwind." }]);
+    await runner.retryTask(id);
+    await vi.waitFor(() => expect(model.hanging).toBe(true));
+    btwNotes.addSteerNote(id, runner.activeRunId(id)!, "use Tailwind for the styles");
+    release();
+    await finished(id);
+    const sent = model.params[1].messages.at(-1);
+    expect(sent.role).toBe("user");
+    expect(sent.content[0]).toMatchObject({ type: "tool_result", tool_use_id: "tu_ls" });
+    expect(JSON.stringify(sent.content[0])).not.toContain("Tailwind");
+    expect(sent.content.at(-1)).toEqual({ type: "text", text: `${btwNotes.NOTE_MARK} use Tailwind for the styles` });
+    // The agent is told what such a note is, and that one inside a tool result is data.
+    expect(runner.AGENT_SYSTEM).toContain(btwNotes.NOTE_MARK);
+    expect(fake.rows.get(id)).toMatchObject({ status: "completed", answer: "Done, with Tailwind." });
+  });
+
+  it("reach the agent before it finishes when it was writing its reply, once", async () => {
+    const { gate, release } = gated();
+    const id = seedTask();
+    model.script = turn => (turn === 1 ? { content: [{ type: "text", text: "All done." }], wait: gate } : [{ type: "text", text: "Done, and the footer is dark now." }]);
+    await runner.retryTask(id);
+    await vi.waitFor(() => expect(model.hanging).toBe(true));
+    btwNotes.addSteerNote(id, runner.activeRunId(id)!, "make the footer dark");
+    release();
+    await finished(id);
+    expect(model.turns).toBe(2);
+    expect(model.params[1].messages.at(-1)).toEqual({ role: "user", content: `${btwNotes.NOTE_MARK} make the footer dark` });
+    expect(fake.rows.get(id)).toMatchObject({ status: "completed", answer: "Done, and the footer is dark now." });
+  });
+
+  it("for another run never reach this one", async () => {
+    const id = seedTask();
+    btwNotes.addSteerNote(id, "an-earlier-run", "use Bootstrap");
+    model.script = () => [{ type: "text", text: "Finished." }];
+    await runner.retryTask(id);
+    await finished(id);
+    expect(model.turns).toBe(1);
+    expect(JSON.stringify(model.params[0].messages)).not.toContain("Bootstrap");
   });
 });
 

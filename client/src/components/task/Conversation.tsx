@@ -14,6 +14,7 @@ import { JumpToLatest } from "./JumpToLatest";
 import { ProgressNote, ProgressNotes, RunDivider, UserBubble } from "./Messages";
 import { OutcomeCard } from "./OutcomeCard";
 import { SearchIndicator, SourcesSection } from "./WebSearch";
+import { BtwCard, type PendingAside } from "./Btw";
 import { useAccount } from "@/lib/account";
 
 export type PendingMessage = { clientMessageId: string; text: string; attachments: UserAttachment[] };
@@ -48,6 +49,8 @@ type Props = Actions & {
   /** Active and the stream is connected: things may still grow and move. */
   streaming: boolean;
   pending: PendingMessage[];
+  /** /btw questions sent from this page whose answer isn't in the log yet. */
+  asides?: PendingAside[];
   header: ReactNode;
   composer: ReactNode;
   scrollRef: Ref<HTMLDivElement>;
@@ -71,6 +74,8 @@ function Card({ item, taskId, browsers, taskActive, streamConnected, streaming, 
       return <div className="convo-card" data-fresh={fresh}><Attachments taskId={taskId} files={item.files} auto={item.auto} more={item.more} skipped={item.skipped} generated={item.generated} partial={item.partial} /></div>;
     case "handoff":
       return <div className="convo-card" data-fresh={fresh}><HandoffCard item={item} /></div>;
+    case "btw":
+      return <div className="convo-card" data-fresh={fresh}><BtwCard query={item.query} reply={item.reply} forwarded={item.forwarded} /></div>;
     default:
       return null;
   }
@@ -162,7 +167,7 @@ function WorkingLine({ status, connected, phase }: { status: TaskStatus | null; 
 }
 
 export function Conversation(props: Props) {
-  const { taskId, task, state, views, latest, active, streaming, pending, header, composer, scrollRef, stick } = props;
+  const { taskId, task, state, views, latest, active, streaming, pending, asides = [], header, composer, scrollRef, stick } = props;
   const activePhase = PHASES.find(phase => state.phases[phase.id].state === "active");
   const loaded = isReplayed(state);
   const actions: Actions = { onRetry: props.onRetry, retrying: props.retrying, retryDisabled: props.retryDisabled, retryAs: props.retryAs, onViewLogs: props.onViewLogs, onCopied: props.onCopied };
@@ -202,6 +207,7 @@ export function Conversation(props: Props) {
                 />
               ))}
               {pending.map(message => <UserBubble key={message.clientMessageId} text={message.text} attachments={message.attachments} pending fresh />)}
+              {asides.map(aside => <div key={aside.id} className="convo-card"><BtwCard query={aside.query} reply={aside.reply} forwarded={aside.forwarded} fresh /></div>)}
               {pending.length === 0 && <WorkingLine status={latest.status} connected={state.connected} phase={activePhase ? PHASE_SHORT[activePhase.id] : null} />}
             </div>
           </div>

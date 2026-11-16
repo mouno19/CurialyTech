@@ -735,6 +735,51 @@ const MIGRATIONS: { id: number; sql: string }[] = [
         WHERE plan_id = 'max' AND plan_expires_at IS NOT NULL AND max_expires_at IS NULL;
     `,
   },
+  {
+    id: 26,
+    sql: `
+      -- Scheduled tasks (server/agent/schedules.ts): a prompt an account runs by itself every few
+      -- hours or at set times (a 5-field cron read in time_zone). Exactly one of cron_expression and
+      -- interval_hours is set. failures: starts in a row that didn't happen (at MAX_SCHEDULE_FAILURES
+      -- it turns itself off, disabled_reason says why). Each attempt is a scheduled_task_runs row.
+      CREATE TABLE IF NOT EXISTS curialy.scheduled_tasks (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id uuid NOT NULL REFERENCES curialy.users(id) ON DELETE CASCADE,
+        title text NOT NULL,
+        prompt text NOT NULL,
+        cron_expression text,
+        interval_hours integer,
+        time_zone text NOT NULL DEFAULT 'UTC',
+        mode text NOT NULL DEFAULT 'agent',
+        model_id text,
+        repo text,
+        repo_branch text,
+        skill_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+        enabled boolean NOT NULL DEFAULT true,
+        failures integer NOT NULL DEFAULT 0,
+        disabled_reason text,
+        next_run_at timestamptz NOT NULL,
+        last_run_at timestamptz,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        CONSTRAINT scheduled_tasks_timetable CHECK ((cron_expression IS NULL) <> (interval_hours IS NULL)),
+        CONSTRAINT scheduled_tasks_interval CHECK (interval_hours IS NULL OR interval_hours BETWEEN 1 AND 720),
+        CONSTRAINT scheduled_tasks_mode CHECK (mode IN ('agent', 'chat'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_sched_next_run ON curialy.scheduled_tasks (next_run_at) WHERE enabled;
+      CREATE INDEX IF NOT EXISTS scheduled_tasks_user_idx ON curialy.scheduled_tasks (user_id);
+      CREATE TABLE IF NOT EXISTS curialy.scheduled_task_runs (
+        id bigserial PRIMARY KEY,
+        schedule_id uuid NOT NULL REFERENCES curialy.scheduled_tasks(id) ON DELETE CASCADE,
+        task_id uuid REFERENCES curialy.chat_sessions(id) ON DELETE SET NULL,
+        scheduled_for timestamptz NOT NULL,
+        started_at timestamptz NOT NULL DEFAULT now(),
+        outcome text NOT NULL CHECK (outcome IN ('started', 'skipped', 'failed')),
+        detail text
+      );
+      CREATE INDEX IF NOT EXISTS scheduled_task_runs_schedule_idx ON curialy.scheduled_task_runs (schedule_id, id DESC);
+    `,
+  },
 ];
 
 export async function migrate() {

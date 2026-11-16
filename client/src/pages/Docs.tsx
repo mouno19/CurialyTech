@@ -173,6 +173,8 @@ export default function Docs({ signedIn, section }: { signedIn: boolean; section
             <ul>
               <li>You can attach files and, when you have connected GitHub, point a task at a repository.</li>
               <li>Follow-up messages continue the same task. Cancelling a run stops it where it is. It does not publish, push, or deploy on the way out, and the files written so far stay.</li>
+              <li>While a task is running, a message that starts with /btw is answered at once from what the run is doing, and the run doesn't stop or wait for it. When the message tells the agent to do or remember something, your words are passed to the agent for its next step. Each answer costs a small amount of credits.</li>
+              <li>Schedules run a prompt by itself every few hours or at set times in your time zone. Each run is an ordinary task: it uses credits, appears under Live Tasks, and is skipped when another task of yours is still running. Type /schedule and a prompt to set one up.</li>
               <li>A failed run is shown as failed, with the error. Nothing is labelled done that is not.</li>
               <li>Read the result. The agent can be wrong, and you decide what to keep, commit, or throw away.</li>
             </ul>

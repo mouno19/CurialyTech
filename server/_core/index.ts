@@ -26,6 +26,7 @@ import { gatewayRouter, keysRouter } from "../gateway";
 import { startFollowUpQueue } from "../agent/queue";
 import { billingAdminRouter, billingRouter } from "../billing/routes";
 import { startPaymentWatcher } from "../billing/watcher";
+import { schedulesRouter, startScheduler } from "../agent/schedules";
 
 async function startServer() {
   const app = express();
@@ -46,6 +47,8 @@ async function startServer() {
   if (SANDBOX_MODE === "e2b") startCloudSandbox();
   // Follow-ups sent during a run start when it ends (after the sandbox, which free accounts need).
   startFollowUpQueue();
+  // Scheduled tasks start by themselves when due (the same admission as any start).
+  const stopScheduler = startScheduler();
   console.log(`[sandbox] agent commands run ${SANDBOX_MODE === "e2b" ? "in a cloud sandbox per task" : SANDBOX_MODE === "systemd" ? "on this server as the sandbox user" : "unsandboxed (development)"}`);
   startWorkspaceSweeper(isBusy);
   startDeploymentSweeper(isBusy);
@@ -91,6 +94,7 @@ async function startServer() {
   // Connect Canva: /auth/canva/start, /callback (the redirect URL registered for the Canva app), /status and /disconnect.
   registerCanvaAuth(app);
   // Every account reaches the agent; each route checks that the task, file or repository is its own.
+  app.use("/api/agent/schedules", schedulesRouter());
   app.use("/api/agent", requireUser, agentRouter());
   app.use("/api/account", accountRouter());
   app.use("/api/support", supportRouter());
@@ -135,6 +139,7 @@ async function startServer() {
     const force = setTimeout(() => process.exit(1), 25_000);
     force.unref();
     stopPaymentWatcher();
+    stopScheduler();
     try {
       const stopped = await shutdownRuns(15_000);
       if (stopped) console.log(`[server] interrupted ${stopped} running task(s)`);

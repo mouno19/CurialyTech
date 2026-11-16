@@ -274,6 +274,12 @@ export type AgentEventBody =
    * empty, or failed (reason: what the user is told; the search did not run or returned nothing usable).
    */
   | { type: "web_search"; callId: string; status: "searching" | "done" | "empty" | "failed"; query: string; sources?: WebSource[]; reason?: string; durationMs?: number }
+  /**
+   * A side question the user asked with /btw while the run was working, and its answer (from the
+   * run's live state; the run itself is not interrupted). forwarded: the message was an instruction
+   * or tip, so the user's own words were passed to the agent for its next step.
+   */
+  | { type: "btw_reply"; id: string; query: string; reply: string; forwarded: boolean }
   | { type: "error"; message: string }
   /** Always the last event of a run. */
   | { type: "done"; status: TaskStatus; answer: string; reason?: StatusReason; error?: string; outcome?: RunOutcome };
@@ -311,6 +317,17 @@ export type QueuedMessage = {
 export type TaskQueue = { items: QueuedMessage[]; held: string | null };
 
 export const MAX_QUEUED_MESSAGES = 5;
+
+/** /btw: a side question or note to a running task, answered without stopping or queueing behind it. */
+export const BTW_MAX_CHARS = 2000;
+
+/** The question in "/btw <question>" (case-insensitive, also "/btw:"), or null when the text isn't one. */
+export function btwQuery(text: string): string | null {
+  const match = /^\/btw(?::|\s|$)([\s\S]*)$/i.exec(text.trim());
+  if (!match) return null;
+  const query = match[1].trim();
+  return query || null;
+}
 
 export type AgentTaskSummary = {
   id: string;

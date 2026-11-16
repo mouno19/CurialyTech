@@ -3,7 +3,8 @@ import { Link, useLocation } from "wouter";
 import * as Tabs from "@radix-ui/react-tabs";
 import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelHandle } from "react-resizable-panels";
 import { CircleStop, FolderGit2, Link2, MessagesSquare, Rocket, RotateCcw, SquareTerminal, Trash2, TriangleAlert, Upload, Workflow } from "lucide-react";
-import type { StatusReason, TaskQueue } from "@shared/agent";
+import { btwQuery, type StatusReason, type TaskQueue } from "@shared/agent";
+import { scheduleQuery } from "@shared/schedules";
 import { deriveTaskStatus, isActiveStatus, isFinalStatus, isRetryable, outcomeIssues, statusLabel } from "@shared/taskStatus";
 import { RepoSelector } from "@/components/RepoSelector";
 import { Button } from "@/components/common/Button";
@@ -13,6 +14,7 @@ import { StateNotice } from "@/components/common/StateNotice";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { AppShell, type TopbarAction } from "@/components/shell/AppShell";
 import { Conversation, type LatestOutcome, type PendingMessage } from "@/components/task/Conversation";
+import type { PendingAside } from "@/components/task/Btw";
 import { ExportDialog } from "@/components/task/ExportDialog";
 import { FollowUpComposer, type FollowUpChoice, type QueueActions } from "@/components/task/FollowUpComposer";
 import { Inspector, InspectorRail, inspectorCounts } from "@/components/task/Inspector";
@@ -111,6 +113,12 @@ export default function TaskWorkspace({ id }: { id: string }) {
     return ids;
   }, [s.items]);
   const shownPending = useMemo(() => pending.filter(message => !echoed.has(message.clientMessageId)), [pending, echoed]);
+  // /btw questions sent from here, until their answer is in the log (the stream brings it).
+  const [asides, setAsides] = useState<PendingAside[]>([]);
+  const shownAsides = useMemo(() => {
+    const answered = new Set(s.items.filter(item => item.kind === "btw").map(item => item.id));
+    return asides.filter(aside => !answered.has(aside.id));
+  }, [asides, s.items]);
   useEffect(() => {
     if (shownPending.length !== pending.length) setPending(shownPending);
   }, [shownPending, pending.length]);
@@ -315,6 +323,30 @@ export default function TaskWorkspace({ id }: { id: string }) {
 
   const sendFollowUp = useCallback(async (text: string, files: PendingAttachment[], choice: FollowUpChoice) => {
     const clientMessageId = newClientId();
+    // "/schedule <prompt>": set it up to run on a timetable (the Schedules page, filled in).
+    const scheduled = files.length === 0 ? scheduleQuery(text) : null;
+    if (scheduled !== null) {
+      navigate(`/schedules${scheduled ? `?prompt=${encodeURIComponent(scheduled)}` : ""}`);
+      return;
+    }
+    // "/btw <question>" while the run works: answered from its live state now, the run goes on.
+    const aside = files.length === 0 ? btwQuery(text) : null;
+    if (aside !== null && active) {
+      if (status !== "running") throw new Error(status === "cancelling" ? "The task is stopping, so there's nothing to ask /btw about." : "The task hasn't started yet: /btw answers once it's running.");
+      stickNext();
+      setAsides(list => [...list, { id: clientMessageId, query: aside }]);
+      try {
+        const answer = await agentApi.btw(id, aside, clientMessageId);
+        setAsides(list => list.map(item => (item.id === clientMessageId ? { ...item, reply: answer.reply, forwarded: answer.forwarded } : item)));
+        announce(`Answer: ${answer.reply}`);
+      } catch (failure) {
+        setAsides(list => list.filter(item => item.id !== clientMessageId));
+        throw failure;
+      }
+      return;
+    }
+    // Outside a run there's nothing to ask on the side: the question is a follow-up.
+    if (aside !== null) text = aside;
     const extras = { model: choice.model, repo: choice.repo?.full_name ?? null, repoBranch: choice.repo?.default_branch ?? null, ...(choice.replaceRepo ? { replaceRepo: true } : {}), ...(choice.skillIds !== undefined ? { skillIds: choice.skillIds } : {}) };
     // While a run is active the message waits in the queue and starts by itself when the run ends.
     const queueIt = async () => {
@@ -345,7 +377,11 @@ export default function TaskWorkspace({ id }: { id: string }) {
       if (failure instanceof ApiError && failure.status === 409) void reload();
       throw failure;
     }
-  }, [id, runId, active, status, stickNext, reconnect, reload, acceptQueue, announce]);
+  }, [id, runId, active, status, stickNext, reconnect, reload, acceptQueue, announce, navigate]);
+  // Answers that arrived over the stream leave the list (the log has them now).
+  useEffect(() => {
+    if (shownAsides.length !== asides.length) setAsides(shownAsides);
+  }, [shownAsides, asides.length]);
 
   const queueActions = useMemo<QueueActions>(() => ({
     edit: async (itemId, prompt) => {
@@ -507,6 +543,7 @@ export default function TaskWorkspace({ id }: { id: string }) {
       active={active}
       streaming={streaming}
       pending={shownPending}
+      asides={shownAsides}
       header={header}
       composer={<FollowUpComposer taskId={id} task={task} status={status} onSend={sendFollowUp} redeploy={redeploy} queue={queue} queueActions={queueActions} above={<RequestPanel taskId={id} requests={s.requests} />} />}
       scrollRef={bindConvo}

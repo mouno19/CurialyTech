@@ -18,6 +18,7 @@ import { agentApi, ApiError, formatTokens, relativeTime, type TaskStats } from "
 import { clockText, refreshAccount, untilText, useAccount } from "@/lib/account";
 import { CreditsDialog, creditsLine, refillLine } from "@/components/shell/CreditsMeter";
 import { PLAN_IDS } from "@shared/billing";
+import { scheduleQuery } from "@shared/schedules";
 import { MIN_CREDITS_TO_START, type CreditBalance } from "@shared/credits";
 import { useHealth } from "@/lib/appStatus";
 import { modeLabel, modelLabel, statusTime, TaskDuration, taskNote, TaskSkeleton, tokenTotal, useTaskList } from "./Tasks";
@@ -111,6 +112,12 @@ export default function Dashboard() {
   }, [signature, loadStats]);
 
   const start = async (request: CreateTaskRequest) => {
+    // "/schedule <prompt>": set it up to run on a timetable instead of now.
+    const scheduled = scheduleQuery(request.prompt);
+    if (scheduled !== null) {
+      navigate(`/schedules${scheduled ? `?prompt=${encodeURIComponent(scheduled)}` : ""}`);
+      return;
+    }
     setBusy(true);
     try {
       const { taskId } = await agentApi.create(request);

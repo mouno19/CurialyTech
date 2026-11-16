@@ -4,6 +4,7 @@ import * as Popover from "@radix-ui/react-popover";
 import * as RadioGroup from "@radix-ui/react-radio-group";
 import * as Switch from "@radix-ui/react-switch";
 import type { LucideIcon } from "lucide-react";
+import { SlashHint } from "@/components/composer/SlashHint";
 import { ArrowUp, Bot, Check, ChevronDown, CloudOff, Globe, Info, MessageSquare, Paperclip, RotateCcw, SlidersHorizontal, Sparkles, TriangleAlert, Users, X } from "lucide-react";
 import { aliasEffort, effortApplies, getModel, outputLimit, PICKER_MODELS, REPLACED, teamCapable, type CreateTaskRequest, type ModelSpec, type TaskMode, type ThinkingLevel } from "@shared/agent";
 import { formatTokenCount, modelLimits } from "@shared/billing";
@@ -481,6 +482,7 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed, examples }: {
         </div>
         <label className="sr-only" htmlFor="omni-prompt">Describe the task</label>
         <span id={hintId} className="sr-only">{coarse ? "Use the Run button to start the task." : "Press Enter to run the task, Shift+Enter for a new line."}</span>
+        <SlashHint text={prompt} commands={[{ name: "schedule", argument: "<prompt>", hint: "Run this prompt by itself every few hours or at set times" }]} onPick={picked => { setPrompt(picked); textarea.current?.focus(); }} />
         <div className="omni-field">
           <textarea
             id="omni-prompt"

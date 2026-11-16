@@ -8,6 +8,7 @@ import { IconButton } from "@/components/common/IconButton";
 import { Spinner } from "@/components/common/Spinner";
 import { DictationButton } from "@/components/composer/DictationButton";
 import { SkillPicker } from "@/components/composer/SkillPicker";
+import { SlashHint, type SlashCommand } from "@/components/composer/SlashHint";
 import { ModelPicker } from "@/components/composer/OmniComposer";
 import { RepoSelector } from "@/components/RepoSelector";
 import { errorMessage, type GitHubRepo } from "@/lib/api";
@@ -17,7 +18,7 @@ import { AttachmentTray, useAttachments, type PendingAttachment } from "@/lib/us
 
 const PLACEHOLDER: Record<TaskStatus, string> = {
   queued: "Waiting to start. A message sent now runs after this run…",
-  running: "Working. Send a follow-up now and it runs when this run finishes…",
+  running: "Working. A follow-up runs when this run finishes; /btw asks about it now…",
   cancelling: "Stopping… A message sent now waits until you start it.",
   completed: "Ask for changes, fixes or explanations (paste or drop screenshots)…",
   failed: "Describe what to change and send, or use Retry to run it again…",
@@ -153,6 +154,11 @@ export function FollowUpComposer({ taskId, task, status, onSend, redeploy = fals
 
   const action = active ? "Queue" : "Send";
   const hint = !active ? null : stopping ? "Waits until you start it" : "Runs when this run finishes";
+  // /btw only means something while the run works.
+  const commands: SlashCommand[] = [
+    ...(status === "running" ? [{ name: "btw", argument: "<question or note>", hint: "Ask the running task, or tell it something, without stopping or waiting" }] : []),
+    { name: "schedule", argument: "<prompt>", hint: "Run a prompt by itself every few hours or at set times" },
+  ];
 
   return (
     <div className="convo-foot">
@@ -160,6 +166,7 @@ export function FollowUpComposer({ taskId, task, status, onSend, redeploy = fals
         {above}
         {items.length > 0 && <QueuedList queue={queue!} active={active} stopping={stopping} currentModel={task?.model ?? null} actions={queueActions} />}
         <div className={cx("composer compact", attachments.dragging && "dragging")} {...attachments.dropProps}>
+          <SlashHint text={text} commands={commands} onPick={picked => { setText(picked); input.current?.focus(); }} />
           <label className="sr-only" htmlFor="follow-up">Follow-up message</label>
           <textarea
             id="follow-up"

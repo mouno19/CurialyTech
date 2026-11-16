@@ -1,4 +1,5 @@
 import type { AgentTaskSummary, CreateTaskRequest, ModelSpec, QueuedMessage, StatusReason, TaskQueue, TaskStatus } from "@shared/agent";
+import type { ScheduledTask, ScheduleInput } from "@shared/schedules";
 import type { SavedSkill } from "@shared/skills";
 import type { ApiKeyInfo } from "@shared/gateway";
 import type { CreditBalance, CreditSettings, RewardsState } from "@shared/credits";
@@ -236,6 +237,9 @@ export const agentApi = {
   /** 409 when the task is active or changed since expectedRunId; 503 while the server restarts. */
   followUp: (id: string, prompt: string, attachmentIds: string[] = [], opts: { clientMessageId?: string; expectedRunId?: string | null } & FollowUpExtras = {}) =>
     api<FollowUpResult>(`/api/agent/tasks/${enc(id)}/messages`, { method: "POST", json: { prompt, attachmentIds, ...opts } }),
+  /** /btw: a side question or note to a running task, answered from its live state while the run goes on. 409 when it isn't running. */
+  btw: (id: string, query: string, clientMessageId?: string) =>
+    api<{ id: string; reply: string; forwarded: boolean }>(`/api/agent/tasks/${enc(id)}/btw`, { method: "POST", json: { query, ...(clientMessageId ? { clientMessageId } : {}) } }),
   /** A follow-up sent while a run is active: it waits and starts by itself when the run ends. 409 when the queue is full. */
   queue: (id: string, prompt: string, attachmentIds: string[] = [], opts: { clientMessageId?: string } & FollowUpExtras = {}) =>
     api<{ item: QueuedMessage; started: QueueStarted; queue: TaskQueue }>(`/api/agent/tasks/${enc(id)}/queue`, { method: "POST", json: { prompt, attachmentIds, ...opts } }),
@@ -325,6 +329,16 @@ export const agentApi = {
       throw error;
     }
   },
+};
+
+/** Scheduled tasks (shared/schedules.ts): a prompt the account runs by itself on a timetable. */
+export const schedulesApi = {
+  list: () => api<{ schedules: ScheduledTask[]; limits: { max: number; minIntervalHours: number; maxIntervalHours: number } }>("/api/agent/schedules"),
+  create: (input: ScheduleInput) => api<{ schedule: ScheduledTask }>("/api/agent/schedules", { method: "POST", json: input }),
+  update: (id: string, patch: Partial<ScheduleInput>) => api<{ schedule: ScheduledTask }>(`/api/agent/schedules/${enc(id)}`, { method: "PATCH", json: patch }),
+  remove: (id: string) => api<{ deleted: true }>(`/api/agent/schedules/${enc(id)}`, { method: "DELETE" }),
+  /** Starts the task now (the timetable stays); 409 with the reason when it couldn't start. */
+  run: (id: string) => api<{ outcome: "started"; taskId: string; schedule: ScheduledTask }>(`/api/agent/schedules/${enc(id)}/run`, { method: "POST", json: {} }),
 };
 
 export const secretsApi = {
