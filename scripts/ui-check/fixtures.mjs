@@ -524,6 +524,9 @@ export function createFixtures({ now = Date.now(), deployUrls = "vendor" } = {})
     L.add({ type: "media", callId: "call-5", mediaId: null, filename: "browse-variable-size-list.png", mimeType: "image/png", caption: "VariableSizeList · react-window docs", inlineDataUrl: SHOT_DATA_URL }, 400);
     L.add({ type: "tool_result", callId: "call-5", ok: true, summary: "HTTP 200 · no console errors", durationMs: 5300 }, 200);
     L.add({ type: "usage", turn: 2, model: "claude-opus-5-5", inputTokens: 71_402, outputTokens: 3120, thinkingTokens: 1480, cacheReadTokens: 52_990 }, 100);
+    // /btw while it ran: a status question, and a note passed to the agent (its badge must read in full).
+    L.add({ type: "btw_reply", id: "btw-ui-check-1", query: "which file are you on now?", reply: "It just split InvoiceTable.tsx into InvoiceRows and is checking the react-window docs before virtualising the rows.", forwarded: false }, 300);
+    L.add({ type: "btw_reply", id: "btw-ui-check-2", query: "keep the totals row sticky on phones", reply: "Noted: that goes to the agent at its next step.", forwarded: true }, 300);
     // Everything from here arrives live (after the sync's maxSeq), paced by the held-open stream.
     const liveFrom = L.add({ type: "turn_start", turn: 3, model: "claude-opus-5-5" }, 500);
     L.say("tx-1", TEXT_RUNNING, { end: false, size: 48 });
@@ -1121,6 +1124,12 @@ export function createFixtures({ now = Date.now(), deployUrls = "vendor" } = {})
     // The follow-up composer's saved skills (none here).
     ["GET", "/api/agent/skills", () => ({ json: { skills: [] } })],
     ["GET", "/api/agent/stats", () => ({ json: stats })],
+    // Schedules (none saved here): what the page lists, and refusals for ones that don't exist.
+    ["GET", "/api/agent/schedules", () => ({ json: { schedules: [], limits: { max: 10, minIntervalHours: 1, maxIntervalHours: 720 } } })],
+    ["POST", "/api/agent/schedules", () => ({ status: 400, expected: true, json: { error: "Schedules aren't saved in this check." } })],
+    ["PATCH", "/api/agent/schedules/:id", () => ({ status: 404, expected: true, json: { error: "No schedule with that id on this account." } })],
+    ["DELETE", "/api/agent/schedules/:id", () => ({ status: 404, expected: true, json: { error: "No schedule with that id on this account." } })],
+    ["POST", "/api/agent/schedules/:id/run", () => ({ status: 404, expected: true, json: { error: "No schedule with that id on this account." } })],
 
     ["GET", "/api/agent/tasks", () => ({ json: { tasks: listRows() } })],
     ["POST", "/api/agent/tasks", () => ({ status: 201, json: { taskId: TASK.queued } })],
@@ -1132,6 +1141,10 @@ export function createFixtures({ now = Date.now(), deployUrls = "vendor" } = {})
     ["POST", "/api/agent/tasks/:id/messages", ({ params }) => withTask(params.id, task => (ACTIVE.has(task.row.status)
       ? { status: 409, expected: true, json: { error: "Wait for the current run to finish, or cancel it." } }
       : { status: 202, json: { ok: true, ...runStarted(task, 1).json } }))],
+    // /btw: answered while the run works, refused once it doesn't (as server/agent/routes.ts does).
+    ["POST", "/api/agent/tasks/:id/btw", ({ params, body }) => withTask(params.id, task => (task.row.status === "running"
+      ? { json: { id: body?.clientMessageId ?? "btw-ui-check", reply: "It's running the billing tests after splitting InvoiceTable.tsx.", forwarded: false } }
+      : { status: 409, expected: true, json: { error: "/btw works while the task is running. Send a follow-up instead.", code: "not_running" } }))],
     ["POST", "/api/agent/tasks/:id/cancel", ({ params }) => withTask(params.id, task => (ACTIVE.has(task.row.status)
       ? { status: 202, json: { status: "cancelling", statusReason: "user_cancel", runId: task.row.runId ?? null, changed: true } }
       : { json: { status: task.row.status, statusReason: task.row.statusReason, runId: task.row.runId ?? null, changed: false } }))],

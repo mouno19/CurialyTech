@@ -96,9 +96,11 @@ describe("plans", () => {
 
   it("raise the allowance to the plan's while it lasts, and never lower it", () => {
     const now = Date.now();
-    const balance = credits.balanceOf(pro(), settings, now);
+    // The end the row holds (pro() reads the clock itself: a millisecond may pass between the two).
+    const row = pro();
+    const balance = credits.balanceOf(row, settings, now);
     expect(balance).toMatchObject({ allowance: 6000, remaining: 6000, available: 6000 });
-    expect(balance.plan).toEqual({ id: "pro", name: "Pro", expiresAt: new Date(now + 10 * DAY).toISOString(), creditsPerWindow: 6000 });
+    expect(balance.plan).toEqual({ id: "pro", name: "Pro", expiresAt: (row.plan_expires_at as Date).toISOString(), creditsPerWindow: 6000 });
     // An own allowance above the plan's stays.
     expect(credits.balanceOf(pro({ credit_allowance: 10_000 }), settings, now).allowance).toBe(10_000);
     // The allowance frozen at purchase counts, not today's setting.

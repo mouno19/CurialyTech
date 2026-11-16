@@ -1,15 +1,16 @@
-import { Fragment, useEffect, useRef, useState, type MouseEvent, type ReactElement, type ReactNode, type RefObject, useLayoutEffect } from "react";
+import { Fragment, useEffect, useId, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactElement, type ReactNode, type RefObject, useLayoutEffect } from "react";
 import { Link, useLocation } from "wouter";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Popover from "@radix-ui/react-popover";
 import type { LucideIcon } from "lucide-react";
-import { Activity, BookOpen, CalendarClock, ChartNoAxesColumn, Check, ChevronsUpDown, ExternalLink, House, Images, KeyRound, LayoutDashboard, LifeBuoy, LockKeyhole, LogOut, Menu, MoreHorizontal, PanelLeftClose, PanelLeftOpen, PlugZap, RefreshCw, ShieldCheck, SquareTerminal, Store, Unplug, Wallet, X, Braces } from "lucide-react";
+import { Activity, BookOpen, CalendarClock, ChartNoAxesColumn, Check, ChevronsUpDown, ChevronUp, ExternalLink, House, Images, KeyRound, LayoutDashboard, LifeBuoy, LockKeyhole, LogOut, Menu, MoreHorizontal, PanelLeftClose, PanelLeftOpen, PlugZap, RefreshCw, ShieldCheck, SquareTerminal, Store, Unplug, Wallet, X, Braces } from "lucide-react";
 import { toast } from "sonner";
 import { agentApi, authApi, errorMessage, relativeTime, type ProviderProbe } from "@/lib/api";
 import { needsOperator, useCanva, useGitHub, useHealth, useVercel } from "@/lib/appStatus";
 import { useAccount } from "@/lib/account";
-import { CreditsMeter } from "./CreditsMeter";
+import { CreditsMeter, creditsLine } from "./CreditsMeter";
+import { footAttention } from "./footAttention";
 import { useSupportUnread } from "@/lib/support";
 import { useIsDesktop } from "@/lib/breakpoints";
 import { CurialyMark, Wordmark } from "@/components/brand/Logo";
@@ -295,17 +296,81 @@ function SidebarBody({ rail, headEnd, onNavigate }: { rail: boolean; headEnd?: R
           );
         })}
       </nav>
-      <div className="sidebar-foot">
-        <CreditsMeter rail={rail} />
-        <HealthStatus rail={rail} />
-        <GitHubAccount rail={rail} />
-        <VercelAccount rail={rail} />
-        <CanvaAccount rail={rail} />
-        <ThemeItem rail={rail} />
-        <HomepageLink rail={rail} />
-        <SignOut rail={rail} />
-      </div>
+      <SidebarFoot rail={rail} />
     </>
+  );
+}
+
+/**
+ * The footer: one profile row (who is signed in, and the credits left) that opens the account and
+ * system controls in place: credits, system status, connections, theme, homepage, sign out. Closed
+ * by default and again after navigating, so the main navigation keeps the room. While it's closed,
+ * a dot on the row flags anything behind it that needs the user. The controls open their own menus
+ * as before; the closed panel is inert, so it is neither tabbed into nor read out.
+ */
+function SidebarFoot({ rail }: { rail: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [location] = useLocation();
+  const panelId = useId();
+  const panel = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const account = useAccount().info;
+  const { summary } = useHealth();
+  const github = useGitHub().status;
+  const vercel = useVercel().status;
+  const canva = useCanva().status;
+  // Leaving the page folds it away again.
+  useEffect(() => setOpen(false), [location]);
+
+  const attention = footAttention({
+    health: summary.tone,
+    credits: account ? account.credits : null,
+    githubMissingScopes: Boolean(github?.connected && github.missingScopes.length),
+    vercelReconnect: Boolean(vercel?.needsReconnect),
+    canvaReconnect: Boolean(canva?.needsReconnect),
+  });
+  const user = account?.user;
+  const name = user ? (user.role === "admin" && !user.login ? "Operator" : user.displayName || user.login || "Your account") : "Your account";
+  const detail = account ? creditsLine(account.credits) : "Account and settings";
+  const flagged = attention && !open ? attention : null;
+  const label = `${open ? "Hide" : "Show"} account and settings: ${name}, ${detail}${flagged ? `. Needs attention: ${flagged.reasons.join(", ")}` : ""}`;
+  // Escape inside the panel (not in a menu one of its controls opened) folds it and returns to the row.
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (event.key !== "Escape" || !open || !panel.current?.contains(event.target as Node)) return;
+    event.stopPropagation();
+    setOpen(false);
+    trigger.current?.focus();
+  };
+
+  const row = (
+    <button ref={trigger} type="button" className="foot-trigger" aria-expanded={open} aria-controls={panelId} aria-label={label} onClick={() => setOpen(value => !value)}>
+      <span className="foot-avatar" aria-hidden="true">
+        {user?.avatarUrl ? <img src={user.avatarUrl} alt="" width={26} height={26} /> : <span>{name.slice(0, 1).toUpperCase()}</span>}
+        {flagged && <span className="dot foot-dot" data-tone={flagged.tone} />}
+      </span>
+      <span className="foot-text" aria-hidden="true">
+        <span className="foot-name">{name}</span>
+        <small>{detail}</small>
+      </span>
+      {!rail && <ChevronUp size={15} className="foot-chevron" aria-hidden="true" />}
+    </button>
+  );
+  return (
+    <div className="sidebar-foot" data-open={open || undefined} onKeyDown={onKeyDown}>
+      <div ref={panel} id={panelId} className="foot-panel" role="group" aria-label="Account and settings" inert={open ? undefined : true}>
+        <div className="foot-panel-inner">
+          <CreditsMeter rail={rail} />
+          <HealthStatus rail={rail} />
+          <GitHubAccount rail={rail} />
+          <VercelAccount rail={rail} />
+          <CanvaAccount rail={rail} />
+          <ThemeItem rail={rail} />
+          <HomepageLink rail={rail} />
+          <SignOut rail={rail} />
+        </div>
+      </div>
+      {rail ? <Tip content={open ? "Hide account and settings" : "Account and settings"} side="right">{row}</Tip> : row}
+    </div>
   );
 }
 

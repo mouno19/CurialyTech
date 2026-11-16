@@ -19,6 +19,7 @@ export const CATEGORIES = {
   imgAlt: "img without alt",
   duplicateIds: "duplicate ids",
   tablist: "tablist without tabs",
+  cutLabel: "a label that must show whole is cut off",
   focus: "keyboard focus not visible",
   motion: "animations running under reduced motion",
   vendor: "vendor name or secret in text/attributes",
@@ -203,6 +204,7 @@ export function judge(record, { mediaLimit = 6, touchMin = 40 } = {}) {
     if (facts.emptyTablists.length) fail("tablist", facts.emptyTablists);
     if (facts.vendor.length) fail("vendor", facts.vendor);
     if (facts.brokenImages.length) fail("images", facts.brokenImages);
+    if (facts.cutLabels?.length) fail("cutLabel", facts.cutLabels.slice(0, 10));
     if (facts.clipped.length) warn("clipped", facts.clipped.slice(0, 10));
     if (facts.touch.length) warn("touch", { min: touchMin, count: facts.touch.length, smallest: [...facts.touch].sort((a, b) => Math.min(a.w, a.h) - Math.min(b.w, b.h)).slice(0, 12) });
     if (facts.stackedIcons.length) warn("stackedIcons", facts.stackedIcons.slice(0, 10));

@@ -226,6 +226,10 @@ export function installProbes() {
       const bar = send.closest(".composer");
       out.composer = { sendBelowTools: s.top >= t.bottom - 1, overflowPx: bar ? bar.scrollWidth - bar.clientWidth : 0 };
     }
+    // Labels that must read in full (the /btw "passed to the agent" badge): cut off when their text is
+    // wider or taller than the box shows.
+    out.cutLabels = [...document.querySelectorAll(".btw-chip")].filter(visible).filter(el => el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1)
+      .map(el => ({ el: describe(el), text: cut(el.textContent, 60), scroll: [el.scrollWidth, el.scrollHeight], client: [el.clientWidth, el.clientHeight] }));
     // LAYOUT-5: which pane a phone task page opened on.
     const pane = document.querySelector(".pane-switch [role=\"tab\"][aria-selected=\"true\"]");
     out.selectedPane = pane ? cut(pane.textContent, 30) : null;

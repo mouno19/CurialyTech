@@ -184,6 +184,21 @@ async function settle(page, driver, check, record, { quietMs = 400, budgetMs = 1
   await sleep(200);
 }
 
+/**
+ * Opens the sidebar footer's account and settings (SidebarFoot): in the sidebar from 1024px, else in
+ * the navigation drawer, which it opens first. Returns the selector its controls are under.
+ */
+async function openSidebarFoot(page) {
+  const desktop = await page.locator(".sidebar .foot-trigger").first().isVisible().catch(() => false);
+  if (!desktop) await page.getByRole("button", { name: "Open navigation" }).first().click({ timeout: 6000 });
+  const scope = desktop ? ".sidebar" : ".nav-drawer";
+  await page.locator(`${scope} .foot-trigger`).first().click({ timeout: 5000 });
+  await page.locator(`${scope} .sidebar-foot[data-open]`).first().waitFor({ state: "attached", timeout: 5000 });
+  // The panel has finished opening when its row has grown (the transition is 240 ms).
+  await page.waitForTimeout(300);
+  return `${scope} .foot-panel`;
+}
+
 async function act(page, check, record) {
   try {
     if (check.action === "model-menu") {
@@ -285,26 +300,18 @@ async function act(page, check, record) {
       ], { timeout: 6000 });
       await page.locator(".vault-uploads-title", { hasText: "3 files uploaded, 1 not" }).first().waitFor({ state: "visible", timeout: 10_000 });
     } else if (check.action === "theme-menu") {
-      // The sidebar's Theme item (in the navigation drawer below 1024px), opened, not changed.
-      const item = page.locator(".sidebar .nav-item", { hasText: "Theme" }).first();
-      if (await item.isVisible().catch(() => false)) await item.click({ timeout: 6000 });
-      else {
-        await page.getByRole("button", { name: "Open navigation" }).first().click({ timeout: 6000 });
-        await page.locator(".nav-drawer .nav-item", { hasText: "Theme" }).first().click({ timeout: 5000 });
-      }
+      // The sidebar's Theme item (in the navigation drawer below 1024px), behind the footer's profile row; opened, not changed.
+      const scope = await openSidebarFoot(page);
+      await page.locator(`${scope} .nav-item`, { hasText: "Theme" }).first().click({ timeout: 5000 });
       await page.getByRole("menuitemradio", { name: /^System/ }).first().waitFor({ state: "visible", timeout: 5000 });
     } else if (check.action === "home-theme-menu") {
       // The homepage's theme button (beside the menu button below 1024px).
       await page.locator(".lp-nav-theme:visible").first().click({ timeout: 6000 });
       await page.getByRole("menuitemradio", { name: /^Dark/ }).first().waitFor({ state: "visible", timeout: 5000 });
     } else if (check.action === "credits-dialog") {
-      // The sidebar's credits meter (in the navigation drawer below 1024px).
-      const meter = page.locator(".sidebar .credits-meter").first();
-      if (await meter.isVisible().catch(() => false)) await meter.click({ timeout: 6000 });
-      else {
-        await page.getByRole("button", { name: "Open navigation" }).first().click({ timeout: 6000 });
-        await page.locator(".nav-drawer .credits-meter").first().click({ timeout: 5000 });
-      }
+      // The sidebar's credits meter (in the navigation drawer below 1024px), behind the footer's profile row.
+      const scope = await openSidebarFoot(page);
+      await page.locator(`${scope} .credits-meter`).first().click({ timeout: 5000 });
       await page.getByRole("dialog", { name: "Credits" }).first().waitFor({ state: "visible", timeout: 5000 });
     } else if (check.action === "home-menu") {
       await page.getByRole("button", { name: "Open the menu" }).first().click({ timeout: 6000 });

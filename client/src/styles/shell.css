@@ -102,8 +102,31 @@
 .sidebar[data-state="rail"] .nav-section { display: none; }
 .sidebar[data-state="rail"] .nav-badge { position: absolute; top: 2px; right: 1px; min-width: 16px; height: 16px; padding: 0 4px; font-size: 9.5px; line-height: 16px; }
 
-.sidebar-foot { flex: none; display: flex; flex-direction: column; gap: 2px; padding: 10px; border-top: 1px solid var(--border); }
-.sidebar[data-state="rail"] .sidebar-foot { align-items: center; padding: 10px 0; }
+/* Footer (SidebarFoot): a profile row that opens the account and system controls above it. The
+   panel animates its row from 0fr to 1fr, and scrolls inside when the sidebar is short. */
+.sidebar-foot { flex: none; display: flex; flex-direction: column; max-height: 72%; padding: 8px 10px 10px; border-top: 1px solid var(--border); }
+.sidebar[data-state="rail"] .sidebar-foot { align-items: center; padding: 8px 0 10px; }
+.foot-panel { display: grid; grid-template-rows: 0fr; min-height: 0; width: 100%; transition: grid-template-rows var(--dur-3) var(--ease-out); }
+.sidebar-foot[data-open] .foot-panel { grid-template-rows: 1fr; }
+.foot-panel-inner { display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: hidden; opacity: 0; transition: opacity var(--dur-2) var(--ease-out), padding var(--dur-3) var(--ease-out); }
+.sidebar-foot[data-open] .foot-panel-inner { overflow-y: auto; opacity: 1; padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px dashed var(--border); }
+.sidebar[data-state="rail"] .foot-panel-inner { align-items: center; }
+.foot-trigger { position: relative; display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 4px 8px; border-radius: var(--r-sm); color: var(--text); text-align: left; transition: background-color var(--dur-1) var(--ease-out); }
+.foot-trigger:hover { background: var(--hover); }
+.foot-trigger[aria-expanded="true"] { background: var(--selected); }
+.sidebar[data-state="rail"] .foot-trigger { justify-content: center; width: 44px; padding: 0; }
+.foot-avatar { position: relative; flex: none; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--paper-deep); color: var(--text-2); font: 600 12px/1 var(--font-sans, inherit); box-shadow: inset 0 0 0 1px var(--border-strong); }
+.foot-avatar > img { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; }
+.foot-dot { position: absolute; top: -2px; right: -2px; box-shadow: 0 0 0 2px var(--paper); }
+.foot-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
+.foot-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+.foot-text > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--text-3); }
+.foot-chevron { flex: none; color: var(--text-3); transition: transform var(--dur-3) var(--ease-out); }
+.foot-trigger[aria-expanded="true"] .foot-chevron { transform: rotate(180deg); }
+.sidebar[data-state="rail"] .foot-text { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) {
+  .foot-panel, .foot-panel-inner, .foot-chevron { transition: none; }
+}
 
 /* Health summary: one dot, one line ("9/10 systems ok"), the per-service list in a popover. */
 .health-summary { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; padding: 4px 10px; border-radius: var(--r-sm); color: var(--text-2); text-align: left; font-size: 12.5px; transition: background-color var(--dur-1); }
