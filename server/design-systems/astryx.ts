@@ -482,7 +482,7 @@ export function astryxContext(snapshot: AstryxSnapshot, fit: AstryxFit, mode: "a
 // ---- Commands the sandbox must not run ------------------------------------------------------------
 
 const RUNNERS = String.raw`(?:npx|pnpx|bunx|pnpm\s+dlx|pnpm\s+exec|yarn\s+dlx|npm\s+exec|npm\s+x)`;
-const UNSCOPED_RUN = new RegExp(String.raw`(^|[\s;&|()\x60$])${RUNNERS}(?:\s+(?:-y|--yes|--package(?:=|\s+)\S+|-p\s+\S+))*\s+astryx(?:@\S*)?(?=$|[\s;&|)])`, "i");
+const UNSCOPED_RUN = new RegExp(String.raw`(^|[\s;&|()\x60$])${RUNNERS}(?:\s+(?:-y|--yes|--|--package(?:=|\s+)\S+|-p\s+\S+))*\s+astryx(?:@\S*)?(?=$|[\s;&|)])`, "i");
 const UNSCOPED_INSTALL = /(^|[\s;&|()])(?:npm\s+(?:i|install|add)|pnpm\s+(?:add|i|install)|yarn\s+(?:global\s+)?add|bun\s+(?:add|i|install))\b[^;&|\n]*?\s(?:-\S+\s+)*astryx(?:@\S*)?(?=$|[\s;&|)])/i;
 
 /**

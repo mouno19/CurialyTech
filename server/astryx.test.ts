@@ -253,7 +253,7 @@ describe("astryx check", () => {
 
 describe("the unscoped astryx package", () => {
   it("refuses running or installing it, and leaves Astryx's own packages and other commands alone", () => {
-    for (const command of ["npx astryx init", "npx -y astryx docs", "pnpm dlx astryx", "bunx astryx@latest build", "yarn dlx astryx", "npm exec astryx", "cd app && npx astryx component Button", "npm i astryx", "npm install -D astryx@latest", "yarn add astryx", "pnpm add astryx"]) {
+    for (const command of ["npx astryx init", "npx -y astryx docs", "pnpm dlx astryx", "bunx astryx@latest build", "yarn dlx astryx", "npm exec astryx", "npm exec -- astryx init", "npx -p astryx astryx", "cd app && npx astryx component Button", "npm i astryx", "npm install -D astryx@latest", "yarn add astryx", "pnpm add astryx"]) {
       expect(astryxCommandRefusal(command), command).toMatch(/unrelated/);
     }
     for (const command of ["npm install --save-exact @astryxdesign/core@0.7.16 @astryxdesign/theme-neutral@0.7.16", "npx @astryxdesign/cli@0.7.16 docs", "grep -r astryx src", "cat src/astryx-themes.ts", "ls node_modules/@astryxdesign", "npm run build", "npx astryx-tools"]) {
