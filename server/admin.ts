@@ -133,7 +133,8 @@ export function adminRouter() {
     const [{ rows }, settings, billing] = await Promise.all([
       query<AccountRow>(
         `SELECT u.id, u.role, u.credit_allowance, u.bonus_credits, u.window_started_at, u.window_used, u.free_allowance_withheld, u.login, u.display_name, u.avatar_url, u.email,
-                u.created_at, u.last_seen_at, u.banned_at, u.plan_id, u.plan_expires_at, u.plan_credits_per_window, u.api_balance_micros,
+                u.created_at, u.last_seen_at, u.banned_at, u.pro_expires_at, u.pro_credits_per_window, u.max_expires_at, u.max_credits_per_window,
+                u.plan_id, u.plan_expires_at, u.plan_credits_per_window, u.api_balance_micros,
                 u.x_username, u.x_followed_at, u.x_posted_at,
                 (SELECT count(*) FROM curialy.users o WHERE u.signup_network IS NOT NULL AND o.signup_network = u.signup_network AND o.id <> u.id) AS same_network,
                 ((SELECT e.detail FROM curialy.credit_events e WHERE e.user_id = u.id AND e.kind = 'adjust' AND e.detail IN ('free allowance removed', 'free allowance given') ORDER BY e.created_at DESC LIMIT 1) = 'free allowance removed') IS TRUE AS removed_by_operator,
@@ -157,7 +158,7 @@ export function adminRouter() {
           createdAt: row.created_at.toISOString(), lastSeenAt: row.last_seen_at?.toISOString() ?? null, banned: Boolean(row.banned_at),
           tasks: Number(row.tasks), activeRuns: Number(row.active), creditsUsedTotal: Math.round(Number(row.used_total ?? 0) * 100) / 100,
           customAllowance: row.credit_allowance, credits, freeAllowance: freeAllowanceInfo(row),
-          plan: credits.plan, apiBalanceUsd: microsToUsd(Number(row.api_balance_micros ?? 0)),
+          plan: credits.plan, plans: credits.plans, apiBalanceUsd: microsToUsd(Number(row.api_balance_micros ?? 0)),
           x: row.x_username ? { username: row.x_username, followed: Boolean(row.x_followed_at), posted: Boolean(row.x_posted_at) } : null,
         };
       }),

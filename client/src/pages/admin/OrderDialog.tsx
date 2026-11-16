@@ -88,7 +88,7 @@ export function OrderDialog({ code, settings, onClose, onChanged, announce }: {
   // The operator approved it here (rather than the order completing by itself while a confirmation was open).
   const [approvedHere, setApprovedHere] = useState(false);
   // The account's plan, for what approving a plan order gives (undefined: not known yet).
-  const [accountPlan, setAccountPlan] = useState<BillingAccount["plan"] | undefined>(undefined);
+  const [accountPlans, setAccountPlans] = useState<BillingAccount["plans"] | undefined>(undefined);
   const id = useId();
   // Every write counts: a reload that started before an action finished must not undo it.
   const version = useRef(0);
@@ -146,7 +146,7 @@ export function OrderDialog({ code, settings, onClose, onChanged, announce }: {
   useEffect(() => {
     if (!userId || !wantsPlan) return;
     let live = true;
-    adminBillingApi.account(userId).then(result => { if (live) setAccountPlan(result.plan); }, () => undefined);
+    adminBillingApi.account(userId).then(result => { if (live) setAccountPlans(result.plans); }, () => undefined);
     return () => { live = false; };
   }, [userId, wantsPlan]);
 
@@ -269,7 +269,7 @@ export function OrderDialog({ code, settings, onClose, onChanged, announce }: {
           {/* A completed order (by itself while a confirmation was open) has nothing left to decide. */}
           <ConfirmDialog open={approving} onOpenChange={setApproving} title={`Approve ${order.code}?`} confirmLabel="Approve and apply" busyLabel="Applying…" confirmDisabled={done} onConfirm={approve}>
             {completedMeanwhile}
-            <p>{approveText(order, accountPlan, settings?.plans ?? null, dayText)}</p>
+            <p>{approveText(order, accountPlans, settings?.plans ?? null, dayText)}</p>
             <ApproveFinding order={order} />
             <div className="field admin-confirm-field">
               <label className="field-label" htmlFor={`${id}-note`}>Note (optional)</label>

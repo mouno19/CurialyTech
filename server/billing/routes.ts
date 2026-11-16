@@ -9,10 +9,10 @@ import {
 import type { CreditSettings } from "@shared/credits";
 import { GATEWAY_MODELS, type GatewayModel } from "@shared/gateway";
 import { accountOf, rateLimited, requireAdmin, requireUser } from "../auth";
-import { getSettings as getCreditSettings } from "../credits";
+import { getSettings as getCreditSettings, highestPlan } from "../credits";
 import {
   accountBilling, adjustApiBalance, approveOrder, billingOverview, chooseMethod, createOrder, endPlan, getAdminOrder, getOwnOrder, grantPlan, listAdminOrders, walletBalances,
-  listOwnOrders, planOfAccount, prepayLimits, recheckOrder, rejectOrder, disapproveOrder, submitHash, type AdminOrderFilter,
+  listOwnOrders, plansOfAccount, prepayLimits, recheckOrder, rejectOrder, disapproveOrder, submitHash, type AdminOrderFilter,
 } from "./orders";
 import { apiUsageReport, creditUsageReport } from "./reports";
 import { BillingError, getBillingSettings, offeredNetworks, saveBillingSettings } from "./settings";
@@ -164,8 +164,8 @@ export function billingRouter() {
 
   router.get("/account", handle(async (req, res) => {
     const user = accountOf(req);
-    const [plan, apiWallet, prepay] = await Promise.all([planOfAccount(user.id), getApiWallet(user.id), prepayLimits(user.id)]);
-    res.json({ plan, apiWallet, operator: user.role === "admin", prepay } satisfies BillingAccount);
+    const [plans, apiWallet, prepay] = await Promise.all([plansOfAccount(user.id), getApiWallet(user.id), prepayLimits(user.id)]);
+    res.json({ plan: highestPlan(plans), plans, apiWallet, operator: user.role === "admin", prepay } satisfies BillingAccount);
   }));
 
   router.get("/orders", handle(async (req, res) => res.json({ orders: await listOwnOrders(accountOf(req).id) })));
@@ -277,10 +277,12 @@ export function billingAdminRouter() {
     res.json(await adminAccount(id));
   }));
 
+  // planId: end that plan (another the account has keeps running); without one, every plan ends.
   router.delete("/users/:id/plan", handle(async (req, res) => {
     const id = uuid.parse(req.params.id);
     const { note } = noteSchema.parse(req.body ?? {});
-    await endPlan(id, note, accountOf(req).id);
+    const { planId } = z.object({ planId: z.enum(["pro", "max"], "Choose Pro or Max.").nullish() }).parse(req.body ?? {});
+    await endPlan(id, note, accountOf(req).id, planId ?? null);
     res.json(await adminAccount(id));
   }));
 

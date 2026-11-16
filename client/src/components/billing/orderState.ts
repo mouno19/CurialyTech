@@ -257,20 +257,28 @@ export function orderTimeline(order: PaymentOrder, now = Date.now()): TimelineSt
 
 /**
  * The success panel's sentence: what this payment did. A plan reads in the present tense only while
- * the account's plan still ends where this payment left it (a later order, the operator or time may
- * have changed it since); the allowance is the one this order bought, fixed when it was placed, and
- * only where the order gave the account that plan (an extension adds days, not credits).
+ * that plan of the account still ends where this payment left it (a later order, the operator or
+ * time may have changed it since); the allowance is the one this order bought, fixed when it was
+ * placed, and only where the order gave the account that plan (an extension adds days, not credits).
+ * accountPlans: the plans the account has now (Pro and Max can run side by side), null when not known.
  */
-export function completedText(order: PaymentOrder, planName: (id: string) => string, accountPlan: { id: string; expiresAt: string } | null, windowHours: number | null) {
+export function completedText(order: PaymentOrder, planName: (id: string) => string, accountPlans: { id: string; expiresAt: string }[] | null, windowHours: number | null, now = Date.now()) {
   const applied = order.applied;
   if (!applied) return "Your payment is complete.";
   if (typeof applied.apiBalanceAddedUsd === "number") return `${formatUsd(applied.apiBalanceAddedUsd)} was added to your API balance. Your API keys on the Developer API page spend it.`;
   if (!applied.planId || !applied.planExpiresAt) return "Your payment is complete.";
   const name = planName(applied.planId);
   const until = dayText(applied.planExpiresAt);
-  const current = accountPlan !== null && accountPlan.id === applied.planId && Date.parse(accountPlan.expiresAt) === Date.parse(applied.planExpiresAt);
+  const plans = accountPlans ?? [];
+  const current = plans.some(plan => plan.id === applied.planId && Date.parse(plan.expiresAt) === Date.parse(applied.planExpiresAt!));
   const credits = order.planId === applied.planId && order.planCreditsPerWindow && windowHours ? `, with ${creditCount(order.planCreditsPerWindow)} credits every ${windowHours} hours` : "";
+  // The other plans still running beside this one.
+  const others = plans.filter(plan => plan.id !== applied.planId && Date.parse(plan.expiresAt) > now).map(plan => planName(plan.id));
   switch (applied.effect) {
+    case "concurrent":
+      if (current && others.length) return `${name} is active until ${until}${credits}, alongside ${others.join(" and ")}: their credits add up while both last.`;
+      if (current) return `${name} is active until ${until}${credits}.`;
+      return `This payment gave you ${name} until ${until}${credits}, alongside the plan you already had.`;
     case "extend":
       return current ? `${name} now runs until ${until}.` : `This payment extended ${name} to ${until}.`;
     case "upgrade":

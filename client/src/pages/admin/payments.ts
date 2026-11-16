@@ -1,5 +1,5 @@
 import {
-  coinOn, formatUsd, networkInfo, normalizeOrderCode, PAYMENT_STATUS, planAfterPurchase,
+  applyPlanPurchase, coinOn, formatUsd, networkInfo, normalizeOrderCode, PAYMENT_STATUS,
   type AdminPaymentOrder, type BillingAccount, type PaymentEvent, type PaymentOrder, type PaymentStatus, type PlanConfig, type PlanEffect, type PlanId,
 } from "@shared/billing";
 import { formatCredits } from "@shared/credits";
@@ -7,7 +7,7 @@ import { formatCredits } from "@shared/credits";
 // The operator's Payments tab and order dialog as pure functions: the admin page's address
 // (/admin?tab=payments&order=CUR-…, which payment alerts link to), the status filters and their
 // counts, and what an order shows and what approving it would do. Every sentence here says only
-// what the server reported, or what the server will do by the same rules (planAfterPurchase).
+// what the server reported, or what the server will do by the same rules (applyPlanPurchase).
 
 // ---- Tabs and the address ----
 
@@ -248,7 +248,7 @@ export const ACTOR_LABEL: Record<PaymentEvent["actor"], string> = { customer: "P
 
 const days = (count: number) => `${count} ${count === 1 ? "day" : "days"}`;
 
-const EFFECT_WORD: Record<PlanEffect, string> = { start: "started", extend: "extended", upgrade: "upgraded", extend_higher: "added to the higher plan" };
+const EFFECT_WORD: Record<PlanEffect, string> = { start: "started", concurrent: "started alongside the other plan", extend: "extended", upgrade: "upgraded", extend_higher: "added to the higher plan" };
 
 /** What completing the order did: "Pro until 9 Dec 2026 · upgraded", "$25.00 added to the API balance". */
 export function appliedText(order: PaymentOrder, planName: (id: PlanId) => string, day: (iso: string) => string) {
@@ -261,26 +261,32 @@ export function appliedText(order: PaymentOrder, planName: (id: PlanId) => strin
 
 /**
  * What approving the order gives the account, by the rules the server applies it with
- * (applyLocked): a top-up adds its balance; a plan starts, extends or upgrades the account's plan
- * (planAfterPurchase) as it was sold, with the days, credits per window and list price fixed when
- * the order was placed, whatever the plan's settings are now. current: the account's plan (null:
- * none; undefined: not known, so the sentence doesn't guess an end date). Dates are "about": the
- * server works them out when it applies.
+ * (applyLocked): a top-up adds its balance; a plan starts (alongside the other plan, when the
+ * account has it: both run, and their credits add up) or extends that plan (applyPlanPurchase) as
+ * it was sold, with the days and credits per window fixed when the order was placed, whatever the
+ * plan's settings are now. current: the account's plans (undefined: not known, so the sentence
+ * doesn't guess an end date). Dates are "about": the server works them out when it applies.
  */
-export function approveText(order: AdminPaymentOrder, current: BillingAccount["plan"] | undefined, plans: Record<PlanId, PlanConfig> | null, day: (iso: string) => string, now = Date.now()) {
+export function approveText(order: AdminPaymentOrder, current: BillingAccount["plans"] | undefined, plans: Record<PlanId, PlanConfig> | null, day: (iso: string) => string, now = Date.now()) {
   const who = accountName(order.user);
   if (order.kind === "api") return `Adds ${formatUsd(order.creditUsd ?? order.priceUsd)} to ${who}'s API balance.`;
   const planId = order.planId;
-  if (!planId || !plans || current === undefined) return `Gives ${who} ${order.title} the way a purchase does: it starts, extends or upgrades their plan.`;
+  if (!planId || !plans || current === undefined) return `Gives ${who} ${order.title} the way a purchase does: it starts the plan (alongside any other they have) or extends it.`;
   const config = plans[planId];
-  const sold: PlanConfig = { ...config, priceUsd: order.listUsd, days: order.planDays ?? config.days, creditsPerWindow: order.planCreditsPerWindow ?? config.creditsPerWindow };
-  const active = current && Date.parse(current.expiresAt) > now ? current : null;
-  const next = planAfterPurchase(active && { planId: active.id, expiresAt: active.expiresAt }, planId, { ...plans, [planId]: sold }, now);
+  const sold: PlanConfig = { ...config, days: order.planDays ?? config.days, creditsPerWindow: order.planCreditsPerWindow ?? config.creditsPerWindow };
+  const running = current.filter(plan => Date.parse(plan.expiresAt) > now);
+  const next = applyPlanPurchase(running.map(plan => ({ planId: plan.id, expiresAt: plan.expiresAt })), planId, { ...plans, [planId]: sold }, now);
   const until = day(next.expiresAt);
   const credits = (count: number) => `${formatCredits(count)} credits per window`;
-  // The allowance as the server sets it: the sold one, or the higher of the two on an extension; a higher plan keeps its own.
-  if (next.effect === "start") return `Gives ${who} ${sold.name} for ${days(sold.days)}, starting now: until about ${until}, with ${credits(sold.creditsPerWindow)}.`;
-  if (next.effect === "extend") return `Adds ${days(sold.days)} to ${who}'s ${sold.name} plan: until about ${until}, with ${credits(Math.max(active!.creditsPerWindow, sold.creditsPerWindow))}.`;
-  if (next.effect === "upgrade") return `Upgrades ${who} from ${plans[active!.id].name} to ${sold.name} now, with the days left carried over at their value: until about ${until}, with ${credits(sold.creditsPerWindow)}.`;
-  return `Adds the value of ${days(sold.days)} of ${sold.name} to ${who}'s ${plans[next.planId].name} plan: until about ${until}, keeping its ${credits(active!.creditsPerWindow)}.`;
+  // The allowance as the server sets it: the sold one, or the higher of the two on an extension.
+  if (next.effect === "extend") {
+    const own = running.find(plan => plan.id === planId)!;
+    return `Adds ${days(sold.days)} to ${who}'s ${sold.name} plan: until about ${until}, with ${credits(Math.max(own.creditsPerWindow, sold.creditsPerWindow))}.`;
+  }
+  if (next.effect === "concurrent") {
+    const others = running.filter(plan => plan.id !== planId);
+    const total = others.reduce((sum, plan) => sum + plan.creditsPerWindow, sold.creditsPerWindow);
+    return `Gives ${who} ${sold.name} for ${days(sold.days)}, starting now alongside their ${others.map(plan => plan.name).join(" and ")} plan: until about ${until}, with ${credits(sold.creditsPerWindow)}, so ${credits(total)} while both last.`;
+  }
+  return `Gives ${who} ${sold.name} for ${days(sold.days)}, starting now: until about ${until}, with ${credits(sold.creditsPerWindow)}.`;
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PlanOffer } from "@shared/billing";
 import type { FreeTier } from "@shared/billing";
-import { daysLeftText, daysText, formatPrice, freeMultiple, freeTierLines, listText, offerBadge, offerEnd, offerSentence, offerText, ownAllowance, planAction, planConfigs, planState, topUpSentence } from "./plans";
+import { daysLeftText, daysText, formatPrice, freeMultiple, freeTierLines, listText, offerBadge, offerEnd, offerSentence, offerText, ownAllowance, planAction, planConfigs, plansAllowance, planState, plansText, runningPlans, topUpSentence } from "./plans";
 
 const NOW = Date.parse("2026-11-09T12:00:00Z");
 const DAY = 86_400_000;
@@ -14,27 +14,36 @@ const plans = planConfigs(OFFERS)!;
 const [pro, max] = OFFERS;
 
 describe("planAction", () => {
-  it("reads planAfterPurchase's effect into the button", () => {
-    expect(planAction(null, pro, plans, NOW)).toMatchObject({ effect: "start", label: "Get Pro" });
-    expect(planAction({ planId: "pro", expiresAt: inDays(10) }, pro, plans, NOW)).toMatchObject({ effect: "extend", label: "Extend Pro", hint: "Adds 30 days to the end of your plan." });
-    expect(planAction({ planId: "pro", expiresAt: inDays(12) }, max, plans, NOW)).toMatchObject({ effect: "upgrade", label: "Upgrade to Max", hint: expect.stringContaining("about 3 days more for the time left on Pro") });
-    // A month of Pro is worth a quarter of a month of Max.
-    expect(planAction({ planId: "max", expiresAt: inDays(5) }, pro, plans, NOW)).toMatchObject({ effect: "extend_higher", label: "Adds 7.5 days to Max" });
+  const onPro = { id: "pro" as const, name: "Pro", expiresAt: inDays(10), creditsPerWindow: 6000 };
+  const onMax = { id: "max" as const, name: "Max", expiresAt: inDays(5), creditsPerWindow: 30_000 };
+
+  it("gets a plan, extends the one the account has, and adds the other one alongside it", () => {
+    expect(planAction([], pro, plans, NOW)).toMatchObject({ effect: "start", label: "Get Pro", hint: "30 days from when the payment is applied." });
+    expect(planAction([onPro], pro, plans, NOW)).toMatchObject({ effect: "extend", label: "Extend Pro", hint: "Adds 30 days to the end of your Pro plan." });
+    // Max on Pro is never blocked or converted: both run, and the credits add up.
+    expect(planAction([onPro], max, plans, NOW)).toEqual({
+      effect: "concurrent", label: "Add Max",
+      hint: "Runs alongside Pro for 30 days: 36,000 credits per window while both last. Pro keeps its own end date.",
+    });
+    expect(planAction([onMax], pro, plans, NOW)).toMatchObject({ effect: "concurrent", label: "Add Pro", hint: expect.stringContaining("36,000 credits per window while both last") });
+    // Holding both, each button extends its own plan.
+    expect(planAction([onPro, onMax], max, plans, NOW)).toMatchObject({ effect: "extend", label: "Extend Max" });
   });
 
-  it("treats an ended plan as none", () => {
-    const ended = planState({ id: "max", expiresAt: inDays(-1) }, NOW);
-    expect(ended).toBeNull();
-    expect(planAction(ended, pro, plans, NOW).label).toBe("Get Pro");
-    // Paying ahead: the whole purchase, at the same value per day.
-    expect(planAction(null, pro, plans, NOW, 3)).toMatchObject({ effect: "start", label: "Get Pro for 3 months", hint: "90 days from when the payment is applied." });
-    expect(planAction({ planId: "pro", expiresAt: inDays(10) }, pro, plans, NOW, 2)).toMatchObject({ effect: "extend", label: "Extend Pro for 2 months", hint: "Adds 60 days to the end of your plan." });
-    expect(planAction({ planId: "max", expiresAt: inDays(5) }, pro, plans, NOW, 2)).toMatchObject({ effect: "extend_higher", label: "Adds 15 days to Max" });
-    expect(planState({ id: "max", expiresAt: inDays(1) }, NOW)).toEqual({ planId: "max", expiresAt: inDays(1) });
+  it("treats an ended plan as none, and pays ahead for the whole purchase", () => {
+    const ended = { ...onMax, expiresAt: inDays(-1) };
+    expect(planState([ended], NOW)).toEqual([]);
+    expect(planAction([ended], pro, plans, NOW).label).toBe("Get Pro");
+    expect(planAction([], pro, plans, NOW, 3)).toMatchObject({ effect: "start", label: "Get Pro for 3 months", hint: "90 days from when the payment is applied." });
+    expect(planAction([onPro], pro, plans, NOW, 2)).toMatchObject({ effect: "extend", label: "Extend Pro for 2 months", hint: "Adds 60 days to the end of your Pro plan." });
+    expect(planAction([onMax], pro, plans, NOW, 2)).toMatchObject({ effect: "concurrent", label: "Add Pro for 2 months", hint: expect.stringContaining("for 60 days") });
+    expect(planState([onMax], NOW)).toEqual([{ planId: "max", expiresAt: inDays(5) }]);
   });
 
-  it("converts at list prices, so the offer never changes what a plan is worth", () => {
-    expect(plans.pro.priceUsd).toBe(20);
+  it("adds up and names the plans an account has", () => {
+    expect(runningPlans([onPro, { ...onMax, expiresAt: inDays(-1) }], NOW)).toEqual([onPro]);
+    expect(plansAllowance([onPro, onMax])).toBe(36_000);
+    expect(plansText([onPro, onMax])).toBe("Pro + Max");
     expect(planConfigs(OFFERS.slice(0, 1))).toBeNull();
   });
 });
@@ -74,13 +83,14 @@ describe("prices and the offer", () => {
 
   it("knows the account's own allowance only where it shows", () => {
     // Without a plan, the allowance is the account's own (none at all included).
-    expect(ownAllowance({ unlimited: false, allowance: 10_000 }, null)).toBe(10_000);
-    expect(ownAllowance({ unlimited: false, allowance: 0 }, null)).toBe(0);
-    // With one, the account gets the larger: its own shows only when it's above the plan's.
-    expect(ownAllowance({ unlimited: false, allowance: 10_000 }, { creditsPerWindow: 6000 })).toBe(10_000);
-    expect(ownAllowance({ unlimited: false, allowance: 6000 }, { creditsPerWindow: 6000 })).toBeNull();
-    expect(ownAllowance({ unlimited: true, allowance: 0 }, null)).toBeNull();
-    expect(ownAllowance(null, null)).toBeNull();
+    expect(ownAllowance({ unlimited: false, allowance: 10_000 }, [])).toBe(10_000);
+    expect(ownAllowance({ unlimited: false, allowance: 0 }, [])).toBe(0);
+    // With plans, the account gets the larger: its own shows only when it's above what they give together.
+    expect(ownAllowance({ unlimited: false, allowance: 10_000 }, [{ creditsPerWindow: 6000 }])).toBe(10_000);
+    expect(ownAllowance({ unlimited: false, allowance: 6000 }, [{ creditsPerWindow: 6000 }])).toBeNull();
+    expect(ownAllowance({ unlimited: false, allowance: 36_000 }, [{ creditsPerWindow: 6000 }, { creditsPerWindow: 30_000 }])).toBeNull();
+    expect(ownAllowance({ unlimited: true, allowance: 0 }, [])).toBeNull();
+    expect(ownAllowance(null, [])).toBeNull();
   });
 
   it("says the offer in one line and as a badge", () => {

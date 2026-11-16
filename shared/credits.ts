@@ -107,8 +107,13 @@ export type CreditBalance = {
   resetsAt: string | null;
   /** How long this account's window lasts: the boost's when the boost sets the allowance, else the settings'. */
   windowHours: number;
-  /** The account's active plan (its allowance is the larger of the plan's and its own), or null. */
+  /** The account's highest active plan, or null. */
   plan: { id: "pro" | "max"; name: string; expiresAt: string; creditsPerWindow: number } | null;
+  /**
+   * Every active plan, Pro first. Plans held together run side by side and their allowances add up:
+   * the allowance is that sum, or the account's own when that is higher.
+   */
+  plans: { id: "pro" | "max"; name: string; expiresAt: string; creditsPerWindow: number }[];
   /** The launch boost this account has (both X rewards done, offer running), whether or not a plan outranks it; else null. */
   boost: { creditsPerWindow: number; windowHours: number; endsAt: string | null } | null;
   /** This account gets the free credits (welcome, and the X rewards). False when it started without them. */

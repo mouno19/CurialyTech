@@ -15,22 +15,22 @@ import { balanceChangePreview, balanceChangeText, grantLabel, grantResult, grant
 import type { OrderChange } from "./PaymentsPanel";
 import { focusWhenClosed, TextField } from "./parts";
 
-/** The accounts list's plan and API balance: "Pro · until 9 Dec" (or No plan), and the balance. */
+/** The accounts list's plans and API balance: "Pro · until 9 Dec" for each plan running (or No plan), and the balance. */
 export function AccountBillingCell({ user }: { user: AdminUser }) {
   if (user.role === "admin") return <span className="admin-sub">not charged</span>;
-  const plan = planChipText(user.plan, shortDayText);
+  const chips = (user.plans ?? (user.plan ? [user.plan] : [])).map(plan => planChipText(plan, shortDayText)).filter(chip => chip !== null);
   return (
     <div className="admin-billing-cell">
-      {plan ? <span className="chip">{plan}</span> : <span className="admin-faint">No plan</span>}
+      {chips.length ? chips.map(chip => <span key={chip} className="chip">{chip}</span>) : <span className="admin-faint">No plan</span>}
       <span className="admin-sub">API {formatUsd(user.apiBalanceUsd)}</span>
     </div>
   );
 }
 
 /**
- * An account's plan and Developer API balance: give or extend a plan (like a purchase of that many
- * days), end it now, add or remove balance, and the account's orders (each opens the order dialog)
- * and API ledger.
+ * An account's plans and Developer API balance: give, extend or add a plan (like a purchase of that
+ * many days: Pro and Max run side by side), end one now, add or remove balance, and the account's
+ * orders (each opens the order dialog) and API ledger.
  */
 export function AccountBillingDialog({ user, settings, orderChange, onClose, onChanged, onOpenOrder }: {
   user: AdminUser;
@@ -58,7 +58,8 @@ export function AccountBillingDialog({ user, settings, orderChange, onClose, onC
   // A balance change waits for its confirmation, which says what it does to the balance before any money moves.
   const [change, setChange] = useState<number | null>(null);
   const [changing, setChanging] = useState(false);
-  const [ending, setEnding] = useState(false);
+  // The plan whose "End now" was pressed, while its confirmation is open.
+  const [ending, setEnding] = useState<PlanId | null>(null);
   const [endNote, setEndNote] = useState("");
   // "End now" goes with the plan it ended: focus goes to the plan's heading instead.
   const planTitle = useRef<HTMLHeadingElement>(null);
@@ -86,7 +87,7 @@ export function AccountBillingDialog({ user, settings, orderChange, onClose, onC
 
   const plans = settings?.plans ?? null;
   const planName = (option: PlanId) => plans?.[option]?.name ?? DEFAULT_PLANS[option].name;
-  const current = planStateOf(data?.plan ?? null);
+  const current = planStateOf(data?.plans);
   const parsedDays = parseDays(days);
   const parsedAmount = parseBalanceChange(amount);
   const result = plans && parsedDays.ok ? grantResult(current, planId, parsedDays.days, plans) : null;
@@ -105,7 +106,8 @@ export function AccountBillingDialog({ user, settings, orderChange, onClose, onC
       const next = await adminBillingApi.grantPlan(user.id, planId, parsedDays.days, planNote.trim());
       setData(next);
       setPlanNote("");
-      toast.success(next.plan ? `${name} has ${next.plan.name} until ${dayText(next.plan.expiresAt)}.` : `${planName(planId)} given to ${name}.`);
+      const given = next.plans.find(plan => plan.id === planId);
+      toast.success(given ? `${name} has ${given.name} until ${dayText(given.expiresAt)}.` : `${planName(planId)} given to ${name}.`);
       onChanged();
     } catch (grantError) {
       setPlanError(errorMessage(grantError));
@@ -151,12 +153,13 @@ export function AccountBillingDialog({ user, settings, orderChange, onClose, onC
     }
   };
 
+  const endingPlan = ending ? data?.plans.find(plan => plan.id === ending) ?? null : null;
   const endPlan = async () => {
-    const ended = data?.plan?.name ?? "plan";
-    const next = await adminBillingApi.endPlan(user.id, endNote.trim());
+    if (!endingPlan) return;
+    const next = await adminBillingApi.endPlan(user.id, endNote.trim(), endingPlan.id);
     setData(next);
     setEndNote("");
-    toast.success(`${name}'s ${ended} plan has ended.`);
+    toast.success(`${name}'s ${endingPlan.name} plan has ended.`);
     onChanged();
     focusWhenClosed(planTitle);
   };
@@ -174,20 +177,21 @@ export function AccountBillingDialog({ user, settings, orderChange, onClose, onC
       ) : (
         <>
           <section className="admin-form" aria-labelledby={`${id}-plan`}>
-            <h4 id={`${id}-plan`} ref={planTitle} tabIndex={-1} className="admin-form-title">Plan</h4>
-            {data.plan ? (
-              <div className="admin-bill-now">
+            <h4 id={`${id}-plan`} ref={planTitle} tabIndex={-1} className="admin-form-title">{data.plans.length > 1 ? "Plans" : "Plan"}</h4>
+            {data.plans.length ? data.plans.map(plan => (
+              <div key={plan.id} className="admin-bill-now">
                 <CalendarClock size={16} aria-hidden="true" />
-                <p><strong>{data.plan.name}</strong> until {fullText(data.plan.expiresAt)} · {creditCount(data.plan.creditsPerWindow)} credits per window</p>
-                <Button size="sm" variant="danger" icon={CircleSlash} disabled={busy !== null} onClick={() => setEnding(true)}>End now</Button>
+                <p><strong>{plan.name}</strong> until {fullText(plan.expiresAt)} · {creditCount(plan.creditsPerWindow)} credits per window</p>
+                <Button size="sm" variant="danger" icon={CircleSlash} disabled={busy !== null} onClick={() => setEnding(plan.id)} aria-label={`End ${plan.name} now`}>End now</Button>
               </div>
-            ) : (
+            )) : (
               <p className="field-hint">No plan: the account has its own allowance (the free one unless you set another under Credits).</p>
             )}
+            {data.plans.length > 1 && <p className="field-hint">The plans run side by side, each until its own end: {creditCount(data.plans.reduce((sum, plan) => sum + plan.creditsPerWindow, 0))} credits per window while both last.</p>}
             <form className="admin-form" onSubmit={give} noValidate>
               <div className="admin-form-row">
                 <fieldset className="admin-fieldset">
-                  <legend className="field-label" id={`${id}-which`}>Give or extend</legend>
+                  <legend className="field-label" id={`${id}-which`}>Give, extend or add</legend>
                   <RadioGroup.Root className="segmented" aria-labelledby={`${id}-which`} value={planId} onValueChange={value => { if (value === "pro" || value === "max") setPlanId(value); }} orientation="horizontal" loop>
                     {PLAN_IDS.map(option => <RadioGroup.Item key={option} value={option}>{planName(option)}</RadioGroup.Item>)}
                   </RadioGroup.Root>
@@ -198,7 +202,7 @@ export function AccountBillingDialog({ user, settings, orderChange, onClose, onC
               {result && plans && parsedDays.ok && <p className="field-hint">{grantSentence(result, planId, parsedDays.days, current, plans, dayText)} It works like a purchase of that many days, without a payment.</p>}
               {planError && <p className="field-error" role="alert"><TriangleAlert size={14} aria-hidden="true" />{planError}</p>}
               <div className="admin-actions">
-                <Button type="submit" variant="primary" busy={busy === "plan"} disabled={busy === "balance"}>{result && plans ? grantLabel(result.effect, planId, current, plans) : "Give plan"}</Button>
+                <Button type="submit" variant="primary" busy={busy === "plan"} disabled={busy === "balance"}>{result && plans ? grantLabel(result.effect, planId, plans) : "Give plan"}</Button>
               </div>
             </form>
           </section>
@@ -270,9 +274,14 @@ export function AccountBillingDialog({ user, settings, orderChange, onClose, onC
             )}
           </section>
 
-          {data.plan && (
-            <ConfirmDialog open={ending} onOpenChange={setEnding} title={`End ${name}'s ${data.plan.name} plan now?`} confirmLabel="End plan" busyLabel="Ending…" tone="danger" onConfirm={endPlan}>
-              <p>It's set to run until {fullText(data.plan.expiresAt)}. From now on the account gets the credits per window it has without a plan. Nothing is refunded.</p>
+          {endingPlan && (
+            <ConfirmDialog open={ending !== null} onOpenChange={open => { if (!open) setEnding(null); }} title={`End ${name}'s ${endingPlan.name} plan now?`} confirmLabel="End plan" busyLabel="Ending…" tone="danger" onConfirm={endPlan}>
+              <p>
+                It's set to run until {fullText(endingPlan.expiresAt)}.{" "}
+                {data.plans.some(plan => plan.id !== endingPlan.id)
+                  ? `The account's other plan keeps running, with its own credits per window. Nothing is refunded.`
+                  : "From now on the account gets the credits per window it has without a plan. Nothing is refunded."}
+              </p>
               <div className="field admin-confirm-field">
                 <label className="field-label" htmlFor={`${id}-end-note`}>Note (optional)</label>
                 <input id={`${id}-end-note`} className="input" value={endNote} maxLength={200} onChange={event => setEndNote(event.target.value)} placeholder="Why, for your records" />

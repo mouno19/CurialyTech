@@ -261,24 +261,33 @@ describe("completedText", () => {
 
   it("says what the payment did in the present only while the account's plan is still the one it left", () => {
     const start = done({ applied: { planId: "pro", planExpiresAt: until, effect: "start" } });
-    expect(completedText(start, names, { id: "pro", expiresAt: until }, 8)).toBe(`Pro is active until ${dayText(until)}, with 6,000 credits every 8 hours.`);
+    expect(completedText(start, names, [{ id: "pro", expiresAt: until }], 8)).toBe(`Pro is active until ${dayText(until)}, with 6,000 credits every 8 hours.`);
     // Extended since (or ended, or changed by the operator): what this payment gave, in the past.
-    expect(completedText(start, names, { id: "pro", expiresAt: at(86_400) }, 8)).toBe(`This payment gave you Pro until ${dayText(until)}, with 6,000 credits every 8 hours.`);
+    expect(completedText(start, names, [{ id: "pro", expiresAt: at(86_400) }], 8)).toBe(`This payment gave you Pro until ${dayText(until)}, with 6,000 credits every 8 hours.`);
     expect(completedText(start, names, null, 8)).toBe(`This payment gave you Pro until ${dayText(until)}, with 6,000 credits every 8 hours.`);
   });
 
   it("states the allowance the order bought, not today's settings, and only where it gave that plan", () => {
     // Bought when Pro gave 5,000: that's what it applied, whatever Pro gives now.
     const older = done({ planCreditsPerWindow: 5000, applied: { planId: "pro", planExpiresAt: until, effect: "start" } });
-    expect(completedText(older, names, { id: "pro", expiresAt: until }, 8)).toContain("with 5,000 credits every 8 hours");
+    expect(completedText(older, names, [{ id: "pro", expiresAt: until }], 8)).toContain("with 5,000 credits every 8 hours");
     // Pro bought on Max adds days to Max: the account keeps Max's allowance, so none is stated.
     const higher = done({ applied: { planId: "max", planExpiresAt: until, effect: "extend_higher" } });
-    expect(completedText(higher, names, { id: "max", expiresAt: until }, 8)).toBe(`Your Max plan now runs until ${dayText(until)}; this purchase was added to it in days.`);
+    expect(completedText(higher, names, [{ id: "max", expiresAt: until }], 8)).toBe(`Your Max plan now runs until ${dayText(until)}; this purchase was added to it in days.`);
     expect(completedText(higher, names, null, 8)).toBe(`This payment added days to your Max plan, up to ${dayText(until)}.`);
     const extend = done({ applied: { planId: "pro", planExpiresAt: until, effect: "extend" } });
     expect(completedText(extend, names, null, 8)).toBe(`This payment extended Pro to ${dayText(until)}.`);
     // An order placed before plans were fixed on orders: no figure rather than today's.
     expect(completedText(done({ planCreditsPerWindow: null, applied: { planId: "pro", planExpiresAt: until, effect: "start" } }), names, null, 8)).toBe(`This payment gave you Pro until ${dayText(until)}.`);
+  });
+
+  it("says a plan bought on top of another runs alongside it, and was converted into nothing", () => {
+    const added = done({ planId: "max", planCreditsPerWindow: 30_000, applied: { planId: "max", planExpiresAt: until, effect: "concurrent" } });
+    const both = [{ id: "pro", expiresAt: at(86_400) }, { id: "max", expiresAt: until }];
+    expect(completedText(added, names, both, 8)).toBe(`Max is active until ${dayText(until)}, with 30,000 credits every 8 hours, alongside Pro: their credits add up while both last.`);
+    // Pro has ended since: Max alone.
+    expect(completedText(added, names, [{ id: "max", expiresAt: until }], 8)).toBe(`Max is active until ${dayText(until)}, with 30,000 credits every 8 hours.`);
+    expect(completedText(added, names, null, 8)).toBe(`This payment gave you Max until ${dayText(until)}, with 30,000 credits every 8 hours, alongside the plan you already had.`);
   });
 
   it("names a top-up's balance", () => {

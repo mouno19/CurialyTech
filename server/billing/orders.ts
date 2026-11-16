@@ -1,12 +1,12 @@
 import { randomBytes, randomInt } from "node:crypto";
 import type { PoolClient } from "pg";
 import {
-  API_TOPUP, coinOn, discountedUsd, discountPercent, explorerTxUrl, isPlanId, LATE_SUBMIT_HOURS, MAX_OPEN_ORDERS, MAX_PLAN_MONTHS, MICROS_PER_USD, networkInfo, normalizeOrderCode,
-  normalizeTxHash, ORDER_TTL_MINUTES, PAYMENT_STATUS, planAfterPurchase, prepayableMonths, usdToMicros,
-  type AdminAccountBilling, type AdminBillingOverview, type AdminPaymentOrder, type AdminWalletBalances, type CoinId, type CoinKind, type NetworkId, type PaymentEvent, type PaymentOrder,
-  type PaymentStatus, type PlanConfig, type PlanEffect, type PlanId, type PlanState,
+  API_TOPUP, applyPlanPurchase, coinOn, discountedUsd, discountPercent, explorerTxUrl, isPlanId, LATE_SUBMIT_HOURS, MAX_OPEN_ORDERS, MAX_PLAN_MONTHS, MICROS_PER_USD, networkInfo,
+  normalizeOrderCode, normalizeTxHash, ORDER_TTL_MINUTES, PAYMENT_STATUS, PLAN_IDS, PLAN_RANK, prepayableMonths, usdToMicros,
+  type AccountPlan, type AdminAccountBilling, type AdminBillingOverview, type AdminPaymentOrder, type AdminWalletBalances, type CoinId, type CoinKind, type NetworkId, type PaymentEvent,
+  type PaymentOrder, type PaymentStatus, type PlanConfig, type PlanEffect, type PlanId, type PlanState,
 } from "@shared/billing";
-import { activePlan, PLAN_NOTE_MARK } from "../credits";
+import { activePlans, heldPlans, highestPlan, PLAN_COLUMNS, PLAN_NOTE_MARK, type PlanColumns } from "../credits";
 import { db, query } from "../db/pg";
 import { formatUnits, incomingPayments, verifyPayment, walletHoldings, type ChainCheck, type InboundPayment, type PaymentToVerify } from "./chains";
 import { alertsConfigured, notifyOrder } from "./notify";
@@ -34,7 +34,8 @@ type OrderRow = {
   user_login?: string | null; user_name?: string;
 };
 type EventRow = { to_status: PaymentStatus; actor: PaymentEvent["actor"]; note: string | null; created_at: Date };
-type UserRow = { id: string; plan_id: string | null; plan_expires_at: Date | null; plan_credits_per_window: number | null; api_balance_micros: string };
+type UserRow = PlanColumns & { id: string; api_balance_micros: string };
+const USER_SELECT = `SELECT id, api_balance_micros, ${PLAN_COLUMNS} FROM curialy.users WHERE id = $1`;
 type Actor = { actor: PaymentEvent["actor"]; actorId: string | null };
 
 const MINUTE = 60_000;
@@ -231,7 +232,7 @@ async function lockOrder(client: PoolClient, id: string): Promise<OrderRow | nul
 }
 
 async function lockUser(client: PoolClient, id: string): Promise<UserRow> {
-  const { rows: [user] } = await client.query<UserRow>("SELECT id, plan_id, plan_expires_at, plan_credits_per_window, api_balance_micros FROM curialy.users WHERE id = $1 FOR UPDATE", [id]);
+  const { rows: [user] } = await client.query<UserRow>(`${USER_SELECT} FOR UPDATE`, [id]);
   if (!user) throw new BillingError("Account not found.", "not_found", 404);
   return user;
 }
@@ -751,8 +752,9 @@ async function secondOpinion(payment: PaymentToVerify, first: Found, provider: s
 
 /**
  * Completes a locked order and gives the account what it bought, once: an order already applied is
- * left as it is. A plan starts, extends or upgrades the account's plan (planAfterPurchase) with the
- * plan's allowance as it is now; a top-up adds to the API balance with a ledger entry.
+ * left as it is. A plan starts (alongside any other plan the account has) or extends that plan
+ * (applyPlanPurchase) with the days and allowance it was sold with; a top-up adds to the API balance
+ * with a ledger entry.
  */
 async function applyLocked(client: PoolClient, row: OrderRow, by: Actor, note: string | null, adminNote: string | null) {
   if (row.applied_at || row.status === "completed") return false;
@@ -761,14 +763,14 @@ async function applyLocked(client: PoolClient, row: OrderRow, by: Actor, note: s
   let applied: NonNullable<PaymentOrder["applied"]>;
   if (row.kind === "plan") {
     if (!isPlanId(row.plan_id)) throw new Error(`Order ${row.code} has no plan.`);
-    // The plan as it was sold: its days, its allowance, and its list price for converting days.
+    // The plan as it was sold: its days and its allowance.
     const config = settings.plans[row.plan_id];
-    const sold = { ...config, priceUsd: Number(row.list_usd), days: row.plan_days ?? config.days, creditsPerWindow: row.plan_credits_per_window ?? config.creditsPerWindow };
-    const next = planAfterPurchase(planStateOf(user), row.plan_id, { ...settings.plans, [row.plan_id]: sold });
-    const allowance = planAllowance(next, user, settings.plans, sold.creditsPerWindow);
-    const name = settings.plans[next.planId].name;
-    await client.query("UPDATE curialy.users SET plan_id = $2, plan_expires_at = $3, plan_credits_per_window = $4 WHERE id = $1", [user.id, next.planId, next.expiresAt, allowance]);
-    await client.query("INSERT INTO curialy.credit_events (user_id, kind, amount, detail, created_by) VALUES ($1, 'plan', 0, $2, $3)", [user.id, `${name} plan until ${dayOf(next.expiresAt)} (order ${row.code})`, by.actorId]);
+    const sold = { ...config, days: row.plan_days ?? config.days, creditsPerWindow: row.plan_credits_per_window ?? config.creditsPerWindow };
+    const holdings = holdingsOf(user);
+    const next = applyPlanPurchase(planStateOf(holdings), row.plan_id, { ...settings.plans, [row.plan_id]: sold });
+    const after = withPlan(holdings, next, sold.creditsPerWindow);
+    await savePlans(client, user.id, after);
+    await client.query("INSERT INTO curialy.credit_events (user_id, kind, amount, detail, created_by) VALUES ($1, 'plan', 0, $2, $3)", [user.id, `${planDetail(next.planId, after, settings.plans)} (order ${row.code})`, by.actorId]);
     applied = { planId: next.planId, planExpiresAt: next.expiresAt, effect: next.effect };
   } else {
     if (row.credit_usd === null) throw new Error(`Order ${row.code} has no balance to add.`);
@@ -789,19 +791,51 @@ async function applyLocked(client: PoolClient, row: OrderRow, by: Actor, note: s
   return true;
 }
 
-/**
- * The allowance a plan change leaves the account with, for a purchase and the operator's grant alike:
- * extending never lowers an allowance already paid for, and a higher plan a lower one extends keeps
- * its own. given: the allowance of the plan bought or given.
- */
-function planAllowance(next: { planId: PlanId; effect: PlanEffect }, user: UserRow, plans: Record<PlanId, PlanConfig>, given: number) {
-  if (next.effect === "extend_higher") return user.plan_credits_per_window ?? plans[next.planId].creditsPerWindow;
-  if (next.effect === "extend") return Math.max(user.plan_credits_per_window ?? 0, given);
-  return given;
+// ---- An account's plans ----
+
+/** Each plan the account holds, active or ended (null: never held, or taken away). creditsPerWindow null: the plan's own. */
+type Holdings = Record<PlanId, { expiresAt: Date; creditsPerWindow: number | null } | null>;
+
+function holdingsOf(user: PlanColumns): Holdings {
+  const held = heldPlans(user);
+  return Object.fromEntries(PLAN_IDS.map(id => [id, held.find(plan => plan.planId === id) ?? null])) as Holdings;
 }
 
-const planStateOf = (user: UserRow): PlanState =>
-  isPlanId(user.plan_id) && user.plan_expires_at ? { planId: user.plan_id, expiresAt: user.plan_expires_at.toISOString() } : null;
+const planStateOf = (holdings: Holdings): PlanState =>
+  PLAN_IDS.flatMap(id => (holdings[id] ? [{ planId: id, expiresAt: holdings[id].expiresAt.toISOString() }] : []));
+
+const activeIn = (holdings: Holdings, id: PlanId, now = Date.now()) => (holdings[id]?.expiresAt.getTime() ?? 0) > now;
+
+/**
+ * The plans after a purchase or the operator's grant: only the plan bought changes. Extending never
+ * lowers an allowance already paid for. given: the allowance of the plan bought or given.
+ */
+function withPlan(holdings: Holdings, next: { planId: PlanId; expiresAt: string; effect: PlanEffect }, given: number): Holdings {
+  const credits = next.effect === "extend" ? Math.max(holdings[next.planId]?.creditsPerWindow ?? 0, given) : given;
+  return { ...holdings, [next.planId]: { expiresAt: new Date(next.expiresAt), creditsPerWindow: credits } };
+}
+
+/**
+ * Writes the account's plans, each in its own columns, and the single-plan columns as the highest
+ * active plan (none when no plan is active): an older build reading those finds a plan the account has.
+ */
+async function savePlans(client: PoolClient, userId: string, holdings: Holdings) {
+  const top = [...PLAN_IDS].sort((a, b) => PLAN_RANK[b] - PLAN_RANK[a]).find(id => activeIn(holdings, id)) ?? null;
+  const single = top ? holdings[top] : null;
+  await client.query(
+    `UPDATE curialy.users SET pro_expires_at = $2, pro_credits_per_window = $3, max_expires_at = $4, max_credits_per_window = $5,
+       plan_id = $6, plan_expires_at = $7, plan_credits_per_window = $8 WHERE id = $1`,
+    [userId, holdings.pro?.expiresAt ?? null, holdings.pro?.creditsPerWindow ?? null, holdings.max?.expiresAt ?? null, holdings.max?.creditsPerWindow ?? null,
+      top, single?.expiresAt ?? null, single?.creditsPerWindow ?? null],
+  );
+}
+
+/** A 'plan' event's detail: "Max plan until 16 Dec 2026", and any other plan running alongside it (", alongside Pro until 26 Nov 2026"). */
+function planDetail(planId: PlanId, holdings: Holdings, plans: Record<PlanId, PlanConfig>) {
+  const until = (id: PlanId) => `${plans[id].name}${id === planId ? " plan" : ""} until ${dayOf(holdings[id]!.expiresAt.toISOString())}`;
+  const alongside = PLAN_IDS.filter(id => id !== planId && activeIn(holdings, id)).map(until);
+  return `${until(planId)}${alongside.length ? `, alongside ${alongside.join(" and ")}` : ""}`;
+}
 
 /** Completes and applies an order (idempotent: a second call changes nothing). Returns whether it applied now. */
 export async function applyOrder(orderId: string, actor: PaymentEvent["actor"], actorId: string | null = null, note: string | null = null) {
@@ -928,8 +962,9 @@ export async function disapproveOrder(code: string, adminId: string, note: strin
 }
 
 /**
- * Undoes what a completed order applied, when the account still has exactly that. A later plan
- * (a different expiry or plan) is left alone. An API top-up is removed down to zero.
+ * Undoes what a completed order applied, when the account's plan still ends where the order left
+ * it. A later change to that plan (a different end) is left alone, and so is any other plan the
+ * account has. An API top-up is removed down to zero.
  */
 async function undoApplied(client: PoolClient, row: OrderRow, adminId: string): Promise<DisapprovalUndo> {
   const user = await lockUser(client, row.user_id);
@@ -945,38 +980,28 @@ async function undoApplied(client: PoolClient, row: OrderRow, adminId: string): 
     );
     return "balance";
   }
-  if (!applied?.planId || !applied.planExpiresAt || !isPlanId(user.plan_id) || !user.plan_expires_at) return "unchanged";
-  const same = user.plan_id === applied.planId && Math.abs(user.plan_expires_at.getTime() - Date.parse(applied.planExpiresAt)) < 2_000;
-  if (!same) return "unchanged";
+  if (!applied?.planId || !applied.planExpiresAt) return "unchanged";
+  const target = applied.planId;
+  const holdings = holdingsOf(user);
+  const held = holdings[target];
+  if (!held || Math.abs(held.expiresAt.getTime() - Date.parse(applied.planExpiresAt)) >= 2_000) return "unchanged";
   const settings = await getBillingSettings();
-  const bought = isPlanId(row.plan_id) ? row.plan_id : applied.planId;
-  const soldDays = (row.plan_days ?? settings.plans[bought].days) * (row.plan_months ?? 1);
-  // Extending the same plan adds its days. Buying a lower plan while a higher one is active adds
-  // the lower plan's value in the higher plan's days (planAfterPurchase, effect extend_higher).
+  const bought = isPlanId(row.plan_id) ? row.plan_id : target;
+  // plan_days is every month the order paid for (older orders without it: the plan's days per month).
+  const soldDays = row.plan_days ?? settings.plans[bought].days * (row.plan_months ?? 1);
+  // Extending adds the order's days. Before plans ran side by side, a lower plan bought while a
+  // higher one was active added its value in the higher plan's days (effect extend_higher).
   const daily = (id: PlanId) => settings.plans[id].priceUsd / settings.plans[id].days;
-  const soldMs = applied.effect === "extend_higher" ? soldDays * 86_400_000 * daily(bought) / daily(applied.planId) : soldDays * 86_400_000;
-  const clear = async (detail: string) => {
-    await client.query("UPDATE curialy.users SET plan_id = NULL, plan_expires_at = NULL, plan_credits_per_window = NULL WHERE id = $1", [user.id]);
-    await client.query("INSERT INTO curialy.credit_events (user_id, kind, amount, detail, created_by) VALUES ($1, 'plan', 0, $2, $3)", [user.id, detail, adminId]);
-  };
-  if (applied.effect === "start") {
-    await clear(`${settings.plans[applied.planId].name} plan removed: order ${row.code} was disapproved`);
-    return "removed";
-  }
-  const back = new Date(user.plan_expires_at.getTime() - soldMs);
-  if (back.getTime() <= Date.now()) {
-    await clear(`${settings.plans[applied.planId].name} plan removed: order ${row.code} was disapproved`);
-    return "removed";
-  }
-  await client.query(
-    "UPDATE curialy.users SET plan_id = $2, plan_expires_at = $3, plan_credits_per_window = $4 WHERE id = $1",
-    [user.id, user.plan_id, back.toISOString(), user.plan_credits_per_window],
-  );
+  const soldMs = applied.effect === "extend_higher" ? soldDays * 86_400_000 * daily(bought) / daily(target) : soldDays * 86_400_000;
+  // A plan the order started goes (another plan the account has stays); an extension comes off its end.
+  const back = new Date(held.expiresAt.getTime() - soldMs);
+  const removed = applied.effect === "start" || applied.effect === "concurrent" || back.getTime() <= Date.now();
+  await savePlans(client, user.id, { ...holdings, [target]: removed ? null : { ...held, expiresAt: back } });
   await client.query(
     "INSERT INTO curialy.credit_events (user_id, kind, amount, detail, created_by) VALUES ($1, 'plan', 0, $2, $3)",
-    [user.id, `${settings.plans[applied.planId].name} plan shortened: order ${row.code} was disapproved`, adminId],
+    [user.id, `${settings.plans[target].name} plan ${removed ? "removed" : "shortened"}: order ${row.code} was disapproved`, adminId],
   );
-  return "shortened";
+  return removed ? "removed" : "shortened";
 }
 
 export async function billingOverview(): Promise<Omit<AdminBillingOverview, "settings">> {
@@ -985,7 +1010,7 @@ export async function billingOverview(): Promise<Omit<AdminBillingOverview, "set
             (SELECT coalesce(sum(price_usd), 0) FROM curialy.payment_orders WHERE status = 'completed' AND completed_at > now() - interval '7 days') AS d7,
             (SELECT coalesce(sum(price_usd), 0) FROM curialy.payment_orders WHERE status = 'completed' AND completed_at > now() - interval '30 days') AS d30,
             (SELECT coalesce(sum(price_usd), 0) FROM curialy.payment_orders WHERE status = 'completed') AS total,
-            (SELECT json_object_agg(plan_id, n) FROM (SELECT plan_id, count(*)::int AS n FROM curialy.users WHERE plan_id IS NOT NULL AND plan_expires_at > now() GROUP BY plan_id) p) AS plans,
+            (SELECT json_build_object('pro', count(*) FILTER (WHERE pro_expires_at > now()), 'max', count(*) FILTER (WHERE max_expires_at > now())) FROM curialy.users) AS plans,
             (SELECT coalesce(sum(api_balance_micros), 0)::text FROM curialy.users) AS api_micros`,
   );
   const counts = Object.fromEntries(Object.keys(PAYMENT_STATUS).map(status => [status, Number(row?.counts?.[status] ?? 0)])) as Record<PaymentStatus, number>;
@@ -1019,20 +1044,21 @@ export async function walletBalances(): Promise<AdminWalletBalances> {
 // ---- Accounts: plans and API balance ----
 
 /**
- * How many months of `planId` the account can pay for now: its plan, then its open plan orders as
- * sold (placed but not paid or turned down yet), may not run past MAX_PLAN_MONTHS periods from now.
+ * How many months of `planId` the account can pay for now: what is left of that plan, then its open
+ * orders for it as sold (placed but not paid or turned down yet), may not run past MAX_PLAN_MONTHS
+ * periods from now. Each plan has its own limit.
  */
 async function prepayRoom(client: Pick<PoolClient, "query">, userId: string, planId: PlanId, plans: Record<PlanId, PlanConfig>) {
   const [{ rows: [user] }, { rows: open }] = await Promise.all([
-    client.query<UserRow>("SELECT id, plan_id, plan_expires_at, plan_credits_per_window, api_balance_micros FROM curialy.users WHERE id = $1", [userId]),
-    client.query<{ plan_id: PlanId; plan_days: number | null; list_usd: string }>(
-      `SELECT plan_id, plan_days, list_usd FROM curialy.payment_orders WHERE user_id = $1 AND kind = 'plan' AND plan_id IS NOT NULL
+    client.query<UserRow>(USER_SELECT, [userId]),
+    client.query<{ plan_id: PlanId; plan_days: number | null }>(
+      `SELECT plan_id, plan_days FROM curialy.payment_orders WHERE user_id = $1 AND kind = 'plan' AND plan_id IS NOT NULL
          AND (status IN ('pending', 'confirming', 'review') OR (status = 'awaiting_payment' AND expires_at > now())) ORDER BY created_at`,
       [userId],
     ),
   ]);
-  const orders = open.filter(order => isPlanId(order.plan_id)).map(order => ({ planId: order.plan_id, days: order.plan_days ?? plans[order.plan_id].days, listUsd: Number(order.list_usd) }));
-  return prepayableMonths(user ? planStateOf(user) : null, orders, planId, plans);
+  const orders = open.filter(order => isPlanId(order.plan_id)).map(order => ({ planId: order.plan_id, days: order.plan_days ?? plans[order.plan_id].days }));
+  return prepayableMonths(user ? planStateOf(holdingsOf(user)) : [], orders, planId, plans);
 }
 
 /** BillingAccount.prepay: the most months of each plan the account can pay for now. */
@@ -1043,21 +1069,15 @@ export async function prepayLimits(userId: string): Promise<Record<PlanId, numbe
   return { pro, max };
 }
 
-/** The account's active plan (BillingAccount.plan). */
-export async function planOfAccount(userId: string) {
-  const [{ rows: [user] }, settings] = await Promise.all([
-    query<UserRow>("SELECT id, plan_id, plan_expires_at, plan_credits_per_window, api_balance_micros FROM curialy.users WHERE id = $1", [userId]),
-    getBillingSettings(),
-  ]);
-  return user ? activePlan(user, settings.plans) : null;
+/** The account's active plans (BillingAccount.plans), Pro first. */
+export async function plansOfAccount(userId: string): Promise<AccountPlan[]> {
+  const [{ rows: [user] }, settings] = await Promise.all([query<UserRow>(USER_SELECT, [userId]), getBillingSettings()]);
+  return user ? activePlans(user, settings.plans) : [];
 }
 
 /** An account's billing for the operator, less its API wallet (the caller adds it). */
 export async function accountBilling(userId: string): Promise<Omit<AdminAccountBilling, "apiWallet">> {
-  const [{ rows: [user] }, settings] = await Promise.all([
-    query<UserRow>("SELECT id, plan_id, plan_expires_at, plan_credits_per_window, api_balance_micros FROM curialy.users WHERE id = $1", [userId]),
-    getBillingSettings(),
-  ]);
+  const [{ rows: [user] }, settings] = await Promise.all([query<UserRow>(USER_SELECT, [userId]), getBillingSettings()]);
   if (!user) throw new BillingError("Account not found.", "not_found", 404);
   const [{ rows: orders }, { rows: ledger }] = await Promise.all([
     query<OrderRow>(`${ORDER_SELECT} WHERE o.user_id = $1 ORDER BY o.created_at DESC LIMIT 50`, [userId]),
@@ -1067,8 +1087,10 @@ export async function accountBilling(userId: string): Promise<Omit<AdminAccountB
       [userId],
     ),
   ]);
+  const plans = activePlans(user, settings.plans);
   return {
-    plan: activePlan(user, settings.plans),
+    plan: highestPlan(plans),
+    plans,
     orders: orders.map(row => toAdminOrderView(row, [], settings.plans)),
     ledger: ledger.map(entry => ({
       kind: entry.kind, amountUsd: Number(entry.amount_micros) / MICROS_PER_USD, balanceAfterUsd: Number(entry.balance_after_micros) / MICROS_PER_USD,
@@ -1078,40 +1100,44 @@ export async function accountBilling(userId: string): Promise<Omit<AdminAccountB
 }
 
 /**
- * Gives (or extends) a plan without a payment, like buying it for `days` days at the same price per
- * day (so an upgrade or a lower plan converts the same way a purchase does).
+ * Gives (or extends) a plan without a payment, like buying it for `days` days: the plan the account
+ * has is extended; the other one starts now and runs alongside it.
  */
 export async function grantPlan(userId: string, planId: PlanId, days: number, note: string, adminId: string) {
   if (!isPlanId(planId)) throw new BillingError("Choose Pro or Max.", "invalid_plan", 400);
   if (!Number.isInteger(days) || days < 1 || days > 366) throw new BillingError("Days are a whole number from 1 to 366.", "invalid_days", 400);
   const settings = await getBillingSettings();
-  const bought = settings.plans[planId];
-  const plans = { ...settings.plans, [planId]: { ...bought, days, priceUsd: (bought.priceUsd * days) / bought.days } };
+  const given = settings.plans[planId];
   await transaction(async client => {
     const user = await lockUser(client, userId);
-    const next = planAfterPurchase(planStateOf(user), planId, plans);
-    const plan = settings.plans[next.planId];
-    await client.query("UPDATE curialy.users SET plan_id = $2, plan_expires_at = $3, plan_credits_per_window = $4 WHERE id = $1", [user.id, next.planId, next.expiresAt, planAllowance(next, user, settings.plans, bought.creditsPerWindow)]);
+    const holdings = holdingsOf(user);
+    const next = applyPlanPurchase(planStateOf(holdings), planId, { ...settings.plans, [planId]: { ...given, days } });
+    const after = withPlan(holdings, next, given.creditsPerWindow);
+    await savePlans(client, user.id, after);
     // The account's history shows the detail up to the operator's note.
     await client.query(
       "INSERT INTO curialy.credit_events (user_id, kind, amount, detail, created_by) VALUES ($1, 'plan', 0, $2, $3)",
-      [user.id, `${plan.name} plan until ${dayOf(next.expiresAt)} (given by the operator)${note.trim() ? `${PLAN_NOTE_MARK}${note.trim().slice(0, 200)}` : ""}`, adminId],
+      [user.id, `${planDetail(planId, after, settings.plans)} (given by the operator)${note.trim() ? `${PLAN_NOTE_MARK}${note.trim().slice(0, 200)}` : ""}`, adminId],
     );
   });
 }
 
-/** Ends an account's plan now. */
-export async function endPlan(userId: string, note: string, adminId: string) {
+/** Ends an account's plan now: `planId`, or (null) every plan it has. Another plan it has keeps running. */
+export async function endPlan(userId: string, note: string, adminId: string, planId: PlanId | null = null) {
   const settings = await getBillingSettings();
   await transaction(async client => {
     const user = await lockUser(client, userId);
-    const plan = activePlan(user, settings.plans);
-    if (!plan) throw conflict("This account has no active plan.", "no_plan");
-    await client.query("UPDATE curialy.users SET plan_id = NULL, plan_expires_at = NULL, plan_credits_per_window = NULL WHERE id = $1", [user.id]);
-    await client.query(
-      "INSERT INTO curialy.credit_events (user_id, kind, amount, detail, created_by) VALUES ($1, 'plan', 0, $2, $3)",
-      [user.id, `${plan.name} plan ended by the operator${note.trim() ? `${PLAN_NOTE_MARK}${note.trim().slice(0, 200)}` : ""}`, adminId],
-    );
+    const ending = activePlans(user, settings.plans).filter(plan => planId === null || plan.id === planId);
+    if (!ending.length) throw conflict(planId ? `This account has no active ${settings.plans[planId].name} plan.` : "This account has no active plan.", "no_plan");
+    const holdings = holdingsOf(user);
+    for (const plan of ending) holdings[plan.id] = null;
+    await savePlans(client, user.id, holdings);
+    for (const plan of ending) {
+      await client.query(
+        "INSERT INTO curialy.credit_events (user_id, kind, amount, detail, created_by) VALUES ($1, 'plan', 0, $2, $3)",
+        [user.id, `${plan.name} plan ended by the operator${note.trim() ? `${PLAN_NOTE_MARK}${note.trim().slice(0, 200)}` : ""}`, adminId],
+      );
+    }
   });
 }
 

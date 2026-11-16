@@ -718,6 +718,23 @@ const MIGRATIONS: { id: number; sql: string }[] = [
       );
     `,
   },
+  {
+    id: 25,
+    sql: `
+      -- Plans side by side (server/credits.ts PlanColumns): Pro and Max each keep their own end and
+      -- the allowance they were bought with, so an account can hold both and get both allowances.
+      -- The single plan_* columns stay, written as the highest active plan; an account's plan so
+      -- far moves into the columns of its plan.
+      ALTER TABLE curialy.users ADD COLUMN IF NOT EXISTS pro_expires_at timestamptz;
+      ALTER TABLE curialy.users ADD COLUMN IF NOT EXISTS pro_credits_per_window integer;
+      ALTER TABLE curialy.users ADD COLUMN IF NOT EXISTS max_expires_at timestamptz;
+      ALTER TABLE curialy.users ADD COLUMN IF NOT EXISTS max_credits_per_window integer;
+      UPDATE curialy.users SET pro_expires_at = plan_expires_at, pro_credits_per_window = plan_credits_per_window
+        WHERE plan_id = 'pro' AND plan_expires_at IS NOT NULL AND pro_expires_at IS NULL;
+      UPDATE curialy.users SET max_expires_at = plan_expires_at, max_credits_per_window = plan_credits_per_window
+        WHERE plan_id = 'max' AND plan_expires_at IS NOT NULL AND max_expires_at IS NULL;
+    `,
+  },
 ];
 
 export async function migrate() {

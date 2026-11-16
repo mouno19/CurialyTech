@@ -1,4 +1,4 @@
-import { formatUsd, microsToUsd, planAfterPurchase, usdToMicros, type AdminAccountBilling, type PlanConfig, type PlanEffect, type PlanId, type PlanState } from "@shared/billing";
+import { applyPlanPurchase, formatUsd, microsToUsd, usdToMicros, type AdminAccountBilling, type PlanConfig, type PlanEffect, type PlanId, type PlanState } from "@shared/billing";
 
 // An account's plan and API balance as the operator changes them (the Billing dialog under
 // Accounts): the amounts and days the fields take, what giving a plan does, and the words for the
@@ -26,30 +26,26 @@ export function parseDays(raw: string): Parsed<{ days: number }> {
   return { ok: true, days };
 }
 
-/** The account's plan as planAfterPurchase reads it (null without one, or once it has ended). */
-export function planStateOf(plan: AdminAccountBilling["plan"], now = Date.now()): PlanState {
-  return plan && Date.parse(plan.expiresAt) > now ? { planId: plan.id, expiresAt: plan.expiresAt } : null;
+/** The account's plans as applyPlanPurchase reads them: the ones still running. */
+export function planStateOf(plans: AdminAccountBilling["plans"] | null | undefined, now = Date.now()): PlanState {
+  return (plans ?? []).filter(plan => Date.parse(plan.expiresAt) > now).map(plan => ({ planId: plan.id, expiresAt: plan.expiresAt }));
 }
 
 /**
  * What giving `planId` for `days` days does, worked out as the server does it (grantPlan): like
- * buying the plan for that many days at the same price per day, so it starts, extends or upgrades
- * the plan, or adds its value to a higher one.
+ * buying the plan for that many days, so it starts the plan (alongside the other one, when the
+ * account has it) or extends it.
  */
 export function grantResult(current: PlanState, planId: PlanId, days: number, plans: Record<PlanId, PlanConfig>, now = Date.now()) {
-  const bought = plans[planId];
-  const scaled: Record<PlanId, PlanConfig> = { ...plans };
-  scaled[planId] = { ...bought, days, priceUsd: (bought.priceUsd * days) / bought.days };
-  return planAfterPurchase(current, planId, scaled, now);
+  return applyPlanPurchase(current, planId, { ...plans, [planId]: { ...plans[planId], days } }, now);
 }
 
-/** The give button: "Give Pro", "Extend Pro", "Upgrade to Max", "Add to Max". */
-export function grantLabel(effect: PlanEffect, planId: PlanId, current: PlanState, plans: Record<PlanId, PlanConfig>) {
+/** The give button: "Give Pro", "Extend Pro", "Add Max" (alongside the plan the account has). */
+export function grantLabel(effect: PlanEffect, planId: PlanId, plans: Record<PlanId, PlanConfig>) {
   const name = plans[planId].name;
-  if (effect === "start") return `Give ${name}`;
   if (effect === "extend") return `Extend ${name}`;
-  if (effect === "upgrade") return `Upgrade to ${name}`;
-  return `Add to ${current ? plans[current.planId].name : name}`;
+  if (effect === "concurrent") return `Add ${name}`;
+  return `Give ${name}`;
 }
 
 /** The line under the give form: what the account ends up with ("about": the server works the date out when it applies). */
@@ -57,11 +53,12 @@ export function grantSentence(result: { planId: PlanId; expiresAt: string; effec
   const until = day(result.expiresAt);
   const name = plans[planId].name;
   const length = `${days} ${days === 1 ? "day" : "days"}`;
-  if (result.effect === "start") return `${name} starts now and runs until about ${until}.`;
   if (result.effect === "extend") return `${length} are added to ${name}: it runs until about ${until}.`;
-  const had = current ? plans[current.planId].name : name;
-  if (result.effect === "upgrade") return `${name} starts now, with the days left on ${had} carried over at their value: until about ${until}.`;
-  return `${had} stays, with the value of ${length} of ${name} added: until about ${until}.`;
+  if (result.effect === "concurrent") {
+    const others = current.filter(held => held.planId !== planId).map(held => plans[held.planId].name).join(" and ");
+    return `${name} starts now and runs until about ${until}, alongside ${others}, which keeps its own end: their credits add up while both last.`;
+  }
+  return `${name} starts now and runs until about ${until}.`;
 }
 
 export const LEDGER_LABEL: Record<AdminAccountBilling["ledger"][number]["kind"], string> = {

@@ -20,16 +20,22 @@ export function refillLine(credits: CreditBalance) {
   // Without an allowance nothing refills: the account's credits are its own (promo codes, grants).
   if (credits.unlimited || credits.allowance === 0) return null;
   if (!credits.resetsAt) return `${formatCredits(credits.allowance)} every ${credits.windowHours} h`;
-  // A plan that ends first won't be there for the refill: say when it ends instead.
-  if (credits.plan && Date.parse(credits.plan.expiresAt) < Date.parse(credits.resetsAt)) return `${credits.plan.name} ends at ${clockText(credits.plan.expiresAt)}, before this window refills`;
+  // A plan that ends first won't be there for the refill: say when the first one ends instead.
+  const resets = Date.parse(credits.resetsAt);
+  const ending = plansOf(credits).filter(plan => Date.parse(plan.expiresAt) < resets).sort((a, b) => Date.parse(a.expiresAt) - Date.parse(b.expiresAt))[0];
+  if (ending) return `${ending.name} ends at ${clockText(ending.expiresAt)}, before this window refills`;
   return `Refills to ${formatCredits(credits.allowance)} at ${clockText(credits.resetsAt)}`;
 }
 
-/** "Pro until 9 Dec", or null without an active plan. */
+/** The account's plans still running, Pro first (Pro and Max can run side by side). */
+const plansOf = (credits: CreditBalance, now = Date.now()) => (credits.plans ?? (credits.plan ? [credits.plan] : [])).filter(plan => Date.parse(plan.expiresAt) > now);
+
+/** "Pro until 9 Dec", "Pro + Max" with both (each has its own end), or null without an active plan. */
 export function planLine(credits: CreditBalance, now = Date.now()) {
-  const plan = credits.plan;
-  if (!plan || !(Date.parse(plan.expiresAt) > now)) return null;
-  return `${plan.name} until ${shortDayText(plan.expiresAt)}`;
+  const plans = plansOf(credits, now);
+  if (!plans.length) return null;
+  if (plans.length > 1) return plans.map(plan => plan.name).join(" + ");
+  return `${plans[0].name} until ${shortDayText(plans[0].expiresAt)}`;
 }
 
 /** The sidebar's credits: what's left, the plan, when it refills, and a way to redeem a promo code or get more. */

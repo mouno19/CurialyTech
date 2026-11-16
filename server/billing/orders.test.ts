@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { coinOn, DEFAULT_BILLING_SETTINGS } from "@shared/billing";
+import { DEFAULT_CREDIT_SETTINGS } from "@shared/credits";
 import { addOrder, addUser, fake, orderByCode, resetFake } from "./fake-db";
 
 // Orders, where the money is: prices come from the server, every issued amount is unique on its
@@ -29,6 +30,9 @@ const MAX_OPEN = 5;
 
 const orders = await import("./orders");
 const { resetBillingSettings } = await import("./settings");
+const { balanceOf } = await import("../credits");
+/** Credit settings with a free allowance of 60 per window, so the end of every plan shows. */
+const CREDIT_SETTINGS = { ...DEFAULT_CREDIT_SETTINGS, creditsPerWindow: 60 };
 
 beforeAll(() => {
   vi.stubEnv("PAY_EVM_ADDRESS", EVM.toLowerCase());
@@ -354,31 +358,71 @@ describe("applying an order", () => {
     expect(view.applied).toEqual({ planId: "pro", planExpiresAt: user.plan_expires_at!.toISOString(), effect: "start" });
   });
 
-  it("extends the same plan, upgrades to a higher one, and extends a higher one with a lower one's value", async () => {
+  it("extends the same plan from its end, and restarts one that has ended", async () => {
     const user = fake.users.get("u1")!;
+    // An account from before plans ran side by side: its plan is in the single-plan columns only.
     Object.assign(user, { plan_id: "pro", plan_expires_at: new Date(Date.now() + 10 * DAY), plan_credits_per_window: 6000 });
-    await orders.applyOrder(paid().id, "system");
+    const extend = paid();
+    await orders.applyOrder(extend.id, "system");
+    expect(daysFromNow(user.pro_expires_at!)).toBeCloseTo(40, 3);
+    expect(user).toMatchObject({ pro_credits_per_window: 6000, plan_id: "pro", max_expires_at: null });
     expect(daysFromNow(user.plan_expires_at!)).toBeCloseTo(40, 3);
-    // Max over 15 days of Pro left: Pro's daily value is a quarter of Max's, so 3.75 days are carried.
-    Object.assign(user, { plan_id: "pro", plan_expires_at: new Date(Date.now() + 15 * DAY) });
-    const upgrade = paid({ plan_id: "max", list_usd: "80.00", price_usd: "8.00", tx_hash: OTHER_HASH, expected_units: "8003700000000000000" });
-    await orders.applyOrder(upgrade.id, "system");
-    expect(user).toMatchObject({ plan_id: "max", plan_credits_per_window: 30000 });
-    expect(daysFromNow(user.plan_expires_at!)).toBeCloseTo(33.75, 3);
-    expect(upgrade.applied_detail.effect).toBe("upgrade");
-    // Pro bought while Max lasts 10 more days: 30 Pro days are worth 7.5 Max days; the account stays on Max.
-    Object.assign(user, { plan_expires_at: new Date(Date.now() + 10 * DAY) });
-    const lower = paid({ tx_hash: `0x${"ef".repeat(32)}`, expected_units: "2003800000000000000" });
-    await orders.applyOrder(lower.id, "system");
-    expect(user).toMatchObject({ plan_id: "max", plan_credits_per_window: 30000 });
-    expect(daysFromNow(user.plan_expires_at!)).toBeCloseTo(17.5, 3);
-    expect(lower.applied_detail).toMatchObject({ planId: "max", effect: "extend_higher" });
+    expect(extend.applied_detail).toMatchObject({ planId: "pro", effect: "extend" });
     // An ended plan is no plan: a new one starts now.
-    Object.assign(user, { plan_id: "max", plan_expires_at: new Date(Date.now() - DAY) });
-    const restart = paid({ tx_hash: `0x${"12".repeat(32)}`, expected_units: "2003900000000000000" });
+    Object.assign(user, { pro_expires_at: new Date(Date.now() - DAY), plan_id: null, plan_expires_at: null });
+    const restart = paid({ tx_hash: OTHER_HASH, expected_units: "2003800000000000000" });
     await orders.applyOrder(restart.id, "system");
-    expect(user.plan_id).toBe("pro");
+    expect(daysFromNow(user.pro_expires_at!)).toBeCloseTo(30, 3);
     expect(restart.applied_detail.effect).toBe("start");
+  });
+
+  it("runs Max alongside Pro: neither is converted, and the allowances add up until each ends", async () => {
+    const user = fake.users.get("u1")!;
+    const balance = (now = Date.now()) => balanceOf({ id: "u1", role: "user", credit_allowance: null, bonus_credits: "0", window_started_at: null, window_used: "0", ...user }, CREDIT_SETTINGS, now, DEFAULT_BILLING_SETTINGS.plans);
+    // 1. Pro (6,000 credits per window).
+    await orders.applyOrder(paid().id, "system");
+    expect(balance()).toMatchObject({ allowance: 6000, plan: { id: "pro" } });
+    // 10 days later Pro has 20 left.
+    Object.assign(user, { pro_expires_at: new Date(Date.now() + 20 * DAY), plan_expires_at: new Date(Date.now() + 20 * DAY) });
+    // 2. Max bought on top: it starts now for its own 30 days, and Pro keeps its 20.
+    const max = paid({ plan_id: "max", list_usd: "80.00", price_usd: "8.00", tx_hash: OTHER_HASH, expected_units: "8003700000000000000" });
+    await orders.applyOrder(max.id, "system");
+    expect(daysFromNow(user.pro_expires_at!)).toBeCloseTo(20, 3);
+    expect(daysFromNow(user.max_expires_at!)).toBeCloseTo(30, 3);
+    expect(user).toMatchObject({ pro_credits_per_window: 6000, max_credits_per_window: 30000 });
+    expect(max.applied_detail).toMatchObject({ planId: "max", effect: "concurrent" });
+    // The single-plan columns follow the highest plan, for an older build.
+    expect(user).toMatchObject({ plan_id: "max", plan_credits_per_window: 30000 });
+    // The account's history says Max runs alongside Pro.
+    expect(fake.creditEvents.at(-1)!.detail).toMatch(new RegExp(`^Max plan until \\d{1,2} [A-Z][a-z]{2} \\d{4}, alongside Pro until \\d{1,2} [A-Z][a-z]{2} \\d{4} \\(order ${max.code}\\)$`));
+    // 3. Both active: 6,000 + 30,000.
+    expect(balance()).toMatchObject({ allowance: 36_000, remaining: 36_000, plan: { id: "max" }, plans: [{ id: "pro", creditsPerWindow: 6000 }, { id: "max", creditsPerWindow: 30_000 }] });
+    // 4. Pro ends first: Max carries on alone.
+    expect(balance(Date.now() + 21 * DAY)).toMatchObject({ allowance: 30_000, plan: { id: "max" }, plans: [{ id: "max" }] });
+    // 5. Max ends too: back to the free tier (60 per window in these settings).
+    expect(balance(Date.now() + 31 * DAY)).toMatchObject({ allowance: CREDIT_SETTINGS.creditsPerWindow, plan: null, plans: [] });
+    // Buying Pro again while both run extends Pro only.
+    const morePro = paid({ tx_hash: `0x${"ef".repeat(32)}`, expected_units: "2003900000000000000" });
+    await orders.applyOrder(morePro.id, "system");
+    expect(daysFromNow(user.pro_expires_at!)).toBeCloseTo(50, 3);
+    expect(daysFromNow(user.max_expires_at!)).toBeCloseTo(30, 3);
+    expect(morePro.applied_detail).toMatchObject({ planId: "pro", effect: "extend" });
+  });
+
+  it("runs Pro alongside Max the other way round, with the allowance Max was sold with", async () => {
+    const user = fake.users.get("u1")!;
+    Object.assign(user, { plan_id: "max", plan_expires_at: new Date(Date.now() + 5 * DAY), plan_credits_per_window: 25_000 });
+    const pro = paid();
+    await orders.applyOrder(pro.id, "system");
+    expect(pro.applied_detail).toMatchObject({ planId: "pro", effect: "concurrent" });
+    expect(daysFromNow(user.pro_expires_at!)).toBeCloseTo(30, 3);
+    // Max (still from the single-plan columns) keeps its end and its allowance.
+    expect(user).toMatchObject({ plan_id: "max", plan_credits_per_window: 25_000, pro_credits_per_window: 6000 });
+    expect(daysFromNow(user.plan_expires_at!)).toBeCloseTo(5, 3);
+    const row = { id: "u1", role: "user", credit_allowance: null, bonus_credits: "0", window_started_at: null, window_used: "0", ...user };
+    expect(balanceOf(row, CREDIT_SETTINGS, Date.now(), DEFAULT_BILLING_SETTINGS.plans).allowance).toBe(31_000);
+    // Max ends: the single-plan columns would name a plan that ended, so they move to Pro on the next change.
+    expect(balanceOf(row, CREDIT_SETTINGS, Date.now() + 6 * DAY, DEFAULT_BILLING_SETTINGS.plans)).toMatchObject({ allowance: 6000, plan: { id: "pro" } });
   });
 
   it("gives what the order sold, even when the operator changed the plan before it was paid", async () => {
@@ -471,6 +515,31 @@ describe("the operator", () => {
     expect(fake.users.get("u1")!.plan_expires_at).toBe(later);
   });
 
+  it("takes back only the plan a disapproved payment started, leaving the plan running alongside it", async () => {
+    const pro = withDetails({ tx_hash: HASH, status: "review" });
+    await orders.approveOrder(pro.code, "admin", "");
+    const max = withDetails({ plan_id: "max", list_usd: "80.00", price_usd: "8.00", tx_hash: OTHER_HASH, status: "review", expected_units: "8003700000000000000" });
+    await orders.approveOrder(max.code, "admin", "");
+    const user = fake.users.get("u1")!;
+    const proEnd = user.pro_expires_at!.getTime();
+    expect(user).toMatchObject({ plan_id: "max", max_credits_per_window: 30000 });
+    const undone = await orders.disapproveOrder(max.code, "admin", "Chargeback");
+    expect(undone.undo).toBe("removed");
+    expect(user).toMatchObject({ max_expires_at: null, max_credits_per_window: null, plan_id: "pro", plan_credits_per_window: 6000 });
+    expect(user.pro_expires_at!.getTime()).toBe(proEnd);
+    expect(fake.creditEvents.at(-1)!.detail).toBe(`Max plan removed: order ${max.code} was disapproved`);
+  });
+
+  it("shortens a plan by every month a disapproved order paid for", async () => {
+    Object.assign(fake.users.get("u1")!, { pro_expires_at: new Date(Date.now() + 10 * DAY), pro_credits_per_window: 6000, plan_id: "pro", plan_expires_at: new Date(Date.now() + 10 * DAY) });
+    // Three months as sold: plan_days is all 90 of them.
+    const order = withDetails({ tx_hash: HASH, status: "review", plan_days: 90, plan_months: 3, list_usd: "60.00", price_usd: "6.00" });
+    await orders.approveOrder(order.code, "admin", "");
+    expect((fake.users.get("u1")!.pro_expires_at!.getTime() - Date.now()) / DAY).toBeCloseTo(100, 3);
+    expect((await orders.disapproveOrder(order.code, "admin", "Fake")).undo).toBe("shortened");
+    expect((fake.users.get("u1")!.pro_expires_at!.getTime() - Date.now()) / DAY).toBeCloseTo(10, 3);
+  });
+
   it("removes API balance a disapproved top-up added, and not below zero", async () => {
     const order = withDetails({ kind: "api", plan_id: null, list_usd: "25.00", discount_percent: 0, price_usd: "25.00", credit_usd: "25.00", tx_hash: HASH, status: "review" });
     await orders.approveOrder(order.code, "admin", "");
@@ -503,14 +572,21 @@ describe("the operator", () => {
     expect(user).toMatchObject({ plan_id: "pro", plan_credits_per_window: 6000 });
     expect((user.plan_expires_at!.getTime() - Date.now()) / DAY).toBeCloseTo(10, 3);
     expect(fake.creditEvents.at(-1)).toMatchObject({ kind: "plan", created_by: "admin", detail: expect.stringMatching(/^Pro plan until .* \(given by the operator\) · note: Thanks for the bug report$/) });
-    // Max for 30 days over 10 Pro days: like a purchase, the Pro days carry over at their value (2.5 days).
+    // Max for 30 days on top of 10 Pro days: like a purchase, Max runs alongside and Pro keeps its days.
     await orders.grantPlan("u1", "max", 30, "", "admin");
     expect(user.plan_id).toBe("max");
-    expect((user.plan_expires_at!.getTime() - Date.now()) / DAY).toBeCloseTo(32.5, 3);
+    expect((user.max_expires_at!.getTime() - Date.now()) / DAY).toBeCloseTo(30, 3);
+    expect((user.pro_expires_at!.getTime() - Date.now()) / DAY).toBeCloseTo(10, 3);
+    expect(fake.creditEvents.at(-1)!.detail).toMatch(/^Max plan until .*, alongside Pro until .* \(given by the operator\)$/);
     await expectError(orders.grantPlan("u1", "pro", 0, "", "admin"), 400, "invalid_days");
     await expectError(orders.grantPlan("nobody", "pro", 5, "", "admin"), 404, "not_found");
+    // Ending one plan leaves the other running.
+    await orders.endPlan("u1", "", "admin", "pro");
+    expect(user).toMatchObject({ pro_expires_at: null, plan_id: "max" });
+    expect(fake.creditEvents.at(-1)!.detail).toBe("Pro plan ended by the operator");
+    await expectError(orders.endPlan("u1", "", "admin", "pro"), 409, "no_plan");
     await orders.endPlan("u1", "Refunded", "admin");
-    expect(user).toMatchObject({ plan_id: null, plan_expires_at: null });
+    expect(user).toMatchObject({ max_expires_at: null, plan_id: null, plan_expires_at: null });
     expect(fake.creditEvents.at(-1)!.detail).toBe("Max plan ended by the operator · note: Refunded");
     await expectError(orders.endPlan("u1", "", "admin"), 409, "no_plan");
   });
@@ -585,9 +661,10 @@ describe("review fixes", () => {
     fake.settings.set("billing", { plans: { max: { name: "Max", priceUsd: 80, creditsPerWindow: 20_000, days: 30 } } });
     resetBillingSettings();
     await orders.grantPlan("u1", "max", 7, "thanks", "admin");
-    expect(fake.users.get("u1")).toMatchObject({ plan_id: "max", plan_credits_per_window: 30_000 });
+    expect(fake.users.get("u1")).toMatchObject({ plan_id: "max", plan_credits_per_window: 30_000, max_credits_per_window: 30_000 });
+    // Pro given alongside doesn't touch Max's allowance.
     await orders.grantPlan("u1", "pro", 7, "thanks", "admin");
-    expect(fake.users.get("u1")).toMatchObject({ plan_id: "max", plan_credits_per_window: 30_000 });
+    expect(fake.users.get("u1")).toMatchObject({ plan_id: "max", plan_credits_per_window: 30_000, max_credits_per_window: 30_000, pro_credits_per_window: 6000 });
   });
 
   it("drops a forced check's answer when the operator rejected the order while it was asked", async () => {
@@ -621,6 +698,14 @@ describe("paying ahead", () => {
     expect(error).toMatchObject({ status: 409, code: "prepay_limit" });
     expect(error.message).toMatch(/already paid 6 months ahead/);
     expect(await orders.prepayLimits("u1")).toEqual({ pro: 0, max: expect.any(Number) });
+  });
+
+  it("gives each plan its own six months: Pro paid ahead doesn't stop Max", async () => {
+    Object.assign(fake.users.get("u1")!, { pro_expires_at: new Date(Date.now() + 175 * DAY), pro_credits_per_window: 6000 });
+    await expectError(orders.createOrder("u1", { kind: "plan", planId: "pro" }), 409, "prepay_limit");
+    expect(await orders.prepayLimits("u1")).toEqual({ pro: 0, max: 6 });
+    expect((await orders.createOrder("u1", { kind: "plan", planId: "max", months: 6 })).created).toBe(true);
+    expect(await orders.prepayLimits("u1")).toEqual({ pro: 0, max: 0 });
   });
 
   it("applies every month it paid for", async () => {

@@ -198,6 +198,8 @@ describe("what an order shows", () => {
 
   it("says what completing it did", () => {
     const name = (id: string) => (id === "pro" ? "Pro" : "Max");
+    expect(appliedText(order({ applied: { planId: "max", planExpiresAt: "2026-12-09T12:00:00.000Z", effect: "concurrent" } }), name, day)).toBe("Max until 2026-12-09 · started alongside the other plan");
+    // An order applied before plans ran side by side keeps what it did then.
     expect(appliedText(order({ applied: { planId: "max", planExpiresAt: "2026-12-09T12:00:00.000Z", effect: "upgrade" } }), name, day)).toBe("Max until 2026-12-09 · upgraded");
     expect(appliedText(order({ kind: "api", applied: { apiBalanceAddedUsd: 25 } }), name, day)).toBe("$25.00 added to the API balance");
     expect(appliedText(order(), name, day)).toBeNull();
@@ -209,36 +211,35 @@ describe("what approving an order gives", () => {
   const plan = (id: "pro" | "max", expiresIn: number) => ({ id, name: plans[id].name, expiresAt: inDays(expiresIn), creditsPerWindow: plans[id].creditsPerWindow });
 
   it("adds a top-up's balance", () => {
-    expect(approveText(order({ kind: "api", planId: null, title: "API balance · $25", priceUsd: 25, creditUsd: 25 }), null, plans, day, NOW)).toBe("Adds $25.00 to @mouno19's API balance.");
+    expect(approveText(order({ kind: "api", planId: null, title: "API balance · $25", priceUsd: 25, creditUsd: 25 }), [], plans, day, NOW)).toBe("Adds $25.00 to @mouno19's API balance.");
   });
 
   const maxOrder = (patch: Partial<AdminPaymentOrder> = {}) => order({ planId: "max", planDays: 30, planCreditsPerWindow: 30_000, title: "Max · 30 days", listUsd: 80, priceUsd: 8, ...patch });
 
-  it("starts, extends or upgrades the plan like a purchase", () => {
-    expect(approveText(order(), null, plans, day, NOW)).toBe(`Gives @mouno19 Pro for 30 days, starting now: until about ${day(inDays(30))}, with 6,000 credits per window.`);
-    expect(approveText(order(), plan("pro", 10), plans, day, NOW)).toBe(`Adds 30 days to @mouno19's Pro plan: until about ${day(inDays(40))}, with 6,000 credits per window.`);
-    expect(approveText(maxOrder(), plan("pro", 12), plans, day, NOW))
-      .toBe(`Upgrades @mouno19 from Pro to Max now, with the days left carried over at their value: until about ${day(inDays(33))}, with 30,000 credits per window.`);
-    // A month of Pro is worth a quarter of a month of Max; Max keeps its own allowance.
-    expect(approveText(order(), plan("max", 5), plans, day, NOW)).toBe(`Adds the value of 30 days of Pro to @mouno19's Max plan: until about ${day(inDays(12.5))}, keeping its 30,000 credits per window.`);
+  it("starts or extends the plan like a purchase, and starts the other one alongside", () => {
+    expect(approveText(order(), [], plans, day, NOW)).toBe(`Gives @mouno19 Pro for 30 days, starting now: until about ${day(inDays(30))}, with 6,000 credits per window.`);
+    expect(approveText(order(), [plan("pro", 10)], plans, day, NOW)).toBe(`Adds 30 days to @mouno19's Pro plan: until about ${day(inDays(40))}, with 6,000 credits per window.`);
+    // Max on Pro: both run, nothing is converted.
+    expect(approveText(maxOrder(), [plan("pro", 12)], plans, day, NOW))
+      .toBe(`Gives @mouno19 Max for 30 days, starting now alongside their Pro plan: until about ${day(inDays(30))}, with 30,000 credits per window, so 36,000 credits per window while both last.`);
+    expect(approveText(order(), [plan("max", 5)], plans, day, NOW)).toContain("starting now alongside their Max plan");
+    // Holding both, Max extends Max only.
+    expect(approveText(maxOrder(), [plan("pro", 12), plan("max", 5)], plans, day, NOW)).toBe(`Adds 30 days to @mouno19's Max plan: until about ${day(inDays(35))}, with 30,000 credits per window.`);
   });
 
   it("gives the plan as it was sold, even when the plan has changed since", () => {
     // Pro was sold as 30 days at $20 with 6,000 credits; it is now 60 days at $30 with 10,000.
     const changed = { ...plans, pro: { ...plans.pro, days: 60, priceUsd: 30, creditsPerWindow: 10_000 } };
-    expect(approveText(order(), null, changed, day, NOW)).toBe(`Gives @mouno19 Pro for 30 days, starting now: until about ${day(inDays(30))}, with 6,000 credits per window.`);
-    // Max sold at $80 list, then repriced to $160: 10 days of Pro carry over at the price it was sold at (2.5 days, not 1.25).
-    const pricier = { ...plans, max: { ...plans.max, priceUsd: 160 } };
-    expect(approveText(maxOrder(), plan("pro", 10), pricier, day, NOW)).toContain(`until about ${day(inDays(32.5))},`);
+    expect(approveText(order(), [], changed, day, NOW)).toBe(`Gives @mouno19 Pro for 30 days, starting now: until about ${day(inDays(30))}, with 6,000 credits per window.`);
     // An extension keeps the larger allowance: the account's own, or the one sold.
-    expect(approveText(order(), { ...plan("pro", 10), creditsPerWindow: 8_000 }, plans, day, NOW)).toBe(`Adds 30 days to @mouno19's Pro plan: until about ${day(inDays(40))}, with 8,000 credits per window.`);
+    expect(approveText(order(), [{ ...plan("pro", 10), creditsPerWindow: 8_000 }], plans, day, NOW)).toBe(`Adds 30 days to @mouno19's Pro plan: until about ${day(inDays(40))}, with 8,000 credits per window.`);
     // An order from before the terms were kept on it falls back to the plan's settings.
-    expect(approveText(order({ planDays: null, planCreditsPerWindow: null }), null, changed, day, NOW)).toBe(`Gives @mouno19 Pro for 60 days, starting now: until about ${day(inDays(60))}, with 10,000 credits per window.`);
+    expect(approveText(order({ planDays: null, planCreditsPerWindow: null }), [], changed, day, NOW)).toBe(`Gives @mouno19 Pro for 60 days, starting now: until about ${day(inDays(60))}, with 10,000 credits per window.`);
   });
 
   it("treats a plan that has ended as none, and doesn't guess without the account's plan", () => {
-    expect(approveText(order(), plan("max", -1), plans, day, NOW)).toContain("starting now");
-    expect(approveText(order(), undefined, plans, day, NOW)).toBe("Gives @mouno19 Pro · 30 days the way a purchase does: it starts, extends or upgrades their plan.");
+    expect(approveText(order(), [plan("max", -1)], plans, day, NOW)).toBe(`Gives @mouno19 Pro for 30 days, starting now: until about ${day(inDays(30))}, with 6,000 credits per window.`);
+    expect(approveText(order(), undefined, plans, day, NOW)).toBe("Gives @mouno19 Pro · 30 days the way a purchase does: it starts the plan (alongside any other they have) or extends it.");
     expect(approveText(order({ user: { id: "u2", login: null, name: "Ada" } }), undefined, null, day, NOW)).toContain("Gives Ada ");
   });
 });

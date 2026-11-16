@@ -109,13 +109,14 @@ export async function usageAnalytics(range: UsageRange, tz: string, now = Date.n
       `WITH ${agent.series}, a AS (${agentRows}), p AS (${apiRows})
        SELECT 'agent' AS source, model, count(*) AS turns, sum(tokens) AS tokens, sum(list_micros) AS list FROM a GROUP BY model
        UNION ALL SELECT 'api', model, count(*), sum(tokens), sum(list_micros) FROM p GROUP BY model`, params(zone)),
-    query<{ user_id: string; name: string | null; role: string; plan_id: string | null; plan_expires_at: Date | null; turns: string; tokens: string; credits: string; list: string }>(
+    query<{ user_id: string; name: string | null; role: string; plan_id: string | null; turns: string; tokens: string; credits: string; list: string }>(
       `WITH ${agent.series}, a AS (${agentRows}), p AS (${apiRows}),
          x AS (SELECT user_id, count(*) AS turns, sum(tokens) AS tokens, sum(credits) AS credits, sum(coalesce(list_micros, 0)) AS list FROM a WHERE user_id IS NOT NULL GROUP BY 1
                UNION ALL SELECT user_id, count(*), sum(tokens), 0, sum(list_micros) FROM p GROUP BY 1)
-       SELECT x.user_id, coalesce(us.display_name, us.login, us.handle) AS name, us.role, us.plan_id, us.plan_expires_at,
+       SELECT x.user_id, coalesce(us.display_name, us.login, us.handle) AS name, us.role,
+              CASE WHEN us.max_expires_at > now() THEN 'max' WHEN us.pro_expires_at > now() THEN 'pro' END AS plan_id,
               sum(x.turns) AS turns, sum(x.tokens) AS tokens, sum(x.credits) AS credits, sum(x.list) AS list
-       FROM x JOIN curialy.users us ON us.id = x.user_id GROUP BY 1, 2, 3, 4, 5 ORDER BY sum(x.list) DESC, sum(x.tokens) DESC LIMIT 25`, params(zone)),
+       FROM x JOIN curialy.users us ON us.id = x.user_id GROUP BY 1, 2, 3, 4 ORDER BY sum(x.list) DESC, sum(x.tokens) DESC LIMIT 25`, params(zone)),
     query<{ plan: string; accounts: string; turns: string; tokens: string; credits: string; list: string }>(
       `WITH ${agent.series}, a AS (${agentRows})
        SELECT CASE WHEN operator THEN 'operator' WHEN plan_id IS NULL THEN 'free' ELSE plan_id END AS plan,
@@ -144,7 +145,8 @@ export async function usageAnalytics(range: UsageRange, tz: string, now = Date.n
       .sort((a, b) => (b.listMicros ?? -1) - (a.listMicros ?? -1) || b.tokens - a.tokens),
     accounts: accounts.rows.map(row => ({
       userId: row.user_id, name: row.name ?? "(no name)",
-      plan: row.role === "admin" ? "operator" : row.plan_id && row.plan_expires_at && row.plan_expires_at.getTime() > now ? row.plan_id : "free",
+      // An account with Pro and Max side by side is shown under its highest plan.
+      plan: row.role === "admin" ? "operator" : row.plan_id ?? "free",
       turns: num(row.turns), tokens: num(row.tokens), credits: Math.round(num(row.credits) * 100) / 100, listMicros: num(row.list),
     })),
     plans: [...order, "free", "operator"].filter(key => planRows.has(key) || revenueBy.has(key)).map(key => {

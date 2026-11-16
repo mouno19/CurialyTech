@@ -54,7 +54,8 @@ export const adminBillingApi = {
   account: (userId: string) => api<AdminAccountBilling>(`/api/admin/billing/users/${enc(userId)}`),
   /** Gives (or extends) a plan without a payment. */
   grantPlan: (userId: string, planId: PlanId, days: number, note: string) => api<AdminAccountBilling>(`/api/admin/billing/users/${enc(userId)}/plan`, { method: "POST", json: { planId, days, note } }),
-  endPlan: (userId: string, note: string) => api<AdminAccountBilling>(`/api/admin/billing/users/${enc(userId)}/plan`, { method: "DELETE", json: { note } }),
+  /** planId: end that plan only (another the account has keeps running); without one, every plan ends. */
+  endPlan: (userId: string, note: string, planId?: PlanId) => api<AdminAccountBilling>(`/api/admin/billing/users/${enc(userId)}/plan`, { method: "DELETE", json: { note, planId } }),
   /** Adds (or with a negative amount, removes) API balance. */
   adjustApiBalance: (userId: string, amountUsd: number, note: string) => api<AdminAccountBilling>(`/api/admin/billing/users/${enc(userId)}/api-balance`, { method: "POST", json: { amountUsd, note } }),
 };

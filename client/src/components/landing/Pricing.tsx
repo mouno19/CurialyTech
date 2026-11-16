@@ -136,9 +136,11 @@ function lede(catalog: BillingCatalog) {
   const lengths = [...new Set(catalog.plans.map(plan => plan.days))];
   const term = lengths.length === 1 ? `${lengths[0]} days` : "a set number of days";
   const names = listText(catalog.plans.map(plan => plan.name), "and");
+  // Plans run side by side: holding both adds their credits up.
+  const both = catalog.plans.length > 1 ? ` Hold ${catalog.plans.length === 2 ? "both" : "several"} at once and the credits add up: ${creditCount(catalog.plans.reduce((sum, plan) => sum + plan.creditsPerWindow, 0))} every ${catalog.free.windowHours} hours.` : "";
   return catalog.paymentsOpen
-    ? `${names} raise your credits for ${term}, paid once in crypto: nothing renews. Pay for up to ${MAX_PLAN_MONTHS} months ahead at the same price.`
-    : `${names} raise your credits for ${term}, paid once in crypto. New payments are paused right now.`;
+    ? `${names} raise your credits for ${term}, paid once in crypto: nothing renews.${both} Pay for up to ${MAX_PLAN_MONTHS} months ahead at the same price.`
+    : `${names} raise your credits for ${term}, paid once in crypto.${both} New payments are paused right now.`;
 }
 
 /** The offer as a pill: what it takes off (plans, API prices or both) and when it ends; null without one. */

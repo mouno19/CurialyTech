@@ -17,10 +17,11 @@ import { TopUpForm } from "@/components/billing/TopUpForm";
 import { creditCount, dayText, microsText, shortDayText, spendableCredits, spendableMicrosText } from "@/components/billing/format";
 import { shownStatus } from "@/components/billing/orderState";
 import { EarnCredits } from "@/components/billing/EarnCredits";
-import { daysLeftText, formatPrice, freeMultiple, freeTierLines, monthsText, offerBadge, offerSentence, ownAllowance, planAction, planConfigs, planState, vaultText } from "@/components/billing/plans";
+import { daysLeftText, formatPrice, freeMultiple, freeTierLines, listText, monthsText, offerBadge, offerSentence, ownAllowance, planAction, planConfigs, plansAllowance, plansText, runningPlans, vaultText } from "@/components/billing/plans";
 
-// Plans & Billing: the account's plan and credits, the 30-day plans, the Developer API balance and
-// its top-ups, credit use over time, the account's orders, and what a payment can be made with.
+// Plans & Billing: the account's plans and credits, the 30-day plans (Pro and Max can run side by
+// side, and their credits add up), the Developer API balance and its top-ups, credit use over time,
+// the account's orders, and what a payment can be made with.
 // Each section loads (and fails) on its own; ordering a plan or a top-up opens its payment page.
 
 type UsageSpan = Extract<UsageRange, "7d" | "30d">;
@@ -36,18 +37,22 @@ function creditsLeftText(credits: CreditBalance) {
   const shown = creditCount(spendableCredits(credits.available));
   return `${shown} ${shown === "1" ? "credit" : "credits"} left`;
 }
-function allowanceHint(credits: CreditBalance) {
+function allowanceHint(credits: CreditBalance, held: CreditBalance["plans"]) {
   if (credits.boost && credits.allowance === credits.boost.creditsPerWindow) return "The window starts when the boost begins and refills from that time.";
-  return "The first window starts when you spend a credit, then it refills on that schedule.";
+  const window = "The first window starts when you spend a credit, then it refills on that schedule.";
+  // Plans held together each give their credits: say what makes up the total.
+  if (held.length > 1 && credits.allowance === plansAllowance(held)) return `${held.map(plan => `${plan.name} ${creditCount(plan.creditsPerWindow)}`).join(" + ")}, while both last. ${window}`;
+  return window;
 }
 
-function refillText(credits: CreditBalance) {
+function refillText(credits: CreditBalance, held: CreditBalance["plans"]) {
   // Without an allowance nothing refills: the account's credits are its own (promo codes, grants).
   if (credits.unlimited || credits.allowance === 0) return null;
   if (!credits.resetsAt) return `${creditCount(credits.allowance)} every ${credits.windowHours} hours`;
-  // A plan's allowance ends with the plan: a plan that ends first never sees this refill.
-  const plan = credits.plan;
-  if (plan && Date.parse(plan.expiresAt) < Date.parse(credits.resetsAt)) return `${plan.name} ends at ${clockText(plan.expiresAt)}, before this window refills`;
+  // A plan's allowance ends with the plan: a plan that ends first never sees this refill (the first to end is named).
+  const resets = Date.parse(credits.resetsAt);
+  const ending = held.filter(plan => Date.parse(plan.expiresAt) < resets).sort((a, b) => Date.parse(a.expiresAt) - Date.parse(b.expiresAt))[0];
+  if (ending) return `${ending.name} ends at ${clockText(ending.expiresAt)}, before this window refills`;
   return `Refills to ${creditCount(credits.allowance)} at ${clockText(credits.resetsAt)}`;
 }
 
@@ -108,11 +113,10 @@ export default function Billing() {
   }, [settled]);
 
   const credits = info?.credits ?? null;
-  // What a plan does depends on the plan the account has: the account's, else the billing account's
-  // (the same plan from a second request). Until one answers, the plan buttons wait.
+  // What a plan does depends on the plans the account has: the account's, else the billing account's
+  // (the same plans from a second request). Until one answers, the plan buttons wait.
   const planKnown = credits !== null || wallet.data !== null;
-  const known = credits ? credits.plan : wallet.data?.plan ?? null;
-  const plan = known && planState(known) ? known : null;
+  const held = runningPlans(credits ? credits.plans : wallet.data?.plans);
   const planError = !planKnown && accountError && wallet.error ? accountError : null;
   const retryPlan = () => {
     void refreshAccount();
@@ -140,9 +144,9 @@ export default function Billing() {
   const operator = Boolean(credits?.unlimited || wallet.data?.operator);
   const freeTier = catalog.data?.free ?? null;
   // Without a plan, the account's allowance is its own: the free one (often none), one the operator set, or the boost.
-  const own = ownAllowance(credits, plan);
-  const noAllowance = Boolean(credits && !credits.unlimited && !plan && own === 0);
-  const onFree = Boolean(credits?.welcome && !credits.unlimited && !plan && own !== null && own === (freeTier?.creditsPerWindow ?? 0));
+  const own = ownAllowance(credits, held);
+  const noAllowance = Boolean(credits && !credits.unlimited && !held.length && own === 0);
+  const onFree = Boolean(credits?.welcome && !credits.unlimited && !held.length && own !== null && own === (freeTier?.creditsPerWindow ?? 0));
 
   return (
     <AppShell title="Plans & Billing">
@@ -172,33 +176,36 @@ export default function Billing() {
               <>
                 <dl className="bill-facts">
                   <div className="bill-fact">
-                    <dt>Plan</dt>
+                    <dt>{held.length > 1 ? "Active plans" : "Plan"}</dt>
                     <dd>
                       {/* An account that started without the free credits isn't on the free one: say what it has. */}
-                      <span className="bill-fact-value">{plan ? plan.name : !credits.welcome && !credits.unlimited ? "None" : "Free"}</span>
-                      <span className="bill-fact-hint">
-                        {plan ? `Until ${dayText(plan.expiresAt)} · ${daysLeftText(plan.expiresAt)}`
-                          : credits.unlimited ? "Not charged"
-                            : !credits.welcome ? "Credits on this account come from plans and promo codes."
-                              : credits.boost ? `No plan: ${creditCount(credits.boost.creditsPerWindow)} every ${credits.boost.windowHours} hours while the boost lasts`
-                                : onFree && noAllowance ? "No plan: welcome credits, and more on X" : "No plan"}
-                      </span>
+                      <span className="bill-fact-value">{held.length ? plansText(held) : !credits.welcome && !credits.unlimited ? "None" : "Free"}</span>
+                      {/* Each plan runs until its own end: one line each when there are two. */}
+                      {held.length > 1 ? held.map(plan => <span key={plan.id} className="bill-fact-hint">{plan.name} until {dayText(plan.expiresAt)} · {daysLeftText(plan.expiresAt)}</span>) : (
+                        <span className="bill-fact-hint">
+                          {held.length ? `Until ${dayText(held[0].expiresAt)} · ${daysLeftText(held[0].expiresAt)}`
+                            : credits.unlimited ? "Not charged"
+                              : !credits.welcome ? "Credits on this account come from plans and promo codes."
+                                : credits.boost ? `No plan: ${creditCount(credits.boost.creditsPerWindow)} every ${credits.boost.windowHours} hours while the boost lasts`
+                                  : onFree && noAllowance ? "No plan: welcome credits, and more on X" : "No plan"}
+                        </span>
+                      )}
                     </dd>
                   </div>
                   <div className="bill-fact">
                     <dt>Credits</dt>
                     <dd>
                       <span className="bill-fact-value">{creditsLeftText(credits)}</span>
-                      {refillText(credits) ? <span className="bill-fact-hint">{refillText(credits)}</span>
+                      {refillText(credits, held) ? <span className="bill-fact-hint">{refillText(credits, held)}</span>
                         : !credits.unlimited && noAllowance && credits.welcome ? <span className="bill-fact-hint">Welcome credits don't refill.</span> : null}
                     </dd>
                   </div>
                   {!credits.unlimited && credits.allowance > 0 && (
                     <div className="bill-fact">
-                      <dt>Allowance</dt>
+                      <dt>{held.length > 1 ? "Total allowance" : "Allowance"}</dt>
                       <dd>
                         <span className="bill-fact-value">{creditCount(credits.allowance)} every {credits.windowHours} hours</span>
-                        <span className="bill-fact-hint">{allowanceHint(credits)}</span>
+                        <span className="bill-fact-hint">{allowanceHint(credits, held)}</span>
                       </dd>
                     </div>
                   )}
@@ -219,16 +226,19 @@ export default function Billing() {
           <section className="bill-section" aria-labelledby="bill-plans-title">
             <div className="bill-section-head">
               <h2 id="bill-plans-title" className="section-title">Plans</h2>
-              <p className="field-hint">A plan runs from when its payment is applied. Paid once; nothing renews.</p>
+              <p className="field-hint">
+                A plan runs from when its payment is applied. Paid once; nothing renews.
+                {catalog.data && catalog.data.plans.length > 1 && ` ${listText(catalog.data.plans.map(offer => offer.name), "and")} can be active at the same time, each until its own end, and their credits add up.`}
+              </p>
             </div>
             {catalog.data ? (
               <PlanCards
                 catalog={catalog.data}
-                current={plan}
+                held={held}
                 planKnown={planKnown}
                 planFailed={planError !== null}
                 own={own}
-                freeHere={onFree ? "yours" : credits && !credits.unlimited && !credits.welcome && !plan ? "not_included" : null}
+                freeHere={onFree ? "yours" : credits && !credits.unlimited && !credits.welcome && !held.length ? "not_included" : null}
                 creating={creating}
                 prepay={wallet.data?.prepay ?? null}
                 onOrder={orderPlan}
@@ -245,12 +255,12 @@ export default function Billing() {
             {catalog.data && planError && (
               <div className="card">
                 <StateNotice variant="error" size="sm" title="Couldn't check your plan" actions={<Button size="sm" icon={RotateCcw} onClick={retryPlan}>Try again</Button>}>
-                  {planError} What buying a plan does depends on the plan you have, so its buttons wait until it's known.
+                  {planError} What buying a plan does depends on the plans you have, so its buttons wait until they're known.
                 </StateNotice>
               </div>
             )}
             {orderError && <p className="field-error" role="alert"><TriangleAlert size={14} aria-hidden="true" />{orderError}</p>}
-            {catalog.data && !catalog.data.paymentsOpen && <p className="bill-note">Payments are paused right now, so plans can't be ordered. Your credits and any active plan keep working.</p>}
+            {catalog.data && !catalog.data.paymentsOpen && <p className="bill-note">Payments are paused right now, so plans can't be ordered. Your credits and any active plans keep working.</p>}
           </section>
 
           <section id="api" className="card bill-api" tabIndex={-1} aria-labelledby="bill-api-title">
@@ -366,13 +376,15 @@ export default function Billing() {
 
 /**
  * Free, Pro and Max: price (list and offer), credits per window against the free allowance, and the
- * button planAfterPurchase implies, once the account's plan is known. freeHere: the account has the
- * free allowance ("yours"), or has no allowance at all ("not_included"), so the Free card says which.
- * own: the account's own allowance where the page can see it; a plan at or under it adds nothing.
+ * button applyPlanPurchase implies once the account's plans are known: get a plan, extend the one it
+ * has, or add the other alongside it (never blocked: both run and the credits add up). freeHere: the
+ * account has the free allowance ("yours"), or has no allowance at all ("not_included"), so the Free
+ * card says which. own: the account's own allowance where the page can see it; plans at or under it add nothing.
  */
-function PlanCards({ catalog, current, planKnown, planFailed, own, freeHere, creating, prepay, onOrder }: {
+function PlanCards({ catalog, held, planKnown, planFailed, own, freeHere, creating, prepay, onOrder }: {
   catalog: BillingCatalog;
-  current: { id: PlanId; name: string; expiresAt: string } | null;
+  /** The plans the account has, still running. */
+  held: CreditBalance["plans"];
   planKnown: boolean;
   planFailed: boolean;
   own: number | null;
@@ -385,7 +397,6 @@ function PlanCards({ catalog, current, planKnown, planFailed, own, freeHere, cre
   // How many months each card is set to pay for (kept within what the account may still prepay).
   const [chosen, setChosen] = useState<Record<PlanId, number>>({ pro: 1, max: 1 });
   const configs = planConfigs(catalog.plans);
-  const state = planState(current);
   const { creditsPerWindow: free, windowHours } = catalog.free;
   const freeLines = freeTierLines(catalog.free, shortDayText);
   const closed = !catalog.paymentsOpen;
@@ -408,22 +419,23 @@ function PlanCards({ catalog, current, planKnown, planFailed, own, freeHere, cre
       {catalog.plans.map(offer => {
         const room = prepay?.[offer.id] ?? MAX_PLAN_MONTHS;
         const months = Math.max(1, Math.min(chosen[offer.id] ?? 1, room || 1));
-        const action = configs ? planAction(state, offer, configs, Date.now(), months) : null;
+        const action = configs ? planAction(held, offer, configs, Date.now(), months) : null;
         // Each month at today's price and today's offer, rounded as the server rounds the order.
         const listTotal = offer.listUsd * months;
         const priceTotal = discountedUsd(listTotal, offer.discountPercent);
         const monthsId = `bill-plan-${offer.id}-months`;
-        const mine = current?.id === offer.id;
+        const mine = held.find(plan => plan.id === offer.id) ?? null;
         const discounted = offer.discountPercent > 0 && offer.listUsd > offer.priceUsd;
         const multiple = freeMultiple(offer.creditsPerWindow, free);
-        // The account gets the larger of its own allowance and the plan's: this one would change nothing.
-        const covered = own !== null && own >= offer.creditsPerWindow;
+        // The account gets the larger of its own allowance and what its plans give together (this one
+        // added, unless it is one it has: extending adds days, not credits): it would change nothing.
+        const covered = own !== null && own >= plansAllowance(held.filter(plan => plan.id !== offer.id)) + offer.creditsPerWindow;
         const hintId = `bill-plan-${offer.id}-hint`;
         return (
-          <li key={offer.id} className="card bill-plan" data-current={mine || undefined}>
+          <li key={offer.id} className="card bill-plan" data-current={mine ? true : undefined}>
             <div className="bill-plan-head">
               <h3 className="bill-plan-name">{offer.name}</h3>
-              {mine && current && <span className="chip">Your plan · until {shortDayText(current.expiresAt)}</span>}
+              {mine && <span className="chip">Your plan · until {shortDayText(mine.expiresAt)}</span>}
             </div>
             <p className="bill-plan-price">
               {discounted && <s className="bill-plan-list"><span className="sr-only">List price </span>{formatPrice(listTotal)}</s>}
@@ -449,8 +461,8 @@ function PlanCards({ catalog, current, planKnown, planFailed, own, freeHere, cre
                 ))}
               </select>
               <p className="field-hint">
-                {room === 0 ? `Your plan is already paid ${MAX_PLAN_MONTHS} months ahead, counting orders not paid yet.`
-                  : room < MAX_PLAN_MONTHS ? `Up to ${monthsText(room)} more now: a plan runs at most ${MAX_PLAN_MONTHS} months ahead.`
+                {room === 0 ? `${offer.name} is already paid ${MAX_PLAN_MONTHS} months ahead, counting orders not paid yet.`
+                  : room < MAX_PLAN_MONTHS ? `Up to ${monthsText(room)} more now: each plan runs at most ${MAX_PLAN_MONTHS} months ahead.`
                     : `Pay up to ${MAX_PLAN_MONTHS} months ahead at today's price.`}
               </p>
             </div>
@@ -461,7 +473,7 @@ function PlanCards({ catalog, current, planKnown, planFailed, own, freeHere, cre
             </p>
             {/* What the button does comes first, so the buttons line up at the foot of every card. */}
             {!planKnown ? (
-              // Until the plan is known, "Get Pro" could be wrong (on Max it adds days to Max): no guess.
+              // Until the plans are known, "Get Pro" could be wrong (on Pro it extends Pro): no guess.
               !planFailed && (
                 <div className="bill-plan-action">
                   <Button variant="primary" block disabled>Checking your plan…</Button>

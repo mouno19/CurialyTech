@@ -243,7 +243,7 @@ function AccountsPanel({ settings, orderChange, onOpenOrder, onChanged, onBillin
                         {formatCredits(user.credits.available)}
                         <span className="admin-sub">
                           {formatCredits(user.credits.remaining)}/{formatCredits(user.credits.allowance)}
-                          {user.credits.plan && user.credits.allowance === user.credits.plan.creditsPerWindow ? " (plan)" : user.customAllowance !== null ? " (custom)" : ""}
+                          {user.credits.plans.length && user.credits.allowance === user.credits.plans.reduce((sum, plan) => sum + plan.creditsPerWindow, 0) ? (user.credits.plans.length > 1 ? " (plans)" : " (plan)") : user.customAllowance !== null ? " (custom)" : ""}
                           {user.credits.bonus ? ` + ${formatCredits(user.credits.bonus)} bonus` : ""}
                         </span>
                       </>
@@ -361,7 +361,7 @@ function CreditsDialog({ user, onClose, onChanged }: { user: AdminUser; onClose:
   };
 
   return (
-    <Dialog open onOpenChange={open => { if (!open) onClose(); }} size="md" title={`Credits · ${name}`} description={credits.unlimited ? "The operator's account is not charged." : `${formatCredits(credits.available)} available now: ${formatCredits(credits.remaining)} of ${formatCredits(credits.allowance)} in this window${credits.resetsAt ? ` (refills at ${clockText(credits.resetsAt)})` : ""}, plus ${formatCredits(credits.bonus)} bonus.${credits.plan ? ` On ${credits.plan.name} until ${shortDayText(credits.plan.expiresAt)}.` : ""}`}>
+    <Dialog open onOpenChange={open => { if (!open) onClose(); }} size="md" title={`Credits · ${name}`} description={credits.unlimited ? "The operator's account is not charged." : `${formatCredits(credits.available)} available now: ${formatCredits(credits.remaining)} of ${formatCredits(credits.allowance)} in this window${credits.resetsAt ? ` (refills at ${clockText(credits.resetsAt)})` : ""}, plus ${formatCredits(credits.bonus)} bonus.${credits.plans.length ? ` On ${credits.plans.map(plan => `${plan.name} until ${shortDayText(plan.expiresAt)}`).join(" and ")}.` : ""}`}>
       <form className="admin-form" onSubmit={grant} noValidate>
         <h4 className="admin-form-title">Add bonus credits</h4>
         <p className="field-hint">Bonus credits are spent after the window's and never expire.</p>
@@ -417,7 +417,7 @@ function CreditsDialog({ user, onClose, onChanged }: { user: AdminUser; onClose:
       {!credits.unlimited && (
         <div className="admin-form">
           <h4 className="admin-form-title">Free credits</h4>
-          <p className="field-hint">{withheld ? "This account doesn't get the welcome credits or the X rewards. " : "This account gets the welcome credits and can earn the X rewards. "}{user.freeAllowance?.note ?? ""}{user.customAllowance !== null ? " Its own allowance applies either way." : ""}{credits.plan ? " Its plan applies either way." : ""}</p>
+          <p className="field-hint">{withheld ? "This account doesn't get the welcome credits or the X rewards. " : "This account gets the welcome credits and can earn the X rewards. "}{user.freeAllowance?.note ?? ""}{user.customAllowance !== null ? " Its own allowance applies either way." : ""}{credits.plans.length ? ` Its ${credits.plans.length > 1 ? "plans apply" : "plan applies"} either way.` : ""}</p>
           <div className="admin-actions">
             <Button busy={busy === "free"} disabled={busy !== null && busy !== "free"} onClick={() => void saveFreeAllowance(!withheld)}>{withheld ? "Give the free credits" : "Remove the free credits"}</Button>
           </div>

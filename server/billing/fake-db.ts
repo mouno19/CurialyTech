@@ -5,6 +5,8 @@
 type Row = Record<string, any>;
 export type FakeUser = {
   id: string; role: "admin" | "user"; login: string | null; display_name: string;
+  /** Each plan's end and allowance (plans run side by side), and the single-plan columns kept as the highest active plan. */
+  pro_expires_at: Date | null; pro_credits_per_window: number | null; max_expires_at: Date | null; max_credits_per_window: number | null;
   plan_id: string | null; plan_expires_at: Date | null; plan_credits_per_window: number | null; api_balance_micros: string;
 };
 
@@ -40,7 +42,10 @@ export function resetFake() {
 const uuid = () => `00000000-0000-4000-8000-${String(++fake.ids).padStart(12, "0")}`;
 
 export function addUser(patch: Partial<FakeUser> & { id: string }): FakeUser {
-  const user: FakeUser = { role: "user", login: patch.id, display_name: patch.id, plan_id: null, plan_expires_at: null, plan_credits_per_window: null, api_balance_micros: "0", ...patch };
+  const user: FakeUser = {
+    role: "user", login: patch.id, display_name: patch.id, pro_expires_at: null, pro_credits_per_window: null, max_expires_at: null, max_credits_per_window: null,
+    plan_id: null, plan_expires_at: null, plan_credits_per_window: null, api_balance_micros: "0", ...patch,
+  };
   fake.users.set(user.id, user);
   return user;
 }
@@ -74,7 +79,10 @@ function paidIndex(row: Row, status: string, verified: unknown = row.chain_verif
     throw Object.assign(new Error("duplicate key value violates unique constraint"), { code: "23505" });
   }
 }
-const userColumns = (user: FakeUser) => ({ id: user.id, plan_id: user.plan_id, plan_expires_at: user.plan_expires_at, plan_credits_per_window: user.plan_credits_per_window, api_balance_micros: user.api_balance_micros });
+const userColumns = (user: FakeUser) => ({
+  id: user.id, api_balance_micros: user.api_balance_micros, pro_expires_at: user.pro_expires_at, pro_credits_per_window: user.pro_credits_per_window,
+  max_expires_at: user.max_expires_at, max_credits_per_window: user.max_credits_per_window, plan_id: user.plan_id, plan_expires_at: user.plan_expires_at, plan_credits_per_window: user.plan_credits_per_window,
+});
 const result = (rows: Row[], rowCount = rows.length) => ({ rows, rowCount });
 
 function event(values: any[]) {
@@ -162,9 +170,9 @@ export async function run(sql: string, values: any[] = []): Promise<{ rows: Row[
   }
 
   // Paying ahead: an account's open plan orders.
-  if (text.startsWith("SELECT plan_id, plan_days, list_usd FROM curialy.payment_orders WHERE user_id = $1 AND kind = 'plan'")) {
+  if (text.startsWith("SELECT plan_id, plan_days FROM curialy.payment_orders WHERE user_id = $1 AND kind = 'plan'")) {
     const open = fake.orders.filter(row => row.user_id === values[0] && row.kind === "plan" && row.plan_id && (["pending", "confirming", "review"].includes(row.status) || (row.status === "awaiting_payment" && row.expires_at > now)));
-    return result([...open].sort((a, b) => a.created_at.getTime() - b.created_at.getTime()).map(row => ({ plan_id: row.plan_id, plan_days: row.plan_days, list_usd: row.list_usd })));
+    return result([...open].sort((a, b) => a.created_at.getTime() - b.created_at.getTime()).map(row => ({ plan_id: row.plan_id, plan_days: row.plan_days })));
   }
 
   // Hashes and checks
@@ -241,16 +249,16 @@ export async function run(sql: string, values: any[] = []): Promise<{ rows: Row[
   }
 
   // Applying
-  if (text.startsWith("SELECT id, plan_id, plan_expires_at, plan_credits_per_window, api_balance_micros FROM curialy.users WHERE id = $1")) {
+  if (text.startsWith("SELECT id, api_balance_micros, pro_expires_at, pro_credits_per_window, max_expires_at, max_credits_per_window, plan_id, plan_expires_at, plan_credits_per_window FROM curialy.users WHERE id = $1")) {
     const user = fake.users.get(values[0]);
     return result(user ? [userColumns(user)] : []);
   }
-  if (text.startsWith("UPDATE curialy.users SET plan_id = $2, plan_expires_at = $3, plan_credits_per_window = $4")) {
-    Object.assign(fake.users.get(values[0])!, { plan_id: values[1], plan_expires_at: new Date(values[2]), plan_credits_per_window: values[3] });
-    return result([], 1);
-  }
-  if (text.startsWith("UPDATE curialy.users SET plan_id = NULL")) {
-    Object.assign(fake.users.get(values[0])!, { plan_id: null, plan_expires_at: null, plan_credits_per_window: null });
+  if (text.startsWith("UPDATE curialy.users SET pro_expires_at = $2, pro_credits_per_window = $3, max_expires_at = $4, max_credits_per_window = $5, plan_id = $6, plan_expires_at = $7, plan_credits_per_window = $8 WHERE id = $1")) {
+    const date = (value: unknown) => (value === null ? null : new Date(value as string | Date));
+    Object.assign(fake.users.get(values[0])!, {
+      pro_expires_at: date(values[1]), pro_credits_per_window: values[2], max_expires_at: date(values[3]), max_credits_per_window: values[4],
+      plan_id: values[5], plan_expires_at: date(values[6]), plan_credits_per_window: values[7],
+    });
     return result([], 1);
   }
   if (text.startsWith("INSERT INTO curialy.credit_events (user_id, kind, amount, detail, created_by) VALUES ($1, 'plan', 0, $2, $3)")) {
@@ -302,10 +310,10 @@ export async function run(sql: string, values: any[] = []): Promise<{ rows: Row[
     const completed = fake.orders.filter(row => row.status === "completed");
     const since = (days: number) => completed.filter(row => row.completed_at && row.completed_at.getTime() > now.getTime() - days * 86_400_000);
     const sum = (rows: Row[]) => (rows.reduce((total, row) => total + Math.round(Number(row.price_usd) * 100), 0) / 100).toFixed(2);
-    const plans: Record<string, number> = {};
-    for (const user of fake.users.values()) if (user.plan_id && user.plan_expires_at && user.plan_expires_at > now) plans[user.plan_id] = (plans[user.plan_id] ?? 0) + 1;
+    const users = [...fake.users.values()];
+    const plans = { pro: users.filter(user => user.pro_expires_at && user.pro_expires_at > now).length, max: users.filter(user => user.max_expires_at && user.max_expires_at > now).length };
     const micros = [...fake.users.values()].reduce((total, user) => total + BigInt(user.api_balance_micros), 0n);
-    return result([{ counts: Object.keys(counts).length ? counts : null, d7: sum(since(7)), d30: sum(since(30)), total: sum(completed), plans: Object.keys(plans).length ? plans : null, api_micros: String(micros) }]);
+    return result([{ counts: Object.keys(counts).length ? counts : null, d7: sum(since(7)), d30: sum(since(30)), total: sum(completed), plans, api_micros: String(micros) }]);
   }
   if (text.startsWith("SELECT l.kind, l.amount_micros")) {
     const rows = fake.ledger.filter(entry => entry.user_id === values[0]).sort((a, b) => b.id - a.id).slice(0, 50);

@@ -35,31 +35,29 @@ describe("amounts and days", () => {
 });
 
 describe("giving a plan", () => {
-  it("reads only a plan that is still running", () => {
-    expect(planStateOf({ id: "pro", name: "Pro", expiresAt: inDays(3), creditsPerWindow: 6000 }, NOW)).toEqual({ planId: "pro", expiresAt: inDays(3) });
-    expect(planStateOf({ id: "pro", name: "Pro", expiresAt: inDays(-1), creditsPerWindow: 6000 }, NOW)).toBeNull();
-    expect(planStateOf(null, NOW)).toBeNull();
+  it("reads only the plans still running", () => {
+    const running = { id: "pro" as const, name: "Pro", expiresAt: inDays(3), creditsPerWindow: 6000 };
+    expect(planStateOf([running, { id: "max", name: "Max", expiresAt: inDays(-1), creditsPerWindow: 30_000 }], NOW)).toEqual([{ planId: "pro", expiresAt: inDays(3) }]);
+    expect(planStateOf([], NOW)).toEqual([]);
+    expect(planStateOf(null, NOW)).toEqual([]);
   });
 
-  it("works like buying the plan for those days", () => {
-    expect(grantResult(null, "pro", 7, plans, NOW)).toEqual({ planId: "pro", expiresAt: inDays(7), effect: "start" });
-    expect(grantResult({ planId: "pro", expiresAt: inDays(10) }, "pro", 30, plans, NOW)).toEqual({ planId: "pro", expiresAt: inDays(40), effect: "extend" });
-    // 12 days of Pro are worth 3 days of Max.
-    expect(grantResult({ planId: "pro", expiresAt: inDays(12) }, "max", 10, plans, NOW)).toEqual({ planId: "max", expiresAt: inDays(13), effect: "upgrade" });
-    // 20 days of Pro add 5 days to Max.
-    expect(grantResult({ planId: "max", expiresAt: inDays(2) }, "pro", 20, plans, NOW)).toEqual({ planId: "max", expiresAt: inDays(7), effect: "extend_higher" });
+  it("works like buying the plan for those days: the other plan runs alongside, converted into nothing", () => {
+    expect(grantResult([], "pro", 7, plans, NOW)).toEqual({ planId: "pro", expiresAt: inDays(7), effect: "start" });
+    expect(grantResult([{ planId: "pro", expiresAt: inDays(10) }], "pro", 30, plans, NOW)).toEqual({ planId: "pro", expiresAt: inDays(40), effect: "extend" });
+    expect(grantResult([{ planId: "pro", expiresAt: inDays(12) }], "max", 10, plans, NOW)).toEqual({ planId: "max", expiresAt: inDays(10), effect: "concurrent" });
+    expect(grantResult([{ planId: "max", expiresAt: inDays(2) }], "pro", 20, plans, NOW)).toEqual({ planId: "pro", expiresAt: inDays(20), effect: "concurrent" });
   });
 
   it("names the button and the result", () => {
-    const pro = { planId: "pro" as const, expiresAt: inDays(12) };
-    expect(grantLabel("start", "pro", null, plans)).toBe("Give Pro");
-    expect(grantLabel("extend", "pro", pro, plans)).toBe("Extend Pro");
-    expect(grantLabel("upgrade", "max", pro, plans)).toBe("Upgrade to Max");
-    expect(grantLabel("extend_higher", "pro", { planId: "max", expiresAt: inDays(2) }, plans)).toBe("Add to Max");
-    expect(grantSentence(grantResult(null, "pro", 7, plans, NOW), "pro", 7, null, plans, day)).toBe(`Pro starts now and runs until about ${day(inDays(7))}.`);
-    expect(grantSentence(grantResult(pro, "max", 10, plans, NOW), "max", 10, pro, plans, day)).toBe(`Max starts now, with the days left on Pro carried over at their value: until about ${day(inDays(13))}.`);
-    const max = { planId: "max" as const, expiresAt: inDays(2) };
-    expect(grantSentence(grantResult(max, "pro", 1, plans, NOW), "pro", 1, max, plans, day)).toMatch(/^Max stays, with the value of 1 day of Pro added: until about /);
+    const pro = [{ planId: "pro" as const, expiresAt: inDays(12) }];
+    expect(grantLabel("start", "pro", plans)).toBe("Give Pro");
+    expect(grantLabel("extend", "pro", plans)).toBe("Extend Pro");
+    expect(grantLabel("concurrent", "max", plans)).toBe("Add Max");
+    expect(grantSentence(grantResult([], "pro", 7, plans, NOW), "pro", 7, [], plans, day)).toBe(`Pro starts now and runs until about ${day(inDays(7))}.`);
+    expect(grantSentence(grantResult(pro, "pro", 7, plans, NOW), "pro", 7, pro, plans, day)).toBe(`7 days are added to Pro: it runs until about ${day(inDays(19))}.`);
+    expect(grantSentence(grantResult(pro, "max", 10, plans, NOW), "max", 10, pro, plans, day))
+      .toBe(`Max starts now and runs until about ${day(inDays(10))}, alongside Pro, which keeps its own end: their credits add up while both last.`);
   });
 });
 

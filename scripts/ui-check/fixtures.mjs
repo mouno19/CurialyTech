@@ -1264,17 +1264,17 @@ export function createFixtures({ now = Date.now(), deployUrls = "vendor" } = {})
   const githubOf = () => (state.account === "operator" ? github : { ...github, login: account().login, name: account().displayName, avatarUrl: null });
   const resetsSoon = new Date(now + 2 * 3_600_000 + 14 * 60_000).toISOString();
   // As server/credits.ts answers (shared/credits.ts CreditBalance): no launch boost, and no X reward left to earn.
-  const balance = (fields, plan = null) => ({ unlimited: false, allowance: 60, used: 0, remaining: 60, bonus: 0, available: 60, resetsAt: null, windowHours: 5, boost: null, welcome: true, canEarn: false, ...fields, plan });
+  const balance = (fields, plan = null) => ({ unlimited: false, allowance: 60, used: 0, remaining: 60, bonus: 0, available: 60, resetsAt: null, windowHours: 5, boost: null, welcome: true, canEarn: false, ...fields, plan, plans: plan ? [plan] : [] });
   // On Pro: the plan's allowance is larger than the free one, so it applies (shared/credits.ts CreditBalance.plan).
   const freeCredits = balance({ allowance: 6000, used: 1284.5, remaining: 4715.5, bonus: 25, available: 4740.5, resetsAt: resetsSoon }, billing.planOf(billingUsers.free));
   const newcomerCredits = balance({ used: 41.5, remaining: 18.5, bonus: 25, available: 43.5, resetsAt: resetsSoon });
-  const operatorCredits = { unlimited: true, allowance: 60, used: 0, remaining: 60, bonus: 0, available: 60, resetsAt: null, windowHours: 5, plan: null, boost: null, welcome: false, canEarn: false };
+  const operatorCredits = { unlimited: true, allowance: 60, used: 0, remaining: 60, bonus: 0, available: 60, resetsAt: null, windowHours: 5, plan: null, plans: [], boost: null, welcome: false, canEarn: false };
   const credits = () => (state.account === "free" ? freeCredits : state.account === "newcomer" ? newcomerCredits : operatorCredits);
   const days = n => new Date(now - n * 86_400_000).toISOString();
   const minutesAgo = n => new Date(now - n * 60_000).toISOString();
-  const billingOf = user => ({ plan: billing.planOf(user), apiBalanceUsd: billing.apiBalanceUsd(user) });
+  const billingOf = user => ({ plan: billing.planOf(user), plans: billing.planOf(user) ? [billing.planOf(user)] : [], apiBalanceUsd: billing.apiBalanceUsd(user) });
   const adminUsers = [
-    { id: operator.id, role: "admin", login: "mouno19", name: "Operator", avatarUrl: null, email: null, createdAt: days(4), lastSeenAt: minutesAgo(1), banned: false, tasks: 45, activeRuns: 1, creditsUsedTotal: 0, customAllowance: null, credits: operatorCredits, plan: null, apiBalanceUsd: 0 },
+    { id: operator.id, role: "admin", login: "mouno19", name: "Operator", avatarUrl: null, email: null, createdAt: days(4), lastSeenAt: minutesAgo(1), banned: false, tasks: 45, activeRuns: 1, creditsUsedTotal: 0, customAllowance: null, credits: operatorCredits, plan: null, plans: [], apiBalanceUsd: 0 },
     { id: free.id, role: "user", login: "ada-lovelace", name: "Ada Lovelace", avatarUrl: null, email: "ada@example.com", createdAt: days(41), lastSeenAt: minutesAgo(25), banned: false, tasks: 7, activeRuns: 0, creditsUsedTotal: 9843.6, customAllowance: null, credits: freeCredits, ...billingOf(billingUsers.free) },
     { id: billingUsers.grace.id, role: "user", login: "grace-hopper-with-a-long-login", name: "Grace Hopper", avatarUrl: null, email: null, createdAt: new Date(now - 6 * 3_600_000).toISOString(), lastSeenAt: null, banned: true, tasks: 1, activeRuns: 0, creditsUsedTotal: 3, customAllowance: 120, credits: balance({ allowance: 120, remaining: 117, used: 3, available: 117, resetsAt: resetsSoon }), ...billingOf(billingUsers.grace) },
     { id: newcomer.id, role: "user", login: newcomer.login, name: newcomer.displayName, avatarUrl: null, email: null, createdAt: days(6), lastSeenAt: minutesAgo(3), banned: false, tasks: 3, activeRuns: 0, creditsUsedTotal: 211.5, customAllowance: null, credits: newcomerCredits, ...billingOf(billingUsers.newcomer) },

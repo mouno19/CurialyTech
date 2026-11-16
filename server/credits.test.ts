@@ -183,6 +183,59 @@ describe("plans", () => {
   });
 });
 
+describe("plans side by side", () => {
+  const DAY = 86_400_000;
+  const now = Date.now();
+  /** Pro with 10 days left and Max with 20, each in its own columns. */
+  const both = (patch: Record<string, unknown> = {}) => user({
+    pro_expires_at: new Date(now + 10 * DAY), pro_credits_per_window: 6000, max_expires_at: new Date(now + 20 * DAY), max_credits_per_window: 30_000,
+    plan_id: "max", plan_expires_at: new Date(now + 20 * DAY), plan_credits_per_window: 30_000, ...patch,
+  });
+
+  it("add their allowances while both last, then carry on with the one left, then the free tier", () => {
+    const balance = credits.balanceOf(both(), settings, now);
+    expect(balance).toMatchObject({ allowance: 36_000, remaining: 36_000, available: 36_000, plan: { id: "max", name: "Max" } });
+    expect(balance.plans).toEqual([
+      { id: "pro", name: "Pro", expiresAt: new Date(now + 10 * DAY).toISOString(), creditsPerWindow: 6000 },
+      { id: "max", name: "Max", expiresAt: new Date(now + 20 * DAY).toISOString(), creditsPerWindow: 30_000 },
+    ]);
+    // Pro ends after 10 days: Max alone.
+    expect(credits.balanceOf(both(), settings, now + 11 * DAY)).toMatchObject({ allowance: 30_000, plan: { id: "max" }, plans: [{ id: "max" }] });
+    // Max ends after 20: the free allowance (60 here), or none for an account without it.
+    expect(credits.balanceOf(both(), settings, now + 21 * DAY)).toMatchObject({ allowance: 60, plan: null, plans: [] });
+    expect(credits.balanceOf(both({ free_allowance_withheld: true }), settings, now + 21 * DAY)).toMatchObject({ allowance: 0, plan: null, plans: [] });
+    // Max ending first leaves Pro.
+    expect(credits.balanceOf(both({ max_expires_at: new Date(now + 5 * DAY), plan_expires_at: new Date(now + 5 * DAY) }), settings, now + 6 * DAY)).toMatchObject({ allowance: 6000, plan: { id: "pro" } });
+  });
+
+  it("are spent from as one window, and an own allowance above their sum still wins", async () => {
+    expect(credits.balanceOf(both({ credit_allowance: 50_000 }), settings, now).allowance).toBe(50_000);
+    expect(credits.balanceOf(both({ window_started_at: new Date(now - 3_600_000), window_used: "7000" }), settings, now)).toMatchObject({ used: 7000, remaining: 29_000 });
+    store.user = both();
+    expect(await credits.charge("u1", 31_000, "t1", "turn")).toMatchObject({ allowance: 36_000, used: 31_000, remaining: 5000 });
+  });
+
+  it("read an account from before plans ran side by side from its single plan, and the later end where both name a plan", () => {
+    // Only the single-plan columns: that plan.
+    expect(credits.heldPlans({ plan_id: "max", plan_expires_at: new Date(now + DAY), plan_credits_per_window: 25_000 })).toEqual([{ planId: "max", expiresAt: new Date(now + DAY), creditsPerWindow: 25_000 }]);
+    // An older build extended Pro in the single-plan columns: the later end counts.
+    expect(credits.heldPlans({ pro_expires_at: new Date(now + DAY), pro_credits_per_window: 6000, plan_id: "pro", plan_expires_at: new Date(now + 9 * DAY), plan_credits_per_window: 6000 })[0].expiresAt).toEqual(new Date(now + 9 * DAY));
+    // Pro in its own columns and Max in the single-plan ones: both.
+    expect(credits.activePlans({ pro_expires_at: new Date(now + DAY), pro_credits_per_window: 6000, plan_id: "max", plan_expires_at: new Date(now + 2 * DAY), plan_credits_per_window: 30_000 }, undefined, now).map(plan => plan.id)).toEqual(["pro", "max"]);
+    expect(credits.heldPlans({ plan_id: "gold", plan_expires_at: new Date(now + DAY) })).toEqual([]);
+  });
+
+  it("point to the plan not held yet when credits run out, and to a promo code with both", () => {
+    const spent = { window_started_at: new Date(), window_used: "6000" };
+    const onPro = credits.balanceOf(user({ pro_expires_at: new Date(now + 10 * DAY), pro_credits_per_window: 6000, ...spent }), settings);
+    expect(credits.outOfCreditsMessage(onPro)).toMatch(/^You've used this window's credits\. They refill in 5 h; another plan or a promo code adds more now\.$/);
+    const onBoth = credits.balanceOf(both({ window_started_at: new Date(), window_used: "36000" }), settings);
+    expect(credits.outOfCreditsMessage(onBoth)).toMatch(/; a promo code adds more now\.$/);
+    const noWindow = { ...onPro, resetsAt: null };
+    expect(credits.outOfCreditsMessage(noWindow)).toBe("Your account has no credits right now. Add another plan or redeem a promo code to continue.");
+  });
+});
+
 describe("charge", () => {
   it("opens a window with the first charge and spends the window before bonus credits", async () => {
     store.user = user({ bonus_credits: "10" });

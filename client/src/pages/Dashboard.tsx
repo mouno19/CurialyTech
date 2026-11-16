@@ -17,6 +17,7 @@ import type { StarterTask } from "@/lib/starterTasks";
 import { agentApi, ApiError, formatTokens, relativeTime, type TaskStats } from "@/lib/api";
 import { clockText, refreshAccount, untilText, useAccount } from "@/lib/account";
 import { CreditsDialog, creditsLine, refillLine } from "@/components/shell/CreditsMeter";
+import { PLAN_IDS } from "@shared/billing";
 import { MIN_CREDITS_TO_START, type CreditBalance } from "@shared/credits";
 import { useHealth } from "@/lib/appStatus";
 import { modeLabel, modelLabel, statusTime, TaskDuration, taskNote, TaskSkeleton, tokenTotal, useTaskList } from "./Tasks";
@@ -121,8 +122,9 @@ export default function Dashboard() {
         void refreshAccount();
         setCreditsOpen(true);
         const balance = (error.data as { credits?: CreditBalance } | undefined)?.credits;
-        // Extending a plan adds days, not credits: on the top plan only a promo code adds any before the refill.
-        const more = balance?.plan?.id === "max" ? "a promo code adds credits now" : balance?.plan ? "a higher plan or a promo code adds credits now" : balance?.canEarn ? "the X rewards, a plan or a promo code add credits now" : "a plan or a promo code adds credits now";
+        // Extending a plan adds days, not credits; the plan not held yet runs alongside and adds its own. With both, only a promo code adds any before the refill.
+        const held = balance?.plans?.length ?? (balance?.plan ? 1 : 0);
+        const more = held >= PLAN_IDS.length ? "a promo code adds credits now" : held ? "another plan or a promo code adds credits now" : balance?.canEarn ? "the X rewards, a plan or a promo code add credits now" : "a plan or a promo code adds credits now";
         throw new Error(balance?.resetsAt
           ? `You're out of credits until ${clockText(balance.resetsAt)} (${untilText(balance.resetsAt)}). Your task stays here; ${more}.`
           : `Your account has no credits right now. Your task stays here; ${more}.`);

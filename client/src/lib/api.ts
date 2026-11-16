@@ -404,8 +404,9 @@ export type AdminUser = {
   banned: boolean; tasks: number; activeRuns: number; creditsUsedTotal: number; customAllowance: number | null; credits: CreditBalance;
   /** withheld: the account has no free allowance (an own allowance still applies); note: the server's explanation, for the operator. */
   freeAllowance?: { withheld: boolean; related: number; note: string | null };
-  /** The active plan (null: none, or it has ended), and the Developer API balance in US dollars. */
+  /** The highest active plan (null: none, or they have ended), every active plan (Pro and Max can run side by side), and the Developer API balance in US dollars. */
   plan: { id: "pro" | "max"; name: string; expiresAt: string; creditsPerWindow: number } | null;
+  plans: { id: "pro" | "max"; name: string; expiresAt: string; creditsPerWindow: number }[];
   apiBalanceUsd: number;
   /** The X account linked for rewards and which rewards it claimed (null: none linked). */
   x?: { username: string; followed: boolean; posted: boolean } | null;

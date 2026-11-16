@@ -187,7 +187,7 @@ export default function Docs({ signedIn, section }: { signedIn: boolean; section
 
           <section className="docs-section" id="plans" tabIndex={-1}>
             <h2>Plans</h2>
-            <p>A plan raises your credit allowance for a set number of days. You pay once, in crypto. It does not renew and it does not charge a card later. You can pay for up to {MAX_PLAN_MONTHS} periods ahead. Buying the plan you already have adds time at the end. A higher plan takes over, and time left on a lower plan is carried across at its value.</p>
+            <p>A plan raises your credit allowance for a set number of days. You pay once, in crypto. It does not renew and it does not charge a card later. You can pay for up to {MAX_PLAN_MONTHS} periods ahead of each plan. Buying the plan you already have adds time at the end. Both plans can be active at the same time: each runs until its own end, and while both run their credit allowances add up. When one ends, the other carries on. Nothing is converted from one plan to the other.</p>
             <p>When a launch offer is on, the list price is crossed out and the price you pay is beside it, the same way a top-up is shown. The offer applies to plans. It does not reduce Developer API token prices.</p>
             <CurrentPrices />
           </section>

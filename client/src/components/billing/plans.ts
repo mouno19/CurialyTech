@@ -1,9 +1,10 @@
 import { FREE_VAULT_BYTES, FREE_VAULT_FILES } from "@shared/media";
-import { formatUsd, planAfterPurchase, planForMonths, type BillingCatalog, type FreeTier, type PlanConfig, type PlanEffect, type PlanId, type PlanOffer, type PlanState } from "@shared/billing";
+import { applyPlanPurchase, formatUsd, planForMonths, type BillingCatalog, type FreeTier, type PlanConfig, type PlanEffect, type PlanId, type PlanOffer, type PlanState } from "@shared/billing";
 import { creditCount } from "./format";
 
 // Plans as the billing page and the homepage say them: prices, the offer, how a plan compares
-// with the free allowance, and what buying one does to the plan an account already has.
+// with the free allowance, and what buying one does to the plans an account already has (Pro and
+// Max run side by side, and their credits add up).
 
 const DAY_MS = 86_400_000;
 
@@ -31,12 +32,21 @@ export function daysLeftText(iso: string, now = Date.now()) {
   return `${days} ${days === 1 ? "day" : "days"} left`;
 }
 
-/** The account's plan as planAfterPurchase reads it: null without one, or once it has ended. */
-export function planState(plan: { id: PlanId; expiresAt: string } | null | undefined, now = Date.now()): PlanState {
-  return plan && Date.parse(plan.expiresAt) > now ? { planId: plan.id, expiresAt: plan.expiresAt } : null;
+/** The account's plans as applyPlanPurchase reads them: the ones still running. */
+export function planState(plans: { id: PlanId; expiresAt: string }[] | null | undefined, now = Date.now()): PlanState {
+  return (plans ?? []).filter(plan => Date.parse(plan.expiresAt) > now).map(plan => ({ planId: plan.id, expiresAt: plan.expiresAt }));
 }
 
-/** The catalog's plans in planAfterPurchase's shape, at list prices (a conversion never depends on the offer). */
+/** The plans still running, as the account reported them. */
+export const runningPlans = <T extends { expiresAt: string }>(plans: T[] | null | undefined, now = Date.now()): T[] => (plans ?? []).filter(plan => Date.parse(plan.expiresAt) > now);
+
+/** Credits per window the plans give together (plans held together add up). */
+export const plansAllowance = (plans: { creditsPerWindow: number }[]) => plans.reduce((sum, plan) => sum + plan.creditsPerWindow, 0);
+
+/** "Pro + Max": the plans by name, Pro first. */
+export const plansText = (plans: { name: string }[]) => plans.map(plan => plan.name).join(" + ");
+
+/** The catalog's plans in applyPlanPurchase's shape, at list prices. */
 export function planConfigs(offers: PlanOffer[]): Record<PlanId, PlanConfig> | null {
   const pro = offers.find(offer => offer.id === "pro");
   const max = offers.find(offer => offer.id === "max");
@@ -47,32 +57,37 @@ export function planConfigs(offers: PlanOffer[]): Record<PlanId, PlanConfig> | n
 
 export type PlanAction = { effect: PlanEffect; label: string; hint: string };
 
-/** A plan's button: what buying it (for `months` periods) does to the account's current plan, in words. */
-export function planAction(current: PlanState, offer: PlanOffer, plans: Record<PlanId, PlanConfig>, now = Date.now(), months = 1): PlanAction {
-  const next = planAfterPurchase(current, offer.id, planForMonths(plans, offer.id, months), now);
-  const active = current ? plans[current.planId].name : "";
+/**
+ * A plan's button: what buying it (for `months` periods) does to the account's plans, in words.
+ * held: the plans the account has (their allowances, for what the two add up to).
+ */
+export function planAction(held: { id: PlanId; name: string; expiresAt: string; creditsPerWindow: number }[], offer: PlanOffer, plans: Record<PlanId, PlanConfig>, now = Date.now(), months = 1): PlanAction {
+  const running = runningPlans(held, now);
+  const next = applyPlanPurchase(planState(running, now), offer.id, planForMonths(plans, offer.id, months), now);
   const days = offer.days * months;
   const span = months > 1 ? ` for ${monthsText(months)}` : "";
-  if (next.effect === "start") return { effect: next.effect, label: `Get ${offer.name}${span}`, hint: `${daysText(days)} from when the payment is applied.` };
-  if (next.effect === "extend") return { effect: next.effect, label: `Extend ${offer.name}${span}`, hint: `Adds ${daysText(days)} to the end of your plan.` };
-  if (next.effect === "upgrade") {
-    // What the days left on the lower plan are worth on this one (as of now; the exact figure is set when the payment is applied).
-    const carried = (Date.parse(next.expiresAt) - now - days * DAY_MS) / DAY_MS;
-    return { effect: next.effect, label: `Upgrade to ${offer.name}${span}`, hint: `Starts when the payment is applied, with about ${daysText(carried)} more for the time left on ${active}.` };
+  if (next.effect === "extend") return { effect: next.effect, label: `Extend ${offer.name}${span}`, hint: `Adds ${daysText(days)} to the end of your ${offer.name} plan.` };
+  if (next.effect === "concurrent") {
+    // The other plan keeps its own days; while both run, their credits add up.
+    const others = running.filter(plan => plan.id !== offer.id);
+    const total = plansAllowance(others) + offer.creditsPerWindow;
+    return {
+      effect: next.effect, label: `Add ${offer.name}${span}`,
+      hint: `Runs alongside ${plansText(others)} for ${daysText(days)}: ${creditCount(total)} credits per window while both last. ${plansText(others)} keeps its own end date.`,
+    };
   }
-  // A lower plan while a higher one is active: its value extends the higher plan.
-  const added = (Date.parse(next.expiresAt) - (current ? Date.parse(current.expiresAt) : now)) / DAY_MS;
-  return { effect: next.effect, label: `Adds ${daysText(added)} to ${plans[next.planId].name}`, hint: `You keep ${active}; ${offer.name}'s value is added to it in days.` };
+  return { effect: next.effect, label: `Get ${offer.name}${span}`, hint: `${daysText(days)} from when the payment is applied.` };
 }
 
 /**
  * The account's own allowance where the page can see it, or null: without a plan the allowance is
- * the account's own; with one, only when it's higher than the plan's (the account gets the larger).
+ * the account's own; with plans, only when it's higher than what they give together (the account
+ * gets the larger).
  */
-export function ownAllowance(credits: { unlimited: boolean; allowance: number } | null, plan: { creditsPerWindow: number } | null) {
+export function ownAllowance(credits: { unlimited: boolean; allowance: number } | null, plans: { creditsPerWindow: number }[]) {
   if (!credits || credits.unlimited) return null;
-  if (!plan) return credits.allowance;
-  return credits.allowance > plan.creditsPerWindow ? credits.allowance : null;
+  if (!plans.length) return credits.allowance;
+  return credits.allowance > plansAllowance(plans) ? credits.allowance : null;
 }
 
 /**

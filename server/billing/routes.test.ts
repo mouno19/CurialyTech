@@ -162,9 +162,15 @@ describe("the catalog", () => {
 describe("the account", () => {
   it("needs a sign-in, and shows the plan, the API wallet and whether it is the operator", async () => {
     expect((await call("/api/billing/account")).status).toBe(401);
-    expect((await call("/api/billing/account", { user: ADA })).body).toEqual({ plan: null, apiWallet: wallet, operator: false, prepay: { pro: 6, max: 6 } });
+    expect((await call("/api/billing/account", { user: ADA })).body).toEqual({ plan: null, plans: [], apiWallet: wallet, operator: false, prepay: { pro: 6, max: 6 } });
     Object.assign(fake.users.get(ADA)!, { plan_id: "max", plan_expires_at: new Date("2099-01-01T00:00:00Z"), plan_credits_per_window: 25_000 });
     expect((await call("/api/billing/account", { user: ADA })).body.plan).toEqual({ id: "max", name: "Max", expiresAt: "2099-01-01T00:00:00.000Z", creditsPerWindow: 25_000 });
+    // Pro alongside Max: both are listed, Pro first, and the plan named is the highest.
+    const soon = new Date(Date.now() + 10 * 86_400_000);
+    Object.assign(fake.users.get(ADA)!, { pro_expires_at: soon, pro_credits_per_window: 6000 });
+    const both = (await call("/api/billing/account", { user: ADA })).body;
+    expect(both.plans.map((plan: { id: string }) => plan.id)).toEqual(["pro", "max"]);
+    expect(both.plan.id).toBe("max");
     expect((await call("/api/billing/account", { user: OPERATOR, role: "admin" })).body.operator).toBe(true);
   });
 });
@@ -307,6 +313,13 @@ describe("the operator's routes", () => {
     expect(granted.status).toBe(200);
     expect(granted.body).toMatchObject({ plan: { id: "max", name: "Max", creditsPerWindow: 30000 }, apiWallet: wallet, orders: [], ledger: [] });
     expect((await asAdmin(`/api/admin/billing/users/${ADA}/plan`, { method: "POST", body: { planId: "max", days: 400, note: "" } })).status).toBe(400);
+    // Pro given on top runs alongside Max; ending Pro alone leaves Max running.
+    const both = await asAdmin(`/api/admin/billing/users/${ADA}/plan`, { method: "POST", body: { planId: "pro", days: 3, note: "" } });
+    expect(both.body.plans.map((plan: { id: string }) => plan.id)).toEqual(["pro", "max"]);
+    const proEnded = await asAdmin(`/api/admin/billing/users/${ADA}/plan`, { method: "DELETE", body: { note: "", planId: "pro" } });
+    expect(proEnded.body).toMatchObject({ plan: { id: "max" }, plans: [{ id: "max" }] });
+    expect((await asAdmin(`/api/admin/billing/users/${ADA}/plan`, { method: "DELETE", body: { note: "", planId: "pro" } })).body.code).toBe("no_plan");
+    expect((await asAdmin(`/api/admin/billing/users/${ADA}/plan`, { method: "DELETE", body: { note: "", planId: "gold" } })).status).toBe(400);
     expect((await asAdmin(`/api/admin/billing/users/${ADA}/plan`, { method: "DELETE", body: { note: "Ended" } })).body.plan).toBeNull();
     expect((await asAdmin(`/api/admin/billing/users/${ADA}/plan`, { method: "DELETE", body: { note: "" } })).body.code).toBe("no_plan");
     const adjusted = await asAdmin(`/api/admin/billing/users/${ADA}/api-balance`, { method: "POST", body: { amountUsd: 12.5, note: "Refund for an outage" } });

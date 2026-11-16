@@ -1,5 +1,5 @@
 import { FREE_VAULT_BYTES, FREE_VAULT_FILES, type MediaDeleteResult, type VaultQuota, type VaultSummary } from "@shared/media";
-import { activePlan } from "../credits";
+import { activePlan, type PlanColumns } from "../credits";
 import { query } from "../db/pg";
 import { deleteMedia, ownedMedia } from "./snowflake";
 import { redact, StorageError } from "./storage-errors";
@@ -7,10 +7,7 @@ import { redact, StorageError } from "./storage-errors";
 // What an account keeps in its Media Vault and how much it may keep: free accounts have a bounded
 // vault; the operator and accounts with an active plan have none. Deleting many files at once.
 
-type VaultRow = {
-  total: string; upload: string; screenshot: string; artifact: string; used_files: string; used_bytes: string;
-  plan_id: string | null; plan_expires_at: Date | null; plan_credits_per_window: number | null;
-};
+type VaultRow = PlanColumns & { total: string; upload: string; screenshot: string; artifact: string; used_files: string; used_bytes: string };
 
 /** The account's vault in one read: counts by kind, what counts toward the limit, and the limit. */
 export async function vaultState(user: { id: string; role: string }): Promise<{ summary: VaultSummary; quota: VaultQuota }> {
@@ -18,7 +15,7 @@ export async function vaultState(user: { id: string; role: string }): Promise<{ 
     `SELECT count(f.id) AS total, count(f.id) FILTER (WHERE f.kind = 'upload') AS upload,
             count(f.id) FILTER (WHERE f.kind = 'screenshot') AS screenshot, count(f.id) FILTER (WHERE f.kind = 'artifact') AS artifact,
             count(f.id) FILTER (WHERE f.state <> 'missing') AS used_files, COALESCE(sum(f.size_bytes) FILTER (WHERE f.state <> 'missing'), 0) AS used_bytes,
-            u.plan_id, u.plan_expires_at, u.plan_credits_per_window
+            u.pro_expires_at, u.pro_credits_per_window, u.max_expires_at, u.max_credits_per_window, u.plan_id, u.plan_expires_at, u.plan_credits_per_window
      FROM curialy.users u LEFT JOIN curialy.file_metadata f ON f.user_id = u.id WHERE u.id = $1 GROUP BY u.id`,
     [user.id],
   );

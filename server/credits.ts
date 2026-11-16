@@ -1,38 +1,80 @@
 import { randomBytes } from "node:crypto";
-import { DEFAULT_PLANS, isPlanId, type PlanConfig, type PlanId } from "@shared/billing";
+import { DEFAULT_PLANS, PLAN_IDS, PLAN_RANK, type AccountPlan, type PlanConfig, type PlanId } from "@shared/billing";
 import { DEFAULT_CREDIT_SETTINGS, MIN_CREDITS_TO_START, normalizeXHandle, type CreditBalance, type CreditSettings } from "@shared/credits";
 import { getBillingSettings, knownPlans } from "./billing/settings";
 import { db, query } from "./db/pg";
 
 // Credits: a new account starts with welcome credits (default 60), given once. Bonus credits (the
 // welcome credits, promo codes, grants, X rewards) are spent after the window's and never expire.
-// A refilling allowance per window comes from a plan (30 days, paid in crypto), from an allowance
-// the operator set for the account, from the settings' allowance for everyone (default 0: none),
-// or from the launch boost (server/rewards.ts: both X rewards done, while the offer lasts). The
-// largest applies. A window keeps the time it began: the boost's begins when both X rewards are
+// A refilling allowance per window comes from the plans (30 days, paid in crypto; Pro and Max can
+// run side by side, and then their allowances add up), from an allowance the operator set for the
+// account, from the settings' allowance for everyone (default 0: none), or from the launch boost
+// (server/rewards.ts: both X rewards done, while the offer lasts). The largest applies. A window keeps the time it began: the boost's begins when both X rewards are
 // claimed, and any other allowance's begins with the first credit spent. The next window starts
 // when that one ends, so a later spend stays in the window that already renewed. Admins are not
 // charged. Every change is a credit_events row.
 
 /**
+ * An account's plans, as its row holds them. Each plan has its own end and its allowance as it was
+ * when bought (pro_*, max_*), so Pro and Max can run side by side. plan_*: the single plan of
+ * accounts from before that (migration 25 copied it into the columns of its plan); every change
+ * still writes it, as the highest active plan, so an older build reads a plan that is there.
+ */
+export type PlanColumns = {
+  pro_expires_at?: Date | null; pro_credits_per_window?: number | null;
+  max_expires_at?: Date | null; max_credits_per_window?: number | null;
+  plan_id?: string | null; plan_expires_at?: Date | null; plan_credits_per_window?: number | null;
+};
+
+/** The plan columns, in the order the readers select them. */
+export const PLAN_COLUMNS = "pro_expires_at, pro_credits_per_window, max_expires_at, max_credits_per_window, plan_id, plan_expires_at, plan_credits_per_window";
+
+/**
  * free_allowance_withheld: the account started without the free credits (see auth-github.ts); an own allowance still applies.
- * plan_*: the plan bought or given, until when, and its allowance as it was when it started.
  * x_followed_at, x_posted_at: when each X reward was claimed (both: the launch boost applies while it is offered).
  */
-export type UserCredits = {
+export type UserCredits = PlanColumns & {
   id: string; role: string; credit_allowance: number | null; bonus_credits: string; window_started_at: Date | null; window_used: string; free_allowance_withheld?: boolean;
-  plan_id?: string | null; plan_expires_at?: Date | null; plan_credits_per_window?: number | null;
   x_followed_at?: Date | null; x_posted_at?: Date | null;
 };
 
 /** In a 'plan' event's detail, what follows this is the operator's note (left out of the account's own history). */
 export const PLAN_NOTE_MARK = " · note: ";
 
-/** The account's plan while it lasts, named as the billing settings name it now; null when it has none or it has ended. */
-export function activePlan(row: Pick<UserCredits, "plan_id" | "plan_expires_at" | "plan_credits_per_window">, plans: Record<PlanId, PlanConfig> = knownPlans(), now = Date.now()): CreditBalance["plan"] {
-  if (!isPlanId(row.plan_id) || !row.plan_expires_at || row.plan_expires_at.getTime() <= now) return null;
-  const config = plans[row.plan_id] ?? DEFAULT_PLANS[row.plan_id];
-  return { id: row.plan_id, name: config.name, expiresAt: row.plan_expires_at.toISOString(), creditsPerWindow: row.plan_credits_per_window ?? config.creditsPerWindow };
+/** A plan the row holds, active or ended; creditsPerWindow null: the plan's own. */
+export type HeldPlan = { planId: PlanId; expiresAt: Date; creditsPerWindow: number | null };
+
+/**
+ * Each plan the account holds, active or ended, Pro first. A plan's own columns, or the single-plan
+ * columns when they name it and end later (an account from before plans ran side by side, or a
+ * plan an older build extended).
+ */
+export function heldPlans(row: PlanColumns): HeldPlan[] {
+  const held: HeldPlan[] = [];
+  for (const planId of PLAN_IDS) {
+    const own = { expiresAt: row[`${planId}_expires_at` as const] ?? null, creditsPerWindow: row[`${planId}_credits_per_window` as const] ?? null };
+    const single = row.plan_id === planId && row.plan_expires_at ? { expiresAt: row.plan_expires_at, creditsPerWindow: row.plan_credits_per_window ?? null } : null;
+    const chosen = single && (!own.expiresAt || single.expiresAt.getTime() > own.expiresAt.getTime()) ? single : own;
+    if (chosen.expiresAt) held.push({ planId, expiresAt: chosen.expiresAt, creditsPerWindow: chosen.creditsPerWindow });
+  }
+  return held;
+}
+
+/** The account's plans while they last, Pro first, named as the billing settings name them now. */
+export function activePlans(row: PlanColumns, plans: Record<PlanId, PlanConfig> = knownPlans(), now = Date.now()): AccountPlan[] {
+  return heldPlans(row).filter(held => held.expiresAt.getTime() > now).map(held => {
+    const config = plans[held.planId] ?? DEFAULT_PLANS[held.planId];
+    return { id: held.planId, name: config.name, expiresAt: held.expiresAt.toISOString(), creditsPerWindow: held.creditsPerWindow ?? config.creditsPerWindow };
+  });
+}
+
+/** The highest of these plans (null: none). */
+export const highestPlan = (plans: AccountPlan[]): AccountPlan | null =>
+  plans.reduce<AccountPlan | null>((top, plan) => (!top || PLAN_RANK[plan.id] > PLAN_RANK[top.id] ? plan : top), null);
+
+/** The account's highest plan while it lasts; null when it has none or they have ended. */
+export function activePlan(row: PlanColumns, plans: Record<PlanId, PlanConfig> = knownPlans(), now = Date.now()): CreditBalance["plan"] {
+  return highestPlan(activePlans(row, plans, now));
 }
 
 /** Why a credit operation was refused; `unavailable` and `busy` are temporary. */
@@ -128,11 +170,13 @@ export function activeBoost(row: Pick<UserCredits, "x_followed_at" | "x_posted_a
 
 export function balanceOf(row: UserCredits, settings: CreditSettings, now = Date.now(), plans: Record<PlanId, PlanConfig> = knownPlans()): CreditBalance {
   const own = row.credit_allowance ?? (row.free_allowance_withheld ? 0 : settings.creditsPerWindow);
-  const plan = activePlan(row, plans, now);
+  const held = activePlans(row, plans, now);
   const boost = activeBoost(row, settings, now);
-  // A plan or the boost raises the allowance, never lowers it; a withheld free allowance doesn't reduce
+  // Plans held together each give their allowance: Pro and Max are 6,000 + 30,000 while both last.
+  const planAllowance = held.reduce((sum, plan) => sum + plan.creditsPerWindow, 0);
+  // Plans or the boost raise the allowance, never lower it; a withheld free allowance doesn't reduce
   // a paid plan. The window is the boost's only when the boost alone sets the allowance.
-  let allowance = plan ? Math.max(plan.creditsPerWindow, own) : own;
+  let allowance = held.length ? Math.max(planAllowance, own) : own;
   let windowHours = settings.windowHours;
   // The boost's window is dated from the later claim. Any other allowance is dated from its first spend.
   const boostSetsWindow = Boolean(boost && boost.creditsPerWindow > allowance);
@@ -158,7 +202,8 @@ export function balanceOf(row: UserCredits, settings: CreditSettings, now = Date
     allowance, used: round(used), remaining: round(remaining), bonus: round(bonus), available: round(remaining + bonus),
     resetsAt: period ? new Date(period.end).toISOString() : null,
     windowHours,
-    plan,
+    plan: highestPlan(held),
+    plans: held,
     boost,
     welcome: !row.free_allowance_withheld,
     canEarn: !row.free_allowance_withheld && !(row.x_followed_at && row.x_posted_at),
@@ -166,7 +211,7 @@ export function balanceOf(row: UserCredits, settings: CreditSettings, now = Date
 }
 
 const round = (value: number) => Math.round(value * 100) / 100;
-const COLUMNS = "id, role, credit_allowance, bonus_credits, window_started_at, window_used, free_allowance_withheld, plan_id, plan_expires_at, plan_credits_per_window, x_followed_at, x_posted_at";
+const COLUMNS = `id, role, credit_allowance, bonus_credits, window_started_at, window_used, free_allowance_withheld, ${PLAN_COLUMNS}, x_followed_at, x_posted_at`;
 
 export async function getBalance(userId: string): Promise<CreditBalance> {
   const [{ rows }, settings, billing] = await Promise.all([query<UserCredits>(`SELECT ${COLUMNS} FROM curialy.users WHERE id = $1`, [userId]), getSettings(), getBillingSettings()]);
@@ -183,16 +228,20 @@ export async function assertCanStart(userId: string) {
 
 /** In words that read right in any time zone (the client shows the clock time itself). */
 export function outOfCreditsMessage(balance: CreditBalance) {
-  // What adds credits for this account: the X rewards it hasn't claimed, a plan, a higher plan, or (on the highest) a promo code.
-  const earn = balance.canEarn && !balance.plan;
-  const more = balance.plan?.id === "max" ? "a promo code" : balance.plan ? "a higher plan or a promo code" : earn ? "the X rewards, a plan or a promo code" : "a plan or a promo code";
+  // What adds credits for this account: the X rewards it hasn't claimed, a plan, the plan it doesn't
+  // have yet (it runs alongside, and the credits add up), or (with every plan) a promo code.
+  // Extending a plan it has adds days, not credits.
+  const held = balance.plans;
+  const every = held.length >= PLAN_IDS.length;
+  const earn = balance.canEarn && !held.length;
+  const more = every ? "a promo code" : held.length ? "another plan or a promo code" : earn ? "the X rewards, a plan or a promo code" : "a plan or a promo code";
   if (!balance.resetsAt) {
-    const action = balance.plan?.id === "max" ? "Redeem a promo code" : balance.plan ? "Get a higher plan or redeem a promo code" : earn ? "Earn credits on X, get a plan or redeem a promo code" : "Get a plan or redeem a promo code";
+    const action = every ? "Redeem a promo code" : held.length ? "Add another plan or redeem a promo code" : earn ? "Earn credits on X, get a plan or redeem a promo code" : "Get a plan or redeem a promo code";
     return `Your account has no credits right now. ${action} to continue.`;
   }
   const minutes = Math.max(1, Math.ceil((Date.parse(balance.resetsAt) - Date.now()) / 60_000));
   const wait = minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h${minutes % 60 ? ` ${minutes % 60} min` : ""}`;
-  return `You've used this window's credits. They refill in ${wait}; ${more} ${earn && !balance.plan ? "add" : "adds"} more now.`;
+  return `You've used this window's credits. They refill in ${wait}; ${more} ${earn ? "add" : "adds"} more now.`;
 }
 
 /**
@@ -348,8 +397,8 @@ export async function redeemPromoCode(userId: string, rawCode: string) {
     // A code for anyone is free credit for every account someone opens: not for an account that
     // started without the free allowance (unless the operator gave it one, or it has a plan). Said like an unknown code.
     if (!promo.forUser) {
-      const { rows: [account] } = await client.query<{ free_allowance_withheld: boolean; credit_allowance: number | null; plan_id: string | null; plan_expires_at: Date | null; plan_credits_per_window: number | null }>(
-        "SELECT free_allowance_withheld, credit_allowance, plan_id, plan_expires_at, plan_credits_per_window FROM curialy.users WHERE id = $1",
+      const { rows: [account] } = await client.query<PlanColumns & { free_allowance_withheld: boolean; credit_allowance: number | null }>(
+        `SELECT free_allowance_withheld, credit_allowance, ${PLAN_COLUMNS} FROM curialy.users WHERE id = $1`,
         [userId],
       );
       if (account?.free_allowance_withheld && !account.credit_allowance && !activePlan(account)) throw new CreditError("That code isn't valid.", "invalid_code", 400);

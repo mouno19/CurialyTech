@@ -324,8 +324,8 @@ function PayPage({ code }: { code: string | null }) {
   const planName = (id: string) => {
     const offered = catalog?.plans.find(plan => plan.id === id);
     if (offered) return offered.name;
-    const own = account?.credits.plan;
-    if (own && own.id === id) return own.name;
+    const own = account?.credits.plans?.find(plan => plan.id === id);
+    if (own) return own.name;
     return isPlanId(id) ? DEFAULT_PLANS[id].name : id;
   };
 
@@ -451,7 +451,7 @@ function PayPage({ code }: { code: string | null }) {
             <CircleCheck size={28} aria-hidden="true" />
             <div className="pay-done-body">
               <h3 className="serif-title">Thank you</h3>
-              <p className="pay-text">{completedText(order, planName, account?.credits.plan ?? null, account?.credits.windowHours ?? catalog?.free.windowHours ?? null)}</p>
+              <p className="pay-text">{completedText(order, planName, account?.credits.plans ?? null, account?.credits.windowHours ?? catalog?.free.windowHours ?? null)}</p>
               <div className="cluster">
                 <Link href="/" className="btn primary">Back to the workspace</Link>
                 <Link href="/developer" className="btn">Developer API</Link>

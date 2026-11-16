@@ -347,8 +347,10 @@ function buildWorld(now, { state, users }) {
     [users.radia.id]: [{ kind: "grant", amountUsd: 5, balanceAfterUsd: 5, orderCode: null, note: "Conference talk", at: at(-(6 * 24 * 60)) }],
   };
   // prepay: how many months of each plan the account may still pay for (an account on a plan has used some of the six).
-  const billingAccount = user => ({ plan: planOf[user.id] ?? null, apiWallet: user.id === users.operator.id ? wallet(0) : walletOf(user), operator: user.id === users.operator.id, prepay: planOf[user.id] ? { pro: 5, max: 5 } : { pro: 6, max: 6 } });
-  const adminAccount = user => ({ plan: planOf[user.id] ?? null, apiWallet: walletOf(user), orders: ordersOf(user).map(row => ({ ...row.admin, events: [] })), ledger: ledgers[user.id] ?? [] });
+  // plans: every active plan (shared/billing.ts BillingAccount.plans); these accounts hold one at most.
+  const plansOf = user => (planOf[user.id] ? [planOf[user.id]] : []);
+  const billingAccount = user => ({ plan: planOf[user.id] ?? null, plans: plansOf(user), apiWallet: user.id === users.operator.id ? wallet(0) : walletOf(user), operator: user.id === users.operator.id, prepay: planOf[user.id] ? { pro: 5, max: 5 } : { pro: 6, max: 6 } });
+  const adminAccount = user => ({ plan: planOf[user.id] ?? null, plans: plansOf(user), apiWallet: walletOf(user), orders: ordersOf(user).map(row => ({ ...row.admin, events: [] })), ledger: ledgers[user.id] ?? [] });
   const userById = id => Object.values(users).find(user => user.id === id) ?? null;
 
   // ---- Usage reports ----
@@ -570,7 +572,7 @@ function buildWorld(now, { state, users }) {
     }],
     ["DELETE", "/api/admin/billing/users/:id/plan", ({ params }) => {
       const user = userById(params.id);
-      return user ? { json: { ...adminAccount(user), plan: null } } : notFound("Account not found.");
+      return user ? { json: { ...adminAccount(user), plan: null, plans: [] } } : notFound("Account not found.");
     }],
     ["POST", "/api/admin/billing/users/:id/api-balance", ({ params }) => {
       const user = userById(params.id);

@@ -8,7 +8,11 @@
 export type PlanId = "pro" | "max";
 export const PLAN_IDS: PlanId[] = ["pro", "max"];
 
-/** A plan: while it is active, the account's allowance per window is the plan's (when that is higher than its own). */
+/**
+ * A plan: while it is active it gives its allowance per window. Plans held together run side by
+ * side, each on its own dates, and their allowances add up (the account gets that sum, or its own
+ * allowance when that is higher).
+ */
 export type PlanConfig = { name: string; priceUsd: number; creditsPerWindow: number; days: number };
 
 export const DEFAULT_PLANS: Record<PlanId, PlanConfig> = {
@@ -16,46 +20,50 @@ export const DEFAULT_PLANS: Record<PlanId, PlanConfig> = {
   max: { name: "Max", priceUsd: 80, creditsPerWindow: 30000, days: 30 },
 };
 
-/** A higher plan bought while a lower one is active upgrades the account. */
+/** Max outranks Pro: an account holding both is named by its highest plan where one name is shown. */
 export const PLAN_RANK: Record<PlanId, number> = { pro: 1, max: 2 };
 
 export const isPlanId = (value: unknown): value is PlanId => value === "pro" || value === "max";
 
-/** An account's plan: which one and until when (null: none, or it has ended). */
-export type PlanState = { planId: PlanId; expiresAt: string } | null;
+/** A plan an account holds: until when, and its allowance per window (as it was when bought). */
+export type ActivePlan = { planId: PlanId; expiresAt: string; creditsPerWindow: number };
 
-export type PlanEffect = "start" | "extend" | "upgrade" | "extend_higher";
+/** The plans an account holds, each with its own end (an ended one counts as none). */
+export type PlanState = Pick<ActivePlan, "planId" | "expiresAt">[];
 
 /**
- * What a bought plan does to the account's current plan, at list prices (never the discounted ones,
- * so a conversion is the same during and after an offer):
- * - no active plan: it starts now for its days;
- * - the same plan: its days are added to the end;
- * - a higher plan: it starts now, and the days left on the lower one are added at their value;
- * - a lower plan while a higher one is active: its value extends the higher plan.
+ * What a purchase did: started the plan (alone, or "concurrent": alongside another plan the account
+ * has) or extended it. "upgrade" and "extend_higher" are what a purchase did before plans ran side by
+ * side (an upgrade converted the lower plan's days; a lower plan added its value to a higher one):
+ * orders applied then keep them.
  */
-export function planAfterPurchase(current: PlanState, bought: PlanId, plans: Record<PlanId, PlanConfig>, now = Date.now()): { planId: PlanId; expiresAt: string; effect: PlanEffect } {
-  const length = plans[bought].days * 86_400_000;
-  const active = current && Date.parse(current.expiresAt) > now ? current : null;
-  if (!active) return { planId: bought, expiresAt: new Date(now + length).toISOString(), effect: "start" };
-  const end = Date.parse(active.expiresAt);
-  if (active.planId === bought) return { planId: bought, expiresAt: new Date(end + length).toISOString(), effect: "extend" };
-  // List price per day of each plan.
-  const daily = (id: PlanId) => plans[id].priceUsd / plans[id].days;
-  if (PLAN_RANK[bought] > PLAN_RANK[active.planId]) {
-    const carried = ((end - now) * daily(active.planId)) / daily(bought);
-    return { planId: bought, expiresAt: new Date(now + length + carried).toISOString(), effect: "upgrade" };
-  }
-  const added = (length * daily(bought)) / daily(active.planId);
-  return { planId: active.planId, expiresAt: new Date(end + added).toISOString(), effect: "extend_higher" };
+export type PlanEffect = "start" | "concurrent" | "extend" | "upgrade" | "extend_higher";
+
+const DAY_MS = 86_400_000;
+
+/** When `planId` ends on this account (ms), or null when it isn't active. */
+export function planEnd(state: PlanState, planId: PlanId, now = Date.now()): number | null {
+  const ends = state.filter(held => held.planId === planId).map(held => Date.parse(held.expiresAt)).filter(end => end > now);
+  return ends.length ? Math.max(...ends) : null;
+}
+
+/**
+ * What buying a plan does: the plan bought starts now for its days, or, while the account already
+ * has that plan, its days are added to the end. Any other plan the account has is left as it is, so
+ * both run until each ends.
+ */
+export function applyPlanPurchase(current: PlanState, bought: PlanId, plans: Record<PlanId, PlanConfig>, now = Date.now()): { planId: PlanId; expiresAt: string; effect: PlanEffect } {
+  const length = plans[bought].days * DAY_MS;
+  const end = planEnd(current, bought, now);
+  if (end !== null) return { planId: bought, expiresAt: new Date(end + length).toISOString(), effect: "extend" };
+  const alongside = current.some(held => held.planId !== bought && Date.parse(held.expiresAt) > now);
+  return { planId: bought, expiresAt: new Date(now + length).toISOString(), effect: alongside ? "concurrent" : "start" };
 }
 
 // ---- Paying ahead ----
 
 /** A plan can be paid for up to this many periods (its days) at once, and never runs further ahead than that from today. */
 export const MAX_PLAN_MONTHS = 6;
-
-const DAY_MS = 86_400_000;
 
 /** A plan as sold for `months` periods: that many times its days, at that many times its list price. */
 export function planForMonths(plans: Record<PlanId, PlanConfig>, planId: PlanId, months: number): Record<PlanId, PlanConfig> {
@@ -64,20 +72,19 @@ export function planForMonths(plans: Record<PlanId, PlanConfig>, planId: PlanId,
 }
 
 /**
- * The most months of `planId` the account can pay for now (0 when none): after its plan and the plan
- * orders it has open (placed but not paid or turned down yet, as sold: their days and list price), a
- * new one may not take the plan further than MAX_PLAN_MONTHS periods from now (a day's slack).
+ * The most months of `planId` the account can pay for now (0 when none). Each plan has its own limit:
+ * after what is left of it and its orders still open (placed but not paid or turned down yet, as
+ * sold: their days), a new one may not take it further than MAX_PLAN_MONTHS periods from now (a
+ * day's slack). The other plan, and its orders, don't count against it.
  */
 export function prepayableMonths(
-  state: PlanState, open: { planId: PlanId; days: number; listUsd: number }[], planId: PlanId, plans: Record<PlanId, PlanConfig>, now = Date.now(),
+  state: PlanState, open: { planId: PlanId; days: number }[], planId: PlanId, plans: Record<PlanId, PlanConfig>, now = Date.now(),
 ): number {
-  let projected = state;
-  for (const order of open) {
-    projected = planAfterPurchase(projected, order.planId, { ...plans, [order.planId]: { ...plans[order.planId], days: order.days, priceUsd: order.listUsd } }, now);
-  }
+  let end = planEnd(state, planId, now) ?? now;
+  for (const order of open) if (order.planId === planId) end += order.days * DAY_MS;
+  const limit = now + (MAX_PLAN_MONTHS * plans[planId].days + 1) * DAY_MS;
   for (let months = MAX_PLAN_MONTHS; months >= 1; months--) {
-    const next = planAfterPurchase(projected, planId, planForMonths(plans, planId, months), now);
-    if (Date.parse(next.expiresAt) <= now + (MAX_PLAN_MONTHS * plans[next.planId].days + 1) * DAY_MS) return months;
+    if (end + plans[planId].days * months * DAY_MS <= limit) return months;
   }
   return 0;
 }
@@ -566,9 +573,15 @@ export type ApiWallet = {
   availableMicros: number;
 };
 
+/** A plan an account has while it lasts, named as the billing settings name it now. */
+export type AccountPlan = { id: PlanId; name: string; expiresAt: string; creditsPerWindow: number };
+
 /** GET /api/billing/account */
 export type BillingAccount = {
-  plan: { id: PlanId; name: string; expiresAt: string; creditsPerWindow: number } | null;
+  /** The account's highest active plan (null: none). */
+  plan: AccountPlan | null;
+  /** Every active plan, Pro first: plans held together each give their allowance, and the allowances add up. */
+  plans: AccountPlan[];
   apiWallet: ApiWallet;
   /** The operator's account is not charged for credits or API use. */
   operator: boolean;
@@ -634,6 +647,7 @@ export type AdminWalletBalances = {
 
 export type AdminAccountBilling = {
   plan: BillingAccount["plan"];
+  plans: BillingAccount["plans"];
   apiWallet: ApiWallet;
   orders: AdminPaymentOrder[];
   ledger: { kind: "topup" | "grant" | "refund" | "adjust"; amountUsd: number; balanceAfterUsd: number; orderCode: string | null; note: string | null; at: string }[];

@@ -910,7 +910,7 @@ describe("voice", () => {
 
   it("refuses a free account without credits before sending any audio", async () => {
     voice.transcribe.mockClear();
-    credits.getBalance.mockResolvedValueOnce({ unlimited: false, allowance: 60, used: 60, remaining: 0, bonus: 0, available: 0, resetsAt: new Date(Date.now() + 60_000).toISOString(), windowHours: 5 });
+    credits.getBalance.mockResolvedValueOnce({ unlimited: false, allowance: 60, used: 60, remaining: 0, bonus: 0, available: 0, resetsAt: new Date(Date.now() + 60_000).toISOString(), windowHours: 5, plan: null, plans: [] });
     const response = await dictate();
     expect(response.status).toBe(402);
     expect(await response.json()).toMatchObject({ code: "no_credits" });

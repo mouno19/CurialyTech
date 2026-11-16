@@ -150,7 +150,8 @@ describe("the usage ledger", () => {
     await usage.recordAgentUsage("00000000-0000-4000-8000-000000000001", "claude-opus-5-5", { inputTokens: 1000, outputTokens: 200, cacheReadTokens: 50 }, 1.5, false);
     await usage.recordAgentUsage("00000000-0000-4000-8000-000000000001", "claude-opus-5-5", { inputTokens: 1000, outputTokens: 200 }, 1.5, true);
     const [charged, operator] = state.statements;
-    expect(charged.text).toContain("CASE WHEN u.plan_expires_at > now() THEN u.plan_id END");
+    // Pro and Max side by side: the turn is the highest plan's.
+    expect(charged.text).toContain("CASE WHEN u.max_expires_at > now() THEN 'max' WHEN u.pro_expires_at > now() THEN 'pro' END");
     expect(charged.values).toEqual(["00000000-0000-4000-8000-000000000001", "claude-opus-5-5", 1000, 200, 50, 0, 1.5, usage.listMicros("claude-opus-5-5", { inputTokens: 1000, outputTokens: 200, cacheReadTokens: 50 }), false]);
     expect(operator.values[6]).toBe(0);
     expect(operator.values[8]).toBe(true);
