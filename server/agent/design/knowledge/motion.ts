@@ -167,6 +167,18 @@ export const MOTION: DesignEntry[] = [
     ],
     sources: ["component-library/motion-mocks/scroll-transition-showcase/src/App.tsx", "component-library/motion-components/06_scroll_animation_showcase.html"],
   },
+  {
+    id: "micro-physics",
+    title: "Micro-interaction physics and frequency",
+    discipline: "motion",
+    rules: [
+      "Frequency gate: daily high-frequency actions (shortcuts, command palettes, row/tab switches) take 0 ms; gate hover inside @media (hover: hover) and (pointer: fine) (120-160 ms); popovers 150-220 ms and modals/drawers 200-360 ms on cubic-bezier(0.23, 1, 0.32, 1), never ease-in.",
+      "Volume and origin: never enter from scale(0) — start popovers, menus and dialogs at scale(0.95) + opacity: 0; anchor transform-origin to the trigger (center only for viewport modals).",
+      "Press and interruptibility: apply :active { transform: scale(0.97) } (100-140 ms ease-out); prefer CSS transition (@starting-style) over @keyframes so rapid toggles reverse mid-flight; 0 ms delay on adjacent tooltips.",
+      "Direct-manipulation drag: use setPointerCapture for 1:1 tracking, damp over-drag past bounds, ignore secondary touches mid-drag, and dismiss when flick velocity (px / ms) > 0.11.",
+    ],
+    sources: ["Apple HIG motion", "Material 3 motion", "MDN @starting-style", "WCAG 2.2 2.3.3"],
+  },
 ];
 
 // ---- The motion library ----

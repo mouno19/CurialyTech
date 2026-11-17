@@ -1,7 +1,8 @@
 import { ruleText } from "./knowledge";
+import { engineeringGuidance } from "./knowledge/engineering";
 import { allowedLooks, analyzeRequest } from "./intent";
 import { selectEntries } from "./retrieve";
-import { motionMixture, renderMotionMixture, renderSynthesis, synthesize } from "./synthesis";
+import { dealDirections, motionMixture, renderDealtDirections, renderMotionMixture, renderSynthesis, synthesize } from "./synthesis";
 import type { BriefRole, DesignBrief, DesignEntry, DesignIntent, Surface, WorkspaceFacts } from "./types";
 import { workspaceFacts } from "./workspace";
 import { uiAvailable, uiFit, type UiFit } from "../../design-systems/ui-system";
@@ -23,11 +24,26 @@ export function buildBrief(input: { root: string; original: string; latest: stri
   const facts = input.facts ?? workspaceFacts(input.root);
   const intent = analyzeRequest({ original: input.original, latest: input.latest, imageAttached: input.imageAttached, facts });
   if (!intent.ui) return null;
-  const { core, chosen } = selectEntries(intent, budgetFor(intent));
   const synthesis = intent.styles.length ? synthesize({ text: intent.text, ui: intent.ui, avoid: intent.avoid }) : null;
   const mixture = intent.motionPicks.length ? motionMixture({ text: intent.text, ui: intent.ui, surface: intent.surface, motion: intent.motion, needs: intent.needs, avoid: intent.avoid, synthesis }) : null;
   const system: UiFit = uiAvailable() ? uiFit(intent, facts) : "none";
-  return { intent, facts, entries: [...core, ...chosen], visualTest: input.visualTest ?? true, synthesis, motionMixture: mixture, system };
+  const directions = dealDirections({ intent, facts, synthesis, system });
+  const engineering = engineeringGuidance(facts, intent);
+  const coreOnly = selectEntries(intent, 0).core;
+  const coreChars = coreOnly.reduce((sum, entry) => sum + section(entry).length + 1, 0);
+  const extraChars =
+    (synthesis ? renderSynthesis(synthesis).length + 2 : 0)
+    + (mixture ? renderMotionMixture(mixture).length + 2 : 0)
+    + (directions ? renderDealtDirections(directions, intent.cues.length > 0).length + 2 : 0)
+    + (engineering ? engineering.length + 34 : 0);
+  const headerChars = Math.max(
+    headerLines("solo", intent, facts, input.visualTest ?? true, system).join("\n").length,
+    headerLines("architect", intent, facts, input.visualTest ?? true, system).join("\n").length,
+  );
+  // Cap chosen budget using exact header + core + extra block sizes so every role stays strictly < 11,000 chars without wasting room.
+  const chosenBudget = Math.max(960, Math.min(budgetFor(intent), 10_850 - headerChars - coreChars - extraChars));
+  const { core, chosen } = selectEntries(intent, chosenBudget);
+  return { intent, facts, entries: [...core, ...chosen], visualTest: input.visualTest ?? true, synthesis, motionMixture: mixture, directions, engineering, system };
 }
 
 function projectLine(facts: WorkspaceFacts) {
@@ -85,18 +101,23 @@ const LOOK_LABEL: Record<string, string> = {
   "default-font": "a standard system font", bounce: "bouncy motion", marquee: "a marquee or ticker", tasteful: "a warm paper and serif look",
 };
 
-/** The brief as a system block for one role. Byte-stable: same brief and role, same text. */
-export function renderBrief(brief: DesignBrief, role: BriefRole = "solo") {
-  const { intent, facts } = brief;
+function headerLines(role: BriefRole, intent: DesignIntent, facts: WorkspaceFacts, visualTest: boolean, system?: UiFit) {
   const looks = allowedLooks(intent).map(look => LOOK_LABEL[look] ?? look);
   const lines = [
     "Design brief for this task (Curialy design intelligence). Use it while you plan, build and check the interface.",
-    `Detected: ${SURFACE_LABEL[intent.surface]}, ${intent.register} register, ${intent.motion} motion, ${projectLine(facts)}${onSystem(brief.system) ? ", built on the Curialy UI design system" : ""}.`,
+    `Detected: ${SURFACE_LABEL[intent.surface]}, ${intent.register} register, ${intent.motion} motion, ${projectLine(facts)}${onSystem(system) ? ", built on the Curialy UI design system" : ""}.`,
   ];
   if (intent.cues.length) lines.push(`The user's direction: ${intent.cues.map(cue => `"${cue}"`).join(", ")}. It overrides the defaults below wherever they differ${looks.length ? `; they asked for ${looks.join(", ")}, so do that deliberately and keep the quality floor` : ""}.`);
   if (intent.avoid.length) lines.push(`The user asked to avoid: ${intent.avoid.map(cue => `"${cue}"`).join(", ")}.`);
   if (intent.reference) lines.push("An image is attached: treat it as the reference to match before adding anything of your own.");
-  lines.push("", "## How to work", ...workflow(role, intent, facts, brief.visualTest, brief.system));
+  lines.push("", "## How to work", ...workflow(role, intent, facts, visualTest, system));
+  return lines;
+}
+
+/** The brief as a system block for one role. Byte-stable: same brief and role, same text. */
+export function renderBrief(brief: DesignBrief, role: BriefRole = "solo") {
+  const { intent, facts } = brief;
+  const lines = headerLines(role, intent, facts, brief.visualTest, brief.system);
   // The mixture of style archetypes, when the request calls for them: the direction to plan, build and check against.
   if (brief.synthesis) {
     lines.push("", role === "reviewer"
@@ -108,6 +129,16 @@ export function renderBrief(brief: DesignBrief, role: BriefRole = "solo") {
     lines.push("", role === "reviewer"
       ? `## Motion mixture\nThe motion mixes ${brief.motionMixture.picks.map(pick => pick.piece.name).join(", ")} by job on the design's tokens and timing. A build that ships a whole motion suite or the scroll mock, runs two continuous animations at once, or has no reduced-motion end state is a major issue.`
       : renderMotionMixture(brief.motionMixture));
+  }
+  // Candidate art directions dealt for new non-archetype web builds, so consecutive sites do not converge.
+  if (brief.directions) {
+    lines.push("", role === "reviewer"
+      ? `## Art direction candidates\nCandidates dealt for this build: ${brief.directions.candidates.map(dir => dir.name).join(", ")}. Check that the page commits to one coherent direction (or the user's own cues) rather than a generic centered-hero and 3-equal-cards template.`
+      : renderDealtDirections(brief.directions, intent.cues.length > 0));
+  }
+  // Conditional React 19 / Next.js frontend engineering guidance (not needed by the Reviewer).
+  if (brief.engineering && role !== "reviewer") {
+    lines.push("", `## Frontend engineering (React)\n${brief.engineering}`);
   }
   // The Reviewer checks against the floor, the tells and the recipe; it doesn't need the build guidance.
   const entries = role === "reviewer" ? brief.entries.filter(entry => entry.core || entry.discipline === "surface") : brief.entries;

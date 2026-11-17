@@ -28,6 +28,18 @@ export const COMPONENTS: DesignEntry[] = [
     sources: ["WAI-ARIA APG disclosure navigation", "WCAG 2.2 2.4.11", "GOV.UK header"],
   },
   {
+    id: "optical-polish",
+    title: "Optical alignment and control polish",
+    discipline: "components",
+    rules: [
+      "Optical alignment: in text+icon buttons trim icon-side inline padding by 2 px (16px 14px); shift play triangles +2 px toward their apex; match SVG stroke (1.5-2 px) to text weight.",
+      "Control invariants: give adjacent inputs and buttons one height (40-44 px apps, 44-52 px heroes); instant 0 ms :focus-visible outline without border-width shifts; white-space: nowrap on buttons/nav; flex-shrink: 0 on icons/avatars.",
+      "Hit areas: expand compact (20-28 px) icon controls to 40-44 px via position: relative and a centered ::after without overlapping adjacent targets.",
+      "Honest feedback: unwired preview forms validate and state submission is local rather than faking a send; skip toasts when state changes are visible in place.",
+    ],
+    sources: ["Apple HIG", "WCAG 2.2 2.4.7, 2.5.8", "WAI-ARIA APG", "Vercel Web Interface Guidelines"],
+  },
+  {
     id: "forms",
     title: "Forms and signup",
     discipline: "components",

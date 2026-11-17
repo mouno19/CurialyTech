@@ -111,6 +111,10 @@ export type DesignBrief = {
   /** The mixture of style archetypes for this request (synthesis.ts), or null. */
   synthesis?: import("./synthesis").Synthesis | null;
   motionMixture?: import("./synthesis").MotionMixture | null;
+  /** Candidate web art directions dealt for new brand, editorial, showcase, portfolio or storefront builds. */
+  directions?: import("./synthesis").DealtDirections | null;
+  /** Conditional frontend architecture rules when React or Next.js is in play. */
+  engineering?: string | null;
   /** Whether the interface is built on the design system (server/design-systems/ui-system.ts uiFit): "none" when it isn't. */
   system?: import("../../design-systems/ui-system").UiFit;
 };
@@ -146,6 +150,21 @@ export type TextSample = {
   heading: boolean;
   /** Rendered height of the element in px. */
   height: number;
+};
+
+export type CraftFacts = {
+  /** Visual line count of the first visible h1 (0 when none). */
+  h1Lines: number;
+  /** Bottom edge of the first visible h1 relative to the top viewport, or null when none. */
+  h1Bottom: number | null;
+  /** At least one primary CTA button or action link sits inside the initial viewport fold. */
+  heroActionAboveFold: boolean;
+  /** Nested rounded containers (padding 4-24 px) whose inner radius is >= outer radius. */
+  concentricMismatches: { outer: string; outerR: number; innerR: number; pad: number }[];
+  /** Visible headings (h1-h3) vertically sliced by their own overflow: hidden/clip box. */
+  clippedHeadings: string[];
+  /** Short desktop buttons or nav links whose inline label wraps across multiple lines. */
+  wrappedControls: string[];
 };
 
 export type PageFacts = {
@@ -195,6 +214,8 @@ export type PageFacts = {
   animations: { running: number; infinite: number; longestMs: number };
   copy: { lorem: boolean; buzzwords: string[]; placeholders: string[] };
   perf: { lcpMs: number | null; lcpEl: string | null; cls: number; nodes: number };
+  /** Optical, fold and surface-geometry craft measurements (optional for older fixtures). */
+  craft?: CraftFacts;
   /** Something in the collector failed; the rest of the facts are still valid. */
   errors: string[];
 };

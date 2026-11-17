@@ -7,4 +7,4 @@ export { collectorScript, COLLECT_DEFAULTS } from "./collector";
 export { allowedLooks, analyzeRequest } from "./intent";
 export { KNOWLEDGE } from "./knowledge";
 export { isUiSource, uiChanges, uiFingerprint, type PrintCache } from "./workspace";
-export type { BriefRole, DesignAudit, DesignBrief, DesignIntent, Finding, PageFacts, WorkspaceFacts } from "./types";
+export type { BriefRole, CraftFacts, DesignAudit, DesignBrief, DesignIntent, Finding, PageFacts, WorkspaceFacts } from "./types";

@@ -84,6 +84,10 @@ dependencies and no database changes.
 | Motion | improve | animation without a reduced-motion rule (not reported when linked stylesheets can't be read from the preview's opaque origin), loops under reduced motion, `transition: all` on 5 or more elements, keyframes animating layout properties | WCAG 2.3.3, 2.2.2, web.dev |
 | Input text under 16 px on phones | improve | iOS zooms on focus | Vercel guidelines |
 | Layout shift | improve | CLS over 0.1 | Core Web Vitals |
+| Clipped headings | fix | visible `h1`–`h3` with `overflow-y: hidden`/`clip` slicing glyphs (`scrollHeight > clientHeight + 4`, `line-clamp` excluded) | optical craft |
+| Hero `h1` lines & fold | improve | desktop `h1` wrapping to 4+ lines outside dense/editorial pages; `h1` or primary CTA pushed past the `1280×800` fold on landing, storefront or showcase pages | optical & fold craft |
+| Concentric corner radii | improve | nested rounded containers within 4–24 px padding where `innerRadius >= outerRadius` (`outerRadius = innerRadius + padding`) | surface craft |
+| Wrapped control labels | improve | 2 or more short desktop button or `<nav>` labels wrapping onto multiple lines | component polish |
 | Template tells | note | purple gradients, gradient text, glass on 3 or more large elements, the same shadow on 6 or more elements, eyebrows above 3 or more headings, accented words, emoji as icons, a default font only, filler words, and warm cream paper behind a serif display outside reading pages (the newer "tasteful" default) | anthropic-frontend-design-skill, impeccable, benchmark judging |
 
 Contrast is measured where the text is painted (hit testing at its first line), against the worst
@@ -182,6 +186,38 @@ mentioned; studies made for show only by name; "no 3d", "no particles", "static"
 the pieces the user named make their looks deliberate (glass, gradient text, violet). The brief gets
 a "Motion mixture" section with the pieces and their component ids, the shared timing tokens, the
 budget and the reduced-motion rule; the pieces go on the style synthesis's tokens when there is one.
+
+## Web art-direction dealer, micro-polish and React 19 engineering
+
+- **Art-direction dealer** (`knowledge/directions.ts`, `synthesis.ts` `dealDirections`). Twenty curated
+  art directions (`monument-wordmark`, `inline-proof-sentence`, `sticky-cover-series`,
+  `chromatic-chapters`, `spatial-frame`, `artifact-as-page`, `single-motif-thread`, `live-output-stage`,
+  `precision-instrument`, `studio-object-stage`, `specimen-index`, `editorial-broadsheet`,
+  `proof-contact-sheet`, `split-narrative-stage`, `poster-constructivist`, `modular-bento-ledger`,
+  `asymmetric-gallery`, `obsidian-darkroom`, `typographic-monolith`, `tactile-atelier`) cover brand,
+  SaaS, developer tools, fintech, storefronts, portfolios, hospitality and editorial builds. Each
+  carries WCAG AA-verified semantic tokens (`>= 4.5:1` for text, muted text and accent labels), a
+  Google Fonts pairing, hero fold geometry and a non-template section sequence. When a new marketing,
+  editorial, showcase, portfolio or storefront request uses neither the anime archetypes, Curialy UI,
+  an existing project design system nor an attached mockup, `dealDirections` filters out refused looks
+  ("no dark", "no serif", "no brutalist") and deterministically deals three candidate directions via
+  FNV-1a hashing (`stableIndex`). The Architect or Engineer commits to one direction in `DESIGN.md`
+  (never averaging them; user cues always override), keeping consecutive prompts structurally varied
+  while identical prompts stay byte-stable for prompt caching.
+- **Surface, optical and micro-interaction craft** (`surface-craft` in `foundations.ts`,
+  `optical-polish` in `components.ts`, `micro-physics` in `motion.ts`). Covers concentric corner
+  radii (`outer = inner + padding` within 24 px), 3-layer OKLCH translucent elevation shadows vs
+  structural borders, neutral `1 px` inset image outlines, optical `-2 px` icon-side button padding,
+  expanded `::after` hit areas without target collision, honest local form states, `0 ms`
+  high-frequency keyboard/tab actions, never entering from `scale(0)`, trigger-anchored
+  `transform-origin`, `scale(0.97)` press feedback, interruptible CSS transitions (`@starting-style`)
+  and velocity-based drag dismissal.
+- **Conditional React 19 / Next.js slice** (`knowledge/engineering.ts`). Added for `solo`,
+  `architect` and `engineer` roles (omitted for `reviewer` and non-React stacks) only when the
+  workspace or request uses React or Next.js: `ref` as a prop and `use(Context)` instead of
+  `forwardRef`, render-time derived values over `useEffect` state sync, compound components over
+  boolean-prop proliferation, `Promise.all` and lazy/direct imports against waterfalls and barrel
+  bloat, `startTransition` / `useDeferredValue`, and native View Transitions.
 
 ## Curialy UI design system
 

@@ -39,7 +39,7 @@ export function scoreEntries(intent: DesignIntent, entries: DesignEntry[] = KNOW
     if (entry.needs && !entry.needs.some(need => intent.needs.includes(need))) continue;
     const hits = (entry.signals ?? []).filter(signal => mentions(intent.text, signal));
     if (entry.optional && !hits.length) continue;
-    const score = BASE[entry.discipline] + (entry.surfaces ? 20 : 0) + (related.has(entry.id) ? 6 : 0) + (entry.needs ? 4 : 0) + Math.min(hits.length, 3) * 2;
+    const score = BASE[entry.discipline] + (entry.surfaces ? 20 : 0) + (related.has(entry.id) ? 6 : 0) + (entry.needs ? 4 : 0) + (entry.needs && hits.length ? 2 : 0) + Math.min(hits.length, 3) * 2;
     scored.push({ entry, score, hits });
   }
   // Stable: equal scores keep the knowledge base's order.

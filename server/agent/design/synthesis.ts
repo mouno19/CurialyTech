@@ -1,7 +1,9 @@
 import { ARCHETYPES, ENTERTAINMENT_WORDS, type Archetype, type GrantedLook } from "./knowledge/archetypes";
 import { contrast } from "./audit";
+import { DIRECTIONS, type ArtDirection } from "./knowledge/directions";
 import { MOTION_FAMILIES, MOTION_PIECES, MOTION_TIMING, type MotionPiece, type MotionSlot } from "./knowledge/motion";
-import type { MotionLevel, Need, Surface } from "./types";
+import type { DesignIntent, MotionLevel, Need, Surface, WorkspaceFacts } from "./types";
+import type { UiFit } from "../../design-systems/ui-system";
 
 // Style synthesis: when a request is anime or entertainment work, or its subject fits one of the
 // style archetypes (a luxury brand, a developer terminal, a cozy cafe), the design is a mixture:
@@ -118,7 +120,13 @@ function stableIndex(text: string, size: number) {
 export function synthesize(input: { text: string; ui: boolean; avoid?: string[] }): Synthesis | null {
   if (!input.ui) return null;
   const text = input.text.toLowerCase();
-  const refused = (archetype: Archetype) => (input.avoid ?? []).some(word => archetype.signals.includes(word) || archetype.style.toLowerCase().includes(word));
+  const avoidLower = (input.avoid ?? []).map(word => word.toLowerCase());
+  const noDark = avoidLower.some(word => word === "dark" || word === "dark mode" || word === "black" || word === "noir") || said(text, "light mode") || said(text, "light theme");
+  const noSerif = avoidLower.includes("serif");
+  const refused = (archetype: Archetype) =>
+    (noDark && archetype.mode === "dark")
+    || (noSerif && /serif|playfair|fraunces|cormorant|garamond/i.test(archetype.fonts.display))
+    || avoidLower.some(word => archetype.signals.includes(word) || archetype.style.toLowerCase().includes(word));
   const entertainment = ENTERTAINMENT_WORDS.some(word => said(text, word));
   // Equal points: a phrase that names the subject beats a single word.
   const ranked = ARCHETYPES.filter(archetype => !refused(archetype))
@@ -313,5 +321,112 @@ export function renderMotionMixture(mixture: MotionMixture) {
         : "- Budget: nothing runs continuously; everything runs on events, scroll or CSS.",
     "- Reduced motion (prefers-reduced-motion: reduce): every piece has an end state: reveals show their content, loops stop on a still frame, pointer effects stay put, pinned and horizontal sections stack.",
     `- With the component library: add_components with ${mixture.picks.map(pick => pick.piece.id).join(", ")} and theme ${mixture.theme} re-skins them to one token set (find_components finds other pieces).`,
+  ].join("\n");
+}
+
+// ---- Web art-direction dealer ----
+// When a new brand, marketing, editorial, showcase, portfolio or storefront build uses neither the
+// anime archetypes, Curialy UI, an existing project system nor an attached reference image, deal
+// three distinct art directions deterministically so consecutive builds diverge in composition.
+
+export type DealtDirections = {
+  candidates: [ArtDirection, ArtDirection, ArtDirection];
+  reason: string;
+};
+
+const DEAL_SURFACES = new Set<Surface>(["landing", "storefront", "showcase", "portfolio", "editorial"]);
+const GENERAL_WEB_WORDS = ["website", "web site", "site", "brand", "studio", "agency", "company", "firm", "restaurant", "cafe", "café", "hotel", "bakery", "clinic", "salon", "gym", "club", "event", "conference", "product", "startup", "saas"];
+const UTILITY_WORDS = ["calculator", "timer", "clock", "stopwatch", "todo", "to-do", "kanban", "chat", "editor", "admin", "dashboard", "settings", "login", "sign-in"];
+const SERIF_FACE = /serif|fraunces|cormorant|newsreader|garamond/i;
+
+export function dealDirections(input: { intent: DesignIntent; facts: WorkspaceFacts; synthesis: Synthesis | null; system?: UiFit }): DealtDirections | null {
+  const { intent, facts, synthesis, system } = input;
+  if (!intent.ui || synthesis !== null || intent.reference) return null;
+  if (system === "project" || system === "requested" || system === "recommended") return null;
+  if (facts.existing || Boolean(facts.designDoc) || facts.tokens > 0) return null;
+
+  const text = intent.text.toLowerCase();
+  const generalSite = intent.surface === "general"
+    && (intent.register === "brand" || GENERAL_WEB_WORDS.some(word => said(text, word)))
+    && !UTILITY_WORDS.some(word => said(text, word));
+  if (!DEAL_SURFACES.has(intent.surface) && !generalSite) return null;
+
+  const avoidSet = new Set(intent.avoid.map(word => word.toLowerCase()));
+  const noDark = avoidSet.has("dark") || avoidSet.has("dark mode") || avoidSet.has("black") || avoidSet.has("noir")
+    || refusedIn(text, "dark") || said(text, "light mode") || said(text, "light theme");
+  const wantsDark = !noDark && (avoidSet.has("light mode") || avoidSet.has("light theme")
+    || said(text, "dark mode") || said(text, "dark theme") || intent.cues.includes("dark"));
+  const noSerif = avoidSet.has("serif") || refusedIn(text, "serif");
+
+  const refused = (dir: ArtDirection) => {
+    if (noDark && dir.mode === "dark") return true;
+    if (noSerif && SERIF_FACE.test(`${dir.fonts.display} ${dir.fonts.text}`)) return true;
+    return dir.avoidWords.some(word => avoidSet.has(word) || refusedIn(text, word));
+  };
+
+  let allowed = DIRECTIONS.filter(dir => !refused(dir));
+  if (wantsDark) {
+    const darkOnly = allowed.filter(dir => dir.mode === "dark");
+    if (darkOnly.length >= 3) allowed = darkOnly;
+  }
+  if (allowed.length < 3) return null;
+
+  const scored = allowed.map((dir, index) => {
+    const surfacePoints = dir.surfaces.includes(intent.surface) ? 4 : 0;
+    const registerPoints = dir.registers.includes(intent.register) ? 1 : 0;
+    const signalPoints = dir.signals
+      .filter(signal => said(text, signal))
+      .reduce((sum, signal) => sum + (signal.includes(" ") ? 4 : 2), 0);
+    return { dir, total: surfacePoints + registerPoints + signalPoints, surfacePoints, signalPoints, index };
+  }).sort((a, b) => b.total - a.total || a.index - b.index);
+
+  const surfacePool = scored.filter(item => item.surfacePoints > 0);
+  const eligible = surfacePool.length >= 6 ? surfacePool : scored;
+  const chosen: ArtDirection[] = [];
+  const takeFrom = (pool: typeof scored, salt: string) => {
+    const open = pool.filter(item => !chosen.includes(item.dir));
+    if (!open.length) return;
+    chosen.push(open[stableIndex(`${text}:${salt}`, open.length)].dir);
+  };
+
+  // Slot 1: top domain-signal match when the prompt names a sector or style, else rotate surface fits.
+  const signalMatches = eligible.filter(item => item.signalPoints > 0);
+  const tier1 = signalMatches.length
+    ? signalMatches.filter(item => item.signalPoints >= signalMatches[0].signalPoints - 2)
+    : eligible.slice(0, Math.min(8, eligible.length));
+  takeFrom(tier1, "d1");
+
+  // Slot 2: strong surface/domain fit with contrasting mode or typography where possible.
+  const first = chosen[0];
+  const nearTop = eligible.filter(item => !chosen.includes(item.dir) && item.total >= eligible[0].total - 5);
+  const contrasting = !noDark && !wantsDark ? nearTop.filter(item => item.dir.mode !== first.mode || item.dir.fonts.display !== first.fonts.display) : nearTop;
+  takeFrom(contrasting.length ? contrasting : eligible, "d2");
+
+  // Slot 3: structural wildcard from the remaining surface-compatible directions so layouts never converge.
+  const distinctFonts = eligible.filter(item => !chosen.includes(item.dir) && chosen.every(pick => pick.fonts.display !== item.dir.fonts.display));
+  takeFrom(distinctFonts.length ? distinctFonts : scored, "d3");
+
+  while (chosen.length < 3) {
+    const next = scored.find(item => !chosen.includes(item.dir));
+    if (!next) return null;
+    chosen.push(next.dir);
+  }
+
+  return {
+    candidates: [chosen[0], chosen[1], chosen[2]],
+    reason: signalMatches.length ? "matched to subject and surface" : `varied compositions for ${intent.surface}`,
+  };
+}
+
+export function renderDealtDirections(dealt: DealtDirections, hasUserCues: boolean) {
+  const override = hasUserCues ? " User cues override defaults." : "";
+  return [
+    `## Art direction candidates (${dealt.reason})`,
+    `Inventory 6-8 subject nouns/metrics, commit to **one** direction below in DESIGN.md (never average them), and build on its tokens.${override}`,
+    ...dealt.candidates.map((dir, index) => {
+      const p = dir.palette;
+      const faces = [dir.fonts.display, dir.fonts.text !== dir.fonts.display ? dir.fonts.text : null, dir.fonts.mono].filter(Boolean).join(" + ");
+      return `${index + 1}. **${dir.name}** (${dir.id}, ${dir.mode}) — ${dir.concept} Hero: ${dir.hero} Rhythm: ${dir.rhythm} Fonts: ${faces}. Tokens: bg ${p.bg}, surface ${p.surface}, line ${p.line}, text ${p.text}, muted ${p.muted}, accent ${p.accent}, on-accent ${p.onAccent}.`;
+    }),
   ].join("\n");
 }

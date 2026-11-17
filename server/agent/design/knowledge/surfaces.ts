@@ -9,7 +9,7 @@ export const SURFACES: DesignEntry[] = [
     title: "Recipe: product landing page",
     discipline: "surface",
     surfaces: ["landing"],
-    related: ["type-scale", "color-system", "copy", "actions", "composition"],
+    related: ["type-scale", "color-system", "copy", "actions", "composition", "surface-craft", "optical-polish", "micro-physics"],
     rules: [
       "Lead with what the product produces for whom: a headline that says it plainly, and a view of the real output (the insight, report or screen) instead of an abstract graphic. One primary call to action, one secondary at most.",
       "Let the story set the order: the problem, how it works (numbered only if it really is a sequence), proof, pricing, a closing call to action. Leave out sections that have nothing specific to say.",
@@ -23,7 +23,7 @@ export const SURFACES: DesignEntry[] = [
     title: "Recipe: storefront",
     discipline: "surface",
     surfaces: ["storefront"],
-    related: ["collections", "overlays", "type-choice", "imagery"],
+    related: ["collections", "overlays", "type-choice", "imagery", "surface-craft", "optical-polish", "micro-physics"],
     rules: [
       "Product imagery leads: a calm palette and generous space let the products carry the color; one aspect ratio (4:5 or 1:1) across the grid. Without photos, each product still needs a drawn likeness (a careful silhouette or line drawing), not an empty box.",
       "Product card: image, name, price (tabular-nums), at most one quick action; the whole card is one link; a hover can show a second image on desktop but never hides essential information.",
@@ -38,7 +38,7 @@ export const SURFACES: DesignEntry[] = [
     title: "Recipe: dashboard",
     discipline: "surface",
     surfaces: ["dashboard"],
-    related: ["data-display", "charts", "color-contrast", "type-readability"],
+    related: ["data-display", "charts", "color-contrast", "type-readability", "surface-craft", "optical-polish", "micro-physics"],
     rules: [
       "Answer questions in order: the 3-5 KPIs that matter first (value, change against the previous period, the period), then trends, then breakdowns, then the detail table.",
       "Density with order: an 8 px grid, 14-16 px body and 12-13 px secondary text, rows 36-44 px tall, a neutral palette with one accent, status colors used sparingly.",
@@ -68,7 +68,7 @@ export const SURFACES: DesignEntry[] = [
     title: "Recipe: product showcase",
     discipline: "surface",
     surfaces: ["showcase"],
-    related: ["motion-orchestration", "state-transitions", "type-scale", "imagery"],
+    related: ["motion-orchestration", "state-transitions", "type-scale", "imagery", "surface-craft", "optical-polish", "micro-physics"],
     rules: [
       "The product is the hero object, large and well lit on a quiet stage, with one orchestrated entrance and nothing competing around it.",
       "Feature highlights: one idea per block, each with a visual of that feature, short specific text with numbers and units; reveals on scroll stay an enhancement.",
@@ -83,7 +83,7 @@ export const SURFACES: DesignEntry[] = [
     title: "Recipe: mobile-first app",
     discipline: "surface",
     surfaces: ["app"],
-    related: ["overlays", "forms", "actions", "state-transitions"],
+    related: ["overlays", "forms", "actions", "state-transitions", "surface-craft", "optical-polish", "micro-physics"],
     rules: [
       "Design at 360-430 px first: primary actions within thumb reach at the bottom, a bottom tab bar (at most 5 items with icons and labels) or one floating button for the main action, safe-area insets respected.",
       "The first screen answers \"what do I do now\"; history and statistics come below it or on another tab.",
@@ -99,7 +99,7 @@ export const SURFACES: DesignEntry[] = [
     title: "Recipe: portfolio or personal site",
     discipline: "surface",
     surfaces: ["portfolio"],
-    related: ["type-choice", "composition", "imagery"],
+    related: ["type-choice", "composition", "imagery", "surface-craft", "micro-physics"],
     rules: [
       "Work comes first: large thumbnails with project name, role and year; case studies tell the problem, the approach and the result with real artefacts.",
       "The person's own voice in the copy, and a distinctive but readable type pairing; contact details are one obvious action.",

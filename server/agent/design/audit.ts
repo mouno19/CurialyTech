@@ -248,6 +248,64 @@ function tellFindings(desktop: PageFacts, allowed: Set<string>, surface?: Surfac
   return findings;
 }
 
+function craftFindings(desktopFacts: PageFacts | null, phoneFacts: PageFacts | null, surface?: Surface): Finding[] {
+  const findings: Finding[] = [];
+  const dCraft = desktopFacts?.craft;
+  const pCraft = phoneFacts?.craft;
+  const clipped = [...new Set([...(dCraft?.clippedHeadings ?? []), ...(pCraft?.clippedHeadings ?? [])])];
+  if (clipped.length) {
+    const viewport = dCraft?.clippedHeadings.length ? (pCraft?.clippedHeadings.length ? "both" : "desktop") : "phone";
+    findings.push({
+      id: "clipped-heading",
+      level: "fix",
+      viewport,
+      message: `Heading text is vertically sliced by its own overflow box (${list(clipped)}); increase line-height or remove overflow: hidden on headings.`,
+    });
+  }
+  if (!desktopFacts || !dCraft || desktopFacts.viewport.width < 768) return findings;
+
+  const dense = surface ? DENSE.includes(surface) : false;
+  if (dCraft.h1Lines >= 4 && !dense && surface !== "editorial") {
+    findings.push({
+      id: "h1-lines",
+      level: "improve",
+      viewport: "desktop",
+      message: `The desktop hero h1 wraps across ${dCraft.h1Lines} lines; give it a wider measure or tighter scale so it settles in 2-3 lines.`,
+    });
+  }
+  if (surface === "landing" || surface === "storefront" || surface === "showcase") {
+    const h1PastFold = dCraft.h1Bottom !== null && dCraft.h1Bottom > desktopFacts.viewport.height;
+    const ctaPastFold = dCraft.h1Lines > 0 && !dCraft.heroActionAboveFold;
+    if (h1PastFold || ctaPastFold) {
+      const what = h1PastFold && ctaPastFold ? "h1 and primary call to action sit" : h1PastFold ? `h1 extends to ${dCraft.h1Bottom} px,` : "primary call to action sits";
+      findings.push({
+        id: "hero-fold",
+        level: "improve",
+        viewport: "desktop",
+        message: `The hero ${what} below the ${desktopFacts.viewport.width}×${desktopFacts.viewport.height} fold; tighten top spacing or display scale so the headline and main action stay visible without scrolling.`,
+      });
+    }
+  }
+  if (dCraft.concentricMismatches.length) {
+    const examples = dCraft.concentricMismatches.map(item => `${item.outer} (outer ${item.outerR} px, inner ${item.innerR} px, padding ${item.pad} px)`);
+    findings.push({
+      id: "concentric-radius",
+      level: "improve",
+      viewport: "desktop",
+      message: `Nested rounded surfaces have mismatched corner radii on ${list(examples, 2)}; set outerRadius = innerRadius + padding.`,
+    });
+  }
+  if (dCraft.wrappedControls.length >= 2) {
+    findings.push({
+      id: "wrapped-controls",
+      level: "improve",
+      viewport: "desktop",
+      message: `${plural(dCraft.wrappedControls.length, "short button or nav label")} wrap onto multiple lines at desktop width (${list(dCraft.wrappedControls)}); keep control and nav labels on one line (white-space: nowrap).`,
+    });
+  }
+  return findings;
+}
+
 const ORDER: Record<FindingLevel, number> = { fix: 0, improve: 1, note: 2 };
 
 // ---- Untrusted input ---------------------------------------------------------
@@ -297,6 +355,21 @@ export function cleanFacts(raw: unknown): PageFacts {
     animations: { running: count(f.animations?.running), infinite: count(f.animations?.infinite), longestMs: num(f.animations?.longestMs, 0, 1e9) },
     copy: { lorem: Boolean(f.copy?.lorem), buzzwords: many(f.copy?.buzzwords, 8, item => str(item, 30)), placeholders: many(f.copy?.placeholders, 6, item => str(item, 40)) },
     perf: { lcpMs: f.perf?.lcpMs == null ? null : num(f.perf.lcpMs, 0, 1e7), lcpEl: f.perf?.lcpEl == null ? null : str(f.perf.lcpEl), cls: num(f.perf?.cls, 0, 100), nodes: count(f.perf?.nodes) },
+    ...(f.craft && typeof f.craft === "object" ? {
+      craft: {
+        h1Lines: num(f.craft.h1Lines, 0, 100),
+        h1Bottom: f.craft.h1Bottom == null ? null : num(f.craft.h1Bottom, -10_000, 100_000),
+        heroActionAboveFold: Boolean(f.craft.heroActionAboveFold),
+        concentricMismatches: many(f.craft.concentricMismatches, 4, item => ({
+          outer: str(item?.outer),
+          outerR: num(item?.outerR, 0, 2000),
+          innerR: num(item?.innerR, 0, 2000),
+          pad: num(item?.pad, 0, 500),
+        })),
+        clippedHeadings: many(f.craft.clippedHeadings, 4, item => str(item)),
+        wrappedControls: many(f.craft.wrappedControls, 4, item => str(item)),
+      },
+    } : {}),
     errors: many(f.errors, 12, item => str(item, 160)),
   };
 }
@@ -318,6 +391,7 @@ export function auditPage(desktopFacts: PageFacts | null, phoneFacts: PageFacts 
     ...contrastFinding(phoneFailing, "phone"),
     ...controlFindings(desktop, phone),
     ...typeFindings(desktop, phone, opts.surface, allowed, stats),
+    ...craftFindings(desktopFacts, phoneFacts, opts.surface),
     ...motionFindings(desktop, phone, allowed),
     ...tellFindings(desktop, allowed, opts.surface),
   ];

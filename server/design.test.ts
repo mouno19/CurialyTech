@@ -12,8 +12,11 @@ process.env.AGENT_WORKSPACE_ROOT = tmp;
 process.env.AGENT_SANDBOX = "none";
 
 const { KNOWLEDGE, knowledgeProblems } = await import("./agent/design/knowledge");
+const { DIRECTIONS } = await import("./agent/design/knowledge/directions");
+const { engineeringGuidance } = await import("./agent/design/knowledge/engineering");
 const { allowedLooks, analyzeRequest, directionCues, mentions } = await import("./agent/design/intent");
 const { selectEntries } = await import("./agent/design/retrieve");
+const { dealDirections, renderDealtDirections } = await import("./agent/design/synthesis");
 const { buildBrief, KNOWLEDGE_BUDGET, renderBrief } = await import("./agent/design/brief");
 const { workspaceFacts } = await import("./agent/design/workspace");
 const { auditPage, auditText, contrast, textContrast } = await import("./agent/design/audit");
@@ -422,6 +425,220 @@ describe("the in-page collector", () => {
     const script = collectorScript();
     expect(() => new Function(`return ${script}`)).not.toThrow();
     expect(script).toContain("checkVisibility");
+    expect(script).toContain("concentricMismatches");
+    expect(script).toContain("clippedHeadings");
+    expect(script).toContain("wrappedControls");
     expect(script).not.toMatch(/localStorage|sessionStorage|indexedDB|document\.cookie/);
+  });
+});
+
+describe("art-direction dealer, micro-polish, React engineering and craft audit", () => {
+  const hexRgb = (hex: string): [number, number, number] => [1, 3, 5].map(i => Number.parseInt(hex.slice(i, i + 2), 16)) as [number, number, number];
+  const UPSTREAM_LEAK = /tasteskill|taste-skill|leonxlnx|hallmark|nutlope|together\s+ai|sloplint|emil\s+kowalski|jakub\s+krehel|vercel-labs/i;
+
+  it("validates all 20 art directions: unique ids, WCAG AA contrast on every token pair, and no tasteful-default trap", () => {
+    expect(DIRECTIONS).toHaveLength(20);
+    expect(new Set(DIRECTIONS.map(dir => dir.id)).size).toBe(20);
+    for (const dir of DIRECTIONS) {
+      expect(dir.id).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);
+      for (const signal of dir.signals) expect(signal, dir.id).toBe(signal.toLowerCase());
+      for (const word of dir.avoidWords) expect(word, dir.id).toBe(word.toLowerCase());
+      const p = dir.palette;
+      const bg = hexRgb(p.bg);
+      const surface = hexRgb(p.surface);
+      const text = hexRgb(p.text);
+      const muted = hexRgb(p.muted);
+      const accent = hexRgb(p.accent);
+      const onAccent = hexRgb(p.onAccent);
+      expect(contrast(text, bg), `${dir.id} text/bg`).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(text, surface), `${dir.id} text/surface`).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(muted, bg), `${dir.id} muted/bg`).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(muted, surface), `${dir.id} muted/surface`).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(onAccent, accent), `${dir.id} onAccent/accent`).toBeGreaterThanOrEqual(4.5);
+      // Following a dealt direction on a landing page must never trip note:tasteful-default.
+      const simulated = page({
+        text: [
+          sample({ family: dir.fonts.text, color: [...text, 1], bg: [bg] }),
+          sample({ el: "h1", tag: "h1", size: 56, weight: 600, heading: true, family: dir.fonts.display, chars: 28, cpl: null, color: [...text, 1], bg: [bg] }),
+        ],
+        fonts: { families: [{ name: dir.fonts.display, chars: 120 }, { name: dir.fonts.text, chars: 120 }], loaded: [dir.fonts.display, dir.fonts.text] },
+      });
+      expect(ids([simulated, null], { surface: "landing" }), dir.id).not.toContain("note:tasteful-default");
+      expect(ids([simulated, null], { surface: "landing" }), dir.id).not.toContain("note:default-font");
+    }
+  });
+
+  it("includes surface-craft, optical-polish and micro-physics in the knowledge base and retrieves them", () => {
+    for (const id of ["surface-craft", "optical-polish", "micro-physics"]) {
+      expect(KNOWLEDGE.some(entry => entry.id === id), id).toBe(true);
+    }
+    const landingIds = selectEntries(intentOf(BENCHMARKS.landing), KNOWLEDGE_BUDGET).chosen.map(entry => entry.id);
+    expect(landingIds).toContain("surface-craft");
+    const appIds = selectEntries(intentOf(BENCHMARKS.app), KNOWLEDGE_BUDGET).chosen.map(entry => entry.id);
+    expect(appIds).toEqual(expect.arrayContaining(["surface-craft", "optical-polish"]));
+  });
+
+  it("deals 3 distinct directions deterministically for brand/editorial/storefront/portfolio builds, varies across prompts, and respects scope and negations", () => {
+    for (const key of ["landing", "storefront", "editorial", "showcase"] as const) {
+      const brief = buildBrief({ root: tmp, original: BENCHMARKS[key], latest: BENCHMARKS[key], imageAttached: false, facts: NEW })!;
+      expect(brief.directions, key).not.toBeNull();
+      expect(brief.directions!.candidates).toHaveLength(3);
+      expect(new Set(brief.directions!.candidates.map(dir => dir.id)).size).toBe(3);
+      // Byte-identical across repeat calls for prompt caching.
+      const again = buildBrief({ root: tmp, original: BENCHMARKS[key], latest: BENCHMARKS[key], imageAttached: false, facts: NEW })!;
+      expect(renderBrief(brief)).toBe(renderBrief(again));
+      expect(renderBrief(brief)).toContain("## Art direction candidates");
+      expect(renderBrief(brief, "reviewer")).toContain("Candidates dealt for this build:");
+      expect(renderBrief(brief, "reviewer").length).toBeLessThan(renderBrief(brief, "engineer").length);
+    }
+
+    // Consecutive SaaS / portfolio prompts receive varied candidate sets rather than converging.
+    const hands = [
+      "Build a landing page for an invoicing SaaS for freelance illustrators",
+      "Build a landing page for a cloud Postgres branching platform for backend engineers",
+      "Build a landing page for a boutique sourdough bakery and morning espresso bar",
+      "Build a portfolio website for an industrial designer in Milan",
+      "Build a storefront for ceramic tableware and linen napkins",
+    ].map(prompt => buildBrief({ root: tmp, original: prompt, latest: prompt, imageAttached: false, facts: NEW })!.directions!.candidates.map(d => d.id).join(","));
+    expect(new Set(hands).size).toBeGreaterThanOrEqual(4);
+
+    // Negations ("no dark", "light mode", "no serif", "no brutalist") filter out conflicting directions.
+    const lightNoSerif = buildBrief({
+      root: tmp,
+      original: "Build a landing page for a luxury hotel and restaurant, no dark, light mode, no serif, no brutalist",
+      latest: "Build a landing page for a luxury hotel and restaurant, no dark, light mode, no serif, no brutalist",
+      imageAttached: false,
+      facts: NEW,
+    })!;
+    expect(lightNoSerif.directions).not.toBeNull();
+    for (const dir of lightNoSerif.directions!.candidates) {
+      expect(dir.mode, dir.id).toBe("light");
+      expect(`${dir.fonts.display} ${dir.fonts.text}`, dir.id).not.toMatch(/serif|fraunces|cormorant|newsreader|garamond/i);
+      expect(dir.avoidWords, dir.id).not.toContain("brutalist");
+    }
+
+    const darkAsked = buildBrief({
+      root: tmp,
+      original: "Build a dark mode SaaS landing page for an observability API",
+      latest: "Build a dark mode SaaS landing page for an observability API",
+      imageAttached: false,
+      facts: NEW,
+    })!;
+    expect(darkAsked.directions!.candidates.every(dir => dir.mode === "dark")).toBe(true);
+
+    // Returns null for dashboards, mobile apps, Curialy UI builds, existing projects, anime syntheses, and attached mockups.
+    expect(buildBrief({ root: tmp, original: BENCHMARKS.dashboard, latest: BENCHMARKS.dashboard, imageAttached: false, facts: NEW })!.directions).toBeNull();
+    expect(buildBrief({ root: tmp, original: BENCHMARKS.app, latest: BENCHMARKS.app, imageAttached: false, facts: NEW })!.directions).toBeNull();
+    expect(buildBrief({ root: tmp, original: "Build a landing page built with Curialy UI", latest: "Build a landing page built with Curialy UI", imageAttached: false, facts: NEW })!.directions).toBeNull();
+    expect(buildBrief({ root: tmp, original: BENCHMARKS.landing, latest: BENCHMARKS.landing, imageAttached: false, facts: { ...NEW, hasUi: true, existing: true } })!.directions).toBeNull();
+    expect(buildBrief({ root: tmp, original: BENCHMARKS.landing, latest: BENCHMARKS.landing, imageAttached: false, facts: { ...NEW, designDoc: "DESIGN.md" } })!.directions).toBeNull();
+    expect(buildBrief({ root: tmp, original: "Build an anime streaming website with trending shelves", latest: "Build an anime streaming website with trending shelves", imageAttached: false, facts: NEW })!.directions).toBeNull();
+    expect(buildBrief({ root: tmp, original: BENCHMARKS.landing, latest: BENCHMARKS.landing, imageAttached: true, facts: NEW })!.directions).toBeNull();
+    expect(dealDirections({ intent: intentOf("Write a Python CLI parser"), facts: NEW, synthesis: null })).toBeNull();
+  });
+
+  it("includes conditional React 19 / Next.js engineering guidance only when relevant, omits it for reviewer, and stays under 11,000 chars", () => {
+    const reactWorkspace: WorkspaceFacts = { ...NEW, hasUi: true, existing: true, framework: "Next.js", styling: ["Tailwind"] };
+    const reactBrief = buildBrief({ root: tmp, original: "Build a customer billing settings page", latest: "Build a customer billing settings page", imageAttached: false, facts: reactWorkspace })!;
+    expect(reactBrief.engineering).toContain("forwardRef");
+    for (const role of ["solo", "architect", "engineer"] as const) {
+      expect(renderBrief(reactBrief, role)).toContain("## Frontend engineering (React)");
+    }
+    expect(renderBrief(reactBrief, "reviewer")).not.toContain("## Frontend engineering (React)");
+
+    // Static HTML, Vue, and explicit "no react" omit the React block.
+    const vueBrief = buildBrief({ root: tmp, original: "Build a landing page", latest: "Build a landing page", imageAttached: false, facts: { ...NEW, existing: true, hasUi: true, framework: "Vue" } })!;
+    expect(vueBrief.engineering).toBeNull();
+    expect(renderBrief(vueBrief)).not.toContain("## Frontend engineering (React)");
+
+    const htmlBrief = buildBrief({ root: tmp, original: "Build a landing page in plain HTML and CSS, no React", latest: "Build a landing page in plain HTML and CSS, no React", imageAttached: false, facts: NEW })!;
+    expect(htmlBrief.engineering).toBeNull();
+
+    // Even a kitchen-sink Next.js + React + 3D WebGL + expressive motion landing page stays well under 11,000 chars.
+    const heavyPrompt = "Build an animated 3D Three.js WebGL SaaS landing page in Next.js and React with scroll-driven sections, pricing and signup form";
+    const heavyBrief = buildBrief({ root: tmp, original: heavyPrompt, latest: heavyPrompt, imageAttached: false, facts: NEW })!;
+    expect(heavyBrief.directions).not.toBeNull();
+    expect(heavyBrief.motionMixture).not.toBeNull();
+    expect(heavyBrief.engineering).not.toBeNull();
+    for (const role of ["solo", "architect", "engineer", "reviewer"] as const) {
+      expect(renderBrief(heavyBrief, role).length, role).toBeLessThan(11_000);
+    }
+  });
+
+  it("sanitizes hostile craft payloads and scores clipped headings, 4+ line h1s, below-fold heroes, concentric radii and wrapped controls", async () => {
+    const { cleanFacts } = await import("./agent/design/audit");
+    expect(cleanFacts(page()).craft).toBeUndefined();
+
+    const hostile = cleanFacts({
+      ...page(),
+      craft: {
+        h1Lines: 9999,
+        h1Bottom: "Infinity",
+        heroActionAboveFold: 1,
+        concentricMismatches: Array.from({ length: 20 }, () => ({ outer: "x".repeat(500), outerR: 99_999, innerR: -10, pad: "NaN" })),
+        clippedHeadings: Array.from({ length: 12 }, () => "h1\u0000" + "y".repeat(400)),
+        wrappedControls: Array.from({ length: 10 }, () => "button." + "z".repeat(400)),
+      },
+    });
+    expect(hostile.craft!.h1Lines).toBe(100);
+    expect(hostile.craft!.h1Bottom).toBe(0);
+    expect(hostile.craft!.heroActionAboveFold).toBe(true);
+    expect(hostile.craft!.concentricMismatches).toHaveLength(4);
+    expect(hostile.craft!.concentricMismatches[0].outer.length).toBeLessThanOrEqual(120);
+    expect(hostile.craft!.concentricMismatches[0].outerR).toBe(2000);
+    expect(hostile.craft!.concentricMismatches[0].innerR).toBe(0);
+    expect(hostile.craft!.clippedHeadings).toHaveLength(4);
+    expect(hostile.craft!.clippedHeadings[0]).not.toContain("\u0000");
+    expect(hostile.craft!.wrappedControls).toHaveLength(4);
+
+    // Clean craft measurements pass with zero findings.
+    const cleanCraft = page({
+      craft: { h1Lines: 2, h1Bottom: 420, heroActionAboveFold: true, concentricMismatches: [], clippedHeadings: [], wrappedControls: ["button.one-only"] },
+    });
+    expect(auditPage(cleanCraft, phonePage({ craft: { h1Lines: 4, h1Bottom: 520, heroActionAboveFold: true, concentricMismatches: [], clippedHeadings: [], wrappedControls: [] } }), { surface: "landing" })!.findings).toEqual([]);
+
+    // Broken craft fixture flags all 5 new findings on landing, while editorial/dashboard skip marketing-only h1/fold checks.
+    const brokenCraft = page({
+      craft: {
+        h1Lines: 5,
+        h1Bottom: 890,
+        heroActionAboveFold: false,
+        concentricMismatches: [{ outer: "div.card", outerR: 16, innerR: 16, pad: 12 }],
+        clippedHeadings: ["h1.display"],
+        wrappedControls: ["button.cta \"Start free trial\"", "a.nav \"Our pricing\""],
+      },
+    });
+    const landingFindings = ids([brokenCraft, null], { surface: "landing" });
+    for (const expected of ["fix:clipped-heading", "improve:h1-lines", "improve:hero-fold", "improve:concentric-radius", "improve:wrapped-controls"]) {
+      expect(landingFindings).toContain(expected);
+    }
+    const dashboardFindings = ids([brokenCraft, null], { surface: "dashboard" });
+    expect(dashboardFindings).toContain("fix:clipped-heading");
+    expect(dashboardFindings).not.toContain("improve:h1-lines");
+    expect(dashboardFindings).not.toContain("improve:hero-fold");
+
+    // Phone-only pass does not misreport 4-line phone h1s as desktop h1-lines, but still catches clipped headings.
+    const phoneOnly = ids([null, phonePage({ craft: { h1Lines: 4, h1Bottom: 920, heroActionAboveFold: false, concentricMismatches: [], clippedHeadings: ["h1.mobile"], wrappedControls: [] } })], { surface: "landing" });
+    expect(phoneOnly).toContain("fix:clipped-heading");
+    expect(phoneOnly).not.toContain("improve:h1-lines");
+    expect(phoneOnly).not.toContain("improve:hero-fold");
+  });
+
+  it("leaks zero upstream repo, tool or author names across knowledge, directions, engineering, briefs and audits", () => {
+    expect(JSON.stringify(KNOWLEDGE)).not.toMatch(UPSTREAM_LEAK);
+    expect(JSON.stringify(DIRECTIONS)).not.toMatch(UPSTREAM_LEAK);
+    expect(engineeringGuidance({ ...NEW, framework: "Next.js" }, intentOf("Build a Next.js app"))!).not.toMatch(UPSTREAM_LEAK);
+    for (const prompt of [...Object.values(BENCHMARKS), "Build a Next.js SaaS landing page", "Build an anime streaming site"]) {
+      const brief = buildBrief({ root: tmp, original: prompt, latest: prompt, imageAttached: false, facts: NEW })!;
+      for (const role of ["solo", "architect", "engineer", "reviewer"] as const) {
+        expect(renderBrief(brief, role), `${role}: ${prompt}`).not.toMatch(UPSTREAM_LEAK);
+      }
+    }
+    const sampleDirections = buildBrief({ root: tmp, original: BENCHMARKS.landing, latest: BENCHMARKS.landing, imageAttached: false, facts: NEW })!.directions!;
+    expect(renderDealtDirections(sampleDirections, true)).not.toMatch(UPSTREAM_LEAK);
+    const brokenAudit = auditText(auditPage(page({
+      craft: { h1Lines: 5, h1Bottom: 900, heroActionAboveFold: false, concentricMismatches: [{ outer: "div.card", outerR: 12, innerR: 12, pad: 8 }], clippedHeadings: ["h1"], wrappedControls: ["button.a", "button.b"] },
+    }), null, { surface: "landing" })!);
+    expect(brokenAudit).not.toMatch(UPSTREAM_LEAK);
   });
 });

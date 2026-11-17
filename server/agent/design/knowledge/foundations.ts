@@ -187,6 +187,19 @@ export const FOUNDATIONS: DesignEntry[] = [
     sources: ["WCAG 2.2 1.4.10", "MDN container queries", "Material window size classes"],
   },
   {
+    id: "surface-craft",
+    title: "Surface geometry, borders and fold discipline",
+    discipline: "layout",
+    rules: [
+      "Concentric radii: within 24 px padding set outerRadius = innerRadius + padding (never identical nested radii); past 24 px treat layers separately.",
+      "Elevation vs structure: frame light elevated cards and buttons with translucent box-shadow (0 0 0 1px oklch(0 0 0 / 0.06), 0 1px 2px -1px oklch(0 0 0 / 0.06), 0 2px 4px oklch(0 0 0 / 0.04); dark: 0 0 0 1px oklch(1 0 0 / 0.08)); keep solid borders for dividers, tables and inputs.",
+      "Image outlines: set outline: 1px solid oklch(0 0 0 / 0.1); outline-offset: -1px (dark: oklch(1 0 0 / 0.1)) using neutral black or white alpha, never palette hues.",
+      "Hero fold and wide grids: keep desktop h1 to 2-3 lines with h1, lead and primary CTA inside 1280×800; cap 1920 px containers, use minmax(0, 1fr) on image tracks, and overflow-x: clip (never 100vw).",
+      "Root font smoothing: set -webkit-font-smoothing: antialiased once on html, never per element.",
+    ],
+    sources: ["Apple HIG", "Material 3 elevation", "WCAG 2.2 1.4.10", "Vercel Web Interface Guidelines"],
+  },
+  {
     id: "imagery",
     title: "Images and illustration",
     discipline: "imagery",

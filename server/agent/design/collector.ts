@@ -553,6 +553,155 @@ export async function collectPageFacts(opts: CollectOptions): Promise<PageFacts>
     facts.fonts.loaded = Array.from(loaded).slice(0, 12);
   }, undefined);
 
+  // ---- Craft: hero fold, h1 line count, concentric corner radii, clipped headings, wrapped controls.
+  attempt("craft", () => {
+    scrollTop(0);
+    const craft = {
+      h1Lines: 0,
+      h1Bottom: null as number | null,
+      heroActionAboveFold: false,
+      concentricMismatches: [] as { outer: string; outerR: number; innerR: number; pad: number }[],
+      clippedHeadings: [] as string[],
+      wrappedControls: [] as string[],
+    };
+    const lineClusters = (mids: number[], fontSize: number) => {
+      if (!mids.length) return 0;
+      const sorted = [...mids].sort((a, b) => a - b);
+      const gap = Math.max(8, fontSize * 0.45);
+      let lines = 1;
+      let anchor = sorted[0];
+      for (let i = 1; i < sorted.length; i++) {
+        if (sorted[i] - anchor >= gap) { lines++; anchor = sorted[i]; }
+      }
+      return lines;
+    };
+    const countTextLines = (rootEl: Element) => {
+      const mids: number[] = [];
+      const walker = document.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (!(node.textContent ?? "").trim()) continue;
+        const parent = node.parentElement;
+        if (!parent || parent.closest("[aria-hidden=\"true\"],[hidden]")) continue;
+        const pStyle = css(parent);
+        if (pStyle.display === "none" || pStyle.visibility === "hidden") continue;
+        const pRect = parent.getBoundingClientRect();
+        if (pRect.width <= 2 || pRect.height <= 2) continue;
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        for (const rect of Array.from(range.getClientRects())) {
+          if (rect.width > 2 && rect.height > 2) mids.push((rect.top + rect.bottom) / 2);
+        }
+      }
+      return lineClusters(mids, parseFloat(css(rootEl).fontSize) || 16);
+    };
+    const singleNodeWrapped = (rootEl: Element) => {
+      const size = parseFloat(css(rootEl).fontSize) || 16;
+      const walker = document.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (!(node.textContent ?? "").trim()) continue;
+        const parent = node.parentElement;
+        if (!parent || parent.closest("[aria-hidden=\"true\"],[hidden]")) continue;
+        const pStyle = css(parent);
+        if (pStyle.display === "none" || pStyle.visibility === "hidden") continue;
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const mids = Array.from(range.getClientRects()).filter(r => r.width > 2 && r.height > 2).map(r => (r.top + r.bottom) / 2);
+        if (lineClusters(mids, size) >= 2) return true;
+      }
+      return false;
+    };
+
+    const h1 = Array.from(document.querySelectorAll("h1,[role=\"heading\"][aria-level=\"1\"]")).find(shown) ?? null;
+    if (h1) {
+      craft.h1Lines = countTextLines(h1);
+      craft.h1Bottom = Math.round(h1.getBoundingClientRect().bottom);
+    }
+
+    const actions = Array.from(document.querySelectorAll("button,[role=\"button\"],input[type=\"submit\"],input[type=\"button\"],a[href]")).filter(shown).slice(0, 120);
+    craft.heroActionAboveFold = actions.some(el => {
+      if (el.closest("[aria-hidden=\"true\"],[inert],footer,[role=\"contentinfo\"]")) return false;
+      const label = (el.textContent ?? "").trim();
+      if (/^skip\b/i.test(label)) return false;
+      const rect = el.getBoundingClientRect();
+      if (rect.width < 20 || rect.height < 20 || rect.top < -4 || rect.bottom > vh + 24 || rect.left < 0 || rect.right > vw + 4) return false;
+      if (el.tagName !== "A") return true;
+      const style = css(el);
+      const styledButton = rgba(style.backgroundColor)[3] > 0.08 || style.backgroundImage !== "none" || (style.borderStyle !== "none" && parseFloat(style.borderTopWidth) >= 1 && rgba(style.borderTopColor)[3] > 0.08);
+      if (el.closest("nav,[role=\"navigation\"]")) return styledButton;
+      return styledButton || Boolean(el.closest("main,[role=\"main\"],section,article")) || style.textDecorationLine.includes("underline");
+    });
+
+    for (const heading of Array.from(document.querySelectorAll("h1,h2,h3,[role=\"heading\"]")).filter(shown).slice(0, 60)) {
+      if (tucked(heading)) continue;
+      const style = css(heading);
+      const clamp = (style as unknown as Record<string, string>).webkitLineClamp;
+      if (clamp && clamp !== "none" && Number(clamp) > 0) continue;
+      if ((style.overflowY === "hidden" || style.overflowY === "clip") && heading.clientHeight > 0 && heading.scrollHeight > heading.clientHeight + 4) {
+        if (craft.clippedHeadings.length < 4) craft.clippedHeadings.push(describe(heading));
+      }
+    }
+
+    const paintsSurface = (el: Element, style: CSSStyleDeclaration) =>
+      rgba(style.backgroundColor)[3] > 0.03
+      || style.backgroundImage !== "none"
+      || style.boxShadow !== "none"
+      || (style.borderStyle !== "none" && parseFloat(style.borderTopWidth) >= 1 && rgba(style.borderTopColor)[3] > 0.03)
+      || (style.outlineStyle !== "none" && parseFloat(style.outlineWidth) >= 1 && rgba(style.outlineColor)[3] > 0.03)
+      || /^(IMG|VIDEO|CANVAS|PICTURE)$/.test(el.tagName);
+
+    for (const child of Array.from(body.querySelectorAll("*")).slice(0, 2500)) {
+      if (craft.concentricMismatches.length >= 4) break;
+      const parent = child.parentElement;
+      if (!parent || parent === body || parent === root || !shown(child) || !shown(parent)) continue;
+      const cStyle = css(child);
+      const pStyle = css(parent);
+      const rawInner = parseFloat(cStyle.borderTopLeftRadius) || 0;
+      const rawOuter = parseFloat(pStyle.borderTopLeftRadius) || 0;
+      if (rawInner < 10 || rawOuter < 10) continue;
+      const cRect = child.getBoundingClientRect();
+      const pRect = parent.getBoundingClientRect();
+      if (cRect.width < 48 || cRect.height < 48 || pRect.width < 64 || pRect.height < 64) continue;
+      if (rawInner > cRect.height * 0.5 && rawOuter < pRect.height * 0.45) continue;
+      const innerR = Math.min(rawInner, cRect.width / 2, cRect.height / 2);
+      const outerR = Math.min(rawOuter, pRect.width / 2, pRect.height / 2);
+      if (innerR < 10 || outerR < 10 || innerR < outerR) continue;
+      if (!paintsSurface(child, cStyle) || !paintsSurface(parent, pStyle)) continue;
+      const padL = cRect.left - pRect.left;
+      const padR = pRect.right - cRect.right;
+      const padT = cRect.top - pRect.top;
+      const padB = pRect.bottom - cRect.bottom;
+      const nearHoriz = padL >= 4 && padL <= 24 && padR >= 4 && padR <= 24;
+      const nearVert = (padT >= 4 && padT <= 24) || (padB >= 4 && padB <= 24);
+      const innerWidth = pRect.width - (parseFloat(pStyle.paddingLeft) || 0) - (parseFloat(pStyle.paddingRight) || 0);
+      if (!nearHoriz || !nearVert || innerWidth <= 0 || cRect.width < innerWidth * 0.6) continue;
+      const pad = Math.round(Math.min(padL, padR));
+      const outerDesc = describe(parent);
+      if (!craft.concentricMismatches.some(item => item.outer === outerDesc)) {
+        craft.concentricMismatches.push({ outer: outerDesc, outerR: Math.round(outerR), innerR: Math.round(innerR), pad });
+      }
+    }
+
+    if (vw >= 768) {
+      const navOrButtons = Array.from(document.querySelectorAll("button,[role=\"button\"],nav a[href],[role=\"navigation\"] a[href]")).filter(shown).slice(0, 160);
+      for (const el of navOrButtons) {
+        if (craft.wrappedControls.length >= 4) break;
+        if (el.closest("[aria-hidden=\"true\"],[hidden],details:not([open]),[inert],dialog:not([open])")) continue;
+        if (el.querySelector("br")) continue;
+        const style = css(el);
+        if (style.flexDirection.startsWith("column") || style.display.includes("grid")) continue;
+        const rect = el.getBoundingClientRect();
+        if (rect.width >= 320 || rect.height > 88) continue;
+        const stackedBlocks = !style.display.includes("flex") && Array.from(el.children).some(ch => css(ch).display === "block");
+        const label = (el.textContent ?? "").replace(/\s+/g, " ").trim();
+        const words = label.split(" ").filter(Boolean);
+        if (words.length < 1 || words.length > 4 || label.length > 32) continue;
+        if (singleNodeWrapped(el) || (!stackedBlocks && countTextLines(el) >= 2)) craft.wrappedControls.push(describe(el));
+      }
+    }
+
+    facts.craft = craft;
+  }, undefined);
+
   // ---- Controls, targets, names.
   attempt("controls", () => {
     const selector = "a[href],button,input:not([type=\"hidden\"]),select,textarea,summary,[role=\"button\"],[role=\"link\"],[role=\"tab\"],[role=\"checkbox\"],[role=\"radio\"],[role=\"switch\"],[role=\"menuitem\"],[role=\"option\"],[tabindex]:not([tabindex=\"-1\"])";
