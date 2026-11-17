@@ -247,7 +247,7 @@ const CODING_TOOLS: ToolDef[] = [
     description: "Search file contents with an extended regular expression (grep -E). Returns up to 200 matching lines as path:line:text.",
     input_schema: { type: "object", properties: { pattern: { type: "string" }, path: { type: "string" } }, required: ["pattern"] },
   },
-  SANDBOX_MODE === "e2b" ? {
+  SANDBOX_MODE === "remote" ? {
     name: "run_command",
     description: "Run a bash command in the workspace, inside this task's own Linux sandbox (Debian 12, Node 20, npm, Python 3.11, git, passwordless sudo; internet access). stdout/stderr stream live to the user; you get the first lines, the error lines and the last lines of long output (redirect it to a file and read_file that for more). Use for installs, builds, typechecks, linters and tests. Slow commands don't hold you up: an install, build or dev server still running after a few seconds goes on in the background, and you get its id (bg-…) and its output so far. background: true sends any command there at once; background: false waits for it however long it takes (up to timeout_sec). While one runs, keep working on what doesn't depend on it, but leave the files it changes alone (package.json during an install). You are told when it ends; command_status shows its result and stop_command stops it. Background commands stop when this run ends.",
     input_schema: { type: "object", properties: { command: { type: "string" }, timeout_sec: { type: "integer", description: `Time limit: 5-600 for a command you wait for (default 120); in the background up to ${SERVER_JOB_SEC} (default ${TASK_JOB_SEC}, or ${SERVER_JOB_SEC} for a server)` }, background: { type: "boolean", description: "true: run it in the background now; false: wait for it to finish. Default: installs, builds and servers go to the background if they take more than a few seconds" } }, required: ["command"] },
@@ -1140,7 +1140,7 @@ async function visualTest(input: z.infer<typeof schemas.test_preview_visual>, ct
     let serverOutput = "";
     const done = runCommand({ root: ctx.root, command: input.start_command, timeoutSec: 600, signal: controller.signal, onOutput: (stream, chunk) => { serverOutput += chunk; log(chunk, stream); } });
     server = { controller, done };
-    const remoteHost = SANDBOX_MODE === "e2b" ? () => sandboxPortHost(ctx.sessionId, input.port) : undefined;
+    const remoteHost = SANDBOX_MODE === "remote" ? () => sandboxPortHost(ctx.sessionId, input.port) : undefined;
     const up = await Promise.race([waitForPort(input.port, 90_000, controller.signal, remoteHost), done.then(() => false)]);
     if (!up) {
       controller.abort();

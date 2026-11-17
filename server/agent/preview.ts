@@ -105,7 +105,10 @@ export function absoluteAssetWarnings(indexHtml: string) {
 
 type LiveServer = { port: number; host?: string };
 const liveServers = new Map<string, LiveServer>();
-/** `host`: the server runs in the task's cloud sandbox and is reached through that public host. */
+/**
+ * `host`: the server runs in the task's sandbox and is reached through it: a host name (HTTPS on 443),
+ * or a URL such as http://127.0.0.1:42001 (a forward to a dedicated compute sandbox's port).
+ */
 export const registerLiveServer = (taskId: string, port: number, host?: string | null) => liveServers.set(taskId, host ? { port, host } : { port });
 export const unregisterLiveServer = (taskId: string) => liveServers.delete(taskId);
 
@@ -120,7 +123,7 @@ export function waitForPort(port: number, timeoutMs: number, signal: AbortSignal
       while (!signal.aborted && Date.now() < deadline) {
         const host = remoteHost();
         if (host) {
-          const status = await fetch(`https://${host}/`, { redirect: "manual", signal: AbortSignal.timeout(8000) })
+          const status = await fetch(host.includes("://") ? `${host}/` : `https://${host}/`, { redirect: "manual", signal: AbortSignal.timeout(8000) })
             .then(response => { void response.body?.cancel(); return response.status; })
             .catch(() => 0);
           if (status && status !== 502) return true;
@@ -147,7 +150,8 @@ const STRIP_REQUEST = new Set(["cookie", "authorization", "x-forwarded-for", "x-
 function proxy(req: Request, res: Response, server: LiveServer, subPath: string) {
   const headers: http.OutgoingHttpHeaders = {};
   for (const [key, value] of Object.entries(req.headers)) if (!HOP_HEADERS.has(key) && !STRIP_REQUEST.has(key)) headers[key] = value;
-  headers.host = server.host ?? `127.0.0.1:${server.port}`;
+  const forward = server.host?.includes("://") ? new URL(server.host) : null;
+  headers.host = forward ? forward.host : server.host ?? `127.0.0.1:${server.port}`;
   const target = { method: req.method, path: subPath + (req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : ""), headers, timeout: 30_000 };
   const onResponse = (response: http.IncomingMessage) => {
     const out: Record<string, string | string[]> = {};
@@ -157,9 +161,11 @@ function proxy(req: Request, res: Response, server: LiveServer, subPath: string)
     res.writeHead(response.statusCode ?? 502, { ...out, "content-security-policy": PREVIEW_CSP, "access-control-allow-origin": "*" });
     response.pipe(res);
   };
-  const upstream = server.host
-    ? https.request({ ...target, host: server.host, port: 443, servername: server.host }, onResponse)
-    : http.request({ ...target, host: "127.0.0.1", port: server.port }, onResponse);
+  const upstream = forward
+    ? (forward.protocol === "https:" ? https : http).request({ ...target, host: forward.hostname, port: Number(forward.port) || (forward.protocol === "https:" ? 443 : 80) }, onResponse)
+    : server.host
+      ? https.request({ ...target, host: server.host, port: 443, servername: server.host }, onResponse)
+      : http.request({ ...target, host: "127.0.0.1", port: server.port }, onResponse);
   upstream.on("timeout", () => upstream.destroy(new Error("timeout")));
   upstream.on("error", error => { if (!res.headersSent) res.status(502).type("text/plain").send(`Preview server error: ${error.message}`); else res.end(); });
   req.pipe(upstream);

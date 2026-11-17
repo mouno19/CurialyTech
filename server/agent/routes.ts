@@ -1,4 +1,5 @@
 import { brandText } from "@shared/brand";
+import { COMPUTE, computeConfigured, computeStatus } from "./cluster-sandbox";
 import { TOOL_IDS } from "@shared/components";
 import fs from "node:fs";
 import path from "node:path";
@@ -346,8 +347,12 @@ export function agentRouter() {
         { id: "browser", label: "Live Browser", configured: Boolean(PROVIDER_ENV.browserbaseKey), masked: mask(PROVIDER_ENV.browserbaseKey) },
         { id: "deploy", label: "Cloud Deploy", configured: Boolean(PROVIDER_ENV.renderKey), masked: mask(PROVIDER_ENV.renderKey) },
         {
-          id: "sandbox", label: "Cloud Sandbox (agent commands)", configured: SANDBOX_MODE === "e2b" && Boolean(env.E2B_API_KEY), masked: mask(env.E2B_API_KEY),
-          note: SANDBOX_MODE === "e2b" ? "Every task's commands, installs and builds run in a sandbox of its own, not on this server." : "Not in use: commands run on this server as the sandbox user.",
+          id: "compute", label: COMPUTE.name, configured: SANDBOX_MODE === "remote" && computeConfigured() && computeStatus().nodes.some(node => node.healthy), masked: computeConfigured() ? `${computeStatus().active}/${computeStatus().max} in use` : "",
+          note: computeConfigured() ? `${COMPUTE.description} Paid accounts' tasks run here: ${computeStatus().nodes.map(node => `${node.name} ${node.healthy ? `${node.active}/${node.max} in use, ${node.freeDiskMb} MB disk free` : "not reachable"}`).join("; ")}.` : "Not configured: every task uses the standard sandbox.",
+        },
+        {
+          id: "sandbox", label: "Curialy Standard Sandbox (agent commands)", configured: SANDBOX_MODE === "remote" && Boolean(env.E2B_API_KEY), masked: mask(env.E2B_API_KEY),
+          note: SANDBOX_MODE === "remote" ? "Free accounts' tasks, and paid ones while every dedicated sandbox is in use, run in an isolated sandbox of their own, not on this server." : "Not in use: commands run on this server as the sandbox user.",
         },
         { id: "data", label: "Curialy Data (database)", configured: Boolean(env.TIGER_DATABASE_URL), masked: env.TIGER_DATABASE_URL ? "connected" : null },
         { id: "voice", label: "Curialy Voice (dictation, transcripts, narration)", configured: Boolean(env.DEEPGRAM_API_KEY), masked: mask(env.DEEPGRAM_API_KEY) },

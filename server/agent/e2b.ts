@@ -3,7 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { CommandExitError, Sandbox, SandboxNotFoundError, SandboxNotRunningError, SandboxUnreachableError, TimeoutError, type CommandHandle } from "e2b";
 import { brandText } from "@shared/brand";
-import { MAX_COMMAND_SEC, resolveInWorkspace, SandboxError, useRemoteSandbox, writeWorkspaceBytes, type CommandOptions, type CommandResult } from "./sandbox";
+import { MAX_COMMAND_SEC, resolveInWorkspace, SandboxError, useRemoteSandbox, writeWorkspaceBytes, type CommandOptions, type CommandResult, type RemoteBox } from "./sandbox";
+import { ComputeFull, computeConfigured, openComputeBox, startCompute } from "./cluster-sandbox";
+import { getBalance } from "../credits";
+import { taskOwner } from "./store";
 
 // Agent commands run in a cloud sandbox (one per task), never on this server. The task's directory
 // here keeps what the file tools, previews, archives, exports and deploys read: sources and build
@@ -59,19 +62,7 @@ type Listing = Map<string, Entry>;
 type Scan = { files: Listing; partial: boolean };
 
 /** What a sandbox can do, as used here (the real one wraps the SDK; tests use a fake). */
-export type RemoteBox = {
-  id: string;
-  keepAlive: (ms: number) => Promise<void>;
-  /** Start a command; resolves once it is running. */
-  /** envs: added to the command's environment (the user's secrets for the task; sent to the sandbox, never in its arguments). */
-  start: (command: string, opts: { timeoutMs: number; onStdout: (data: string) => void; onStderr: (data: string) => void; envs?: Record<string, string> }) => Promise<{ wait: () => Promise<number>; kill: () => Promise<void> }>;
-  /** Run a short helper command and return its stdout (throws on failure). */
-  exec: (command: string, timeoutMs?: number) => Promise<string>;
-  write: (files: { path: string; data: Buffer }[]) => Promise<void>;
-  read: (file: string) => Promise<Buffer>;
-  host: (port: number) => string;
-  kill: () => Promise<void>;
-};
+export type { RemoteBox } from "./sandbox";
 
 type Box = {
   taskId: string;
@@ -108,7 +99,27 @@ export function sandboxGone(error: unknown) {
 
 // ---- The SDK-backed sandbox ----
 
+/**
+ * Paid accounts (and the operator) get a sandbox on Curialy Dedicated Isolated Compute; the others,
+ * and paid tasks while every dedicated sandbox is in use or its nodes can't be reached, get a cloud one.
+ */
+async function prefersCompute(taskId: string) {
+  if (!computeConfigured()) return false;
+  const owner = await taskOwner(taskId).catch(() => null);
+  if (!owner) return false;
+  const balance = await getBalance(owner).catch(() => null);
+  return Boolean(balance && (balance.unlimited || balance.plan));
+}
+
 let connect: (taskId: string) => Promise<RemoteBox> = async taskId => {
+  if (await prefersCompute(taskId)) {
+    try {
+      return await openComputeBox(taskId);
+    } catch (error) {
+      if (!process.env.E2B_API_KEY) throw new SandboxError(error instanceof ComputeFull ? "Every dedicated sandbox is busy right now. Try again in a few minutes." : "The dedicated sandbox could not start. Try again in a minute.");
+      console.error(`[sandbox] dedicated compute unavailable for ${taskId.slice(0, 8)} (${error instanceof ComputeFull ? "full" : message(error)}): using a cloud sandbox`);
+    }
+  }
   if (!process.env.E2B_API_KEY) throw new SandboxError("The command sandbox is not configured on this server.");
   const opts = { timeoutMs: IDLE_MS, metadata: { app: "curialy", instance: INSTANCE, taskId }, lifecycle: { onTimeout: "kill" as const } };
   const sandbox = TEMPLATE ? await Sandbox.create(TEMPLATE, opts) : await Sandbox.create(opts);
@@ -524,7 +535,7 @@ async function runRemote(opts: CommandOptions): Promise<CommandResult> {
         finished = true;
       }
     } catch (error) {
-      if (error instanceof TimeoutError) {
+      if (error instanceof TimeoutError || (error as { timedOut?: boolean })?.timedOut === true) {
         timedOut = true;
         exitCode = 124;
       } else if (sandboxGone(error)) {
@@ -586,7 +597,9 @@ export function startCloudSandbox() {
   if (started) return;
   started = true;
   useRemoteSandbox({ run: runRemote, refresh, removed: taskId => void closeBox(taskId), host: sandboxHost });
+  startCompute();
   void (async () => {
+    if (!process.env.E2B_API_KEY) return;
     try {
       const paginator = Sandbox.list({ query: { metadata: { app: "curialy", instance: INSTANCE } } });
       let stopped = 0;

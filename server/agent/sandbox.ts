@@ -3,25 +3,27 @@ import fs from "node:fs";
 import path from "node:path";
 import { redactText, streamRedactor, type SecretValue } from "./redact";
 
-// Each task gets its own directory under WORKSPACE_ROOT. With E2B configured, its commands run in
-// a cloud sandbox of its own (e2b.ts) and the directory keeps only sources and build output;
+// Each task gets its own directory under WORKSPACE_ROOT. In production its commands run in an
+// isolated sandbox of its own (Curialy Dedicated Isolated Compute for paid accounts, a cloud sandbox
+// for the others: e2b.ts, cluster-sandbox.ts) and the directory keeps only sources and build output;
 // otherwise they run here as the unprivileged sandbox user inside a transient systemd scope
 // (memory/CPU/task limits, killed as a unit afterwards). File tools run in this process, so every
 // path is resolved through realpath and confined to the workspace to defeat symlink escapes.
 
 export const WORKSPACE_ROOT = process.env.AGENT_WORKSPACE_ROOT || "/srv/curialy-workspaces";
 const SANDBOX_USER = process.env.AGENT_SANDBOX_USER || "curialy-agent";
-// "e2b" (production: one cloud sandbox per task), "systemd" (commands on this server as the sandbox
-// user) or "none" (local development and tests). Unset: E2B when its key is configured.
-export const SANDBOX_MODE: "e2b" | "systemd" | "none" =
+// "remote" (production: one isolated sandbox per task, off this server), "systemd" (commands on this
+// server as the sandbox user) or "none" (local development and tests). Unset: remote when sandboxes
+// are configured. (AGENT_SANDBOX=e2b, the earlier name, still means remote.)
+export const SANDBOX_MODE: "remote" | "systemd" | "none" =
   process.env.AGENT_SANDBOX === "none" ? "none"
   : process.env.AGENT_SANDBOX === "systemd" ? "systemd"
-  : process.env.AGENT_SANDBOX === "e2b" || process.env.E2B_API_KEY ? "e2b" : "systemd";
+  : process.env.AGENT_SANDBOX === "remote" || process.env.AGENT_SANDBOX === "e2b" || process.env.E2B_API_KEY || process.env.CURIALY_COMPUTE_NODES ? "remote" : "systemd";
 
-/** Free accounts' tasks run only in cloud sandboxes (one each); on this server they would share a user. */
-export const cloudSandboxReady = () => SANDBOX_MODE === "e2b" && Boolean(process.env.E2B_API_KEY);
+/** Free accounts' tasks run only in isolated sandboxes (one each); on this server they would share a user. */
+export const cloudSandboxReady = () => SANDBOX_MODE === "remote" && (Boolean(process.env.E2B_API_KEY) || Boolean(process.env.CURIALY_COMPUTE_NODES));
 
-/** Directories created by the sandbox user (systemd mode, or before a switch to E2B) need its rights to change. */
+/** Directories created by the sandbox user (systemd mode, or before a switch to remote sandboxes) need its rights to change. */
 function agentOwned(dir: string) {
   if (SANDBOX_MODE === "none") return false;
   if (SANDBOX_MODE === "systemd") return true;
@@ -29,7 +31,22 @@ function agentOwned(dir: string) {
   return uid !== undefined && fs.statSync(dir, { throwIfNoEntry: false })?.uid !== uid;
 }
 
-// Set by e2b.ts when the cloud sandbox is in use: commands, a refresh of the local copy before it is
+/** One task's remote sandbox, whoever provides it (the dedicated compute cluster or a cloud sandbox). */
+export type RemoteBox = {
+  id: string;
+  keepAlive: (ms: number) => Promise<void>;
+  /** Start a command; resolves once it is running. */
+  /** envs: added to the command's environment (the user's secrets for the task; sent to the sandbox, never in its arguments). */
+  start: (command: string, opts: { timeoutMs: number; onStdout: (data: string) => void; onStderr: (data: string) => void; envs?: Record<string, string> }) => Promise<{ wait: () => Promise<number>; kill: () => Promise<void> }>;
+  /** Run a short helper command and return its stdout (throws on failure). */
+  exec: (command: string, timeoutMs?: number) => Promise<string>;
+  write: (files: { path: string; data: Buffer }[]) => Promise<void>;
+  read: (file: string) => Promise<Buffer>;
+  host: (port: number) => string;
+  kill: () => Promise<void>;
+};
+
+// Set by e2b.ts when remote sandboxes are in use: commands, a refresh of the local copy before it is
 // read as a whole (archive, export, deploy), and teardown when the workspace goes away.
 type RemoteSandbox = {
   run: (opts: CommandOptions) => Promise<CommandResult>;
@@ -277,7 +294,7 @@ async function runWithSecrets(opts: CommandOptions & { secrets: SecretValue[] })
 }
 
 function dispatch(opts: CommandOptions): Promise<CommandResult> {
-  if (SANDBOX_MODE === "e2b") {
+  if (SANDBOX_MODE === "remote") {
     return remote ? remote.run(opts) : Promise.resolve({ exitCode: null, timedOut: false, output: "The command sandbox is not available on this server yet.", durationMs: 0 });
   }
   // A run cancelled while its command waits behind another task's gets its answer at once (and the

@@ -12,7 +12,7 @@ import type { RemoteBox } from "./agent/e2b";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "curialy-e2b-"));
 process.env.AGENT_WORKSPACE_ROOT = path.join(tmp, "workspaces");
-process.env.AGENT_SANDBOX = "e2b";
+process.env.AGENT_SANDBOX = "remote";
 fs.mkdirSync(process.env.AGENT_WORKSPACE_ROOT, { recursive: true });
 
 const { runCommand, workspacePath, ensureWorkspace, removeWorkspace, refreshWorkspace, sandboxPortHost } = await import("./agent/sandbox");

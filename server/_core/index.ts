@@ -23,6 +23,7 @@ import { previewHandler } from "../agent/preview";
 import { servePublishedPreview } from "../agent/deploy-proxy";
 import { SANDBOX_MODE } from "../agent/sandbox";
 import { startCloudSandbox, stopCloudSandboxes } from "../agent/e2b";
+import { COMPUTE, computeConfigured, computeNodes } from "../agent/cluster-sandbox";
 import { gatewayRouter, keysRouter } from "../gateway";
 import { startFollowUpQueue } from "../agent/queue";
 import { billingAdminRouter, billingRouter } from "../billing/routes";
@@ -45,12 +46,12 @@ async function startServer() {
   startAnalyticsSweep();
   if (!sessionsConfigured()) console.warn("[auth] SESSION_SECRET missing: nobody can sign in until it is set.");
   // Agent commands run in a cloud sandbox per task when it is configured, never on this server.
-  if (SANDBOX_MODE === "e2b") startCloudSandbox();
+  if (SANDBOX_MODE === "remote") startCloudSandbox();
   // Follow-ups sent during a run start when it ends (after the sandbox, which free accounts need).
   startFollowUpQueue();
   // Scheduled tasks start by themselves when due (the same admission as any start).
   const stopScheduler = startScheduler();
-  console.log(`[sandbox] agent commands run ${SANDBOX_MODE === "e2b" ? "in a cloud sandbox per task" : SANDBOX_MODE === "systemd" ? "on this server as the sandbox user" : "unsandboxed (development)"}`);
+  console.log(`[sandbox] agent commands run ${SANDBOX_MODE === "remote" ? `in an isolated sandbox per task${computeConfigured() ? ` (${COMPUTE.name} for paid accounts: ${computeNodes().length} nodes)` : ""}` : SANDBOX_MODE === "systemd" ? "on this server as the sandbox user" : "unsandboxed (development)"}`);
   startWorkspaceSweeper(isBusy);
   startDeploymentSweeper(isBusy);
   // Agent previews: token-authenticated, sandboxed (CSP), and mounted before the body parsers so
@@ -147,7 +148,7 @@ async function startServer() {
       const stopped = await shutdownRuns(15_000);
       if (stopped) console.log(`[server] interrupted ${stopped} running task(s)`);
       // Cloud sandboxes belong to this process; the next one would stop them anyway.
-      if (SANDBOX_MODE === "e2b") await Promise.race([stopCloudSandboxes(), new Promise(resolve => setTimeout(resolve, 5000))]);
+      if (SANDBOX_MODE === "remote") await Promise.race([stopCloudSandboxes(), new Promise(resolve => setTimeout(resolve, 5000))]);
     } catch (error) {
       console.error("[server] shutdown:", error instanceof Error ? error.message : error);
     }

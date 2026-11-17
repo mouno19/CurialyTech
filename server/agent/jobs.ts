@@ -48,7 +48,7 @@ export type Job = {
 type Entry = Job & { controller: AbortController; done: Promise<void>; head: string; tail: string; total: number; emit: Emit; listeners: Set<() => void> };
 
 let run: (opts: CommandOptions) => Promise<CommandResult> = runCommand;
-let available = SANDBOX_MODE === "e2b";
+let available = SANDBOX_MODE === "remote";
 
 /** Whether commands can run in the background here (only the cloud sandbox runs them side by side). */
 export const backgroundAvailable = () => available;
