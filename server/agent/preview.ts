@@ -61,6 +61,14 @@ export function verifyPreviewToken(taskId: string, token: string) {
   return mac.length === expected.length && timingSafeEqual(Buffer.from(mac), Buffer.from(expected));
 }
 
+/**
+ * The origin the cloud browser opens previews on (visual tests, screenshots). Normally the site's own;
+ * PREVIEW_BROWSER_ORIGIN points it at another name of this same server while DNS still sends some of
+ * the cloud browser's resolvers to an old one (the user's Preview tab and every other link keep the
+ * site's origin).
+ */
+export const browserPreviewOrigin = () => process.env.PREVIEW_BROWSER_ORIGIN || process.env.PUBLIC_BASE_URL || "https://curialy.tech";
+
 export function previewBaseUrl(taskId: string, origin = process.env.PUBLIC_BASE_URL || "https://curialy.tech", dir = "") {
   return `${origin.replace(/\/+$/, "")}/api/workspace/preview/${taskId}/${previewToken(taskId, TOKEN_TTL_SECONDS, dir === "." ? "" : dir)}/`;
 }

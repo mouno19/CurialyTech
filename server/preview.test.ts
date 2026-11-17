@@ -74,3 +74,20 @@ describe("workspace preview handler", () => {
     expect(asset.status).toBe(200);
   });
 });
+
+describe("the cloud browser's preview origin", () => {
+  it("is the site's own unless PREVIEW_BROWSER_ORIGIN names another host of this server", async () => {
+    const { browserPreviewOrigin } = await import("./agent/preview");
+    const saved = { browser: process.env.PREVIEW_BROWSER_ORIGIN, base: process.env.PUBLIC_BASE_URL };
+    try {
+      delete process.env.PREVIEW_BROWSER_ORIGIN;
+      delete process.env.PUBLIC_BASE_URL;
+      expect(browserPreviewOrigin()).toBe("https://curialy.tech");
+      process.env.PREVIEW_BROWSER_ORIGIN = "https://www.curialy.tech";
+      expect(browserPreviewOrigin()).toBe("https://www.curialy.tech");
+    } finally {
+      if (saved.browser === undefined) delete process.env.PREVIEW_BROWSER_ORIGIN; else process.env.PREVIEW_BROWSER_ORIGIN = saved.browser;
+      if (saved.base === undefined) delete process.env.PUBLIC_BASE_URL; else process.env.PUBLIC_BASE_URL = saved.base;
+    }
+  });
+});

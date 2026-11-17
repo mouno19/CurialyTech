@@ -37,7 +37,7 @@ import { branchHead, createRepo, describeGitHubError, disconnect, getConnection,
 import { answerRequest } from "./requests";
 import { secretValue } from "../secrets";
 import { cloneIntoWorkspace, commitAndPush, linkedRepo } from "./repos";
-import { absoluteAssetWarnings, detectPreviewRoot, previewBaseUrl } from "./preview";
+import { absoluteAssetWarnings, browserPreviewOrigin, detectPreviewRoot, previewBaseUrl } from "./preview";
 import { browse, sessionStatus } from "./browser";
 
 const createSchema = z.object({
@@ -1289,7 +1289,7 @@ export function agentRouter() {
     if (user.role !== "admin" && rateLimited(`screenshot:${user.id}`, 10)) return res.status(429).json({ error: "That's a lot of screenshots. Wait a few minutes, then try again.", code: "busy" });
     const site = await findPreview(task.id);
     if (!site) return res.status(404).json({ error: "No built web output to screenshot." });
-    const result = await browse({ url: previewBaseUrl(task.id, undefined, site.dir), screenshot: true, fullPage: true, waitMs: 1500, signal: AbortSignal.timeout(120_000) });
+    const result = await browse({ url: previewBaseUrl(task.id, browserPreviewOrigin(), site.dir), screenshot: true, fullPage: true, waitMs: 1500, signal: AbortSignal.timeout(120_000) });
     res.json({
       status: result.status, title: result.title, consoleErrors: result.consoleErrors,
       image: result.screenshot ? `data:image/jpeg;base64,${result.screenshot.toString("base64")}` : null,

@@ -21,7 +21,7 @@ import { taskOwner } from "./store";
 import { cloneIntoWorkspace, commitAndPush, computeChanges, linkedRepo, syncWithRemote, type LinkedRepo } from "./repos";
 import { brandText } from "@shared/brand";
 import { storeArtifacts } from "./artifacts";
-import { absoluteAssetWarnings, detectPreviewRoot, previewBaseUrl, registerLiveServer, unregisterLiveServer, waitForPort } from "./preview";
+import { absoluteAssetWarnings, browserPreviewOrigin, detectPreviewRoot, previewBaseUrl, registerLiveServer, unregisterLiveServer, waitForPort } from "./preview";
 import type { BrowseResult } from "./browser";
 import { chartPathFor } from "./chart";
 import { analyzeTable, documentSlice, readFileContents } from "./reading";
@@ -1149,14 +1149,14 @@ async function visualTest(input: z.infer<typeof schemas.test_preview_visual>, ct
       return { ok: false, content: `The server never started listening on port ${input.port}.\n${clip(serverOutput, 8000)}`, summary: `Port ${input.port} never opened` };
     }
     registerLiveServer(ctx.sessionId, input.port, remoteHost?.());
-    url = `${previewBaseUrl(ctx.sessionId)}${page}`;
+    url = `${previewBaseUrl(ctx.sessionId, browserPreviewOrigin())}${page}`;
     ctx.emit({ type: "preview", url: previewBaseUrl(ctx.sessionId), dir: null, mode: "server" });
   } else {
     const site = detectPreviewRoot(ctx.sessionId, input.dir);
     if (!site) return { ok: false, content: `No index.html found${input.dir ? ` in ${input.dir}` : " in dist/, build/, out/, public/ or the workspace root"}. Build the project first (e.g. npm run build), or pass start_command to test a running server.`, summary: "Nothing to preview" };
     const warnings = absoluteAssetWarnings(fs.readFileSync(path.join(site.absolute, "index.html"), "utf8"));
     if (warnings.length) extra.push(`Warning: index.html references absolute paths (${warnings.join(", ")}); they resolve outside the preview. Rebuild with relative asset paths (Vite: base: './').`);
-    url = `${previewBaseUrl(ctx.sessionId, undefined, site.dir)}${page}`;
+    url = `${previewBaseUrl(ctx.sessionId, browserPreviewOrigin(), site.dir)}${page}`;
     log(`Serving ${site.dir === "." ? "the workspace root" : `${site.dir}/`} as a static preview.\n`);
     ctx.emit({ type: "preview", url: previewBaseUrl(ctx.sessionId, undefined, site.dir), dir: site.dir, mode: "static" });
   }
