@@ -1,0 +1,37 @@
+package: @curialy/ui
+
+# table-collapsible - Several tables on one page, each in a collapsible card with its own columns - for groups that do not share a schema, where one table would stand full of empty cells. One time range drives them all, and rows expand into a history chart. Accounts, integrations, sections, sort, expand, or collapse.
+# Components: Area, AreaChart, Badge, Card, Collapsible, Layout, ProgressBar, ReferenceLine, ResponsiveContainer, SegmentedControl, Skeleton, Table, Token, Tooltip, XAxis, YAxis
+
+<RangeContext />
+<Layout padding={4} height="auto">
+  /* header: */
+  <LayoutHeader padding={4}>
+    <HStack gap={3}>
+      <StackItem />
+      <VStack gap={0.5}>
+        <Heading />
+        <Text />
+      </VStack>
+      <Button variant="ghost" />
+      <SegmentedControl />
+      <SegmentedControlItem />
+    </HStack>
+  </LayoutHeader>
+  /* content: */
+  <LayoutContent padding={4}>
+    <VStack gap={4}>
+      <AccountGroup />
+      <GroupTable />
+      <DetailChart />
+      <AccountGroup />
+      <GroupTable />
+      <DetailChart />
+      <AccountGroup />
+      <GroupTable />
+      <DetailChart />
+      <AccountGroup />
+      <GroupTable />
+      <DetailChart />
+    </VStack>
+  </LayoutContent>

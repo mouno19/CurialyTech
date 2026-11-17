@@ -1,0 +1,36 @@
+{
+  "project": "https://github.com/meta/astryx",
+  "cli": "0.7.16",
+  "packages": {
+    "@astryxdesign/core": "0.7.16",
+    "@astryxdesign/theme-neutral": "0.7.16",
+    "@astryxdesign/theme-butter": "0.7.16",
+    "@astryxdesign/theme-chocolate": "0.7.16",
+    "@astryxdesign/theme-gothic": "0.7.16",
+    "@astryxdesign/theme-matcha": "0.7.16",
+    "@astryxdesign/theme-stone": "0.7.16",
+    "@astryxdesign/theme-y2k": "0.7.16",
+    "@stylexjs/stylex": "0.19.2",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "verification": {
+    "packages": 158,
+    "signatures": 158,
+    "attestations": 86,
+    "installScripts": [
+      "@astryxdesign/cli",
+      "@astryxdesign/core"
+    ],
+    "integrity": {
+      "@astryxdesign/core": "sha512-3FFQGIOiRVczlrBtRH/Pm4TQwl6FVTCkMhGfljVcxjGBY1AJ4yhx6fRFnP7Nw/Wjaic1vne2TbJ7HW00d3vK2Q==",
+      "@astryxdesign/theme-neutral": "sha512-4tjVvrL9VM2jpfTceORnYWnR9fiSj93ssAUo786YmODlOHoZIs1b/aCcmClxr0VUdGVha4y33DpCqoutmwF8DQ==",
+      "@astryxdesign/theme-butter": "sha512-QLaUEYi8FaKKNIqiN3+J6x3BqOeHNRyfHLgXJsa1W4GPgUdWP2fiP8AKWYXQyWI92uo1DcV5/Byf/PyrC1ogyg==",
+      "@astryxdesign/theme-chocolate": "sha512-QtgOeY6r4UIIlpvihredz3slO37T1jecaeFLczfMaHO5Q/HfYEoNvMWo1eMb8DfQHtopiJ5EfsBJh4dDU9kiWg==",
+      "@astryxdesign/theme-gothic": "sha512-sHqksOTbZiXBwRebXVtiB4v8CDIG88n+A6dhapIVSPF97I1706cxPBwOR33Fk1QlsWVMEMib1B2ucKLYpigPDA==",
+      "@astryxdesign/theme-matcha": "sha512-kc+kUvynIp0DzoSvuGUwuCv7fvzxAAb76S/+p7Mt86L7SUxjd9oE7LkGUQwQ+MB97UYxE1Ka/KoKy/DW8tseUA==",
+      "@astryxdesign/theme-stone": "sha512-sq7zguv5JtInfTzOrXt9S2zZsBDtmhemNYx7hWRKjZG4K28vnQyDNc+iJin7VThfWXLoERLphbmUuZ+n22nZ5g==",
+      "@astryxdesign/theme-y2k": "sha512-ziv6pqTp4eKUb6FETbLWZaOSehhESIpgHQIyeSY9rgOhCyuQ8+qHP9eydk5/m3N7utqJBWy0ILB/Dzl3umCBVQ=="
+    }
+  }
+}

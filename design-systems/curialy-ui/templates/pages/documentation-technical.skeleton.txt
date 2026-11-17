@@ -1,0 +1,41 @@
+package: @curialy/ui
+
+# documentation-technical - Reference article ordered as sequential numbered steps with code at each stage, plus callout cards for prerequisites and onward links. A linear walkthrough rather than a browsable reference.
+# Components: Card, CodeBlock, Divider, DropdownMenu, Layout, List, Outline, Selector
+
+<Layout role="complementary" height="auto">
+  /* end: */
+  <LayoutPanel role="complementary">
+    <Outline />
+  </LayoutPanel>
+  /* content: */
+  <LayoutContent padding={8}>
+    <VStack gap={8}>
+      <VStack gap={2}>
+        <Text />
+        <Text />
+        <Selector width="100%" />
+      </VStack>
+      <Card>
+        <VStack gap={3}>
+          <HStack gap={2}>
+            <StackItem />
+            <HStack gap={2}>
+              <Icon />
+              <Text />
+            </HStack>
+            <Button variant="ghost" />
+            <DropdownMenu />
+          </HStack>
+          <Text />
+        </VStack>
+      </Card>
+      <VStack gap={4}>
+        <Heading />
+        <List density="compact">
+          <ListItem />
+          <ListItem />
+          <ListItem />
+        </List>
+      </VStack>
+      ...

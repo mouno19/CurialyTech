@@ -1,3 +1,0 @@
-package: @astryxdesign/core
-
-# useTableRowExpansion

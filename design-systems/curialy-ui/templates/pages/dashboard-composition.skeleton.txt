@@ -1,0 +1,41 @@
+package: @curialy/ui
+
+# dashboard-composition - Analytics for a value-over-time question: balance and change tiles above a stacked area chart of composition through time, closing on a ranked table of the largest contributors.
+# Components: Area, AreaChart, Avatar, Badge, Card, CartesianGrid, Divider, DropdownMenu, Grid, GridSpan, Layout, Line, LineChart, List, ResponsiveContainer, Table, Tooltip, XAxis, YAxis
+
+<Layout padding={6} height="fill">
+  /* content: */
+  <LayoutContent padding={6}>
+    <VStack gap={6}>
+      <Heading />
+      <DropdownMenu />
+      <Grid gap={4} columns={{minWidth: 280, repeat: 'fit'}}>
+        <Grid gap={4} columns={{minWidth: 280, repeat: 'fit'}}>
+          <MetricCard />
+        </Grid>
+      </Grid>
+      <Grid gap={4} columns={{minWidth: 280, max: 4}}>
+        <GridSpan columns={3}>
+          <Card>
+            <VStack gap={4}>
+              <Heading />
+              <Link />
+              <PortfolioChart />
+            </VStack>
+          </Card>
+        </GridSpan>
+        <GridSpan columns={1}>
+          <Card>
+            <VStack gap={4}>
+              <Heading />
+              <Link />
+              <List density="spacious">
+                <AssetRow />
+              </List>
+            </VStack>
+          </Card>
+        </GridSpan>
+      </Grid>
+      <Divider />
+      <VStack gap={1}>
+        ...

@@ -46,7 +46,7 @@ const COMMAND_ENV: Record<string, string> = {
 /**
  * Swap for each task sandbox (about 470 MB of memory), and a Node heap that may use it. Node sizes its
  * default heap limit from physical memory (about 256 MB here), and a Vite build of an app on a large
- * component library (Astryx: about 2,400 modules) needs more: it aborts at that limit, or thrashes
+ * component library (the design system: 2,400 to 3,800 modules) needs more: it aborts at that limit, or thrashes
  * when the limit is raised with no swap. With 1.5 GB of swap and a 1 GB heap such a build finished in
  * 17 s at 359 MB resident. Best effort: a sandbox where swapon fails keeps Node's default.
  */

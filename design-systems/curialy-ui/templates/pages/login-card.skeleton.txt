@@ -1,0 +1,41 @@
+package: @curialy/ui
+
+# login-card - Credential form inside an elevated centered card, third-party provider buttons separated from the fields by a divider, secondary sign-up and legal links beneath.
+# Components: Card, Center, Divider, TextInput
+
+<Center padding={6}>
+  <VStack gap={4}>
+    <VStack gap={2}>
+      <Icon />
+      <Text />
+    </VStack>
+    <Card padding={8} width="100%">
+      <VStack gap={4}>
+        <VStack gap={1}>
+          <Heading />
+          <Text />
+        </VStack>
+        <VStack gap={2}>
+          <TextInput />
+          <VStack gap={1}>
+            <TextInput />
+            <Link />
+          </VStack>
+        </VStack>
+      </VStack>
+      <Button variant="primary" />
+      <Divider />
+      <VStack gap={3}>
+        <Button variant="secondary" />
+        <Button variant="secondary" />
+      </VStack>
+      <Text />
+      <Link />
+    </Card>
+    <VStack width="100%">
+      <Text />
+      <Link />
+      <Link />
+    </VStack>
+  </VStack>
+  ...

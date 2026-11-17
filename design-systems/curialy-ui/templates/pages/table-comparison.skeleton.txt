@@ -1,0 +1,32 @@
+package: @curialy/ui
+
+# table-comparison - Transposed matrix that puts candidates in the columns and criteria in grouped rows, with a pinned label column that survives horizontal scroll, columns you can swap or add, and best-in-row marks you can toggle. Compare, comparison, matrix, spec sheet, feature grid, pricing table, benchmark, frozen column, sticky column, or side-by-side.
+# Components: Card, Layout, ProgressBar, Rectangle, Scatter, ScatterChart, Selector, Switch, Table, Tooltip, VisuallyHidden, XAxis, YAxis, ZAxis
+
+<HStack gap={1} height={CELL_CONTENT_HEIGHT}>
+  <Icon />
+</HStack>
+<HStack gap={1} height={CELL_CONTENT_HEIGHT}>
+  <Text />
+</HStack>
+<Text />
+<HStack gap={1} height={CELL_CONTENT_HEIGHT}>
+  <Text />
+</HStack>
+<HStack gap={2}>
+  <Heading />
+</HStack>
+<Layout padding={4} columns height="auto" width>
+  /* header: */
+  <LayoutHeader padding={4}>
+    <HStack gap={3}>
+      <StackItem />
+      <Heading />
+      <Switch />
+      <Button variant="secondary" />
+    </HStack>
+  </LayoutHeader>
+  /* content: */
+  <LayoutContent padding={4}>
+    <Card padding={5}>
+      <Table>

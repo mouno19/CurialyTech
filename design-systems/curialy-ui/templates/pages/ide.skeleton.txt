@@ -1,0 +1,41 @@
+package: @curialy/ui
+
+# ide - Dense multi-pane workspace of resizable, collapsible regions: a hierarchy tree on one flank, tabbed documents in the middle, a docked drawer along the bottom, an inspector opposite. Drag a divider to resize or collapse any of them.
+# Components: CodeBlock, Layout, List, MetadataList, ResizeHandle, SegmentedControl, Stack, Tab, TabList, TextInput, TreeList
+
+<Text />
+<Button />
+<Button variant="secondary" />
+<Layout padding={0} height="fill">
+  /* content: */
+  <LayoutContent padding={0}>
+    <Layout height="fill">
+      /* start: */
+      <LayoutPanel padding={0} hasDivider={false} width={startPanel.size}>
+        <Stack gap={2} />
+        <TextInput />
+        <TreeList density="compact" />
+      </LayoutPanel>
+      <ResizeHandle hasDivider />
+      /* content: */
+      <LayoutContent padding={0}>
+        <Layout padding={0} height="fill">
+          /* content: */
+          <LayoutContent padding={0}>
+            <Stack />
+            <StackItem />
+            <CodeBlock />
+            <ResizeHandle hasDivider />
+            <Stack height={bottomPanel.size} />
+            <TabList>
+              <Tab />
+              <Tab />
+              <Tab />
+              <Tab />
+            </TabList>
+            <StackItem />
+            <CodeBlock />
+          </LayoutContent>
+          /* end: */
+          <ResizeHandle hasDivider />
+          ...

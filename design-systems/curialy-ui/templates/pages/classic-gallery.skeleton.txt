@@ -1,0 +1,31 @@
+package: @curialy/ui
+
+# classic-gallery - Uniform grid of equal-ratio media tiles under a centered intro, with filter tabs that narrow the set in place. Regular rhythm, unlike the variable-height masonry variant.
+# Components: Center, Grid, Layout, Section, Tab, TabList
+
+<Layout padding={0} height="fill">
+  /* content: */
+  <LayoutContent padding={0}>
+    <Center>
+      <VStack gap={8}>
+        <Center>
+          <Section padding={0} variant="transparent" maxWidth={680}>
+            <VStack gap={4}>
+              <VStack gap={2}>
+                <Heading />
+                <Text />
+              </VStack>
+              <TabList>
+                <Tab />
+                <Tab />
+                <Tab />
+                <Tab />
+              </TabList>
+            </VStack>
+          </Section>
+        </Center>
+        <Grid gap={4} columns={{minWidth: 260, repeat: 'fit'}}>
+        </Grid>
+      </VStack>
+    </Center>
+  </LayoutContent>

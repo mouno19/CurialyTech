@@ -1,0 +1,37 @@
+package: @curialy/ui
+
+# incident-console - Dense row queue with an inspector: severity-coded rows grouped by status, a saved-search filter bar, a segmented status control, and a resizable detail pane for the selected row. Rows, not cards, sized for scanning volume.
+# Components: Divider, EmptyState, Layout, List, MetadataList, PowerSearch, ResizeHandle, SegmentedControl, StatusDot, Timestamp, Token
+
+<Layout hasDivider height="fill">
+  /* header: */
+  <LayoutHeader hasDivider>
+    <HStack gap={3}>
+      <StackItem />
+      <HStack gap={2}>
+        <Heading />
+        <Text />
+      </HStack>
+      <SegmentedControl />
+      <SegmentedControlItem />
+      <SegmentedControlItem />
+      <SegmentedControlItem />
+      <SegmentedControlItem />
+      <Button />
+    </HStack>
+  </LayoutHeader>
+  /* content: */
+  <LayoutContent padding={0}>
+    <VStack gap={0}>
+      <StackItem />
+      <PowerSearch />
+      <StackItem />
+      <IncidentRows />
+    </VStack>
+  </LayoutContent>
+  /* end: */
+  <ResizeHandle hasDivider />
+  <LayoutPanel padding={0} width={inspectorPanel.size}>
+    <IncidentInspector />
+    <EmptyState />
+  </LayoutPanel>

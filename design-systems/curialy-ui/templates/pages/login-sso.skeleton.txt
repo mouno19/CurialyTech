@@ -1,0 +1,41 @@
+package: @curialy/ui
+
+# login-sso - Progressive credential flow that branches on input: the email domain resolves an identity provider and redirects, with a password path as fallback. Two-stage rather than one form.
+# Components: Avatar, Card, Center, Divider, Section, TextInput
+
+<Center padding={6}>
+  <Card padding={8} width="100%" maxWidth={400}>
+    <VStack gap={4}>
+      <VStack gap={1}>
+        <Text />
+        <Text />
+      </VStack>
+      <VStack gap={2}>
+        <TextInput />
+        <TextInput />
+      </VStack>
+      <Link />
+      <Button variant="primary" />
+      <Divider />
+      <Button variant="secondary" />
+      <Text />
+      <Link />
+    </VStack>
+    <VStack gap={2}>
+      <Avatar />
+      <Text />
+      <Text />
+    </VStack>
+    <Card padding={0}>
+      <Section padding={4} variant="muted">
+        <HStack gap={2}>
+          <Icon />
+          <VStack gap={0}>
+            <Text />
+            <Text />
+          </VStack>
+        </HStack>
+      </Section>
+    </Card>
+    <VStack gap={3}>
+      ...

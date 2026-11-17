@@ -1,0 +1,24 @@
+package: @curialy/ui
+
+# login - Minimal centered credential form on a plain ground: two fields and a submit, nothing competing for attention. The least-chrome entry surface.
+# Components: Banner, Card, Center, TextInput
+
+<Center padding={6}>
+  <VStack gap={4}>
+    <VStack gap={2}>
+      <Icon />
+      <Text />
+    </VStack>
+    <Card padding={8} width="100%">
+      <VStack gap={4}>
+        <VStack gap={1}>
+          <Heading />
+          <Text />
+        </VStack>
+        <TextInput />
+        <TextInput />
+        <Button variant="primary" />
+      </VStack>
+    </Card>
+  </VStack>
+</Center>

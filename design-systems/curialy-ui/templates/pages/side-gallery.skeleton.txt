@@ -1,0 +1,30 @@
+package: @curialy/ui
+
+# side-gallery - Asymmetric split section: a copy column of headline, supporting text, and links held against a clustered image collage opposite. Deliberately off-balance, unlike the centered hero.
+# Components: AspectRatio, Divider, Grid, Layout
+
+<Layout padding={6} height="fill">
+  /* content: */
+  <LayoutContent padding={6}>
+    <Grid gap={8} columns={{minWidth: 360, repeat: 'fit'}}>
+      <VStack gap={6}>
+        <VStack gap={3}>
+          <Text />
+          <Heading />
+          <Text />
+        </VStack>
+        <HStack gap={3}>
+          <Button variant="primary" />
+        </HStack>
+        <VStack gap={4}>
+          <Divider />
+          <HStack gap={6}>
+            <StatBlock />
+            <StatBlock />
+            <StatBlock />
+          </HStack>
+        </VStack>
+      </VStack>
+      <ImageGrid />
+    </Grid>
+  </LayoutContent>

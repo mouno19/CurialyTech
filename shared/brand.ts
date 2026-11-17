@@ -36,9 +36,13 @@ const NAMES: [RegExp, string][] = [
   [/\bDeepgram\b/gi, BRAND.voice],
   [/\b(nova-3|aura-2-[a-z]+-en|eleven_[a-z0-9_]+)\b/gi, "voice model"],
   [/\b(Exa|EXA)\b/g, BRAND.search],
+  // The design system's upstream name and scope: users only ever see Curialy UI.
+  [/@astryxdesign\/core\b/gi, "@curialy/ui"],
+  [/@astryxdesign\/theme-/gi, "@curialy/ui-theme-"],
+  [/\bastryx\b/gi, "Curialy UI"],
 ];
 
-const VENDOR_HOSTS = /\b(?:https?:\/\/|wss?:\/\/)?[\w.-]*(?:snowflakecomputing\.com|relaystation\.world|browserbase\.com|api\.render\.com|paperinstruments\.com|manus\.(?:ai|im)|tsdb\.cloud\.timescale\.com|timescale\.com|thinkingmachines\.dev|e2b\.(?:app|dev)|deepgram\.com|elevenlabs\.io|exa\.ai)(?:[/?#][^\s"'<>)]*)?/gi;
+const VENDOR_HOSTS = /\b(?:https?:\/\/|wss?:\/\/)?[\w.-]*(?:atmeta\.com|snowflakecomputing\.com|relaystation\.world|browserbase\.com|api\.render\.com|paperinstruments\.com|manus\.(?:ai|im)|tsdb\.cloud\.timescale\.com|timescale\.com|thinkingmachines\.dev|e2b\.(?:app|dev)|deepgram\.com|elevenlabs\.io|exa\.ai)(?:[/?#][^\s"'<>)]*)?/gi;
 const VENDOR_ENV = /\b(SNOWFLAKE_[A-Z_]+|RELAY_API_[A-Z_]+|BROWSERBASE_[A-Z_]+|RENDER_[A-Z_]+|PAPER_API_[A-Z_]+|MANUS_[A-Z_]+|TIGER_[A-Z_]+|TINKER_[A-Z_]+|E2B_[A-Z_]+|DEEPGRAM_[A-Z_]+|ELEVENLABS_[A-Z_]+|EXA_[A-Z_]+)\b/g;
 
 /**

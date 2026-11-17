@@ -1,0 +1,41 @@
+package: @curialy/ui
+
+# form-wizard-vertical - Multi-step wizard with the steps in a fixed left rail that stays visible while the form scrolls, plus a side panel whose guidance follows the focused field. Suits long or unequal steps carrying uploads, previews, and dense review metadata. As width tightens the guidance drops first, then the rail rotates into a horizontal stepper above the form.
+# Components: AspectRatio, Banner, Card, Center, CheckboxInput, CheckboxList, DateInput, Divider, Field, FieldStatus, FileInput, FormLayout, Layout, List, MetadataList, MultiSelector, NumberInput, ProgressBar, RadioList, SegmentedControl, Selector, StatusDot, Step, Stepper, Switch, TextArea, TextInput
+
+<Step />
+<Icon />
+<Stepper />
+<Stepper />
+<VStack gap={3}>
+  <Heading />
+  <List density="compact">
+    <ListItem />
+    <Text />
+  </List>
+</VStack>
+<Layout padding={4} height="fill">
+  /* header: */
+  <LayoutHeader hasDivider>
+    <VStack gap={4}>
+      <HStack gap={3}>
+        <StackItem />
+        <Text />
+        <Button variant="ghost" />
+        <Button variant="secondary" />
+      </HStack>
+    </VStack>
+  </LayoutHeader>
+  /* start: */
+  <LayoutPanel width={PANEL_WIDTH}>
+    /* end: */
+    <LayoutPanel role="complementary" width={PANEL_WIDTH}>
+    </LayoutPanel>
+    /* content: */
+    <LayoutContent>
+      <Center>
+        <VStack gap={6} width="100%" maxWidth={MEASURE}>
+          <VStack gap={1}>
+            <Heading />
+            <Text />
+            ...

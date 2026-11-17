@@ -157,7 +157,7 @@ export const ThinkingBlock = memo(function ThinkingBlock({ item, usage, streamin
 
 const TOOL_ICONS: Record<string, LucideIcon> = {
   run_command: SquareTerminal, verify: ShieldCheck, read_file: FileSearch, write_file: FilePen, edit_file: FilePen, delete_file: Trash2,
-  list_files: FolderTree, search_files: Search, web_search: Radar, find_components: LayoutTemplate, load_component: FileSearch, add_components: Blocks, save_component: Bookmark, astryx: Palette, astryx_scaffold: LayoutTemplate, web_fetch: Globe, delegate_research: Bot, research_agent: Bot, update_plan: ListChecks,
+  list_files: FolderTree, search_files: Search, web_search: Radar, find_components: LayoutTemplate, load_component: FileSearch, add_components: Blocks, save_component: Bookmark, design_system: Palette, design_template: LayoutTemplate, web_fetch: Globe, delegate_research: Bot, research_agent: Bot, update_plan: ListChecks,
   browse: Globe, test_preview_visual: ScanEye, deploy_preview: Rocket, browser_click: Globe, browser_type: Globe, browser_scroll: Globe, browser_extract: Globe, browser_screenshot: Globe, browser_close: Globe, attach_files: Paperclip,
   github_list_repos: GitBranch, github_get_repo: GitBranch, github_clone_to_workspace: GitBranch, github_commit_and_push: GitBranch, github_create_pr: GitBranch,
 };
@@ -169,8 +169,8 @@ export const TERMINAL_TOOLS = new Set(["run_command", "verify", "research", "res
 function toolSubtitle(item: ItemOf<"tool">) {
   const input = item.input ?? {};
   // The design-system tool reads like its CLI: "component Button", "build analytics dashboard".
-  if (item.name === "astryx" && typeof input.command === "string") return [input.command, input.name ?? input.query, input.section].filter(part => typeof part === "string" && part).join(" ");
-  if (item.name === "astryx_scaffold" && typeof input.name === "string") return `${input.name}${typeof input.path === "string" ? ` → ${input.path}` : ""}`;
+  if (item.name === "design_system" && typeof input.command === "string") return [input.command, input.name ?? input.query, input.section].filter(part => typeof part === "string" && part).join(" ");
+  if (item.name === "design_template" && typeof input.name === "string") return `${input.name}${typeof input.path === "string" ? ` → ${input.path}` : ""}`;
   const value = input.command ?? input.path ?? input.url ?? input.pattern ?? input.query ?? input.request ?? input.id ?? (Array.isArray(input.ids) ? input.ids.join(", ") : undefined) ?? input.task ?? input.repo ?? input.message ?? input.title ?? (item.name === "deploy_preview" && typeof input.kind === "string" ? `${input.kind} preview` : undefined);
   if (typeof value === "string") return value;
   if (item.name === "update_plan" && Array.isArray(input.steps)) return plural(input.steps.length, "step");

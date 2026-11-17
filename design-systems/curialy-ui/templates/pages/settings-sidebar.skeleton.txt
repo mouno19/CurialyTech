@@ -1,0 +1,41 @@
+package: @curialy/ui
+
+# settings-sidebar - Preferences split into nav-switched panels: a persistent section list swaps the pane beside it, and rows edit in place rather than opening a separate form.
+# Components: Badge, Card, Center, Divider, Layout, List, Selector, Switch, Tab, TabList, TextInput, Toolbar
+
+<Layout padding={2} height="fill">
+  /* content: */
+  <Layout padding={0} hasDivider height="fill">
+    /* start: */
+    <LayoutPanel padding={0} hasDivider>
+    </LayoutPanel>
+    /* content: */
+    <LayoutContent padding={4}>
+      <VStack gap={0}>
+        <Toolbar gap={2}>
+          <Button variant="ghost" />
+          <Heading />
+          <VStack gap={6}>
+            <TabList hasDivider>
+              <Tab />
+              <Tab />
+            </TabList>
+            <VStack gap={8}>
+              <VStack gap={0}>
+                <Heading />
+                <Divider />
+                <InfoRowItem />
+              </VStack>
+              <VStack gap={0}>
+                <Heading />
+                <Divider />
+                <InfoRowItem />
+              </VStack>
+              <VStack gap={0}>
+                <Heading />
+                <Divider />
+                <HStack gap={3}>
+                  <Icon />
+                  <StackItem />
+                  <VStack gap={0}>
+                    ...

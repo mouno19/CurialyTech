@@ -1,0 +1,35 @@
+package: @curialy/ui
+
+# dashboard - Three-band analytics: a row of headline tiles, then charts, then supporting tables, all re-reading from one global filter bar. Breadth over depth, a summary surface rather than a drill-down.
+# Components: Bar, BarChart, Card, CartesianGrid, Divider, Grid, Layout, Line, LineChart, ProgressBar, ResponsiveContainer, Table, Tooltip, XAxis, YAxis
+
+<Layout padding={6} height="fill">
+  /* content: */
+  <LayoutContent padding={6}>
+    <VStack gap={6}>
+      <VStack gap={6}>
+        <Heading />
+        <Button variant="secondary" />
+        <ActiveUsersChart />
+      </VStack>
+      <Grid gap={4} columns={{minWidth: 320, repeat: 'fit'}}>
+        <Grid gap={4} columns={{minWidth: 240, repeat: 'fit'}}>
+          <MetricCard />
+        </Grid>
+      </Grid>
+      <Divider />
+      <Heading />
+      <Button variant="secondary" />
+      <Grid gap={4} columns={{minWidth: 320, repeat: 'fit'}}>
+        <StackedBarCard />
+        <StackedBarCard />
+      </Grid>
+      <Divider />
+      <Heading />
+      <Button variant="secondary" />
+      <Grid gap={4} columns={{minWidth: 320, repeat: 'fit'}}>
+        <TableCard columns={topPagesColumns} />
+        <TableCard columns={topEventsColumns} />
+      </Grid>
+    </VStack>
+  </LayoutContent>

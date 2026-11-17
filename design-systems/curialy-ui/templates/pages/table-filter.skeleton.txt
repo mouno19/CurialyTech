@@ -1,0 +1,41 @@
+package: @curialy/ui
+
+# table-filter - Flat row collection built around progressive filtering: a token bar that escalates into full query syntax, saved views that persist a filter set, column and grouping options, and a resizable detail pane.
+# Components: AspectRatio, Avatar, Badge, Bookmark, BottomSheet, ComplexSelector, Dialog, Divider, EmptyState, IconButton, Item, Layout, List, MetadataList, MultiSelector, OverflowList, Popover, PowerSearch, ProgressBar, RadioList, ResizeHandle, Section, Selector, Skeleton, Slider, SlidersHorizontal, StatusDot, Tab, TabList, Table, TextInput, ToggleButton, Token, VisuallyHidden
+
+<Text />
+<HStack gap={3}>
+  <AspectRatio />
+  <Icon />
+  <VStack gap={0}>
+    <Text />
+    <Text />
+  </VStack>
+</HStack>
+<Text />
+<HStack gap={2}>
+  <Avatar />
+  <Text />
+</HStack>
+<HStack gap={2}>
+  <StatusDot variant={meta.dot} />
+  <Text />
+</HStack>
+<Text />
+<Text />
+<Text />
+<Text />
+<ToggleButton />
+<Selector />
+<ToggleButton />
+<MultiSelector />
+<ComplexSelector />
+<VStack gap={4}>
+  <VStack gap={0}>
+    <Text />
+    <Text />
+  </VStack>
+  <VStack gap={1}>
+    <Slider width="100%" />
+    <Text />
+    ...

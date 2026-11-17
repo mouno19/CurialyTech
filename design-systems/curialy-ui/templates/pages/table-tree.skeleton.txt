@@ -1,0 +1,33 @@
+package: @curialy/ui
+
+# table-tree - Hierarchical table where every parent row rolls up from its children - a code repository whose folders show the newest commit beneath them, beside a detail sidebar and a rendered README. Columns resize, siblings sort within their own level, arrow keys walk the rows, and search prunes the tree to matching branches.
+# Components: Avatar, Badge, Breadcrumb, Breadcrumbs, Card, Divider, DropdownMenu, EmptyState, IconButton, Layout, Markdown, Section, SizeProvider, Tab, TabList, Table, TextInput, Token, Toolbar, VisuallyHidden
+
+<Layout height="auto">
+  /* end: */
+  <LayoutPanel padding={4} role="complementary" width={296}>
+    <AboutPanel />
+  </LayoutPanel>
+  /* header: */
+  <Toolbar gap={2}>
+    <HStack gap={2}>
+      <VisuallyHidden />
+      <Heading />
+      <Breadcrumbs />
+      <BreadcrumbItem />
+      <BreadcrumbItem />
+      <Badge variant="neutral" />
+    </HStack>
+    <IconButton variant="secondary" />
+    <Button />
+    /* content: */
+    <LayoutContent padding={4}>
+      <EmptyState variant="secondary" />
+      <Button variant="secondary" />
+      <VStack gap={6}>
+        <BranchBar />
+        <Card padding={0}>
+          <Table>
+            <ReadmePanel />
+            <Divider />
+            <AboutPanel />

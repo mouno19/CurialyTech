@@ -183,77 +183,73 @@ the pieces the user named make their looks deliberate (glass, gradient text, vio
 a "Motion mixture" section with the pieces and their component ids, the shared timing tokens, the
 budget and the reduced-motion rule; the pieces go on the style synthesis's tokens when there is one.
 
-## Astryx design system
+## Curialy UI design system
 
-[Astryx](https://github.com/meta/astryx) is Meta's open-source React 19 design system (MIT). It
-has accessible components, page templates, blocks, themes and docs written for coding agents. The
-agent builds app interfaces on it from a pinned, vetted snapshot (`design-systems/astryx`, see its
-README). The code is in `server/design-systems/astryx.ts` and `server/agent/astryx-tools.ts`.
+Curialy UI is the agent's React 19 design system: accessible components, page templates, blocks,
+themes and docs written for coding agents. It is a white-labelled build of an MIT-licensed open-source
+system. Its provenance, the mapping and the update procedure are in `design-systems/curialy-ui/README.md`
+(maintainers only). The code is in `server/design-systems/ui-system.ts` and
+`server/agent/ui-system-tools.ts`. **The upstream name appears nowhere the site serves or says.**
+`server/ui-system.test.ts` scans the snapshot, the packages, the tool definitions, every command's
+answer, the contexts, the briefs and the recipes for it.
 
-**When a run builds on it** (`astryxFit`, decided with the brief):
-- *project*: the workspace depends on `@astryxdesign/core`.
-- *requested*: the user names Astryx.
+**When a run builds on it** (`uiFit`, decided with the brief):
+- *project*: the workspace depends on `@curialy/ui`.
+- *requested*: the user names it.
 - *recommended*: app, dashboard and docs surfaces, and general requests with app traits (admin,
   settings, sign-in, checkout, kanban, inbox, CRUD tables, consoles, portals).
-- *available*: storefronts, and general requests with forms or data. The context mentions Astryx
-  for their app-like parts.
+- *available*: storefronts, and general requests with forms or data.
 - *none*:
-  - "no astryx";
-  - another framework, component system or styling stack in the project or the request (Vue,
-    Svelte, MUI, Chakra, Mantine, Radix, shadcn, Headless UI, Bootstrap, Tailwind, plain HTML);
+  - a refusal;
+  - another framework, component system or styling stack (Vue, Svelte, MUI, Chakra, Mantine, Radix,
+    shadcn, Headless UI, Bootstrap, Tailwind, plain HTML);
   - the style archetypes;
-  - brand, editorial, portfolio, showcase, media and game surfaces. A newsletter signup on a
-    landing page is not an app.
+  - brand, editorial, portfolio, showcase, media and game surfaces.
 
-In chat mode, Astryx is offered only when the user names it.
+In chat mode it is offered only when the user names it.
 
 **What the agent gets:**
-- A fixed-size context block (about 410 tokens) with the workflow: build, scaffold, read before
-  use, theme, check. The tools add about 630 tokens.
-- In the brief:
-  - the direction becomes an Astryx theme (the closest base, extended with `defineTheme`) instead
-    of CSS custom properties;
-  - the Architect names the template for each screen;
-  - the Reviewer runs `astryx check`.
+- A fixed-size context block (about 420 tokens) with the workflow and the package rule. The tools
+  add about 630 tokens.
+- In the brief: the direction becomes a Curialy UI theme, the Architect names each screen's
+  template, and the Reviewer runs `design_system check`.
 - Two tools:
-  - `astryx` answers the CLI's commands from the snapshot: `build` (the official kit, ranked here),
-    `search`, `component`, `hook`, `docs` (by route or short name, by section), `template`
-    (source or skeleton), `themes`, `setup` and `check`.
-  - `astryx_scaffold` writes a template into the workspace with a marker. It never replaces a file
+  - `design_system` answers the system's CLI commands from the snapshot: `build`, `search`,
+    `component`, `hook`, `docs`, `template`, `themes`, `setup` and `check`.
+  - `design_template` writes a template into the workspace with a marker. It never replaces a file
     of the user's, and read-only roles are refused.
 
-How well `build` matches the official CLI was measured on 40 ideas: our starting template is the
-CLI's in 25, and one of the CLI's candidates in 37. When no template is the page, the kit starts
-from the app shell, as the CLI does.
+How well `build` matches the upstream CLI was measured on 40 ideas: our starting template is the
+CLI's in 25, and one of the CLI's candidates in 37.
 
-**Why no Astryx code runs on the server, or in the sandbox:**
-- The CLI ran once, offline, in a no-network systemd jail. It ran against packages installed with
-  `--ignore-scripts`, whose 158 registry signatures and 86 provenance attestations were verified.
-  The server only reads the resulting text and JSON.
-- The task sandboxes run Node 20, and the CLI needs Node 22.13, so the tools answer its commands
-  instead.
-- The CLI's `npx astryx` lines are rewritten. The unscoped npm package `astryx` belongs to someone
-  else, so `run_command` refuses to run or install it, including an install while a `package.json`
-  lists it.
-- Projects pin every `@astryxdesign` package to the snapshot's release.
+**Packages come from the site, never the registry.** `@curialy/ui` and `@curialy/ui-theme-<slug>` are
+the verified upstream packages, rewritten under one consistent mapping, without install scripts,
+and with Meta's MIT licence. The app serves them at `/ui-kit/<file>.tgz`, which is public and
+immutable. Projects install them by URL, and npm records their sha512 in the lockfile.
 
-**Building in a task sandbox:** an Astryx page compiles about 2,400 to 3,800 modules. Node sizes
-its default heap from the sandbox's 470 MB (about 256 MB), so `vite build` aborted. Raising the heap
+`run_command` refuses commands that:
+- install those names from the registry (anything published there under them would be someone
+  else's);
+- run or install the upstream scope or the unscoped upstream name (an unrelated package);
+- install while a `package.json` lists one of those.
+
+`design_system check` flags the same problems, and also mixed releases, React below 19, a missing
+StyleX peer, the CSS layer order, a missing theme, imports that are not entries, and escape hatches
+the agent added.
+
+**Building in a task sandbox:** an app on the system compiles 2,400 to 3,800 modules. Node sizes its
+default heap from the sandbox's 470 MB (about 256 MB), so `vite build` aborted. Raising the heap
 without swap thrashed. Every E2B sandbox now gets 1.5 GB of swap, and when swap is active, Node gets
-`--max-old-space-size=1024` (`e2b.ts`). The dashboard template then built in 25 s at about 360 MB
-resident.
+`--max-old-space-size=1024` (`e2b.ts`). The dashboard template then builds in about 25 s.
 
-This was checked end to end in a default sandbox, with Vite 6.4.6 and @vitejs/plugin-react 4.7.0
-(Vite 7 and later need Node 20.19). The cloud browser's visual check rendered the results without
-console errors:
-- the dashboard on the neutral theme;
-- the dashboard on a runtime `defineTheme`. The seed `#0B5FFF` became an accessible `#0051E8`
-  accent, and the radius changed;
-- a template that calls `stylex.create()`, compiled with `@stylexjs/unplugin`. About 15 page
-  templates and 24 blocks need that compiler, and the scaffold receipt says so.
+This was checked end to end in a default sandbox, with Vite 6.4.6 and @vitejs/plugin-react 4.7.0. The
+cloud browser's visual check rendered the results without console errors:
+- the dashboard on a theme;
+- the dashboard on a runtime `defineTheme`;
+- a template that calls `stylex.create()`, compiled with `@stylexjs/unplugin`.
 
-The templates are content only. The audit flags what the agent must add: a `<main>`, an `h1`,
-names for icon buttons, and the phone layout (the kanban toolbar overflows at 390 px).
+The templates are content only. The audit flags what the agent adds: a `<main>`, an `h1`, names for
+icon buttons, and the phone layout.
 
 ## What the benchmark changed
 

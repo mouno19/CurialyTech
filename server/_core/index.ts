@@ -5,6 +5,7 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import { uiKitHandler } from "../design-systems/ui-kit-route";
 import { loginHandler, logoutHandler, requireUser, sameOriginOnly, sessionsConfigured } from "../auth";
 import { accountRouter, adminRouter } from "../admin";
 import { supportRouter } from "../support";
@@ -62,6 +63,8 @@ async function startServer() {
     res.setHeader("Referrer-Policy", "no-referrer");
     previewHandler(req, res);
   });
+  // The design system's packages (public, immutable, no cookies): what projects install with npm.
+  app.get("/ui-kit/:file", uiKitHandler);
   // The Developer API: key-authenticated, cross-origin by design, with its own body limit, so it is
   // mounted before the app's body parsers, security headers and same-origin check.
   const gateway = gatewayRouter();

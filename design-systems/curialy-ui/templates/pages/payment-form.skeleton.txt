@@ -1,0 +1,41 @@
+package: @curialy/ui
+
+# payment-form - Long sectioned form running beside a summary that stays visible while the fields scroll and recalculates as they change, ending on a terminal confirm of the total. Sections run contact, address, delivery choice, then card details.
+# Components: Badge, Banner, Card, Center, CheckboxInput, Collapsible, Divider, Grid, Layout, NumberInput, RadioList, Section, Selector, Stack, TextArea, TextInput, Thumbnail
+
+<Layout padding={0} height="fill">
+  /* content: */
+  <LayoutContent padding={0}>
+    <Center>
+      <Section padding={6} variant="transparent" width="100%" maxWidth={1100}>
+        <VStack gap={5}>
+          <VStack gap={6}>
+            <VStack gap={2}>
+              <Text />
+              <Text />
+            </VStack>
+            <Divider />
+          </VStack>
+          <Stack gap={8} />
+          <StackItem />
+          <VStack gap={8}>
+            <VStack gap={1}>
+              <HStack gap={2}>
+                <Text />
+                <Button variant="secondary" />
+              </HStack>
+              <Text />
+            </VStack>
+            <VStack gap={3}>
+              <Text />
+              <TextInput />
+              <CheckboxInput />
+            </VStack>
+            <VStack gap={3}>
+              <Text />
+              <Grid gap={3} columns={2}>
+                <TextInput />
+                <TextInput />
+              </Grid>
+              <TextInput />
+              ...

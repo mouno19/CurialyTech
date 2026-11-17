@@ -22,7 +22,7 @@ const STYLING: [dep: string, name: string][] = [
   ["@vanilla-extract/css", "vanilla-extract"], ["unocss", "UnoCSS"], ["bootstrap", "Bootstrap"], ["bulma", "Bulma"],
 ];
 const LIBRARIES: [dep: string, name: string][] = [
-  ["@astryxdesign/core", "Astryx"], ["three", "three.js"], ["@react-three/fiber", "React Three Fiber"], ["gsap", "GSAP"], ["framer-motion", "Framer Motion"], ["motion", "Motion"],
+  ["@curialy/ui", "Curialy UI"], ["three", "three.js"], ["@react-three/fiber", "React Three Fiber"], ["gsap", "GSAP"], ["framer-motion", "Framer Motion"], ["motion", "Motion"],
   ["lottie-web", "Lottie"], ["chart.js", "Chart.js"], ["recharts", "Recharts"], ["d3", "D3"], ["echarts", "ECharts"], ["@radix-ui/react-dialog", "Radix UI"],
   ["@mui/material", "MUI"], ["@chakra-ui/react", "Chakra UI"], ["@mantine/core", "Mantine"], ["@headlessui/react", "Headless UI"],
   ["lucide-react", "Lucide icons"], ["@heroicons/react", "Heroicons"],

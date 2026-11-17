@@ -1,0 +1,25 @@
+package: @curialy/ui
+
+# gallery-hero - Centered stack (headline, short blurb, call-to-action buttons) resolving into a multi-image photo grid rather than one wide full-bleed picture, so the imagery reads as a set.
+# Components: AspectRatio, Grid, Layout
+
+<Layout padding={6}>
+  /* content: */
+  <LayoutContent padding={6}>
+    <VStack gap={10}>
+      <VStack gap={6}>
+        <VStack gap={3}>
+          <Heading />
+          <Text />
+        </VStack>
+        <HStack gap={3}>
+          <Button variant="primary" />
+          <Icon />
+          <Button variant="secondary" />
+        </HStack>
+      </VStack>
+      <Grid gap={4} columns={{minWidth: 200, repeat: 'fit'}}>
+        <AspectRatio />
+      </Grid>
+    </VStack>
+  </LayoutContent>

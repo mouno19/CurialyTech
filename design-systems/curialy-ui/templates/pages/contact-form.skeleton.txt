@@ -1,0 +1,41 @@
+package: @curialy/ui
+
+# contact-form - Flat single-column form mixing control types (text, pill toggles, dropdowns, long free-text) landing on one full-width submit. No steps, no branching, no summary rail.
+# Components: Banner, Card, Center, CheckboxInput, Divider, Grid, RadioList, Section, Selector, TextArea, TextInput, Token
+
+<Center>
+  <VStack width="100%">
+    <Section padding={6} variant="section" maxWidth={800}>
+      <VStack gap={6}>
+        <VStack gap={2}>
+          <Text />
+          <Text />
+        </VStack>
+        <VStack gap={5}>
+          <Grid gap={4} columns={{minWidth: 200}}>
+            <Card>
+              <VStack gap={3}>
+                <Icon />
+                <VStack gap={1}>
+                  <Text />
+                  <Text />
+                </VStack>
+              </VStack>
+            </Card>
+          </Grid>
+        </VStack>
+        <VStack gap={5}>
+          <Grid gap={4} columns={{minWidth: 260}}>
+            <TextInput />
+            <TextInput />
+          </Grid>
+          <Grid gap={4} columns={{minWidth: 260}}>
+            <TextInput />
+            <TextInput />
+          </Grid>
+        </VStack>
+        <Divider />
+        <VStack gap={5}>
+          <VStack gap={2}>
+            <Text />
+            ...
