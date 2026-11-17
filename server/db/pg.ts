@@ -780,6 +780,28 @@ const MIGRATIONS: { id: number; sql: string }[] = [
       CREATE INDEX IF NOT EXISTS scheduled_task_runs_schedule_idx ON curialy.scheduled_task_runs (schedule_id, id DESC);
     `,
   },
+  {
+    id: 27,
+    sql: `
+      -- User-connected compute environments (Google Colab runtimes and personal Linux VPS servers).
+      CREATE TABLE IF NOT EXISTS curialy.compute_environments (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id uuid NOT NULL REFERENCES curialy.users(id) ON DELETE CASCADE,
+        name text NOT NULL,
+        kind text NOT NULL CHECK (kind IN ('colab', 'vps')),
+        token_hash text NOT NULL UNIQUE,
+        work_dir text,
+        specs jsonb,
+        is_default boolean NOT NULL DEFAULT false,
+        last_seen_at timestamptz,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS compute_environments_user_idx ON curialy.compute_environments (user_id, created_at DESC);
+      ALTER TABLE curialy.chat_sessions ADD COLUMN IF NOT EXISTS environment_id uuid REFERENCES curialy.compute_environments(id) ON DELETE SET NULL;
+      ALTER TABLE curialy.scheduled_tasks ADD COLUMN IF NOT EXISTS environment_id uuid REFERENCES curialy.compute_environments(id) ON DELETE SET NULL;
+    `,
+  },
 ];
 
 export async function migrate() {

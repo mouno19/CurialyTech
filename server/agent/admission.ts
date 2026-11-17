@@ -1,5 +1,6 @@
 import type { CreditBalance } from "@shared/credits";
 import { assertCanStart, CreditError } from "../credits";
+import { hasOnlineUserEnvironment } from "../compute/hub";
 import { cloudSandboxReady } from "./sandbox";
 import { activeRunsOf } from "./store";
 
@@ -25,7 +26,9 @@ export type AdmissionRefusal = { status: number; error: string; code: string; cr
  */
 export async function admissionRefusal(user: { id: string; role: string }): Promise<AdmissionRefusal | null> {
   if (user.role === "admin") return null;
-  if (!cloudSandboxReady()) return { status: 503, error: "Tasks can't start right now: the command sandbox isn't available. Try again later.", code: "sandbox_unavailable" };
+  if (!cloudSandboxReady() && !hasOnlineUserEnvironment(user.id)) {
+    return { status: 503, error: "Tasks can't start right now: the command sandbox isn't available. Try again later.", code: "sandbox_unavailable" };
+  }
   if (await activeRunsOf(user.id) > 0) return { status: 429, error: "You already have a task running. Wait for it to finish (or stop it) before starting another.", code: "busy" };
   try {
     await assertCanStart(user.id);

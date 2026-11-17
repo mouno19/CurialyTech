@@ -18,6 +18,7 @@ import NotFound from "./pages/NotFound";
 
 // Secondary screens load on first visit (smaller first bundle); the main flow stays in the entry chunk.
 const Sandbox = lazy(() => import("./pages/Sandbox"));
+const Environments = lazy(() => import("./pages/Environments"));
 const Media = lazy(() => import("./pages/Media"));
 const Integrations = lazy(() => import("./pages/Integrations"));
 const Skills = lazy(() => import("./pages/Skills"));
@@ -141,6 +142,7 @@ function Gate() {
           <Route path="/tasks" component={Tasks} />
           <Route path="/tasks/:id">{params => <TaskWorkspace key={params.id} id={params.id} />}</Route>
           <Route path="/sandbox" component={Sandbox} />
+          <Route path="/environments" component={Environments} />
           <Route path="/media" component={Media} />
           <Route path="/integrations" component={Integrations} />
           <Route path="/skills" component={Skills} />

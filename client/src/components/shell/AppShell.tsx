@@ -4,7 +4,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Popover from "@radix-ui/react-popover";
 import type { LucideIcon } from "lucide-react";
-import { Activity, BookOpen, CalendarClock, ChartNoAxesColumn, Check, ChevronsUpDown, ChevronUp, ExternalLink, House, Images, KeyRound, LayoutDashboard, LifeBuoy, LockKeyhole, LogOut, Menu, MoreHorizontal, PanelLeftClose, PanelLeftOpen, PlugZap, RefreshCw, ShieldCheck, SquareTerminal, Store, Unplug, Wallet, X, Braces } from "lucide-react";
+import { Activity, BookOpen, CalendarClock, ChartNoAxesColumn, Check, ChevronsUpDown, ChevronUp, Cpu, ExternalLink, House, Images, KeyRound, LayoutDashboard, LifeBuoy, LockKeyhole, LogOut, Menu, MoreHorizontal, PanelLeftClose, PanelLeftOpen, PlugZap, RefreshCw, ShieldCheck, SquareTerminal, Store, Unplug, Wallet, X, Braces } from "lucide-react";
 import { toast } from "sonner";
 import { agentApi, authApi, errorMessage, relativeTime, type ProviderProbe } from "@/lib/api";
 import { needsOperator, useCanva, useGitHub, useHealth, useVercel } from "@/lib/appStatus";
@@ -73,6 +73,7 @@ const NAV: { href: string; label: string; icon: LucideIcon; badge?: "tasks" | "s
   { href: "/", label: "Workspace Dashboard", icon: LayoutDashboard },
   { href: "/tasks", label: "Live Tasks", icon: Activity, badge: "tasks" },
   { href: "/sandbox", label: "Code Sandbox", icon: SquareTerminal },
+  { href: "/environments", label: "Compute Environments", icon: Cpu },
   { href: "/media", label: "Media Vault", icon: Images },
   { href: "/integrations", label: "System Integrations", icon: PlugZap },
   { href: "/skills", label: "Skill Store", icon: Store },

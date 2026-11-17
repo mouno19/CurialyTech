@@ -6,7 +6,9 @@ import { brandText } from "@shared/brand";
 import { MAX_COMMAND_SEC, resolveInWorkspace, SandboxError, useRemoteSandbox, writeWorkspaceBytes, type CommandOptions, type CommandResult, type RemoteBox } from "./sandbox";
 import { ComputeFull, computeConfigured, openComputeBox, startCompute } from "./cluster-sandbox";
 import { getBalance } from "../credits";
-import { taskOwner } from "./store";
+import { openConnectedEnvironmentBox } from "../compute/hub";
+import { getEnvironmentRow } from "../compute/store";
+import { taskEnvironmentId, taskOwner } from "./store";
 
 // Agent commands run in a cloud sandbox (one per task), never on this server. The task's directory
 // here keeps what the file tools, previews, archives, exports and deploys read: sources and build
@@ -112,6 +114,18 @@ async function prefersCompute(taskId: string) {
 }
 
 let connect: (taskId: string) => Promise<RemoteBox> = async taskId => {
+  const envId = await taskEnvironmentId(taskId).catch(() => null);
+  if (envId) {
+    const owner = await taskOwner(taskId).catch(() => null);
+    const envRow = owner ? await getEnvironmentRow(envId, owner).catch(() => null) : null;
+    if (envRow) {
+      try {
+        return await openConnectedEnvironmentBox(taskId, envRow);
+      } catch (error) {
+        console.warn(`[sandbox] user environment "${envRow.name}" unavailable for ${taskId.slice(0, 8)} (${message(error)}): falling back to built-in sandbox`);
+      }
+    }
+  }
   if (await prefersCompute(taskId)) {
     try {
       return await openComputeBox(taskId);
@@ -183,7 +197,9 @@ function scanLocal(root: string): Listing {
   return out;
 }
 
-const SCAN_COMMAND = `cd ${REMOTE_ROOT} && { find . -mindepth 1 \\( -type d \\( ${[...SYNC_SKIP].map(name => `-name ${q(name)}`).join(" -o ")} \\) -prune \\) -o -type f -printf '%s\\t%T@\\t%P\\0' 2>/dev/null; printf '\\n__find_exit=%s' "$?"; }`;
+const boxRoot = (box: Box) => box.remote.root ?? REMOTE_ROOT;
+const scanCommandFor = (rootDir: string) => `cd ${q(rootDir)} && { find . -mindepth 1 \\( -type d \\( ${[...SYNC_SKIP].map(name => `-name ${q(name)}`).join(" -o ")} \\) -prune \\) -o -type f -printf '%s\\t%T@\\t%P\\0' 2>/dev/null; printf '\\n__find_exit=%s' "$?"; }`;
+const SCAN_COMMAND = scanCommandFor(REMOTE_ROOT);
 
 export function parseScan(output: string): Scan {
   const marker = output.lastIndexOf("\n__find_exit=");
@@ -201,7 +217,7 @@ export function parseScan(output: string): Scan {
   return { files: out, partial };
 }
 
-const scanRemote = async (box: Box, before = "") => parseScan(await box.remote.exec(`${before}${SCAN_COMMAND}`, 120_000));
+const scanRemote = async (box: Box, before = "") => parseScan(await box.remote.exec(`${before}${box.remote.root ? scanCommandFor(box.remote.root) : SCAN_COMMAND}`, 120_000));
 
 // ---- Sync ----
 
@@ -210,6 +226,7 @@ async function upload(box: Box, root: string, files: string[]) {
   let bytes = 0;
   // Uploads carry no file mode: executables (gradlew, scripts) get theirs back after the batch.
   const executable: string[] = [];
+  const remoteDir = boxRoot(box);
   const flush = async () => {
     if (batch.length) await box.remote.write(batch);
     batch = [];
@@ -227,7 +244,7 @@ async function upload(box: Box, root: string, files: string[]) {
       continue; // gone or unreadable since the listing
     }
     if (batch.length >= UPLOAD_BATCH_FILES || bytes + data.length > UPLOAD_BATCH_BYTES) await flush();
-    batch.push({ path: `${REMOTE_ROOT}/${file}`, data });
+    batch.push({ path: `${remoteDir}/${file}`, data });
     bytes += data.length;
   }
   await flush();
@@ -238,7 +255,7 @@ async function upload(box: Box, root: string, files: string[]) {
 async function xargsRemote(box: Box, files: string[], command: string) {
   const list = `/tmp/.curialy-list-${++counter}`;
   await box.remote.write([{ path: list, data: Buffer.from(files.map(file => `${file}\0`).join("")) }]);
-  await box.remote.exec(`cd ${REMOTE_ROOT} && xargs -0 -r ${command} -- < ${list}; rm -f ${list}; true`);
+  await box.remote.exec(`cd ${q(boxRoot(box))} && xargs -0 -r ${command} -- < ${list}; rm -f ${list}; true`);
 }
 
 const removeRemote = (box: Box, files: string[]) => xargsRemote(box, files, "rm -f");
@@ -300,7 +317,7 @@ async function pull(box: Box, root: string, { files: scan, partial }: Scan, uplo
     while (next < changed.length) {
       const file = changed[next++];
       try {
-        const data = await box.remote.read(`${REMOTE_ROOT}/${file}`);
+        const data = await box.remote.read(`${boxRoot(box)}/${file}`);
         try {
           writeWorkspaceBytes(root, file, data, MAX_PULL_FILE);
         } catch (error) {
@@ -372,8 +389,9 @@ function withSyncLock<T>(box: Box, fn: () => Promise<T>): Promise<T> {
 
 async function makeRoom(signal?: AbortSignal) {
   const deadline = Date.now() + 3 * 60_000;
-  while (boxes.size + opening.size >= MAX_SANDBOXES) {
-    const idle = [...boxes.values()].filter(box => box.active === 0).sort((a, b) => a.lastUsed - b.lastUsed)[0];
+  const managedCount = () => [...boxes.values()].filter(box => !box.remote.persistent).length + opening.size;
+  while (managedCount() >= MAX_SANDBOXES) {
+    const idle = [...boxes.values()].filter(box => !box.remote.persistent && box.active === 0).sort((a, b) => a.lastUsed - b.lastUsed)[0];
     if (idle) {
       await closeBox(idle.taskId);
       continue;
@@ -411,7 +429,7 @@ async function openBox(taskId: string, root: string, signal?: AbortSignal): Prom
   }
 }
 
-async function closeBox(taskId: string) {
+export async function closeBox(taskId: string) {
   const box = boxes.get(taskId);
   if (!box) return;
   boxes.delete(taskId);
@@ -483,7 +501,6 @@ async function runRemote(opts: CommandOptions): Promise<CommandResult> {
   // Each command is its own session, so whatever it leaves running stops with it.
   const commandId = ++counter;
   const sessionFile = `/tmp/.curialy-sid-${commandId}`;
-  const script = `echo $$ > ${sessionFile}; cd -- ${REMOTE_ROOT} || exit 97; eval "$1"`;
   const killSession = `s=$(cat ${sessionFile} 2>/dev/null); [ -n "$s" ] && pkill -KILL -s "$s"; rm -f ${sessionFile}; `;
 
   let box: Box | undefined;
@@ -494,6 +511,7 @@ async function runRemote(opts: CommandOptions): Promise<CommandResult> {
       const live = await liveBox(taskId, opts.root, (timeout + 120) * 1000, sync !== "none", opts.signal);
       box = live.box;
       for (const line of live.notes) note(line);
+      const script = `echo $$ > ${sessionFile}; cd -- ${box.remote.root ? q(box.remote.root) : REMOTE_ROOT} || exit 97; eval "$1"`;
       const envs = opts.secrets?.length ? Object.fromEntries(opts.secrets.map(secret => [secret.name, secret.value])) : undefined;
       command = await box.remote.start(`exec setsid --wait bash -c ${q(script)} curialy ${q(opts.command)}`, { timeoutMs: (timeout + 5) * 1000, onStdout: capture("stdout"), onStderr: capture("stderr"), ...(envs ? { envs } : {}) });
     } catch (error) {
@@ -616,7 +634,10 @@ export function startCloudSandbox() {
     }
   })();
   const timer = setInterval(() => {
-    for (const box of boxes.values()) if (box.active === 0 && Date.now() - box.lastUsed > IDLE_MS) void closeBox(box.taskId);
+    for (const box of boxes.values()) {
+      const idleLimit = box.remote.persistent ? 2 * 60 * 60_000 : IDLE_MS;
+      if (box.active === 0 && Date.now() - box.lastUsed > idleLimit) void closeBox(box.taskId);
+    }
   }, 60_000);
   timer.unref();
 }

@@ -31,9 +31,13 @@ function agentOwned(dir: string) {
   return uid !== undefined && fs.statSync(dir, { throwIfNoEntry: false })?.uid !== uid;
 }
 
-/** One task's remote sandbox, whoever provides it (the dedicated compute cluster or a cloud sandbox). */
+/** One task's remote sandbox, whoever provides it (the dedicated compute cluster, a user-connected environment, or a cloud sandbox). */
 export type RemoteBox = {
   id: string;
+  /** Optional remote workspace path (defaults to /home/user/workspace). */
+  root?: string;
+  /** User-connected persistent environment (Google Colab / VPS): not counted against cloud slots or killed on 15m idle. */
+  persistent?: boolean;
   keepAlive: (ms: number) => Promise<void>;
   /** Start a command; resolves once it is running. */
   /** envs: added to the command's environment (the user's secrets for the task; sent to the sandbox, never in its arguments). */

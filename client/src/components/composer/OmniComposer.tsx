@@ -5,6 +5,8 @@ import * as RadioGroup from "@radix-ui/react-radio-group";
 import * as Switch from "@radix-ui/react-switch";
 import type { LucideIcon } from "lucide-react";
 import { SlashHint } from "@/components/composer/SlashHint";
+import { EnvironmentPicker, readEnvironmentChoice, resolveSubmittedEnvironmentId, type EnvironmentChoice } from "@/components/composer/EnvironmentPicker";
+import type { ComputeEnvironment } from "@shared/compute";
 import { ArrowUp, Bot, Check, ChevronDown, CloudOff, Globe, Info, MessageSquare, Paperclip, RotateCcw, SlidersHorizontal, Sparkles, TriangleAlert, Users, X } from "lucide-react";
 import { aliasEffort, effortApplies, getModel, outputLimit, PICKER_MODELS, REPLACED, teamCapable, type CreateTaskRequest, type ModelSpec, type TaskMode, type ThinkingLevel } from "@shared/agent";
 import { formatTokenCount, modelLimits } from "@shared/billing";
@@ -307,6 +309,8 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed, examples }: {
   const [repo, setRepo] = useState<GitHubRepo | null>(null);
   const [skillIds, setSkillIds] = useState(readAttachedSkills);
   const [skillsReady, setSkillsReady] = useState(false);
+  const [envChoice, setEnvChoice] = useState<EnvironmentChoice>(readEnvironmentChoice);
+  const [loadedEnvs, setLoadedEnvs] = useState<ComputeEnvironment[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const attachments = useAttachments();
@@ -411,6 +415,7 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed, examples }: {
     setError(null);
     setSubmitted(text);
     try {
+      const environmentId = agent ? resolveSubmittedEnvironmentId(envChoice, loadedEnvs) : undefined;
       await onSubmit({
         prompt: text,
         model: prefs.model,
@@ -423,6 +428,7 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed, examples }: {
         repoBranch: agent ? repo?.default_branch ?? null : null,
         ...(skillsReady ? { skillIds } : {}),
         tools: prefs.tools,
+        ...(environmentId !== undefined ? { environmentId } : {}),
       });
       writeDraft("");
       setPrompt("");
@@ -540,6 +546,7 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed, examples }: {
               webReason={webReason}
             />
             <ToolPicker selected={prefs.tools} onChange={tools => update({ tools })} />
+            {agent && <EnvironmentPicker choice={envChoice} onChange={setEnvChoice} onEnvironmentsLoaded={setLoadedEnvs} />}
             <SkillPicker selected={skillIds} onChange={setSkillIds} onReady={setSkillsReady} />
             <Tip content={attachBlocked ?? "Attach files, or paste or drop them into the box"}>
               <button type="button" className="toggle" aria-label="Attach files" aria-disabled={attachBlocked ? true : undefined} onClick={() => (attachBlocked ? setNote(attachBlocked) : attachments.open())}>

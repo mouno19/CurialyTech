@@ -937,3 +937,55 @@ input[type="checkbox"].vault-check { position: absolute; top: 4px; left: 4px; z-
   .sched-actions { justify-content: flex-start; }
   .sched-runs { padding-left: 0; }
 }
+
+/* ---------- Compute Environments (Environments.tsx & EnvironmentPicker.tsx) ---------- */
+.env-page { display: flex; flex-direction: column; gap: 20px; }
+.env-section { display: flex; flex-direction: column; gap: 10px; }
+.env-section-title { margin: 0; color: var(--text-3); }
+.env-list { display: flex; flex-direction: column; gap: 12px; }
+.env-card { display: flex; flex-direction: column; gap: 14px; padding: 16px 18px; }
+.env-card[data-online] { border-color: var(--success-border, var(--border-strong)); }
+.env-card-main { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
+.env-card-icon { display: flex; align-items: center; justify-content: center; flex: none; width: 36px; height: 36px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--paper-deep); color: var(--text-2); }
+.env-card[data-online] .env-card-icon { color: var(--success-fg, var(--text)); background: var(--success-bg, var(--paper-deep)); border-color: var(--success-border, var(--border)); }
+.env-card-body { display: flex; flex: 1 1 auto; flex-direction: column; gap: 5px; min-width: 0; }
+.env-card-title-row { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.env-card-name { font-size: 14.5px; font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.env-card-specs { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-2); }
+.env-card-foot { margin: 0; font-size: 12px; line-height: 1.45; color: var(--text-3); overflow-wrap: anywhere; }
+.env-card-foot code { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-2); }
+.env-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border); }
+
+.env-create-form, .env-pair-card { display: flex; flex-direction: column; gap: 16px; padding: 18px 20px; }
+.env-pair-card { border-color: var(--border-strong); }
+.env-pair-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.env-pair-steps { margin: 0; line-height: 1.55; }
+.env-kind-seg { flex-wrap: wrap; max-width: 100%; }
+.env-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+@media (max-width: 640px) { .env-form-grid { grid-template-columns: minmax(0, 1fr); } }
+.env-default-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-top: 12px; border-top: 1px dashed var(--border); }
+.env-cmd-box { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--paper-deep); }
+.env-cmd-pre { flex: 1 1 auto; min-width: 0; margin: 0; overflow-x: auto; font: 500 12px/1.5 var(--font-mono); color: var(--text); white-space: pre; }
+@media (max-width: 640px) {
+  .env-cmd-box { flex-direction: column; align-items: stretch; }
+}
+.env-colab-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.env-pair-status { display: flex; align-items: center; gap: 9px; padding: 10px 12px; border-radius: var(--r-md); background: var(--paper-deep); color: var(--text-2); font-size: 13px; line-height: 1.45; }
+.env-pair-status[data-online] { background: var(--success-bg, var(--paper-deep)); color: var(--success-fg, var(--text)); border: 1px solid var(--success-border, var(--border)); }
+
+/* Composer EnvironmentPicker popover */
+.env-pick-panel { width: min(360px, calc(100vw - 24px)); padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.env-pick-list { display: flex; flex-direction: column; gap: 3px; max-height: 260px; overflow-y: auto; }
+.env-pick-option { display: flex; align-items: flex-start; gap: 9px; width: 100%; padding: 8px 9px; border: 1px solid transparent; border-radius: var(--r-sm, 7px); background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+.env-pick-option:hover { background: var(--paper-deep); }
+.env-pick-option[data-selected] { border-color: var(--border); background: var(--paper-deep); }
+.env-pick-option > .dot { margin-top: 5px; flex: none; }
+.env-pick-option > .lucide { margin-top: 2px; flex: none; }
+.env-pick-meta { display: flex; flex: 1 1 auto; flex-direction: column; gap: 2px; min-width: 0; }
+.env-pick-name { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--text); }
+.env-pick-kind { font: 500 10.5px/1.2 var(--font-mono); color: var(--text-3); }
+.env-pick-sub { font-size: 11.5px; line-height: 1.4; color: var(--text-2); overflow-wrap: anywhere; }
+.env-pick-check { flex: none; margin-top: 2px; color: var(--text); }
+.env-pick-foot { padding-top: 8px; border-top: 1px solid var(--border); }
+.env-pick-manage { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 500; color: var(--accent-text, var(--text)); text-decoration: none; }
+.env-pick-manage:hover { text-decoration: underline; }

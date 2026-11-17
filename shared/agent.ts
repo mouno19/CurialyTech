@@ -366,6 +366,8 @@ export type AgentTaskSummary = {
   skillIds?: string[];
   /** The tools the user selected (shared/components.ts TOOLS). Empty: not limited. */
   tools?: string[];
+  /** Connected compute environment selected for this task (null or omitted: Curialy built-in sandbox). */
+  environmentId?: string | null;
 };
 
 export type CreateTaskRequest = {
@@ -384,4 +386,6 @@ export type CreateTaskRequest = {
   skillIds?: string[];
   /** The tools the user selected for this task (TOOL_IDS). Empty or omitted: not limited. */
   tools?: string[];
+  /** Connected compute environment to run commands on (null: explicitly Curialy built-in; omitted: account default). */
+  environmentId?: string | null;
 };

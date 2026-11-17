@@ -29,10 +29,13 @@ import { startFollowUpQueue } from "../agent/queue";
 import { billingAdminRouter, billingRouter } from "../billing/routes";
 import { startPaymentWatcher } from "../billing/watcher";
 import { schedulesRouter, startScheduler } from "../agent/schedules";
+import { attachComputeHub } from "../compute/hub";
+import { computeRouter } from "../compute/routes";
 
 async function startServer() {
   const app = express();
   const server = createServer(app);
+  attachComputeHub(server);
   // nginx terminates TLS on this host and forwards X-Forwarded-* from loopback.
   app.set("trust proxy", "loopback");
   app.disable("x-powered-by");
@@ -98,6 +101,7 @@ async function startServer() {
   // Connect Canva: /auth/canva/start, /callback (the redirect URL registered for the Canva app), /status and /disconnect.
   registerCanvaAuth(app);
   // Every account reaches the agent; each route checks that the task, file or repository is its own.
+  app.use("/api/compute", computeRouter());
   app.use("/api/agent/schedules", schedulesRouter());
   app.use("/api/agent", requireUser, agentRouter());
   app.use("/api/account", accountRouter());

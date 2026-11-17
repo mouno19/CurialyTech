@@ -101,7 +101,7 @@ function answer(text: string, values: any[]): { rows: any[]; rowCount?: number }
 
   if (text.startsWith("INSERT INTO curialy.chat_sessions")) {
     const [id, , prompt, mode, modelId, effort, webSearch, format, team, runId, workerId] = values;
-    fake.rows.set(id, { ...blankSession(id), prompt, status: "queued", mode, model: modelId, effort, web_search: webSearch, conversation_format: format, team, run_id: runId, attempt: 1, worker_id: workerId, lease_expires_at: new Date(Date.now() + 45_000), status_reason: "prompt", skill_ids: Array.isArray(values[11]) ? values[11] : [] });
+    fake.rows.set(id, { ...blankSession(id), prompt, status: "queued", mode, model: modelId, effort, web_search: webSearch, conversation_format: format, team, run_id: runId, attempt: 1, worker_id: workerId, lease_expires_at: new Date(Date.now() + 45_000), status_reason: "prompt", skill_ids: Array.isArray(values[11]) ? values[11] : [], environment_id: values[13] ?? null });
     return { rows: [], rowCount: 1 };
   }
   if (text.startsWith("SELECT id, prompt, status")) return { rows: row ? [{ ...row }] : [] };
@@ -183,6 +183,8 @@ function answer(text: string, values: any[]): { rows: any[]; rowCount?: number }
     const ids = Array.isArray(values[1]) ? values[1] as string[] : null;
     return { rows: fake.skills.filter(skill => skill.user_id === values[0] && (ids === null || ids.includes(skill.id))).map(skill => ({ id: skill.id, name: skill.name, body: skill.body, updated_at: skill.updated_at })) };
   }
+  if (text.includes("FROM curialy.compute_environments")) return { rows: [] };
+  if (text.startsWith("SELECT environment_id FROM curialy.chat_sessions")) return { rows: row ? [{ environment_id: row.environment_id ?? null }] : [] };
   if (text.startsWith("SELECT role FROM curialy.users WHERE id = $1")) return { rows: [{ role: fake.role }] };
   fake.unexpected.push(text.slice(0, 120));
   return { rows: [], rowCount: 0 };

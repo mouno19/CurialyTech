@@ -55,6 +55,8 @@ const createSchema = z.object({
   skillIds: z.array(z.string().uuid("One of those skills is not on this account.")).max(SAVED_SKILL_LIMITS.maxPerTask, `A task can use ${SAVED_SKILL_LIMITS.maxPerTask} skills.`).optional(),
   /** The tools the user selected (empty: not limited). */
   tools: z.array(z.enum(TOOL_IDS)).max(TOOL_IDS.length).default([]),
+  /** Optional connected compute environment (null: Curialy built-in sandbox; omitted: account default). */
+  environmentId: z.string().uuid("Choose a valid compute environment.").nullish(),
 });
 const linkSchema = z.object({ repo: z.string().trim().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/), branch: z.string().trim().max(200).optional() });
 
@@ -74,6 +76,8 @@ const followUpSchema = z.object({
   skillIds: z.array(z.string().uuid("One of those skills is not on this account.")).max(SAVED_SKILL_LIMITS.maxPerTask, `A task can use ${SAVED_SKILL_LIMITS.maxPerTask} skills.`).optional(),
   /** Replace the task's selected tools. Omitted leaves them as they are; an empty list removes the limit. */
   tools: z.array(z.enum(TOOL_IDS)).max(TOOL_IDS.length).optional(),
+  /** Switch the task's compute environment (null: Curialy built-in sandbox; omitted: keep current). */
+  environmentId: z.string().uuid("Choose a valid compute environment.").nullish(),
 });
 const skillWriteSchema = z.object({
   name: z.string().trim().min(1, "Name the skill.").max(SAVED_SKILL_LIMITS.name, `Keep the name under ${SAVED_SKILL_LIMITS.name} characters.`),
@@ -439,7 +443,7 @@ export function agentRouter() {
     const extras = await followUpExtras(task, input);
     await oneAtATime(accountOf(req).id, async () => {
       if (!(await admitRun(req, res))) return;
-      const started = await followUp(task.id, input.prompt, await resolveAttachments(input.attachmentIds, accountOf(req).id), { clientMessageId: input.clientMessageId, expectedRunId: input.expectedRunId, skillIds: input.skillIds, tools: input.tools ? [...new Set(input.tools)] : undefined, ...extras });
+      const started = await followUp(task.id, input.prompt, await resolveAttachments(input.attachmentIds, accountOf(req).id), { clientMessageId: input.clientMessageId, expectedRunId: input.expectedRunId, skillIds: input.skillIds, tools: input.tools ? [...new Set(input.tools)] : undefined, environmentId: input.environmentId, ...extras });
       res.status(202).json({ ok: true, status: "queued", ...started });
     });
   }));

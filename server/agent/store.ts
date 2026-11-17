@@ -18,9 +18,10 @@ type SessionRow = {
   run_id: string | null; attempt: number; cancel_requested_at: Date | null; outcome: RunOutcome | null; conversation_format: ConversationFormat | null;
   skill_ids?: string[] | null;
   tools?: string[] | null;
+  environment_id?: string | null;
 };
 
-const SUMMARY_COLUMNS = "id, prompt, status, mode, model, effort, web_search, phase, answer, error, usage, files_changed, workspace_state, github_repo, github_repo_url, github_pushed_at, github_mode, github_branch, team, created_at, updated_at, status_reason, status_changed_at, started_at, finished_at, run_id, attempt, cancel_requested_at, outcome, conversation_format, skill_ids, tools";
+const SUMMARY_COLUMNS = "id, prompt, status, mode, model, effort, web_search, phase, answer, error, usage, files_changed, workspace_state, github_repo, github_repo_url, github_pushed_at, github_mode, github_branch, team, created_at, updated_at, status_reason, status_changed_at, started_at, finished_at, run_id, attempt, cancel_requested_at, outcome, conversation_format, skill_ids, tools, environment_id";
 
 function fromRow(row: SessionRow): AgentTaskSummary & { workspaceState: string } {
   // Rows recovered by the pre-lease code were marked failed with this text; they were interrupted.
@@ -38,19 +39,31 @@ function fromRow(row: SessionRow): AgentTaskSummary & { workspaceState: string }
     createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(),
     skillIds: row.skill_ids ?? [],
     tools: row.tools ?? [],
+    environmentId: row.environment_id ?? null,
   };
 }
 
 /** Insert a new task already claimed by this worker for its first run (so a crash before it starts is recoverable). */
-export async function createAgentTask(task: { id: string; userId: string; runId: string; prompt: string; mode: TaskMode; model: string; effort: ThinkingLevel; webSearch: boolean; format: ConversationFormat; team?: boolean; skillIds?: string[]; tools?: string[] }) {
+export async function createAgentTask(task: { id: string; userId: string; runId: string; prompt: string; mode: TaskMode; model: string; effort: ThinkingLevel; webSearch: boolean; format: ConversationFormat; team?: boolean; skillIds?: string[]; tools?: string[]; environmentId?: string | null }) {
   const userId = task.userId;
   owners.set(task.id, userId);
   await query(
     `INSERT INTO curialy.chat_sessions (id, user_id, prompt, status, mode, model, effort, web_search, conversation_format, team,
-       run_id, attempt, worker_id, lease_expires_at, status_reason, status_changed_at, skill_ids, tools)
-     VALUES ($1, $2, $3, 'queued', $4, $5, $6, $7, $8, $9, $10, 1, $11, now() + interval '${LEASE_SECONDS} seconds', 'prompt', now(), $12::uuid[], $13::text[])`,
-    [task.id, userId, cleanText(task.prompt), task.mode, task.model, task.effort, task.webSearch, task.format, Boolean(task.team), task.runId, WORKER_ID, task.skillIds ?? [], task.tools ?? []],
+       run_id, attempt, worker_id, lease_expires_at, status_reason, status_changed_at, skill_ids, tools, environment_id)
+     VALUES ($1, $2, $3, 'queued', $4, $5, $6, $7, $8, $9, $10, 1, $11, now() + interval '${LEASE_SECONDS} seconds', 'prompt', now(), $12::uuid[], $13::text[], $14::uuid)`,
+    [task.id, userId, cleanText(task.prompt), task.mode, task.model, task.effort, task.webSearch, task.format, Boolean(task.team), task.runId, WORKER_ID, task.skillIds ?? [], task.tools ?? [], task.environmentId ?? null],
   );
+}
+
+/** The compute environment selected for a task (null when using Curialy's built-in sandbox). */
+export async function taskEnvironmentId(id: string): Promise<string | null> {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+  const { rows } = await query<{ environment_id: string | null }>("SELECT environment_id FROM curialy.chat_sessions WHERE id = $1", [id]);
+  return rows[0]?.environment_id ?? null;
+}
+
+export async function setTaskEnvironmentId(id: string, environmentId: string | null) {
+  await query("UPDATE curialy.chat_sessions SET environment_id = $2::uuid, updated_at = now() WHERE id = $1", [id, environmentId]);
 }
 
 /** Replace the tools the user selected for a task (empty: not limited). The next run uses them. */

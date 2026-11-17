@@ -455,6 +455,28 @@ export const adminApi = {
 /** A change to the credit settings: the rewards and the boost merge field by field on the server. */
 export type CreditSettingsPatch = Partial<Omit<CreditSettings, "rewards">> & { rewards?: Partial<Omit<CreditSettings["rewards"], "boost">> & { boost?: Partial<CreditSettings["rewards"]["boost"]> } };
 
+import type {
+  ComputeEnvironment,
+  CreateComputeEnvironmentRequest,
+  CreateComputeEnvironmentResponse,
+} from "@shared/compute";
+
+export const computeApi = {
+  list: () => api<{ environments: ComputeEnvironment[] }>("/api/compute/environments", { cache: "no-store" }),
+  create: (input: CreateComputeEnvironmentRequest) =>
+    api<CreateComputeEnvironmentResponse>("/api/compute/environments", { method: "POST", json: input }),
+  update: (id: string, patch: { name?: string; workDir?: string | null; isDefault?: boolean }) =>
+    api<{ environment: ComputeEnvironment }>(`/api/compute/environments/${enc(id)}`, { method: "PATCH", json: patch }),
+  rotate: (id: string) =>
+    api<CreateComputeEnvironmentResponse>(`/api/compute/environments/${enc(id)}/rotate`, { method: "POST", json: {} }),
+  test: (id: string) =>
+    api<{ environment: ComputeEnvironment; online: boolean }>(`/api/compute/environments/${enc(id)}/test`, { method: "POST", json: {} }),
+  notebook: (id: string, token: string) =>
+    api<{ filename: string; content: string }>(`/api/compute/environments/${enc(id)}/notebook`, { method: "POST", json: { token } }),
+  remove: (id: string) =>
+    api<{ removed: true }>(`/api/compute/environments/${enc(id)}`, { method: "DELETE" }),
+};
+
 /** The message to show for any thrown value. */
 export function errorMessage(error: unknown, fallback = "Something went wrong.") {
   return error instanceof Error && error.message ? error.message : fallback;

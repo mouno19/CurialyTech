@@ -10,7 +10,11 @@ import { claimNextRun, closeOpenSessionEvents, getLifecycleRow, HEARTBEAT_MS, ju
 import { anthropicClient, PROVIDER_ENV, reasoningParams, runManusTask, streamCortexInference, streamOpenAIChat } from "./providers";
 import { clip, ensureWorkspace, readWorkspaceFile, runCommand, SANDBOX_MODE, writeWorkspaceBytes } from "./sandbox";
 import { loadTaskSkills, renderSavedSkills, replaceTaskSkills, skillsForTask } from "./saved-skills";
-import { addMessage, createAgentTask, getAgentTask, getConversation, setTaskTools, settleTaskWrites, taskOwner, updateAgentTask, type ConversationFormat } from "./store";
+import { addMessage, createAgentTask, getAgentTask, getConversation, setTaskEnvironmentId, setTaskTools, settleTaskWrites, taskOwner, updateAgentTask, type ConversationFormat } from "./store";
+import { COMPUTE_KIND_LABELS, formatRam } from "@shared/compute";
+import { closeBox } from "./e2b";
+import { liveEnvironmentState } from "../compute/hub";
+import { getDefaultEnvironmentRow, getEnvironmentRow } from "../compute/store";
 import { componentsContext, wantsComponents } from "./component-tools";
 import { uiContext, uiFit, uiSnapshot, type UiFit } from "../design-systems/ui-system";
 import { charge, getBalance, outOfCreditsMessage } from "../credits";
@@ -311,6 +315,8 @@ export type RunContext = {
   secretsContext?: string;
   /** Agent mode, when the Animation Studio is set up: its skills and the rule to load one first. */
   studioContext?: string;
+  /** Agent mode, when running on a user-connected Google Colab or VPS environment. */
+  computeContext?: string;
   /** The tools the user selected for the task (empty: not limited), and how the component library is used. */
   selectedTools?: string[];
   componentsContext?: string;
@@ -648,10 +654,22 @@ async function announce(handle: RunHandle, message?: { text: string; attachments
   handle.channel.emit({ type: "status", status: "queued" });
 }
 
+async function resolveEnvironmentId(userId: string, requested?: string | null): Promise<string | null> {
+  if (requested === null) return null;
+  if (typeof requested === "string") {
+    const row = await getEnvironmentRow(requested, userId);
+    if (!row) throw new TaskRejected("That compute environment is no longer on this account.");
+    return row.id;
+  }
+  const def = await getDefaultEnvironmentRow(userId).catch(() => null);
+  return def?.id ?? null;
+}
+
 /** userId: the account the task belongs to (callers without one, such as tests, create the operator's). */
 export async function startTask(req: CreateTaskRequest, attachments: AttachmentRef[], opts: { clientMessageId?: string; userId?: string; operator?: boolean } = {}) {
   const userId = opts.userId ?? (await adminUserId());
   const attached = await skillsForTask(userId, req.skillIds ?? []);
+  const environmentId = req.mode === "agent" ? await resolveEnvironmentId(userId, req.environmentId) : null;
   admit();
   const { spec, reason } = dispatchModel(req, { operator: opts.operator });
   const id = randomUUID();
@@ -661,7 +679,7 @@ export async function startTask(req: CreateTaskRequest, attachments: AttachmentR
     // Dev Team members run Anthropic-format, tool-capable models; the conversation format follows.
     const team = Boolean(req.team) && req.mode === "agent";
     const format = team ? "anthropic" : formatFor(spec);
-    await createAgentTask({ id, userId, runId: handle.runId, prompt: req.prompt, mode: req.mode, model: spec.id, effort: req.effort, webSearch: req.webSearch, format, team, skillIds: attached.map(skill => skill.id), tools: [...new Set(req.tools ?? [])] });
+    await createAgentTask({ id, userId, runId: handle.runId, prompt: req.prompt, mode: req.mode, model: spec.id, effort: req.effort, webSearch: req.webSearch, format, team, skillIds: attached.map(skill => skill.id), tools: [...new Set(req.tools ?? [])], environmentId });
     handle.claimed = true;
     handle.attempt = 1;
     const staged = await stageAttachments(ensureWorkspace(id), attachments, {
@@ -780,7 +798,7 @@ export function followUpRepoBlocked(task: { mode: TaskMode; githubRepo?: string;
   return null;
 }
 
-export async function followUp(taskId: string, prompt: string, attachments: AttachmentRef[] = [], opts: { clientMessageId?: string; expectedRunId?: string | null; model?: string | null; repo?: FollowUpRepo | null; skillIds?: string[]; tools?: string[] } = {}) {
+export async function followUp(taskId: string, prompt: string, attachments: AttachmentRef[] = [], opts: { clientMessageId?: string; expectedRunId?: string | null; model?: string | null; repo?: FollowUpRepo | null; skillIds?: string[]; tools?: string[]; environmentId?: string | null } = {}) {
   if (isRunning(taskId)) throw new TaskBusy("This task is still running.");
   // Before staging attachments: a start refused for capacity must not leave copies behind.
   admit();
@@ -797,6 +815,15 @@ export async function followUp(taskId: string, prompt: string, attachments: Atta
     await replaceTaskSkills(taskId, owner, opts.skillIds);
   }
   if (opts.tools !== undefined) await setTaskTools(taskId, opts.tools);
+  if (opts.environmentId !== undefined) {
+    const owner = await taskOwner(taskId);
+    if (!owner) throw new TaskRejected("Task not found.");
+    const nextEnv = await resolveEnvironmentId(owner, opts.environmentId);
+    if (nextEnv !== (task.environmentId ?? null)) {
+      await setTaskEnvironmentId(taskId, nextEnv);
+      await closeBox(taskId).catch(() => undefined);
+    }
+  }
   // Already this task's repository: nothing to clone. Another one replaces it (the user switched).
   const sameRepo = Boolean(opts.repo && task.githubRepo && task.githubRepo.toLowerCase() === opts.repo.fullName.toLowerCase());
   const cloneRepo = opts.repo && !sameRepo ? { repo: opts.repo.fullName, branch: opts.repo.branch ?? undefined, replace: Boolean(task.githubRepo) } : undefined;
@@ -1118,7 +1145,39 @@ export function latestRequest(conversation: Record<string, unknown>[]) {
 
 /** System blocks after the static prompt: GitHub context, saved skills, the repository's project memory, the design brief. */
 function extraSystem(ctx: RunContext) {
-  return [ctx.context, ctx.vercelContext, ctx.canvaContext, ctx.secretsContext, ctx.studioContext, ctx.componentsContext, ctx.uiContext, ctx.skills, ctx.memory?.text, ctx.designText].filter((text): text is string => Boolean(text));
+  return [ctx.computeContext, ctx.context, ctx.vercelContext, ctx.canvaContext, ctx.secretsContext, ctx.studioContext, ctx.componentsContext, ctx.uiContext, ctx.skills, ctx.memory?.text, ctx.designText].filter((text): text is string => Boolean(text));
+}
+
+async function buildComputeContext(taskId: string, owner: string | null, envId: string | null | undefined, mode: TaskMode): Promise<{ text: string; notice: { level: "info" | "warn"; message: string } | null }> {
+  if (!envId || !owner || mode !== "agent") return { text: "", notice: null };
+  const envRow = await getEnvironmentRow(envId, owner).catch(() => null);
+  if (!envRow) return { text: "", notice: null };
+  const live = liveEnvironmentState(envRow.id);
+  const kindLabel = COMPUTE_KIND_LABELS[envRow.kind];
+  if (!live.online) {
+    return {
+      text: "",
+      notice: {
+        level: "warn",
+        message: `"${envRow.name}" (${kindLabel}) is currently offline — automatically switched to your built-in Curialy sandbox so this task continues without interruption.`,
+      },
+    };
+  }
+  const specs = live.specs ?? envRow.specs;
+  const specSummary = specs
+    ? [`${formatRam(specs.ramMb)} RAM`, `${specs.cpus} CPU${specs.cpus === 1 ? "" : "s"}`, ...(specs.gpu ? [specs.gpu] : []), specs.os].join(" · ")
+    : "connected";
+  const remoteDir = envRow.work_dir ?? `${(specs?.workBase ?? "~/curialy-workspaces").replace(/\/+$/, "")}/${taskId}`;
+  return {
+    text: `Connected user compute environment ("${envRow.name}" — ${kindLabel}):
+- Commands in run_command execute directly on the user's own connected ${kindLabel} host (${specSummary}${specs?.sudo ? ", root/passwordless sudo available" : ""}).
+- Active task directory on the remote host: ${remoteDir}. Files edited via read_file, write_file and edit_file sync automatically with ${remoteDir}.
+- Unlike the default 1 GB sandbox, you have full access to this host's CPU, ${specs ? formatRam(specs.ramMb) : "available"} memory${specs?.gpu ? `, GPU (${specs.gpu})` : ""}, installed tools, and filesystem while connected, and installed dependencies persist across runs.`,
+    notice: {
+      level: "info",
+      message: `Running directly on your connected ${kindLabel} "${envRow.name}" (${specSummary}).`,
+    },
+  };
 }
 
 /** Load the linked repository's project memory into the shared slot. Announce only when a saved note arrives. */
@@ -1226,6 +1285,8 @@ async function executeRun(handle: RunHandle, conversation: Record<string, unknow
     let operator = false;
     let skillText = "";
     let skillNotice = "";
+    let computeText = "";
+    let computeNotice = null as { level: "info" | "warn"; message: string } | null;
     const setup = async () => {
       ({ dir: root, restored } = await materializeWorkspace(taskId));
       existing = await getAgentTask(taskId);
@@ -1239,6 +1300,9 @@ async function executeRun(handle: RunHandle, conversation: Record<string, unknow
       const saved = existing?.skillIds?.length && owner ? await loadTaskSkills(owner, existing.skillIds) : [];
       skillText = renderSavedSkills(saved);
       skillNotice = saved.length ? `Using ${saved.length === 1 ? "1 saved skill" : `${saved.length} saved skills`}: ${saved.map(skill => skill.name).join(", ")}.` : "";
+      const comp = await buildComputeContext(taskId, owner, existing?.environmentId, opts.mode);
+      computeText = comp.text;
+      computeNotice = comp.notice;
     };
     // Database/vault hiccups at start-up get one retry before the run is given up.
     try { await setup(); } catch (first) {
@@ -1269,6 +1333,7 @@ async function executeRun(handle: RunHandle, conversation: Record<string, unknow
       canvaContext: cv.context || undefined,
       secretsContext: secretsText || undefined,
       studioContext: studioText || undefined,
+      computeContext: computeText || undefined,
       selectedTools: existing?.tools ?? [],
       runId: handle.runId.slice(0, 8),
       runToken: handle.runId,
@@ -1342,6 +1407,7 @@ async function executeRun(handle: RunHandle, conversation: Record<string, unknow
     emit({ type: "dispatch", model: opts.spec.id, provider: (ENGINE_ALIAS[opts.spec.provider] ?? "core"), reason: opts.reason });
     if (restored || opts.restoredFiles) emit({ type: "notice", level: "info", message: `Workspace restored from Curialy Vault (${restored || opts.restoredFiles} files).` });
     if (skillNotice) emit({ type: "notice", level: "info", message: skillNotice });
+    if (computeNotice) emit({ type: "notice", level: computeNotice.level, message: computeNotice.message });
     runCtx.phases.advance("planning");
     if (opts.mode === "chat") {
       runCtx.phases.set("implementation", "skipped");
