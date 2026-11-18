@@ -526,7 +526,44 @@ describe("art-direction dealer, micro-polish, React engineering and craft audit"
     })!;
     expect(darkAsked.directions!.candidates.every(dir => dir.mode === "dark")).toBe(true);
 
-    // Returns null for dashboards, mobile apps, Curialy UI builds, existing projects, anime syntheses, and attached mockups.
+    // Multi-word negation clauses ("avoid ... light mode", "no sans-serif") and superstrings ("darkroom", "goldsmith", "grounded") do not misfire.
+    const avoidLight = buildBrief({
+      root: tmp,
+      original: "Build a SaaS landing page — avoid bright white backgrounds and light mode",
+      latest: "Build a SaaS landing page — avoid bright white backgrounds and light mode",
+      imageAttached: false,
+      facts: NEW,
+    })!;
+    expect(avoidLight.directions!.candidates.every(dir => dir.mode === "dark")).toBe(true);
+
+    const noSansSerif = buildBrief({
+      root: tmp,
+      original: "Build an editorial landing page, no sans-serif",
+      latest: "Build an editorial landing page, no sans-serif",
+      imageAttached: false,
+      facts: NEW,
+    })!;
+    expect(noSansSerif.directions!.candidates.every(dir => /serif|fraunces|cormorant|newsreader|garamond/i.test(`${dir.fonts.display} ${dir.fonts.text}`))).toBe(true);
+
+    const darkroom = buildBrief({
+      root: tmp,
+      original: "Build a portfolio website for our analog darkroom studio",
+      latest: "Build a portfolio website for our analog darkroom studio",
+      imageAttached: false,
+      facts: NEW,
+    })!;
+    expect(darkroom.directions!.candidates.some(dir => dir.mode === "dark")).toBe(true);
+
+    const grounded = buildBrief({
+      root: tmp,
+      original: "Build a grounded architectural conference website",
+      latest: "Build a grounded architectural conference website",
+      imageAttached: false,
+      facts: NEW,
+    })!;
+    expect(grounded.directions!.candidates.map(dir => dir.id)).toContain("poster-constructivist");
+
+    // Returns null for dashboards, mobile apps, Curialy UI builds, existing projects, anime syntheses, and attached or named mockups.
     expect(buildBrief({ root: tmp, original: BENCHMARKS.dashboard, latest: BENCHMARKS.dashboard, imageAttached: false, facts: NEW })!.directions).toBeNull();
     expect(buildBrief({ root: tmp, original: BENCHMARKS.app, latest: BENCHMARKS.app, imageAttached: false, facts: NEW })!.directions).toBeNull();
     expect(buildBrief({ root: tmp, original: "Build a landing page built with Curialy UI", latest: "Build a landing page built with Curialy UI", imageAttached: false, facts: NEW })!.directions).toBeNull();
@@ -534,6 +571,7 @@ describe("art-direction dealer, micro-polish, React engineering and craft audit"
     expect(buildBrief({ root: tmp, original: BENCHMARKS.landing, latest: BENCHMARKS.landing, imageAttached: false, facts: { ...NEW, designDoc: "DESIGN.md" } })!.directions).toBeNull();
     expect(buildBrief({ root: tmp, original: "Build an anime streaming website with trending shelves", latest: "Build an anime streaming website with trending shelves", imageAttached: false, facts: NEW })!.directions).toBeNull();
     expect(buildBrief({ root: tmp, original: BENCHMARKS.landing, latest: BENCHMARKS.landing, imageAttached: true, facts: NEW })!.directions).toBeNull();
+    expect(buildBrief({ root: tmp, original: "Build this Figma wireframe for a SaaS landing page", latest: "Build this Figma wireframe for a SaaS landing page", imageAttached: false, facts: NEW })!.directions).toBeNull();
     expect(dealDirections({ intent: intentOf("Write a Python CLI parser"), facts: NEW, synthesis: null })).toBeNull();
   });
 
@@ -554,20 +592,32 @@ describe("art-direction dealer, micro-polish, React engineering and craft audit"
     const htmlBrief = buildBrief({ root: tmp, original: "Build a landing page in plain HTML and CSS, no React", latest: "Build a landing page in plain HTML and CSS, no React", imageAttached: false, facts: NEW })!;
     expect(htmlBrief.engineering).toBeNull();
 
-    // Even a kitchen-sink Next.js + React + 3D WebGL + expressive motion landing page stays well under 11,000 chars.
+    // English verb "react to" on Vue or HTML canvas prompts never triggers React guidance; Curialy UI apps (React 19) do.
+    const vueVerb = buildBrief({ root: tmp, original: "Build a Vue 3 dashboard where charts react to filter changes", latest: "Build a Vue 3 dashboard where charts react to filter changes", imageAttached: false, facts: NEW })!;
+    expect(vueVerb.engineering).toBeNull();
+    const canvasVerb = buildBrief({ root: tmp, original: "Build a plain HTML canvas page where particles react to the cursor", latest: "Build a plain HTML canvas page where particles react to the cursor", imageAttached: false, facts: NEW })!;
+    expect(canvasVerb.engineering).toBeNull();
+    const curialyUiApp = buildBrief({ root: tmp, original: "Build an analytics dashboard for our SaaS revenue", latest: "Build an analytics dashboard for our SaaS revenue", imageAttached: false, facts: NEW })!;
+    if (curialyUiApp.system === "recommended") expect(curialyUiApp.engineering).toContain("forwardRef");
+
+    // Even a kitchen-sink Next.js + React + 3D WebGL + expressive motion landing page AND an anime + 9-slot motion + Curialy UI + React prompt stay strictly under 11,000 chars.
     const heavyPrompt = "Build an animated 3D Three.js WebGL SaaS landing page in Next.js and React with scroll-driven sections, pricing and signup form";
     const heavyBrief = buildBrief({ root: tmp, original: heavyPrompt, latest: heavyPrompt, imageAttached: false, facts: NEW })!;
     expect(heavyBrief.directions).not.toBeNull();
     expect(heavyBrief.motionMixture).not.toBeNull();
     expect(heavyBrief.engineering).not.toBeNull();
+    const megaPrompt = "Build an anime streaming website in Next.js and React with Curialy UI, 3D sphere hero, kinetic headline, split reveal, staggered scroll grid, spotlight cards, magnetic buttons, liquid nav indicator, skeleton loaders, radial chart indicators, #ff0055 #00ffcc #112233, minimalist futuristic neon cyberpunk synthwave glassmorphism, avoid #998877, no serif, no brutalist, no corporate, no pastel";
+    const megaBrief = buildBrief({ root: tmp, original: megaPrompt, latest: megaPrompt, imageAttached: true, facts: NEW })!;
     for (const role of ["solo", "architect", "engineer", "reviewer"] as const) {
-      expect(renderBrief(heavyBrief, role).length, role).toBeLessThan(11_000);
+      expect(renderBrief(heavyBrief, role).length, `heavy:${role}`).toBeLessThan(11_000);
+      expect(renderBrief(megaBrief, role).length, `mega:${role}`).toBeLessThan(11_000);
     }
   });
 
   it("sanitizes hostile craft payloads and scores clipped headings, 4+ line h1s, below-fold heroes, concentric radii and wrapped controls", async () => {
     const { cleanFacts } = await import("./agent/design/audit");
     expect(cleanFacts(page()).craft).toBeUndefined();
+    expect(cleanFacts({ ...page(), craft: [] }).craft).toBeUndefined();
 
     const hostile = cleanFacts({
       ...page(),
@@ -617,9 +667,10 @@ describe("art-direction dealer, micro-polish, React engineering and craft audit"
     expect(dashboardFindings).not.toContain("improve:h1-lines");
     expect(dashboardFindings).not.toContain("improve:hero-fold");
 
-    // Phone-only pass does not misreport 4-line phone h1s as desktop h1-lines, but still catches clipped headings.
-    const phoneOnly = ids([null, phonePage({ craft: { h1Lines: 4, h1Bottom: 920, heroActionAboveFold: false, concentricMismatches: [], clippedHeadings: ["h1.mobile"], wrappedControls: [] } })], { surface: "landing" });
+    // Phone-only pass does not misreport 4-line phone h1s as desktop h1-lines, but still catches clipped headings and concentric mismatches.
+    const phoneOnly = ids([null, phonePage({ craft: { h1Lines: 4, h1Bottom: 920, heroActionAboveFold: false, concentricMismatches: [{ outer: "div.mobile-card", outerR: 16, innerR: 16, pad: 12 }], clippedHeadings: ["h1.mobile"], wrappedControls: [] } })], { surface: "landing" });
     expect(phoneOnly).toContain("fix:clipped-heading");
+    expect(phoneOnly).toContain("improve:concentric-radius");
     expect(phoneOnly).not.toContain("improve:h1-lines");
     expect(phoneOnly).not.toContain("improve:hero-fold");
   });

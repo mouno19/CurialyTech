@@ -28,20 +28,21 @@ export function buildBrief(input: { root: string; original: string; latest: stri
   const mixture = intent.motionPicks.length ? motionMixture({ text: intent.text, ui: intent.ui, surface: intent.surface, motion: intent.motion, needs: intent.needs, avoid: intent.avoid, synthesis }) : null;
   const system: UiFit = uiAvailable() ? uiFit(intent, facts) : "none";
   const directions = dealDirections({ intent, facts, synthesis, system });
-  const engineering = engineeringGuidance(facts, intent);
+  const rawEngineering = engineeringGuidance(facts, intent, system);
   const coreOnly = selectEntries(intent, 0).core;
-  const coreChars = coreOnly.reduce((sum, entry) => sum + section(entry).length + 1, 0);
-  const extraChars =
-    (synthesis ? renderSynthesis(synthesis).length + 2 : 0)
-    + (mixture ? renderMotionMixture(mixture).length + 2 : 0)
-    + (directions ? renderDealtDirections(directions, intent.cues.length > 0).length + 2 : 0)
-    + (engineering ? engineering.length + 34 : 0);
+  const coreChars = coreOnly.reduce((sum, entry) => sum + section(entry).length + 1, 0) + 14;
   const headerChars = Math.max(
     headerLines("solo", intent, facts, input.visualTest ?? true, system).join("\n").length,
     headerLines("architect", intent, facts, input.visualTest ?? true, system).join("\n").length,
   );
+  const baseExtra =
+    (synthesis ? renderSynthesis(synthesis).length + 2 : 0)
+    + (mixture ? renderMotionMixture(mixture).length + 2 : 0)
+    + (directions ? renderDealtDirections(directions, intent.cues.length > 0).length + 2 : 0);
+  const engineering = rawEngineering && headerChars + coreChars + baseExtra + rawEngineering.length + 34 <= 10_920 ? rawEngineering : null;
+  const extraChars = baseExtra + (engineering ? engineering.length + 34 : 0);
   // Cap chosen budget using exact header + core + extra block sizes so every role stays strictly < 11,000 chars without wasting room.
-  const chosenBudget = Math.max(960, Math.min(budgetFor(intent), 10_850 - headerChars - coreChars - extraChars));
+  const chosenBudget = Math.max(0, Math.min(budgetFor(intent), 10_880 - headerChars - coreChars - extraChars));
   const { core, chosen } = selectEntries(intent, chosenBudget);
   return { intent, facts, entries: [...core, ...chosen], visualTest: input.visualTest ?? true, synthesis, motionMixture: mixture, directions, engineering, system };
 }

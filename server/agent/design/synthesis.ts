@@ -25,14 +25,31 @@ export type Synthesis = {
 };
 
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-/** A phrase at a word start (the same rule as the intent analysis), outside a "no …" clause. */
+const NEGATION = /(?:^|[^a-z])(no|not|without|avoid|avoiding|don'?t|do not|never|drop(?=\s+(?:the|all|any|those|these|that|this|its|their|our|my)\b)|remove|ditch|stop|less|skip|nothing like|instead of|rather than|get rid of|lose the|kill the)(?![a-z])/g;
+const SCOPE_END = /[.;!?\n]|(?:^|[^a-z])(?:but|however|instead|rather|except)(?![a-z])|,\s*(?:use|make|add|go|keep|want|with|do|try|give|set|prefer|i'd|i would)(?![a-z])/;
+const wordPattern = (phrase: string) => {
+  const tail = /[a-z0-9]$/.test(phrase) ? "(?![a-z0-9])" : "";
+  const suffix = /[a-z]$/.test(phrase) ? "(?:s|es|'s)?" : "";
+  return new RegExp(`(?:^|[^a-z0-9-])(${escape(phrase)}${suffix})${tail}`, "g");
+};
+function negatedRanges(text: string) {
+  const ranges: [number, number][] = [];
+  for (const match of text.matchAll(NEGATION)) {
+    const start = (match.index ?? 0) + match[0].length;
+    const end = text.slice(start).search(SCOPE_END);
+    ranges.push([start, end < 0 ? text.length : start + end]);
+  }
+  return ranges;
+}
+function wordHit(text: string, phrase: string) {
+  return wordPattern(phrase).test(text);
+}
+/** A phrase at a word start (the same clause-level negation rule as intent analysis), outside a "no …" clause. */
 function said(text: string, phrase: string) {
-  const pattern = new RegExp(`(?:^|[^a-z0-9-])${escape(phrase)}(?:s|es|'s)?(?![a-z0-9])`, "g");
-  for (const match of text.matchAll(pattern)) {
-    // Up to where the phrase starts (the separator before it belongs to the clause: "no 3d").
-    const at = (match.index ?? 0) + match[0].indexOf(phrase);
-    const before = text.slice(Math.max(0, at - 24), at);
-    if (!/(?:^|[^a-z])(?:no|not|without|avoid|never|instead of|rather than)\s+(?:[a-z-]+\s+){0,2}$/.test(before)) return true;
+  const ranges = negatedRanges(text);
+  for (const match of text.matchAll(wordPattern(phrase))) {
+    const at = (match.index ?? 0) + match[0].indexOf(match[1]);
+    if (!ranges.some(([start, end]) => at >= start && at < end)) return true;
   }
   return false;
 }
@@ -121,8 +138,10 @@ export function synthesize(input: { text: string; ui: boolean; avoid?: string[] 
   if (!input.ui) return null;
   const text = input.text.toLowerCase();
   const avoidLower = (input.avoid ?? []).map(word => word.toLowerCase());
-  const noDark = avoidLower.some(word => word === "dark" || word === "dark mode" || word === "black" || word === "noir") || said(text, "light mode") || said(text, "light theme");
-  const noSerif = avoidLower.includes("serif");
+  const noDark = avoidLower.some(word => word === "dark" || word === "dark mode" || word === "black" || word === "noir")
+    || (!avoidLower.includes("light mode") && said(text, "light mode"))
+    || (!avoidLower.includes("light theme") && said(text, "light theme"));
+  const noSerif = avoidLower.includes("serif") || (!avoidLower.includes("sans-serif") && said(text, "sans-serif"));
   const refused = (archetype: Archetype) =>
     (noDark && archetype.mode === "dark")
     || (noSerif && /serif|playfair|fraunces|cormorant|garamond/i.test(archetype.fonts.display))
@@ -244,8 +263,8 @@ const HERO_DEFAULTS = ["motion-bg-particle-field", "motion-bg-waveform", "motion
 /** Style words a "no …" rules out wherever they appear in a piece ("no 3d" rules out the 3D tilt card). */
 const REFUSABLE = ["3d", "parallax", "particle", "glass", "neon", "glitch", "canvas", "gradient", "blob", "aurora", "starfield", "matrix", "cursor", "magnetic", "tilt", "typewriter", "confetti", "orbit", "liquid", "carousel"];
 
-/** Mentioned, but only inside a "no …" clause. */
-const refusedIn = (text: string, phrase: string) => text.includes(phrase) && !said(text, phrase);
+/** Mentioned as a whole word/phrase, and only inside a "no …" clause. */
+const refusedIn = (text: string, phrase: string) => wordHit(text, phrase) && !said(text, phrase);
 
 export function motionMixture(input: { text: string; ui: boolean; surface: Surface; motion: MotionLevel; needs: Need[]; avoid?: string[]; synthesis?: Synthesis | null }): MotionMixture | null {
   if (!input.ui) return null;
@@ -341,7 +360,7 @@ const SERIF_FACE = /serif|fraunces|cormorant|newsreader|garamond/i;
 
 export function dealDirections(input: { intent: DesignIntent; facts: WorkspaceFacts; synthesis: Synthesis | null; system?: UiFit }): DealtDirections | null {
   const { intent, facts, synthesis, system } = input;
-  if (!intent.ui || synthesis !== null || intent.reference) return null;
+  if (!intent.ui || synthesis !== null || intent.reference || intent.cues.includes("follow the reference design")) return null;
   if (system === "project" || system === "requested" || system === "recommended") return null;
   if (facts.existing || Boolean(facts.designDoc) || facts.tokens > 0) return null;
 
@@ -353,10 +372,15 @@ export function dealDirections(input: { intent: DesignIntent; facts: WorkspaceFa
 
   const avoidSet = new Set(intent.avoid.map(word => word.toLowerCase()));
   const noDark = avoidSet.has("dark") || avoidSet.has("dark mode") || avoidSet.has("black") || avoidSet.has("noir")
-    || refusedIn(text, "dark") || said(text, "light mode") || said(text, "light theme");
+    || refusedIn(text, "dark")
+    || (!avoidSet.has("light mode") && said(text, "light mode"))
+    || (!avoidSet.has("light theme") && said(text, "light theme"));
   const wantsDark = !noDark && (avoidSet.has("light mode") || avoidSet.has("light theme")
+    || refusedIn(text, "light mode") || refusedIn(text, "light theme")
     || said(text, "dark mode") || said(text, "dark theme") || intent.cues.includes("dark"));
-  const noSerif = avoidSet.has("serif") || refusedIn(text, "serif");
+  const noSerif = avoidSet.has("serif") || refusedIn(text, "serif")
+    || (!avoidSet.has("sans-serif") && (intent.cues.includes("sans-serif") || said(text, "sans-serif")));
+  const wantsSerif = !noSerif && (avoidSet.has("sans-serif") || refusedIn(text, "sans-serif"));
 
   const refused = (dir: ArtDirection) => {
     if (noDark && dir.mode === "dark") return true;
@@ -368,6 +392,10 @@ export function dealDirections(input: { intent: DesignIntent; facts: WorkspaceFa
   if (wantsDark) {
     const darkOnly = allowed.filter(dir => dir.mode === "dark");
     if (darkOnly.length >= 3) allowed = darkOnly;
+  }
+  if (wantsSerif) {
+    const serifOnly = allowed.filter(dir => SERIF_FACE.test(`${dir.fonts.display} ${dir.fonts.text}`));
+    if (serifOnly.length >= 3) allowed = serifOnly;
   }
   if (allowed.length < 3) return null;
 

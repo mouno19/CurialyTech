@@ -262,6 +262,16 @@ function craftFindings(desktopFacts: PageFacts | null, phoneFacts: PageFacts | n
       message: `Heading text is vertically sliced by its own overflow box (${list(clipped)}); increase line-height or remove overflow: hidden on headings.`,
     });
   }
+  const mismatches = (desktopFacts ? dCraft?.concentricMismatches : pCraft?.concentricMismatches) ?? [];
+  if (mismatches.length) {
+    const examples = mismatches.map(item => `${item.outer} (outer ${item.outerR} px, inner ${item.innerR} px, padding ${item.pad} px)`);
+    findings.push({
+      id: "concentric-radius",
+      level: "improve",
+      viewport: desktopFacts ? "desktop" : "phone",
+      message: `Nested rounded surfaces have mismatched corner radii on ${list(examples, 2)}; set outerRadius = innerRadius + padding.`,
+    });
+  }
   if (!desktopFacts || !dCraft || desktopFacts.viewport.width < 768) return findings;
 
   const dense = surface ? DENSE.includes(surface) : false;
@@ -286,15 +296,7 @@ function craftFindings(desktopFacts: PageFacts | null, phoneFacts: PageFacts | n
       });
     }
   }
-  if (dCraft.concentricMismatches.length) {
-    const examples = dCraft.concentricMismatches.map(item => `${item.outer} (outer ${item.outerR} px, inner ${item.innerR} px, padding ${item.pad} px)`);
-    findings.push({
-      id: "concentric-radius",
-      level: "improve",
-      viewport: "desktop",
-      message: `Nested rounded surfaces have mismatched corner radii on ${list(examples, 2)}; set outerRadius = innerRadius + padding.`,
-    });
-  }
+
   if (dCraft.wrappedControls.length >= 2) {
     findings.push({
       id: "wrapped-controls",
@@ -355,7 +357,7 @@ export function cleanFacts(raw: unknown): PageFacts {
     animations: { running: count(f.animations?.running), infinite: count(f.animations?.infinite), longestMs: num(f.animations?.longestMs, 0, 1e9) },
     copy: { lorem: Boolean(f.copy?.lorem), buzzwords: many(f.copy?.buzzwords, 8, item => str(item, 30)), placeholders: many(f.copy?.placeholders, 6, item => str(item, 40)) },
     perf: { lcpMs: f.perf?.lcpMs == null ? null : num(f.perf.lcpMs, 0, 1e7), lcpEl: f.perf?.lcpEl == null ? null : str(f.perf.lcpEl), cls: num(f.perf?.cls, 0, 100), nodes: count(f.perf?.nodes) },
-    ...(f.craft && typeof f.craft === "object" ? {
+    ...(f.craft && typeof f.craft === "object" && !Array.isArray(f.craft) ? {
       craft: {
         h1Lines: num(f.craft.h1Lines, 0, 100),
         h1Bottom: f.craft.h1Bottom == null ? null : num(f.craft.h1Bottom, -10_000, 100_000),
@@ -365,9 +367,9 @@ export function cleanFacts(raw: unknown): PageFacts {
           outerR: num(item?.outerR, 0, 2000),
           innerR: num(item?.innerR, 0, 2000),
           pad: num(item?.pad, 0, 500),
-        })),
-        clippedHeadings: many(f.craft.clippedHeadings, 4, item => str(item)),
-        wrappedControls: many(f.craft.wrappedControls, 4, item => str(item)),
+        })).filter(item => item.outer.trim().length > 0),
+        clippedHeadings: many(f.craft.clippedHeadings, 4, item => str(item)).filter(item => item.trim().length > 0),
+        wrappedControls: many(f.craft.wrappedControls, 4, item => str(item)).filter(item => item.trim().length > 0),
       },
     } : {}),
     errors: many(f.errors, 12, item => str(item, 160)),
