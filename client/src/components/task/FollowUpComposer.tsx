@@ -13,6 +13,7 @@ import { ModelPicker } from "@/components/composer/OmniComposer";
 import { RepoSelector } from "@/components/RepoSelector";
 import { errorMessage, type GitHubRepo } from "@/lib/api";
 import { useGitHub } from "@/lib/appStatus";
+import { MQ, useMediaQuery } from "@/lib/breakpoints";
 import { insertAtCursor } from "@/lib/insertText";
 import { AttachmentTray, useAttachments, type PendingAttachment } from "@/lib/useAttachments";
 
@@ -91,6 +92,8 @@ export function FollowUpComposer({ taskId, task, status, onSend, redeploy = fals
   const attachments = useAttachments();
   const { status: github } = useGitHub();
   const input = useRef<HTMLTextAreaElement>(null);
+  // On-screen keyboards have no easy Shift+Enter: there Enter is a new line and Send sends (as in the new-task composer).
+  const coarse = useMediaQuery(MQ.coarsePointer);
   // Where the cursor was when the box lost focus (the microphone takes the focus).
   const selection = useRef<{ start: number; end: number } | null>(null);
   const active = isActiveStatus(status);
@@ -180,10 +183,10 @@ export function FollowUpComposer({ taskId, task, status, onSend, redeploy = fals
             onBlur={event => { selection.current = { start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd }; }}
             onPaste={attachments.onPaste}
             onKeyDown={event => {
-              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-                event.preventDefault();
-                void send();
-              }
+              if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+              if (coarse && !(event.metaKey || event.ctrlKey)) return;
+              event.preventDefault();
+              void send();
             }}
           />
           <AttachmentTray files={attachments.files} uploading={attachments.uploading} onRemove={attachments.remove} />
@@ -213,7 +216,7 @@ export function FollowUpComposer({ taskId, task, status, onSend, redeploy = fals
             <div className="composer-send">
               {blocked || hint
                 ? <span id="follow-up-hint" className="composer-hint" data-show="">{blocked ?? hint}</span>
-                : <span className="composer-hint"><kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> for a new line</span>}
+                : !coarse && <span className="composer-hint"><kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> for a new line</span>}
               <Button variant="accent" pill icon={active ? ListPlus : ArrowUp} busy={sending} aria-disabled={!canSend || undefined} title={blocked ?? (empty ? "Write a message first" : !active ? undefined : stopping ? "Queue it: it waits until you start it" : "Queue it: it runs when this run finishes")} onClick={() => void send()}>
                 {sending ? (active ? "Queueing…" : "Sending…") : action}
               </Button>

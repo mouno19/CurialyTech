@@ -420,7 +420,7 @@ function TaskCard({ task }: { task: AgentTaskSummary }) {
         <span className="tasks-card-meta">
           <span>{modelLabel(task)}</span>
           <span>{modeLabel(task)}</span>
-          {task.githubRepo && <span className="mono truncate">{task.githubRepo}</span>}
+          {task.githubRepo && <span className="tasks-card-repo"><span className="mono truncate">{task.githubRepo}</span></span>}
           <span>{task.filesChanged} {task.filesChanged === 1 ? "file" : "files"}</span>
           <span>{formatTokens(tokenTotal(task))} tokens{thinking ? ` (${formatTokens(thinking)} thinking)` : ""}</span>
           <span><TaskDuration task={task} /></span>

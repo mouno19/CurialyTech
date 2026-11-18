@@ -330,6 +330,7 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed, examples }: {
   const coarse = useMediaQuery(MQ.coarsePointer);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const hintId = useId();
+  const effortLabelId = useId();
   const ghost = Boolean(examples?.length) && !prompt && !focused && !busy;
   const typing = useTypewriter(examples ?? [], ghost);
   const starting = usePresence(busy);
@@ -558,56 +559,71 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed, examples }: {
           {attachments.uploading ? `Uploading ${attachments.uploading === 1 ? "a file" : `${attachments.uploading} files`}…` : files ? `${files} ${files === 1 ? "file" : "files"} attached` : ""}
         </p>
         <p className="sr-only" role="status">{dictationNote}</p>
-        <div className="composer-bar">
-          <div className="composer-tools">
-            <ModelPicker value={prefs.model} mode={prefs.mode} team={agent && prefs.team} onChange={model => update({ model })} />
-            {showRepo && <RepoSelector value={repo?.full_name ?? null} onChange={setRepo} className="omni-repo" />}
-            <div className="composer-group omni-inline-opts">
-              {effortReason ? (
-                <Tip content={`${effortReason}.`}>
-                  <span className="chip omni-fixed"><Sparkles size={12} aria-hidden="true" />Fixed thinking</span>
-                </Tip>
-              ) : (
-                <EffortRadios value={prefs.effort} onChange={effort => update({ effort })} disabledReason={null} />
-              )}
-              {agent && (
-                <ToolToggle icon={Users} label="Dev Team" pressed={prefs.team} onToggle={() => update({ team: !prefs.team })} blocked={null}
-                  tip="Dev Team: an Architect plans, an Engineer builds and a Reviewer tests, with fix rounds until approved" />
-              )}
-              <ToolToggle icon={Globe} label="Web" pressed={prefs.webSearch} onToggle={() => update({ webSearch: !prefs.webSearch })} blocked={webReason} onBlocked={setNote}
-                tip="Let the agent fetch pages and use the Live Browser and the Research Agent" />
+        {/* Settings in two clusters that wrap as whole groups (where it runs · how it works), then the
+            actions row under a dashed rule. Narrow composers fold "how" next to the actions (pages.css). */}
+        <div className="composer-bar omni-bar">
+          <div className="composer-tools omni-config">
+            <div className="omni-cluster omni-cluster-where" role="group" aria-label="Model and workspace">
+              <ModelPicker value={prefs.model} mode={prefs.mode} team={agent && prefs.team} onChange={model => update({ model })} />
+              {showRepo && <RepoSelector value={repo?.full_name ?? null} onChange={setRepo} className="omni-repo" />}
+              {agent && <EnvironmentPicker choice={envChoice} onChange={setEnvChoice} onEnvironmentsLoaded={setLoadedEnvs} />}
             </div>
-            <OptionsPopover
-              agent={agent}
-              effort={prefs.effort}
-              onEffort={effort => update({ effort })}
-              effortReason={effortReason}
-              team={prefs.team}
-              onTeam={team => update({ team })}
-              web={prefs.webSearch}
-              onWeb={webSearch => update({ webSearch })}
-              webReason={webReason}
-            />
-            <ToolPicker selected={prefs.tools} onChange={tools => update({ tools })} />
-            {agent && <EnvironmentPicker choice={envChoice} onChange={setEnvChoice} onEnvironmentsLoaded={setLoadedEnvs} />}
-            <SkillPicker selected={skillIds} onChange={setSkillIds} onReady={setSkillsReady} />
-            <Tip content={attachBlocked ?? "Attach files, or paste or drop them into the box"}>
-              <button type="button" className="toggle" aria-label="Attach files" aria-disabled={attachBlocked ? true : undefined} onClick={() => (attachBlocked ? setNote(attachBlocked) : attachments.open())}>
-                {storageDown ? <CloudOff size={14} aria-hidden="true" /> : <Paperclip size={14} aria-hidden="true" />}
-                <span className="toggle-label">Attach</span>
-              </button>
-            </Tip>
-            {attachments.picker}
-            <DictationButton onText={insertDictated} onNote={dictationMessage} tip="Dictate: speak your task" />
+            <div className="omni-cluster omni-cluster-how" role="group" aria-label="How it works">
+              <div className="omni-inline-opts">
+                {effortReason ? (
+                  <Tip content={`${effortReason}.`}>
+                    <span className="chip omni-fixed"><Sparkles size={12} aria-hidden="true" />Fixed thinking</span>
+                  </Tip>
+                ) : (
+                  // A visible name: "Low · Medium · High" alone says nothing on a touch screen, where tooltips never show.
+                  <span className="omni-effort-field">
+                    <span className="omni-effort-label" id={effortLabelId}>Thinking</span>
+                    <EffortRadios value={prefs.effort} onChange={effort => update({ effort })} disabledReason={null} labelledBy={effortLabelId} />
+                  </span>
+                )}
+                {agent && (
+                  <ToolToggle icon={Users} label="Dev Team" pressed={prefs.team} onToggle={() => update({ team: !prefs.team })} blocked={null}
+                    tip="Dev Team: an Architect plans, an Engineer builds and a Reviewer tests, with fix rounds until approved" />
+                )}
+                <ToolToggle icon={Globe} label="Web" pressed={prefs.webSearch} onToggle={() => update({ webSearch: !prefs.webSearch })} blocked={webReason} onBlocked={setNote}
+                  tip="Let the agent fetch pages and use the Live Browser and the Research Agent" />
+              </div>
+              <OptionsPopover
+                agent={agent}
+                effort={prefs.effort}
+                onEffort={effort => update({ effort })}
+                effortReason={effortReason}
+                team={prefs.team}
+                onTeam={team => update({ team })}
+                web={prefs.webSearch}
+                onWeb={webSearch => update({ webSearch })}
+                webReason={webReason}
+              />
+              <ToolPicker selected={prefs.tools} onChange={tools => update({ tools })} />
+              <SkillPicker selected={skillIds} onChange={setSkillIds} onReady={setSkillsReady} />
+            </div>
           </div>
-          <div className="composer-send">
-            <span className="composer-hint" aria-hidden="true"><kbd>Enter</kbd> to run · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line</span>
-            <Tip content={runBlocked ?? "Run task"}>
-              <Button type="submit" variant="accent" pill className="omni-run" icon={ArrowUp} busy={busy} aria-disabled={runBlocked ? true : undefined}>
-                <span className="omni-run-label">{busy ? "Starting…" : "Run"}</span>
-                {!busy && <span className="sr-only"> task</span>}
-              </Button>
-            </Tip>
+          <div className="omni-actions">
+            <div className="omni-actions-start">
+              <Tip content={attachBlocked ?? "Attach files, or paste or drop them into the box"}>
+                <button type="button" className="toggle" aria-label="Attach files" aria-disabled={attachBlocked ? true : undefined} onClick={() => (attachBlocked ? setNote(attachBlocked) : attachments.open())}>
+                  {storageDown ? <CloudOff size={14} aria-hidden="true" /> : <Paperclip size={14} aria-hidden="true" />}
+                  <span className="toggle-label">Attach</span>
+                </button>
+              </Tip>
+              {attachments.picker}
+              <DictationButton onText={insertDictated} onNote={dictationMessage} tip="Dictate: speak your task" />
+            </div>
+            <div className="composer-send">
+              {/* Keyboard hints only where Enter runs the task: on touch screens Enter is a new line. */}
+              {!coarse && <span className="composer-hint" aria-hidden="true"><kbd>Enter</kbd> to run · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line</span>}
+              <Tip content={runBlocked ?? "Run task"}>
+                <Button type="submit" variant="accent" pill className="omni-run" icon={ArrowUp} busy={busy} aria-disabled={runBlocked ? true : undefined}>
+                  <span className="omni-run-label">{busy ? "Starting…" : "Run"}</span>
+                  {!busy && <span className="sr-only"> task</span>}
+                </Button>
+              </Tip>
+            </div>
           </div>
         </div>
         {starting.mounted && (

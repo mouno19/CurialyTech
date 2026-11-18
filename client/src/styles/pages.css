@@ -38,6 +38,13 @@
 .pg-statusline { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-height: 32px; margin-bottom: 12px; font-size: 12.5px; color: var(--text-3); }
 .pg-statusline > p { flex: 1 1 auto; min-width: 0; }
 .pg-refresh-note { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; }
+/* Phones: the count and refresh share the top line and the polling note goes underneath, so the
+   refresh button never wraps onto a line of its own. */
+@media (max-width: 639.98px) {
+  .pg-statusline > p { order: 1; }
+  .pg-statusline > .icon-btn { order: 2; margin-left: auto; }
+  .pg-refresh-note { order: 3; flex: 1 1 100%; }
+}
 .pg-notice { margin-bottom: 14px; }
 
 .pg-skeleton { padding: 2px 0; }
@@ -106,22 +113,37 @@
    ============================================================================================= */
 
 .omni { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.omni-composer .composer-head { padding: 10px 12px 10px 16px; }
+.omni-composer .composer-head { padding: 12px 14px 12px 18px; }
 .omni-eyebrow { gap: 9px; }
 .omni-mode > [role="radio"] { padding: 0 12px 0 10px; }
 .omni-model-spark { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--vermilion); }
 .omni-model-menu { width: 300px; }
-.omni-inline-opts { flex-wrap: wrap; }
+/* The prompt gets room to breathe: a taller box with the same inset as the head and the bar. */
+.omni-composer .composer-input { min-height: 100px; padding: 18px 20px 10px; }
+
+/* Bar: the settings (two clusters, "where it runs" and "how it works", that wrap as whole groups so
+   a row never starts with a stray divider), then the actions row under a dashed rule that mirrors
+   the head's. */
+.composer-bar.omni-bar { flex-direction: column; align-items: stretch; gap: 0; padding: 4px 16px 14px; }
+.composer-tools.omni-config { flex: none; gap: 10px 20px; }
+.omni-cluster { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
+.omni-inline-opts { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.omni-effort-field { display: inline-flex; align-items: center; gap: 8px; }
+.omni-effort-label { font: 500 10.5px/1 var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-3); white-space: nowrap; }
+.omni-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--border); }
+.omni-actions-start { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
 /* A model without an adjustable thinking level: a plain label instead of a disabled control. */
 .omni-fixed { height: 30px; border-style: dashed; background: transparent; color: var(--text-2); }
 .omni-repo .pick-label { max-width: 22ch; }
 .repo-picker { display: inline-flex; align-items: center; gap: 2px; min-width: 0; max-width: 100%; }
 .repo-trigger { font-family: var(--font-mono); font-size: 11.5px; font-weight: 500; }
+/* Mono is for repository names: the empty "Repository" label reads like the controls beside it. */
+.repo-picker:not([data-selected]) .repo-trigger { font-family: inherit; font-size: 12.5px; font-weight: 550; }
 .repo-picker[data-selected] .repo-trigger { border-color: var(--ink-soft); background: var(--card); }
 .repo-clear { flex: none; }
 
 /* Run: vermilion pill with ink text (the kit's accent button). */
-.btn.omni-run { padding: 0 16px 0 13px; }
+.btn.omni-run { height: 38px; padding: 0 20px 0 15px; font-size: 13.5px; }
 .omni-run-label { white-space: nowrap; }
 
 /* Narrow composers move thinking level, Dev Team and Web into one Options popover. */
@@ -149,7 +171,7 @@
 
 /* Typing examples over the empty composer (the textarea's own placeholder hides meanwhile). */
 .omni-field { position: relative; }
-.omni-ghost { position: absolute; inset: 0; overflow: hidden; padding: 14px 18px 6px; color: var(--text-3); font-size: 15.5px; line-height: 1.55; pointer-events: none; }
+.omni-ghost { position: absolute; inset: 0; overflow: hidden; padding: 18px 20px 10px; color: var(--text-3); font-size: 15.5px; line-height: 1.55; pointer-events: none; }
 .omni-composer[data-ghost] .composer-input::placeholder { color: transparent; }
 @media (forced-colors: active) { .omni-ghost { display: none; } .omni-composer[data-ghost] .composer-input::placeholder { color: GrayText; } }
 .omni-slash { margin: 0 10px 0 auto; font-size: 11.5px; color: var(--text-3); white-space: nowrap; }
@@ -166,14 +188,24 @@
 @container composer (max-width: 640px) {
   .omni-composer .pick-label { max-width: 16ch; }
   .omni-slash { display: none; }
+  .omni-composer .composer-input { min-height: 96px; padding: 16px 16px 8px; }
+  .omni-ghost { padding: 16px 16px 8px; }
+  .composer-bar.omni-bar { padding-inline: 12px; }
 }
 @container composer (max-width: 440px) {
   .omni-composer .composer-head { padding-inline: 12px 10px; }
   .omni-inline-opts { display: none; }
   .omni-opts-trigger { display: inline-flex; }
   .omni-composer .pick-label { max-width: 11ch; }
-  .btn.omni-run { width: 40px; height: 40px; padding: 0; gap: 0; border-radius: 50%; }
+  .omni-bar .btn.omni-run { width: 42px; height: 42px; padding: 0; gap: 0; border-radius: 50%; }
   .omni-run-label { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+  /* Two rows instead of three: the pickers on top, then the icon controls beside Run. */
+  .composer-bar.omni-bar { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 10px 8px; padding: 2px 12px 12px; }
+  .omni-config, .omni-actions { display: contents; }
+  .omni-cluster-where { flex: 1 1 100%; padding-bottom: 10px; border-bottom: 1px dashed var(--border); }
+  .omni-actions-start .toggle > .toggle-label { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+  .omni-actions-start .toggle:has(> .toggle-label) { width: 40px; padding: 0; justify-content: center; }
+  .omni-bar .composer-send { margin-left: auto; }
 }
 
 /* Attachment tray (lib/useAttachments renders it in both composers). */
@@ -197,14 +229,29 @@
 .att-chip > button:hover { background: var(--press); color: var(--text); }
 .att-chip > button:focus-visible { outline-offset: 0; }
 
-/* Phones: 40px targets for pickers and tray controls. */
-@media (max-width: 639.98px) {
+/* Phones and touch screens of any width (tablets, a phone showing the desktop site): 40px targets
+   for pickers and tray controls. */
+@media (max-width: 639.98px), (pointer: coarse) {
   .pick-trigger { height: 40px; }
   .combo-option { min-height: 44px; }
   .att-chip { height: 40px; }
   .att-chip > img { width: 30px; height: 30px; }
   .att-chip > button { width: 34px; height: 34px; }
   .att-chip > button::after { content: ""; position: absolute; inset: -3px; }
+  .omni-fixed { height: 40px; }
+  .btn.omni-run { height: 42px; }
+  .omni-composer .composer-input { font-size: 16px; }
+  .omni-ghost { font-size: 16px; }
+}
+/* Touch screens from 640px (tablets, a phone showing the desktop site): one 44px row height for
+   every control in the bar, so pickers, the thinking pill and the toggles line up. */
+@media (pointer: coarse) and (min-width: 640px) {
+  .omni-bar :is(.toggle, .pick-trigger, .omni-fixed) { height: 44px; min-height: 44px; }
+  .omni-bar .segmented > [role="radio"] { height: 38px; padding-inline: 13px; }
+  .omni-bar .btn.omni-run { height: 44px; }
+  @container composer (max-width: 640px) {
+    .omni-config .toggle:has(> .toggle-label) { width: 44px; }
+  }
 }
 
 /* =============================================================================================
@@ -324,7 +371,11 @@ a.dash-stat:hover .dash-stat-hint { color: var(--text-3-sunk); }
 .recent-prompt { font-size: 13.5px; font-weight: 500; line-height: 1.45; }
 .recent-note { font-size: 12.5px; line-height: 1.45; color: var(--text-2); }
 .recent-meta { display: flex; flex-wrap: wrap; gap: 2px 0; font-size: 12px; color: var(--text-3); }
-.recent-meta > span + span::before, .tasks-card-meta > span + span::before { content: "·"; margin: 0 7px; color: var(--border-strong); }
+/* Every item carries its "·" in the gap to its left; the row is shifted left by one gap and that
+   strip is clipped, so the first item of each line (wrapped or not) never starts with a dot. */
+.recent-meta, .tasks-card-meta { --meta-gap: 16px; margin-left: calc(-1 * var(--meta-gap)); clip-path: inset(0 0 0 var(--meta-gap)); }
+.recent-meta > span, .tasks-card-meta > span { position: relative; margin-left: var(--meta-gap); }
+.recent-meta > span::before, .tasks-card-meta > span::before { content: "·"; position: absolute; top: 0; left: calc(-1 * var(--meta-gap)); width: var(--meta-gap); text-align: center; color: var(--border-strong); }
 .recent-time { grid-area: time; padding-top: 2px; font: 12px/1.4 var(--font-mono); color: var(--text-3); white-space: nowrap; }
 .recent-row:hover :is(.recent-meta, .recent-time) { color: var(--text-3-sunk); }
 @container page (max-width: 640px) {
@@ -370,7 +421,8 @@ a.dash-stat:hover .dash-stat-hint { color: var(--text-3-sunk); }
 .tasks-card-prompt { font-size: 14px; font-weight: 500; line-height: 1.45; }
 .tasks-card .tasks-note { font-size: 12.5px; line-height: 1.45; }
 .tasks-card-meta { display: flex; flex-wrap: wrap; gap: 2px 0; min-width: 0; font-size: 12px; color: var(--text-3); }
-.tasks-card-meta > .truncate { max-width: 100%; }
+/* The repository truncates inside its own box, so the "·" before it (outside that box) stays. */
+.tasks-card-meta > .tasks-card-repo { display: inline-flex; min-width: 0; max-width: calc(100% - var(--meta-gap)); }
 
 /* The table needs ~840px: it shows on desktops whose page area is wide enough (the sidebar may be
    expanded or a rail), the card list everywhere else. */

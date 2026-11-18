@@ -525,8 +525,10 @@ input[type="checkbox"], input[type="radio"] { width: 16px; height: 16px; margin:
 [data-sonner-toaster] [data-sonner-toast].toast [data-button] { height: 28px; padding: 0 10px; border-radius: 7px; font-weight: 600; }
 [data-sonner-toaster] [data-sonner-toast].toast :focus-visible { outline: 2px solid var(--paper); outline-offset: 2px; box-shadow: none; }
 
-/* ---------- Touch targets: 40px minimum on phones ---------- */
-@media (max-width: 639.98px) {
+/* ---------- Touch targets: 40px minimum on phones and on touch screens of any width ----------
+   A tablet, or a phone showing the desktop site (a ~980px page scaled down), has no mouse either:
+   30px controls there shrink to a few millimetres under the finger. */
+@media (max-width: 639.98px), (pointer: coarse) {
   .btn, .btn.sm { min-height: 40px; }
   /* Stand-alone text actions ("Show the full prompt") get a full-height hit area too. */
   .btn.link { min-height: 40px; }
