@@ -63,6 +63,11 @@ export function buildPlan(fx, { viewports = VIEWPORTS, only = null } = {}) {
     { id: "media", path: "/media" },
     { id: "integrations", path: "/integrations" },
     { id: "skills", path: "/skills" },
+    // Import a skill: pasted SKILL.md read as typed; a link that finds three skills (one too long), its procedure previewed.
+    { id: "skills-import-paste", path: "/skills", action: "skills-import-paste" },
+    { id: "skills-import-link", path: "/skills", action: "skills-import-link" },
+    // A SKILL.md dropped on the composer: attach it as context, or save it as a skill and apply it.
+    { id: "dashboard-skill-drop", path: "/", action: "skill-drop" },
     { id: "support", path: "/support" },
     { id: "keys", path: "/keys" },
     // The operator's dashboard (accounts, promo codes, settings).
@@ -121,7 +126,7 @@ export function buildPlan(fx, { viewports = VIEWPORTS, only = null } = {}) {
   // The dark theme (the device asks for it: the page follows): every kind of page once wide and once
   // on a phone, and the theme menu itself (opened, never changed: a check never stores a theme).
   const DARK = new Set(["dashboard", "tasks", "task-completed", "task-running", "task-search", "task-sourced", "sandbox", "media", "media-pro", "media-full", "media-select", "media-delete-all",
-    "integrations", "skills", "support", "keys", "admin", "login", "home", "not-found", "billing", "pay-usdt", "pay-review", "developer", "admin-payments", "admin-order", "credits-dialog"]);
+    "integrations", "skills", "skills-import-link", "support", "keys", "admin", "login", "home", "not-found", "billing", "pay-usdt", "pay-review", "developer", "admin-payments", "admin-order", "credits-dialog"]);
   const darkPages = [...pages, ...vault, ...billing].filter(page => DARK.has(page.id));
   const darkViewports = [viewports.find(viewport => viewport.width >= 1440) ?? viewports[0], viewports.find(viewport => viewport.width > 360 && viewport.width <= PHONE_MAX) ?? viewports[viewports.length - 1]];
   for (const viewport of darkViewports.filter(Boolean)) {

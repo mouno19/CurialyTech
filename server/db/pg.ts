@@ -802,6 +802,14 @@ const MIGRATIONS: { id: number; sql: string }[] = [
       ALTER TABLE curialy.scheduled_tasks ADD COLUMN IF NOT EXISTS environment_id uuid REFERENCES curialy.compute_environments(id) ON DELETE SET NULL;
     `,
   },
+  {
+    id: 28,
+    sql: `
+      -- Saved skills hold whole imported SKILL.md procedures (up to 30,000 characters; SAVED_SKILL_LIMITS.body).
+      ALTER TABLE curialy.user_skills DROP CONSTRAINT IF EXISTS user_skills_body_len;
+      ALTER TABLE curialy.user_skills ADD CONSTRAINT user_skills_body_len CHECK (char_length(body) BETWEEN 1 AND 30000);
+    `,
+  },
 ];
 
 export async function migrate() {

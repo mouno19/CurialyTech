@@ -1,6 +1,7 @@
 import type { AgentTaskSummary, CreateTaskRequest, ModelSpec, QueuedMessage, StatusReason, TaskQueue, TaskStatus } from "@shared/agent";
 import type { ScheduledTask, ScheduleInput } from "@shared/schedules";
 import type { SavedSkill } from "@shared/skills";
+import type { SkillImportResponse } from "@shared/skill-parser";
 import type { ApiKeyInfo } from "@shared/gateway";
 import type { CreditBalance, CreditSettings, RewardsState } from "@shared/credits";
 import type { DeploymentState } from "@shared/taskStatus";
@@ -230,6 +231,16 @@ export const agentApi = {
   saveSkill: (body: { name: string; body: string }) => api<{ skill: SavedSkill }>("/api/agent/skills", { method: "POST", json: body }),
   updateSkill: (id: string, body: { name: string; body: string }) => api<{ skill: SavedSkill }>(`/api/agent/skills/${enc(id)}`, { method: "PATCH", json: body }),
   deleteSkill: (id: string) => api<{ deleted: true }>(`/api/agent/skills/${enc(id)}`, { method: "DELETE" }),
+  /** Read skills from a link, pasted text or a file (.md, .txt, .yaml, .zip) to review; autoSave saves them at once. */
+  importSkills: (source: { url: string } | { content: string; filename?: string } | { file: File }, autoSave = false) => {
+    if ("file" in source) {
+      const form = new FormData();
+      form.append("file", source.file, source.file.name);
+      if (autoSave) form.append("autoSave", "true");
+      return api<SkillImportResponse>("/api/agent/skills/import", { method: "POST", body: form });
+    }
+    return api<SkillImportResponse>("/api/agent/skills/import", { method: "POST", json: { ...source, ...(autoSave ? { autoSave: true } : {}) } });
+  },
   stats: () => api<TaskStats>("/api/agent/stats"),
 
   tasks: () => api<{ tasks: AgentTaskSummary[] }>("/api/agent/tasks"),

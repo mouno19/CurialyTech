@@ -1,10 +1,12 @@
 import { useEffect, useState, type FormEvent } from "react";
 import type { LucideIcon } from "lucide-react";
-import { BarChart3, Brain, Check, CircleDashed, Code2, FileText, PenLine, Search } from "lucide-react";
-import { SAVED_SKILL_LIMITS, SKILLS, type SavedSkill } from "@shared/skills";
+import { BarChart3, Brain, Check, CircleDashed, Code2, Download, FileText, PenLine, Search } from "lucide-react";
+import { SAVED_SKILL_LIMITS, SKILLS } from "@shared/skills";
 import { Button } from "@/components/common/Button";
 import { AppShell } from "@/components/shell/AppShell";
+import { ImportSkillDialog } from "@/components/skills/ImportSkillDialog";
 import { agentApi, errorMessage } from "@/lib/api";
+import { forgetSavedSkill, refreshSavedSkills, rememberSavedSkills, useSavedSkills } from "@/lib/savedSkills";
 
 const ICONS: Record<string, LucideIcon> = { search: Search, code: Code2, brain: Brain, chart: BarChart3, pen: PenLine, file: FileText };
 
@@ -25,24 +27,20 @@ const STATUS = {
 
 export default function Skills() {
   const live = SKILLS.filter(skill => RUNTIME[skill.id]?.status === "live").length;
-  const [skills, setSkills] = useState<SavedSkill[] | null>(null);
+  // Shared with the composers' Skills menus: what is saved or imported here is listed there at once.
+  const { skills, error: listError } = useSavedSkills();
+  const loadError = skills ? null : listError;
+  const [importing, setImporting] = useState(false);
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const [name, setName] = useState("");
   const [body, setBody] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const atLimit = (skills?.length ?? 0) >= SAVED_SKILL_LIMITS.maxPerAccount && !editing;
 
-  useEffect(() => {
-    let live = true;
-    agentApi.skills().then(
-      result => { if (live) setSkills(result.skills); },
-      failure => { if (live) setLoadError(errorMessage(failure, "Couldn't load your skills.")); },
-    );
-    return () => { live = false; };
-  }, []);
+  useEffect(() => { void refreshSavedSkills(); }, []);
 
   const reset = () => {
     setEditing(null);
@@ -58,7 +56,7 @@ export default function Skills() {
     setError(null);
     try {
       const saved = editing ? await agentApi.updateSkill(editing, { name, body }) : await agentApi.saveSkill({ name, body });
-      setSkills(current => [saved.skill, ...(current ?? []).filter(skill => skill.id !== saved.skill.id)]);
+      rememberSavedSkills(saved.skill);
       reset();
     } catch (failure) {
       setError(errorMessage(failure, "Couldn't save that skill."));
@@ -71,7 +69,7 @@ export default function Skills() {
     setError(null);
     try {
       await agentApi.deleteSkill(id);
-      setSkills(current => (current ?? []).filter(skill => skill.id !== id));
+      forgetSavedSkill(id);
       if (editing === id) reset();
       setConfirming(null);
     } catch (failure) {
@@ -87,9 +85,13 @@ export default function Skills() {
             <div>
               <span className="eyebrow">Capabilities</span>
               <h2 className="page-title">Skill Store</h2>
-              <p className="page-sub">Save a procedure once and attach it to any task. Below that, the built-in capabilities and how each one runs. {live === SKILLS.length ? `All ${SKILLS.length} are available.` : `${live} of ${SKILLS.length} are fully available; partial ones work with the limits noted.`}</p>
+              <p className="page-sub">Save a procedure once, or import one from a file, a GitHub or web link, or pasted text, and attach it to any task. Below that, the built-in capabilities and how each one runs. {live === SKILLS.length ? `All ${SKILLS.length} are available.` : `${live} of ${SKILLS.length} are fully available; partial ones work with the limits noted.`}</p>
+            </div>
+            <div className="page-head-actions">
+              <Button variant="primary" icon={Download} onClick={() => setImporting(true)}>Import skill</Button>
             </div>
           </header>
+          <ImportSkillDialog open={importing} onOpenChange={setImporting} room={SAVED_SKILL_LIMITS.maxPerAccount - (skills?.length ?? 0)} />
 
           <section className="saved-skills" aria-labelledby="your-skills">
             <div>
@@ -104,8 +106,8 @@ export default function Skills() {
               </label>
               <label className="field">
                 <span className="field-label" id="saved-skill-body-label">Procedure</span>
-                <textarea id="saved-skill-body" className="textarea" aria-labelledby="saved-skill-body-label" value={body} maxLength={SAVED_SKILL_LIMITS.body} disabled={atLimit || saving} rows={5} placeholder="Run pnpm test. Describe a pull request by the change a reviewer can see. Leave server/billing alone." onChange={event => setBody(event.target.value)} />
-                <span className="field-hint">{body.trim().length} / {SAVED_SKILL_LIMITS.body}</span>
+                <textarea id="saved-skill-body" className="textarea" aria-labelledby="saved-skill-body-label" value={body} maxLength={SAVED_SKILL_LIMITS.body} disabled={atLimit || saving} rows={editing && body.length > 600 ? 14 : 5} placeholder="Run pnpm test. Describe a pull request by the change a reviewer can see. Leave server/billing alone." onChange={event => setBody(event.target.value)} />
+                <span className="field-hint">{body.trim().length.toLocaleString("en-US")} / {SAVED_SKILL_LIMITS.body.toLocaleString("en-US")}</span>
               </label>
               {atLimit && <p className="field-hint">You can save {SAVED_SKILL_LIMITS.maxPerAccount} skills. Edit or delete one to add another.</p>}
               {error && <p className="field-error" role="alert">{error}</p>}
@@ -114,14 +116,19 @@ export default function Skills() {
                 {editing && <Button variant="ghost" onClick={reset}>Cancel</Button>}
               </div>
             </form>
-            {skills && skills.length === 0 && <p className="saved-skills-copy">None yet. Once you save one, it can be attached to the next task.</p>}
+            {skills && skills.length === 0 && <p className="saved-skills-copy">None yet. Write one above, or import a SKILL.md. Once saved, it can be attached to the next task.</p>}
             {skills && skills.length > 0 && (
               <ul className="card saved-skill-list">
                 {skills.map(skill => (
                   <li key={skill.id} className="saved-skill">
                     <h4 className="saved-skill-name">{skill.name}</h4>
-                    <p className="saved-skill-body">{skill.body}</p>
+                    <p className={`saved-skill-body${skill.body.length > 400 && !expanded.has(skill.id) ? " clamped" : ""}`}>{skill.body}</p>
                     <div className="saved-skill-actions">
+                      {skill.body.length > 400 && (
+                        <Button size="sm" variant="ghost" aria-expanded={expanded.has(skill.id)} onClick={() => setExpanded(current => { const next = new Set(current); if (!next.delete(skill.id)) next.add(skill.id); return next; })}>
+                          {expanded.has(skill.id) ? "Show less" : `Show all (${skill.body.length.toLocaleString("en-US")} characters)`}
+                        </Button>
+                      )}
                       <Button size="sm" variant="ghost" onClick={() => { setEditing(skill.id); setName(skill.name); setBody(skill.body); setConfirming(null); setError(null); }}>Edit</Button>
                       {confirming === skill.id ? (
                         <>

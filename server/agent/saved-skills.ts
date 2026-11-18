@@ -29,11 +29,13 @@ function skillName(raw: string) {
   return cleanText(raw).replace(/[\r\n\t]+/g, " ").replace(/ {2,}/g, " ").trim();
 }
 
+const count = (value: number) => value.toLocaleString("en-US");
+
 function assertText(name: string, body: string) {
   if (!name) throw new SavedSkillError("Name the skill.");
   if (name.length > SAVED_SKILL_LIMITS.name) throw new SavedSkillError(`Keep the name under ${SAVED_SKILL_LIMITS.name} characters.`);
   if (!body) throw new SavedSkillError("Write the procedure.");
-  if (body.length > SAVED_SKILL_LIMITS.body) throw new SavedSkillError(`Keep the procedure under ${SAVED_SKILL_LIMITS.body} characters.`);
+  if (body.length > SAVED_SKILL_LIMITS.body) throw new SavedSkillError(`Keep the procedure under ${count(SAVED_SKILL_LIMITS.body)} characters (this one has ${count(body.length)}).`);
 }
 
 /** Ids in request order, duplicates removed. strict rejects anything that is not a uuid or past the cap. */
@@ -85,8 +87,8 @@ export async function saveSavedSkill(userId: string, input: { id?: string; name:
     const { rows: owned } = await query<{ id: string }>("SELECT id FROM curialy.user_skills WHERE id = $1 AND user_id = $2", [input.id, userId]);
     throw new SavedSkillError(owned[0] ? "You already have a skill with that name." : "That skill is not on this account.", owned[0] ? 400 : 404);
   }
-  const { rows: count } = await query<{ n: number | string }>("SELECT count(*)::int AS n FROM curialy.user_skills WHERE user_id = $1", [userId]);
-  if (Number(count[0]?.n ?? 0) >= SAVED_SKILL_LIMITS.maxPerAccount) throw new SavedSkillError(`You can save ${SAVED_SKILL_LIMITS.maxPerAccount} skills.`);
+  const { rows: held } = await query<{ n: number | string }>("SELECT count(*)::int AS n FROM curialy.user_skills WHERE user_id = $1", [userId]);
+  if (Number(held[0]?.n ?? 0) >= SAVED_SKILL_LIMITS.maxPerAccount) throw new SavedSkillError(`You can save ${SAVED_SKILL_LIMITS.maxPerAccount} skills. Delete one to add another.`);
   try {
     const { rows } = await query<SkillRow>(
       `INSERT INTO curialy.user_skills (user_id, name, body)
@@ -133,13 +135,42 @@ export async function replaceTaskSkills(taskId: string, userId: string, ids: str
   return skills;
 }
 
-/** System text for the attached procedures. Empty when the task has none. */
-export function renderSavedSkills(skills: { name: string; body: string }[]) {
+/** The first `limit` characters of a procedure, ending at a line break when one is near. */
+function cutProcedure(body: string, limit: number) {
+  const cut = body.slice(0, limit);
+  const line = cut.lastIndexOf("\n");
+  return (line > limit * 0.8 ? cut.slice(0, line) : cut).trimEnd();
+}
+
+/**
+ * The attached skills as a run carries them: all of them together within SAVED_SKILL_LIMITS.promptChars.
+ * Short ones are whole; when they don't all fit, the longer ones share what is left equally and are
+ * cut there, with a line saying so (shortened: true).
+ */
+export function fitSavedSkills(skills: { name: string; body: string }[]) {
   const kept = skills
     .slice(0, SAVED_SKILL_LIMITS.maxPerTask)
     .map(skill => ({ name: skill.name.trim().slice(0, SAVED_SKILL_LIMITS.name), body: skill.body.trim().slice(0, SAVED_SKILL_LIMITS.body) }))
     .filter(skill => skill.name && skill.body);
+  const allowed = new Array<number>(kept.length);
+  let left = SAVED_SKILL_LIMITS.promptChars;
+  let waiting = kept.length;
+  for (const index of kept.map((_, i) => i).sort((a, b) => kept[a].body.length - kept[b].body.length)) {
+    allowed[index] = Math.min(kept[index].body.length, Math.floor(left / waiting));
+    left -= allowed[index];
+    waiting--;
+  }
+  return kept.map((skill, index) => {
+    if (allowed[index] >= skill.body.length) return { ...skill, shortened: false };
+    const shown = cutProcedure(skill.body, allowed[index]);
+    return { name: skill.name, body: `${shown}\n\n[This skill was shortened to fit this task: the first ${count(shown.length)} of its ${count(skill.body.length)} characters are above.]`, shortened: true };
+  });
+}
+
+/** System text for the attached procedures. Empty when the task has none. */
+export function renderSavedSkills(skills: { name: string; body: string }[]) {
+  const kept = fitSavedSkills(skills);
   if (!kept.length) return "";
   const blocks = kept.map(skill => `### ${skill.name}\n${skill.body}`);
-  return `Saved skills for this task. The user wrote these procedures and asked you to follow them here, including when this task has no repository note:\n\n${blocks.join("\n\n")}`;
+  return `Saved skills for this task. The user saved these procedures (written or imported) and asked you to follow them here, including when this task has no repository note:\n\n${blocks.join("\n\n")}`;
 }

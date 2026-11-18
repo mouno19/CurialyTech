@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { Bookmark } from "lucide-react";
 import { Link } from "wouter";
-import { SAVED_SKILL_LIMITS, type SavedSkill } from "@shared/skills";
+import { SAVED_SKILL_LIMITS } from "@shared/skills";
 import { Tip } from "@/components/common/Tooltip";
 import { POPOVER_COLLISION } from "@/components/RepoSelector";
-import { agentApi } from "@/lib/api";
+import { refreshSavedSkills, useSavedSkills } from "@/lib/savedSkills";
 
 const STORAGE_KEY = "curialy.skills.attached";
 
@@ -33,21 +33,13 @@ export function SkillPicker({ selected, onChange, onReady }: {
   /** True once this account's skills have loaded, so the task can be saved with this set. */
   onReady: (ready: boolean) => void;
 }) {
-  const [skills, setSkills] = useState<SavedSkill[] | null>(null);
-  const [failed, setFailed] = useState(false);
+  // Shared with the Skill Store and other composers: a skill saved or imported anywhere is listed here at once.
+  const { skills, error } = useSavedSkills();
+  const failed = Boolean(error) && !skills;
   const onChangeRef = useRef(onChange);
   const onReadyRef = useRef(onReady);
   onChangeRef.current = onChange;
   onReadyRef.current = onReady;
-
-  useEffect(() => {
-    let live = true;
-    agentApi.skills().then(
-      result => { if (live) setSkills(result.skills); },
-      () => { if (live) setFailed(true); },
-    );
-    return () => { live = false; };
-  }, []);
 
   useEffect(() => {
     if (!skills) return;
@@ -66,7 +58,7 @@ export function SkillPicker({ selected, onChange, onReady }: {
   const full = count >= SAVED_SKILL_LIMITS.maxPerTask;
 
   return (
-    <Popover.Root>
+    <Popover.Root onOpenChange={open => { if (open) void refreshSavedSkills(); }}>
       <Tip content="Attach saved skills: procedures you wrote for how this account works">
         <Popover.Trigger asChild>
           <button type="button" className="toggle skill-pick" aria-label={count ? `Skills, ${count} attached` : "Skills"}>
@@ -94,7 +86,7 @@ export function SkillPicker({ selected, onChange, onReady }: {
                       <input type="checkbox" checked={on} disabled={!on && full} onChange={() => toggle(skill.id)} />
                       <span>
                         <span className="skill-pick-name">{skill.name}</span>
-                        <span className="skill-pick-body">{skill.body}</span>
+                        <span className="skill-pick-body">{skill.body.slice(0, 240)}</span>
                       </span>
                     </label>
                   </li>

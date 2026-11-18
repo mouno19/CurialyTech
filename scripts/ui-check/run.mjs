@@ -299,6 +299,33 @@ async function act(page, check, record) {
         { name: "brand-notes.md", mimeType: "text/markdown", buffer: Buffer.from("# Brand notes\n") },
       ], { timeout: 6000 });
       await page.locator(".vault-uploads-title", { hasText: "3 files uploaded, 1 not" }).first().waitFor({ state: "visible", timeout: 10_000 });
+    } else if (check.action === "skills-import-paste" || check.action === "skills-import-link") {
+      await page.getByRole("button", { name: "Import skill" }).first().click({ timeout: 6000 });
+      const dialog = page.getByRole("dialog", { name: "Import a skill" }).first();
+      await dialog.waitFor({ state: "visible", timeout: 5000 });
+      if (check.action === "skills-import-paste") {
+        await dialog.getByRole("tab", { name: /Paste text/ }).click({ timeout: 5000 });
+        await dialog.locator("textarea.skill-paste").fill("---\nname: release-notes\ndescription: Write release notes from merged pull requests. Use when the user asks for a changelog.\nversion: 1.2.0\n---\n\n# Release notes\n\n1. List the pull requests merged since the last tag.\n2. Group them by area: **features**, **fixes**, **chores**.\n3. Write one line per change, in the past tense.\n", { timeout: 5000 });
+        await dialog.locator(".skill-review-card input.input").first().waitFor({ state: "visible", timeout: 5000 });
+      } else {
+        await dialog.getByRole("tab", { name: /From GitHub or the web/ }).click({ timeout: 5000 });
+        await dialog.getByRole("textbox", { name: "Link" }).fill("github.com/acme/agent-kit/tree/main/skills", { timeout: 5000 });
+        await dialog.getByRole("button", { name: /Inspect & import/ }).click({ timeout: 5000 });
+        await dialog.locator(".skill-review-list").first().waitFor({ state: "visible", timeout: 8000 });
+        await dialog.getByRole("radio", { name: "Preview" }).click({ timeout: 5000 });
+        await dialog.locator(".skill-review-preview .markdown").first().waitFor({ state: "visible", timeout: 5000 });
+      }
+    } else if (check.action === "skill-drop") {
+      // A drop, as the browser delivers one: a DataTransfer with a SKILL.md, on the composer.
+      await page.locator("form.omni-composer").first().waitFor({ state: "visible", timeout: 8000 });
+      await page.evaluate(() => {
+        const form = document.querySelector("form.omni-composer");
+        const data = new DataTransfer();
+        data.items.add(new File(["---\nname: code-review\ndescription: Review a diff before it is merged.\n---\n\nRead the whole diff first."], "SKILL.md", { type: "text/markdown" }));
+        form.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: data }));
+        form.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: data }));
+      });
+      await page.locator(".omni-skill-drop").first().waitFor({ state: "visible", timeout: 5000 });
     } else if (check.action === "theme-menu") {
       // The sidebar's Theme item (in the navigation drawer below 1024px), behind the footer's profile row; opened, not changed.
       const scope = await openSidebarFoot(page);

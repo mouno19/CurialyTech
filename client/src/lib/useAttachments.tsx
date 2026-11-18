@@ -43,7 +43,8 @@ function named(file: File) {
   return new File([file], `screenshot-${stamp()}.${ext}`, { type: file.type });
 }
 
-export function useAttachments() {
+/** intercept: dropped files go through it first; it returns the ones to attach (the composer takes skill files aside). */
+export function useAttachments({ intercept }: { intercept?: (files: File[]) => File[] } = {}) {
   const [files, setFiles] = useState<PendingAttachment[]>([]);
   const [uploading, setUploading] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -139,7 +140,9 @@ export function useAttachments() {
       if (!event.dataTransfer?.files.length) return;
       event.preventDefault();
       setDragging(false);
-      void add(event.dataTransfer.files);
+      const dropped = Array.from(event.dataTransfer.files);
+      const rest = intercept ? intercept(dropped) : dropped;
+      if (rest.length) void add(rest);
     },
   };
 

@@ -6,6 +6,7 @@ import path from "node:path";
 import express from "express";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createSpeechReader, SPEECH_MEDIA_TYPE } from "@shared/voice";
+import { zip } from "./testing/zip";
 
 // The agent API mounted on an in-process server (127.0.0.1, ephemeral port), with the database and
 // file storage replaced: what status codes and bodies the client gets when storage misbehaves.
@@ -527,6 +528,75 @@ describe("the vault limit on uploads", () => {
     answerVault(vaultRow({ plan_id: "max", plan_expires_at: later() }));
     expect((await (await fetch(`${base}/media`, { headers: OTHER })).json()).maxUploadBytes).toBe(100 * MB);
     expect((await (await fetch(`${base}/media`)).json()).maxUploadBytes).toBe(100 * MB);
+  });
+});
+
+describe("POST /skills/import", () => {
+  const SKILL_MD = "---\r\nname: release-notes\r\ndescription: Write release notes from merged pull requests.\r\n---\r\n\r\n1. List the merged pull requests.\r\n";
+  const asJson = (body: unknown) => fetch(`${base}/skills/import`, { method: "POST", headers: { "content-type": "application/json", ...OTHER }, body: JSON.stringify(body) });
+  const asFile = (name: string, data: Buffer | string, extra: Record<string, string> = {}) => {
+    const form = new FormData();
+    form.append("file", new Blob([data]), name);
+    for (const [key, value] of Object.entries(extra)) form.append(key, value);
+    return fetch(`${base}/skills/import`, { method: "POST", headers: OTHER, body: form });
+  };
+  const inserts = () => db.calls.filter(call => call.text.includes("INSERT INTO curialy.user_skills"));
+  const savingRows = () => {
+    let n = 0;
+    db.handler = call => (call.text.includes("INSERT INTO curialy.user_skills")
+      ? { rows: [{ id: `50000000-0000-4000-8000-00000000000${++n}`, name: call.values[1], body: call.values[2], updated_at: new Date("2026-11-18T12:00:00Z") }] }
+      : { rows: [], rowCount: 0 });
+  };
+
+  it("reads pasted SKILL.md text into a preview and saves nothing", async () => {
+    const response = await asJson({ content: SKILL_MD });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      skills: [{ name: "Release notes", description: "Write release notes from merged pull requests.", body: "Write release notes from merged pull requests.\n\n1. List the merged pull requests.", chars: 81, fits: true }],
+      skipped: 0,
+    });
+    expect(inserts()).toHaveLength(0);
+  });
+
+  it("reads an uploaded SKILL.md and a .zip of skills, and refuses other files", async () => {
+    const one = await asFile("SKILL.md", SKILL_MD);
+    expect(one.status).toBe(200);
+    expect((await one.json()).skills.map((skill: { name: string }) => skill.name)).toEqual(["Release notes"]);
+    const archive = zip({ "kit/review/SKILL.md": "# Review\nRead the diff.", "kit/deploy/SKILL.md": "# Deploy\nShip it.", "kit/deploy/run.sh": "echo hi" }, 8);
+    const many = await asFile("kit.zip", archive);
+    expect((await many.json()).skills.map((skill: { name: string; source: string }) => [skill.name, skill.source])).toEqual([["Deploy", "kit/deploy/SKILL.md"], ["Review", "kit/review/SKILL.md"]]);
+    const other = await asFile("tool.exe", "MZ");
+    expect(other.status).toBe(415);
+    expect(await other.json()).toMatchObject({ code: "unsupported_file" });
+  });
+
+  it("saves at once with autoSave, and reports a skill it couldn't save", async () => {
+    savingRows();
+    const archive = zip({ "a/SKILL.md": "# Short\nDo it.", "b/SKILL.md": `# Too long\n${"x".repeat(30_001)}` }, 8);
+    const response = await asFile("two.zip", archive, { autoSave: "true" });
+    expect(response.status).toBe(201);
+    const body = await response.json();
+    expect(body.skills.map((skill: { name: string; fits: boolean }) => [skill.name, skill.fits])).toEqual([["Short", true], ["Too long", false]]);
+    expect(body.saved.map((skill: { name: string }) => skill.name)).toEqual(["Short"]);
+    expect(body.failed).toEqual([{ name: "Too long", error: "Keep the procedure under 30,000 characters (this one has 30,001)." }]);
+    expect(inserts()).toHaveLength(1);
+    expect(inserts()[0].values[0]).toBe("user-b");
+  });
+
+  it("refuses private and local links before any request", async () => {
+    for (const url of ["http://169.254.169.254/latest/meta-data/", "http://127.0.0.1:3000/api/agent/keys", "http://localhost/SKILL.md", "http://10.0.0.8/SKILL.md"]) {
+      const response = await asJson({ url });
+      expect(response.status, url).toBe(400);
+      expect(await response.json(), url).toMatchObject({ code: expect.stringMatching(/private_address|bad_url/) });
+    }
+  });
+
+  it("says when there is nothing to import", async () => {
+    expect((await asJson({})).status).toBe(400);
+    expect((await asJson({ content: "   " })).status).toBe(400);
+    const empty = await asJson({ content: "---\nname: nothing\n---\n" });
+    expect(empty.status).toBe(422);
+    expect(await empty.json()).toMatchObject({ code: "no_skill" });
   });
 });
 

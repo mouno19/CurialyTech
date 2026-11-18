@@ -10,6 +10,7 @@ import { Router, type NextFunction, type Request, type Response } from "express"
 import { z } from "zod";
 import { BTW_MAX_CHARS, MODELS, type AgentEvent, type AgentEventBody } from "@shared/agent";
 import { SAVED_SKILL_LIMITS } from "@shared/skills";
+import type { SkillImportResponse } from "@shared/skill-parser";
 import { isActiveStatus, isFinalStatus } from "@shared/taskStatus";
 import { countMedia, deleteMedia, getMedia, isElsewhere, listMedia, markMediaMissing, mediaIds, mediaStatus, openMedia, storageConfig, storeMedia, assertStorageAvailable, type MediaCursor } from "../media/snowflake";
 import { deleteFiles, uploadTooLargeError, vaultFullError, vaultState } from "../media/vault";
@@ -28,6 +29,7 @@ import { PROVIDER_ENV, probeProviders } from "./providers";
 import { answerBtw, BtwError } from "./btw";
 import { activeRunId, activeTaskCount, followUp, followUpRepoBlocked, followUpSpec, isBusy, isRunning, requestCancel, RESTARTING, retryTask, startDeployRun, startTask, TaskRejected, type FollowUpRepo } from "./runner";
 import { deleteSavedSkill, listSavedSkills, replaceTaskSkills, saveSavedSkill, SavedSkillError } from "./saved-skills";
+import { importFromFile, importFromText, importFromUrl, MAX_SKILL_ARCHIVE_BYTES, MAX_SKILL_TEXT_BYTES, SkillImportError, type ImportResult } from "./skill-importer";
 import { admissionRefusal, oneAtATime } from "./admission";
 import { drainQueue, editQueued, listQueue, queueMessage, QueueRejected, removeQueued, requeue } from "./queue";
 import { listWorkspaceTree, removeWorkspace, resolveInWorkspace, SANDBOX_MODE, SandboxError, workspacePath } from "./sandbox";
@@ -83,6 +85,13 @@ const skillWriteSchema = z.object({
   name: z.string().trim().min(1, "Name the skill.").max(SAVED_SKILL_LIMITS.name, `Keep the name under ${SAVED_SKILL_LIMITS.name} characters.`),
   body: z.string().trim().min(1, "Write the procedure.").max(SAVED_SKILL_LIMITS.body, `Keep the procedure under ${SAVED_SKILL_LIMITS.body} characters.`),
 });
+/** POST /skills/import as JSON: a link, or pasted text (and its file name, for a skill with no title). */
+const skillImportSchema = z.object({
+  url: z.string().trim().max(2048, "That link is too long.").optional(),
+  content: z.string().max(MAX_SKILL_TEXT_BYTES, "Paste up to 1 MB of text.").optional(),
+  filename: z.string().trim().max(255).optional(),
+  autoSave: z.boolean().optional(),
+}).refine(value => Boolean(value.url) !== Boolean(value.content?.trim()), "Send a link or the skill's text.");
 const btwSchema = z.object({
   query: z.string().trim().min(1, "Type a question after /btw.").max(BTW_MAX_CHARS, `Keep a /btw message under ${BTW_MAX_CHARS} characters.`),
   clientMessageId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).optional(),
@@ -164,6 +173,7 @@ function sendStorageError(res: Response, error: StorageError) {
 function sendError(res: Response, error: unknown) {
   if (error instanceof z.ZodError) return res.status(400).json({ error: error.issues.map(issue => issue.message).join("; ") });
   if (error instanceof SavedSkillError) return res.status(error.status).json({ error: error.message });
+  if (error instanceof SkillImportError) return res.status(error.status).json({ error: error.message, code: error.code });
   if (error instanceof StorageError) return sendStorageError(res, error);
   if (error instanceof TaskRejected) return res.status(error.message === RESTARTING ? 503 : 409).json({ error: brandText(error.message) });
   if (error instanceof QueueRejected) return res.status(error.status).json({ error: error.message });
@@ -241,6 +251,8 @@ async function voiceAllowed(req: Request, res: Response, need: number): Promise<
 
 const speechSchema = z.object({ text: z.string().min(1).max(READ_ALOUD_INPUT_CHARS * 2), voice: z.enum(VOICES.map(voice => voice.id) as [string, ...string[]]).optional() });
 // Dictation audio is held in memory, sent for transcription and dropped: never stored.
+// A skill file (.md, .txt, .yaml up to 1 MB) or an archive of skills (.zip up to 5 MB; only its markdown is read).
+const skillUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_SKILL_ARCHIVE_BYTES, files: 1, fields: 4, fieldSize: 64 }, defParamCharset: "utf8" });
 const dictationUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_DICTATION_BYTES, files: 1 } });
 
 /** The live browser view is clickable: only the operator gets its address (see browser.ts liveBrowser). */
@@ -315,6 +327,71 @@ export function agentRouter() {
     if (!UUID.test(String(req.params.id))) return res.status(404).json({ error: "That skill is not on this account." });
     await deleteSavedSkill(accountOf(req).id, String(req.params.id));
     res.json({ deleted: true });
+  }));
+
+  // Skills from anywhere: a link (GitHub file, folder or repository, gist, raw web file), pasted text,
+  // or an uploaded .md / .txt / .yaml / .zip. Answers what was read, to review before saving; with
+  // autoSave each skill is saved at once (and reported as saved or failed). Links are fetched from
+  // public addresses only (skill-importer.ts); an account imports at most IMPORTS_PER_WINDOW times
+  // in ten minutes (the operator: no limit).
+  const IMPORTS_PER_WINDOW = 30;
+  const importsBy = new Map<string, number[]>();
+  const importAllowed = (user: { id: string; role: string }) => {
+    if (user.role === "admin") return true;
+    const now = Date.now();
+    const recent = (importsBy.get(user.id) ?? []).filter(at => now - at < 10 * 60_000);
+    if (recent.length >= IMPORTS_PER_WINDOW) return false;
+    recent.push(now);
+    importsBy.set(user.id, recent);
+    return true;
+  };
+  const skillFile = (req: Request, res: Response, next: NextFunction) => {
+    if (!req.is("multipart/form-data")) return next();
+    skillUpload.single("file")(req, res, error => {
+      if (!error) return next();
+      if (error instanceof multer.MulterError) {
+        return error.code === "LIMIT_FILE_SIZE"
+          ? res.status(413).json({ error: `Skill files are limited to ${MAX_SKILL_TEXT_BYTES / 1024 / 1024} MB and archives to ${MAX_SKILL_ARCHIVE_BYTES / 1024 / 1024} MB.`, code: "too_large" })
+          : res.status(400).json({ error: "Upload one file at a time.", code: "bad_upload" });
+      }
+      next(error);
+    });
+  };
+  router.post("/skills/import", skillFile, handle(async (req, res) => {
+    const user = accountOf(req);
+    if (!importAllowed(user)) {
+      res.setHeader("Retry-After", "60");
+      return res.status(429).json({ error: "That's a lot of imports at once. Try again in a few minutes.", code: "busy" });
+    }
+    let result: ImportResult;
+    let autoSave: boolean;
+    if (req.is("multipart/form-data")) {
+      if (!req.file) return res.status(400).json({ error: "Attach a SKILL.md, a .md, .txt or .yaml file, or a .zip of skills.", code: "bad_upload" });
+      result = importFromFile(path.basename(req.file.originalname), req.file.buffer);
+      autoSave = req.body?.autoSave === "true";
+    } else {
+      const input = skillImportSchema.parse(req.body ?? {});
+      result = input.url ? await importFromUrl(input.url) : importFromText(input.content ?? "", input.filename ?? "");
+      autoSave = input.autoSave === true;
+    }
+    if (!result.skills.length) throw new SkillImportError("No skill was found there. A skill is a markdown file with a # title (or a name in its frontmatter) and the procedure under it.", 422, "no_skill");
+    const answer: SkillImportResponse = {
+      skills: result.skills.map(skill => ({ ...skill, chars: skill.body.length, fits: skill.body.length <= SAVED_SKILL_LIMITS.body && skill.name.length > 0 })),
+      skipped: result.skipped,
+    };
+    if (autoSave) {
+      answer.saved = [];
+      answer.failed = [];
+      for (const skill of result.skills) {
+        try {
+          answer.saved.push(await saveSavedSkill(user.id, { name: skill.name, body: skill.body }));
+        } catch (error) {
+          if (!(error instanceof SavedSkillError)) throw error;
+          answer.failed.push({ name: skill.name, error: error.message });
+        }
+      }
+    }
+    res.status(autoSave && answer.saved?.length ? 201 : 200).json(answer);
   }));
 
   router.get("/health", handle(async (req, res) => {

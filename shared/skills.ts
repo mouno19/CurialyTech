@@ -135,10 +135,12 @@ export function getSkill(id: string) {
 }
 
 /**
- * A procedure the account writes once (how tests run, how a pull request is described, which folders
- * stay untouched). Attached to a task by id, including a repository that has no note yet.
- * name and body lengths match the database checks on curialy.user_skills.
+ * A procedure the account saves once, written here or imported (how tests run, how a pull request is
+ * described, which folders stay untouched). Attached to a task by id, including a repository that has
+ * no note yet. name and body lengths match the database checks on curialy.user_skills; promptChars
+ * is what a run's instructions carry of all its attached skills together (longer ones are shortened
+ * to fit, and the run says so).
  */
-export const SAVED_SKILL_LIMITS = { maxPerAccount: 30, maxPerTask: 8, name: 80, body: 2000 } as const;
+export const SAVED_SKILL_LIMITS = { maxPerAccount: 50, maxPerTask: 8, name: 80, body: 30_000, promptChars: 60_000 } as const;
 
 export type SavedSkill = { id: string; name: string; body: string; updatedAt: string };

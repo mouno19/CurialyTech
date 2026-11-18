@@ -57,7 +57,7 @@ vi.mock("./db/pg", () => ({
   db: () => ({ connect: async () => ({ query: async () => ({ rows: [] }), release: () => undefined }) }),
 }));
 
-const { deleteSavedSkill, listSavedSkills, loadTaskSkills, renderSavedSkills, replaceTaskSkills, saveSavedSkill, SavedSkillError, skillsForTask } = await import("./agent/saved-skills");
+const { deleteSavedSkill, fitSavedSkills, listSavedSkills, loadTaskSkills, renderSavedSkills, replaceTaskSkills, saveSavedSkill, SavedSkillError, skillsForTask } = await import("./agent/saved-skills");
 
 const user = "40000000-0000-4000-8000-000000000001";
 
@@ -104,8 +104,32 @@ describe("saved skills", () => {
     for (let index = 0; index < SAVED_SKILL_LIMITS.maxPerAccount; index++) {
       await saveSavedSkill(user, { name: `Skill ${index}`, body: "A procedure." });
     }
-    await expect(saveSavedSkill(user, { name: "One more", body: "A procedure." })).rejects.toThrow(/30 skills/);
-    await expect(saveSavedSkill("40000000-0000-4000-8000-000000000003", { name: "x", body: "y".repeat(SAVED_SKILL_LIMITS.body + 1) })).rejects.toThrow(/under 2000/);
+    await expect(saveSavedSkill(user, { name: "One more", body: "A procedure." })).rejects.toThrow(/50 skills/);
+    await expect(saveSavedSkill("40000000-0000-4000-8000-000000000003", { name: "x", body: "y".repeat(SAVED_SKILL_LIMITS.body + 1) })).rejects.toThrow(/under 30,000 characters \(this one has 30,001\)/);
     await expect(saveSavedSkill("40000000-0000-4000-8000-000000000003", { name: "", body: "A procedure." })).rejects.toThrow(/Name the skill/);
+  });
+
+  it("keeps a whole imported procedure: 15,000 characters, and 30,000 exactly", async () => {
+    expect(SAVED_SKILL_LIMITS).toMatchObject({ body: 30_000, maxPerAccount: 50 });
+    const owner = "40000000-0000-4000-8000-000000000004";
+    const medium = await saveSavedSkill(owner, { name: "Release notes", body: "Step one.\n".repeat(1500).trim() });
+    expect(medium.body.length).toBe(14_999);
+    const full = await saveSavedSkill(owner, { name: "Full", body: "z".repeat(30_000) });
+    expect(full.body).toHaveLength(30_000);
+    await expect(saveSavedSkill(owner, { id: full.id, name: "Full", body: "z".repeat(30_001) })).rejects.toBeInstanceOf(SavedSkillError);
+  });
+
+  it("fits long attached skills into one budget: short ones whole, long ones shortened and marked", () => {
+    expect(fitSavedSkills([{ name: "Short", body: "Do it." }, { name: "Medium", body: "m".repeat(20_000) }]).map(skill => skill.shortened)).toEqual([false, false]);
+    const skills = [{ name: "Short", body: "Do it." }, ...Array.from({ length: 3 }, (_, index) => ({ name: `Long ${index}`, body: `${"Line of the procedure.\n".repeat(1300)}`.trim() }))];
+    const fitted = fitSavedSkills(skills);
+    expect(fitted[0]).toEqual({ name: "Short", body: "Do it.", shortened: false });
+    expect(fitted.slice(1).every(skill => skill.shortened && /shortened to fit this task: the first [\d,]+ of its 29,899 characters/.test(skill.body))).toBe(true);
+    const total = fitted.reduce((sum, skill) => sum + skill.body.replace(/\n\n\[This skill was shortened[^\]]*\]$/, "").length, 0);
+    expect(total).toBeLessThanOrEqual(SAVED_SKILL_LIMITS.promptChars);
+    expect(total).toBeGreaterThan(SAVED_SKILL_LIMITS.promptChars * 0.9);
+    // Cut at a line break.
+    expect(fitted[1].body.split("\n\n[This skill")[0].endsWith("Line of the procedure.")).toBe(true);
+    expect(renderSavedSkills(skills)).toContain("shortened to fit this task");
   });
 });

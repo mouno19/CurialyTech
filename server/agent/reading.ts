@@ -438,6 +438,15 @@ function columnIndex(letters: string) {
 }
 
 function unzip(buffer: Buffer): Map<string, Buffer> | null {
+  return unzipFiles(buffer);
+}
+
+/**
+ * The files of a zip archive (stored or deflated, no encryption or zip64), by name. accept picks
+ * which entries are inflated at all; maxEntry, maxTotal and maxListed bound the work an archive can
+ * ask for. null when the bytes are not a zip.
+ */
+export function unzipFiles(buffer: Buffer, { accept = () => true, maxEntry = MAX_ENTRY, maxTotal = MAX_UNZIPPED, maxListed = 400 }: { accept?: (name: string) => boolean; maxEntry?: number; maxTotal?: number; maxListed?: number } = {}): Map<string, Buffer> | null {
   if (buffer.length < 22 || buffer.readUInt32LE(0) !== 0x04034b50) return null;
   const eocd = findEocd(buffer);
   if (eocd < 0) return null;
@@ -451,13 +460,14 @@ function unzip(buffer: Buffer): Map<string, Buffer> | null {
   let total = 0;
   for (
     let index = 0;
-    index < listed && index < 400 && cursor + 46 <= buffer.length;
+    index < listed && index < maxListed && cursor + 46 <= buffer.length;
     index++
   ) {
     if (buffer.readUInt32LE(cursor) !== 0x02014b50) break;
     const flags = buffer.readUInt16LE(cursor + 8);
     const method = buffer.readUInt16LE(cursor + 10);
     const compSize = buffer.readUInt32LE(cursor + 20);
+    const size = buffer.readUInt32LE(cursor + 24);
     const nameLen = buffer.readUInt16LE(cursor + 28);
     const extraLen = buffer.readUInt16LE(cursor + 30);
     const commentLen = buffer.readUInt16LE(cursor + 32);
@@ -470,12 +480,14 @@ function unzip(buffer: Buffer): Map<string, Buffer> | null {
     if (
       name.endsWith("/") ||
       flags & 1 ||
-      compSize > MAX_ENTRY ||
-      local === 0xffffffff
+      compSize > maxEntry ||
+      size > maxEntry ||
+      local === 0xffffffff ||
+      !accept(name)
     )
       continue;
-    const data = inflateEntry(buffer, local, method, compSize);
-    if (!data || total + data.length > MAX_UNZIPPED) continue;
+    const data = inflateEntry(buffer, local, method, compSize, maxEntry);
+    if (!data || total + data.length > maxTotal) continue;
     total += data.length;
     files.set(name, data);
   }
@@ -486,7 +498,8 @@ function inflateEntry(
   buffer: Buffer,
   local: number,
   method: number,
-  compSize: number
+  compSize: number,
+  maxEntry = MAX_ENTRY
 ) {
   if (local + 30 > buffer.length || buffer.readUInt32LE(local) !== 0x04034b50)
     return null;
@@ -498,7 +511,7 @@ function inflateEntry(
   if (method === 0) return Buffer.from(compressed);
   if (method !== 8) return null;
   try {
-    return zlib.inflateRawSync(compressed, { maxOutputLength: MAX_ENTRY });
+    return zlib.inflateRawSync(compressed, { maxOutputLength: maxEntry });
   } catch {
     return null;
   }

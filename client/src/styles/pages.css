@@ -591,6 +591,33 @@ input[type="checkbox"].vault-check { position: absolute; top: 4px; left: 4px; z-
 .saved-skill + .saved-skill { border-top: 1px solid var(--border); }
 .saved-skill-name { margin: 0; font-size: 14px; font-weight: 600; }
 .saved-skill-body { margin: 0; white-space: pre-wrap; font-size: 13.5px; line-height: 1.5; color: var(--text-2); }
+.saved-skill-body.clamped { display: -webkit-box; overflow: hidden; -webkit-line-clamp: 6; -webkit-box-orient: vertical; }
+/* Import a skill (ImportSkillDialog): a file, a link, or pasted text, then the review card. */
+.skill-import { display: flex; flex-direction: column; gap: 14px; }
+.skill-import .tab-panel { padding-top: 2px; }
+.skill-drop { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 24px 16px; border: 1.5px dashed var(--border-strong); border-radius: var(--r-md); background: var(--surface-sunk); text-align: center; color: var(--text-2); transition: border-color var(--dur-1) var(--ease-out), background-color var(--dur-1) var(--ease-out); }
+.skill-drop.dragging { border-color: var(--ink); background: color-mix(in srgb, var(--surface-sunk) 70%, var(--paper)); }
+.skill-drop-lead { margin: 0; font-size: 14px; font-weight: 500; color: var(--text); }
+.skill-url { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.skill-url .field { align-self: stretch; }
+.skill-paste { min-height: 150px; font-size: 12.5px; line-height: 1.5; }
+.skill-review { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+.skill-review-found { display: flex; flex-direction: column; gap: 8px; }
+.skill-review-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.skill-review-chip { max-width: 240px; cursor: pointer; }
+.skill-review-chip.active { border-color: var(--ink); color: var(--text); background: var(--surface-raised); }
+.skill-review-flag { font-size: 11px; color: var(--danger-fg); }
+.skill-review-card { display: flex; flex-direction: column; gap: 12px; padding: 16px; }
+.skill-review-meta { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.skill-review-meta:empty { display: none; }
+.skill-review-meta .chip { max-width: 100%; }
+.skill-review-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.skill-review-body { min-height: 220px; font-size: 13px; line-height: 1.55; }
+.skill-review-preview { max-height: 340px; overflow: auto; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--paper); font-size: 13.5px; color: var(--text); }
+.field-hint.over { color: var(--danger-fg); font-weight: 500; }
+/* A markdown file dropped on the composer: attach it as context, or save it as a skill. */
+.omni-skill-drop .notice-body p { margin: 0; }
+.omni-skill-drop-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .saved-skill-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .skill-pick { position: relative; }
 .skill-pick-panel { --popover-w: 320px; display: flex; flex-direction: column; gap: 10px; }

@@ -7,7 +7,9 @@ import type { LucideIcon } from "lucide-react";
 import { SlashHint } from "@/components/composer/SlashHint";
 import { EnvironmentPicker, readEnvironmentChoice, resolveSubmittedEnvironmentId, type EnvironmentChoice } from "@/components/composer/EnvironmentPicker";
 import type { ComputeEnvironment } from "@shared/compute";
-import { ArrowUp, Bot, Check, ChevronDown, CloudOff, Globe, Info, MessageSquare, Paperclip, RotateCcw, SlidersHorizontal, Sparkles, TriangleAlert, Users, X } from "lucide-react";
+import { ArrowUp, Bookmark, Bot, Check, ChevronDown, CloudOff, Globe, Info, MessageSquare, Paperclip, RotateCcw, SlidersHorizontal, Sparkles, TriangleAlert, Users, X } from "lucide-react";
+import { toast } from "sonner";
+import { SAVED_SKILL_LIMITS, type SavedSkill } from "@shared/skills";
 import { aliasEffort, effortApplies, getModel, outputLimit, PICKER_MODELS, REPLACED, teamCapable, type CreateTaskRequest, type ModelSpec, type TaskMode, type ThinkingLevel } from "@shared/agent";
 import { formatTokenCount, modelLimits } from "@shared/billing";
 import { Button } from "@/components/common/Button";
@@ -25,6 +27,7 @@ import { TypingText } from "@/components/common/TypingText";
 import { usePresence, useTypewriter } from "@/lib/motion";
 import { AttachmentTray, MAX_ATTACHMENTS, useAttachments } from "@/lib/useAttachments";
 import { insertAtCursor } from "@/lib/insertText";
+import { isSkillFile, saveSkillFile } from "@/lib/skillFiles";
 import { DictationButton } from "./DictationButton";
 import { readAttachedSkills, SkillPicker, writeAttachedSkills } from "./SkillPicker";
 import { ToolPicker, validTools } from "./ToolPicker";
@@ -313,7 +316,15 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed, examples }: {
   const [loadedEnvs, setLoadedEnvs] = useState<ComputeEnvironment[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
-  const attachments = useAttachments();
+  // Markdown files dropped on the composer: attached as context, or saved as skills and applied here (the user picks).
+  const [droppedSkills, setDroppedSkills] = useState<File[] | null>(null);
+  const [savingSkills, setSavingSkills] = useState(false);
+  const takeSkillFiles = (files: File[]) => {
+    const markdown = files.filter(isSkillFile);
+    if (markdown.length) setDroppedSkills(markdown.slice(0, SAVED_SKILL_LIMITS.maxPerTask));
+    return files.filter(file => !isSkillFile(file));
+  };
+  const attachments = useAttachments({ intercept: takeSkillFiles });
   const github = useGitHub();
   const storage = useMediaHealth();
   const coarse = useMediaQuery(MQ.coarsePointer);
@@ -463,10 +474,42 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed, examples }: {
         onDrop: (event: DragEvent) => {
           if (!hasFiles(event)) return;
           event.preventDefault();
-          setNote(attachBlocked);
+          // Skills don't need file storage: those can still be saved.
+          if (takeSkillFiles(Array.from(event.dataTransfer.files)).length) setNote(attachBlocked);
         },
       }
     : attachments.dropProps;
+
+  const attachDroppedAsContext = () => {
+    if (!droppedSkills) return;
+    if (attachBlocked) return setNote(attachBlocked);
+    void attachments.add(droppedSkills);
+    setDroppedSkills(null);
+  };
+  const saveDroppedAsSkills = async () => {
+    if (!droppedSkills || savingSkills) return;
+    setSavingSkills(true);
+    const saved: SavedSkill[] = [];
+    const problems: string[] = [];
+    for (const file of droppedSkills) {
+      try {
+        saved.push(await saveSkillFile(file));
+      } catch (failure) {
+        problems.push(errorMessage(failure, `${file.name} couldn't be saved as a skill.`));
+      }
+    }
+    setSavingSkills(false);
+    setDroppedSkills(null);
+    if (saved.length) {
+      const room = Math.max(0, SAVED_SKILL_LIMITS.maxPerTask - skillIds.length);
+      const applied = saved.filter(skill => !skillIds.includes(skill.id)).slice(0, room);
+      setSkillIds(current => [...current, ...applied.map(skill => skill.id).filter(id => !current.includes(id))].slice(0, SAVED_SKILL_LIMITS.maxPerTask));
+      const names = saved.map(skill => `“${skill.name}”`).join(", ");
+      if (applied.length === saved.length) toast.success(`Saved ${names} and applied ${saved.length === 1 ? "it" : "them"} to this task`, { description: "It's in the Skills menu and on the Skill Store." });
+      else toast.success(`Saved ${names}`, { description: `A task uses up to ${SAVED_SKILL_LIMITS.maxPerTask} skills, so ${applied.length ? "only some were" : "none was"} applied. Choose in the Skills menu.` });
+    }
+    if (problems.length) setError(problems.join(" "));
+  };
 
   const failure = error ?? attachments.error;
   const showRepo = agent && Boolean(github.status?.configured);
@@ -583,6 +626,22 @@ export function OmniComposer({ onSubmit, busy, autoFocus, seed, examples }: {
           <TriangleAlert size={16} aria-hidden="true" />
           <div className="notice-body">{failure}</div>
           <IconButton size="sm" label="Dismiss" icon={X} tooltip={false} onClick={() => { setError(null); attachments.setError(null); }} />
+        </div>
+      )}
+      {droppedSkills && (
+        <div className="notice omni-message omni-skill-drop" data-tone="neutral" role="status">
+          <Bookmark size={16} aria-hidden="true" />
+          <div className="notice-body">
+            <p>
+              {droppedSkills.length === 1 ? <><strong>{droppedSkills[0].name}</strong> looks like a skill.</> : <>{droppedSkills.length} markdown files look like skills.</>}
+              {" "}Attach {droppedSkills.length === 1 ? "it" : "them"} to this task as context, or save {droppedSkills.length === 1 ? "it" : "them"} as {droppedSkills.length === 1 ? "a skill" : "skills"} and apply {droppedSkills.length === 1 ? "it" : "them"} here?
+            </p>
+            <div className="omni-skill-drop-actions">
+              <Button size="sm" aria-disabled={savingSkills || storageDown || undefined} onClick={attachDroppedAsContext}>Attach as context</Button>
+              <Button size="sm" variant="primary" icon={Bookmark} busy={savingSkills} onClick={() => void saveDroppedAsSkills()}>Save as skill &amp; apply to task</Button>
+            </div>
+          </div>
+          <IconButton size="sm" label="Dismiss" icon={X} tooltip={false} onClick={() => { if (!savingSkills) setDroppedSkills(null); }} />
         </div>
       )}
       {note && (

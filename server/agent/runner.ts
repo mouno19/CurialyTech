@@ -9,7 +9,7 @@ import { openChannel, type Emit, type TaskChannel } from "./bus";
 import { claimNextRun, closeOpenSessionEvents, getLifecycleRow, HEARTBEAT_MS, judgeStaleness, LEASE_SECONDS, reconcileStaleTasks, RECONCILE_MS, renewLeases, repairEventLogs, terminalEvents, transitionTask, WORKER_ID } from "./lifecycle";
 import { anthropicClient, PROVIDER_ENV, reasoningParams, runManusTask, streamCortexInference, streamOpenAIChat } from "./providers";
 import { clip, ensureWorkspace, readWorkspaceFile, runCommand, SANDBOX_MODE, writeWorkspaceBytes } from "./sandbox";
-import { loadTaskSkills, renderSavedSkills, replaceTaskSkills, skillsForTask } from "./saved-skills";
+import { fitSavedSkills, loadTaskSkills, renderSavedSkills, replaceTaskSkills, skillsForTask } from "./saved-skills";
 import { addMessage, createAgentTask, getAgentTask, getConversation, setTaskEnvironmentId, setTaskTools, settleTaskWrites, taskOwner, updateAgentTask, type ConversationFormat } from "./store";
 import { COMPUTE_KIND_LABELS, formatRam } from "@shared/compute";
 import { closeBox } from "./e2b";
@@ -1299,7 +1299,8 @@ async function executeRun(handle: RunHandle, conversation: Record<string, unknow
       const owner = await taskOwner(taskId);
       const saved = existing?.skillIds?.length && owner ? await loadTaskSkills(owner, existing.skillIds) : [];
       skillText = renderSavedSkills(saved);
-      skillNotice = saved.length ? `Using ${saved.length === 1 ? "1 saved skill" : `${saved.length} saved skills`}: ${saved.map(skill => skill.name).join(", ")}.` : "";
+      const shortened = fitSavedSkills(saved).filter(skill => skill.shortened).map(skill => skill.name);
+      skillNotice = saved.length ? `Using ${saved.length === 1 ? "1 saved skill" : `${saved.length} saved skills`}: ${saved.map(skill => skill.name).join(", ")}.${shortened.length ? ` ${shortened.join(", ")} ${shortened.length === 1 ? "was" : "were"} shortened to fit this task's instructions.` : ""}` : "";
       const comp = await buildComputeContext(taskId, owner, existing?.environmentId, opts.mode);
       computeText = comp.text;
       computeNotice = comp.notice;

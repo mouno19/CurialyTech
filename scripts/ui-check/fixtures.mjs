@@ -1122,7 +1122,21 @@ export function createFixtures({ now = Date.now(), deployUrls = "vendor" } = {})
     }],
     ["GET", "/api/agent/keys", () => ({ json: { keys } })],
     // The follow-up composer's saved skills (none here).
+    // The composer's compute environments (none connected here: the built-in sandbox).
+    ["GET", "/api/compute/environments", () => ({ json: { environments: [] } })],
     ["GET", "/api/agent/skills", () => ({ json: { skills: [] } })],
+    // Import from a link: a folder with three skills, one longer than a saved skill holds.
+    ["POST", "/api/agent/skills/import", () => {
+      const skills = [
+        { name: "Code review", source: "skills/code-review/SKILL.md", version: "2.0.0", description: "Review a diff before it is merged.", body: "Review a diff before it is merged.\n\n## Steps\n\n1. Read the **whole** diff before commenting.\n2. Run the tests: `npm test`.\n3. Flag anything that changes behaviour without a test.\n\n> Keep comments about the change, not the person." },
+        { name: "Release notes", source: "skills/release-notes/SKILL.md", body: "1. List the merged pull requests.\n2. Group them by area." },
+        { name: "Brand voice handbook", source: "skills/brand-voice/SKILL.md", body: `# Voice\n\n${"Write plainly. ".repeat(2200)}` },
+      ];
+      return { json: { skills: skills.map(skill => ({ ...skill, chars: skill.body.length, fits: skill.body.length <= 30000 })), skipped: 0 } };
+    }],
+    ["PATCH", "/api/agent/skills/:id", () => ({ status: 404, expected: true, json: { error: "That skill is not on this account." } })],
+    ["DELETE", "/api/agent/skills/:id", () => ({ status: 404, expected: true, json: { error: "That skill is not on this account." } })],
+    ["POST", "/api/agent/skills", ({ body }) => ({ status: 201, json: { skill: { id: "60000000-0000-4000-8000-000000000001", name: body?.name ?? "Skill", body: body?.body ?? "", updatedAt: "2026-11-18T12:00:00.000Z" } } })],
     ["GET", "/api/agent/stats", () => ({ json: stats })],
     // Schedules (none saved here): what the page lists, and refusals for ones that don't exist.
     ["GET", "/api/agent/schedules", () => ({ json: { schedules: [], limits: { max: 10, minIntervalHours: 1, maxIntervalHours: 720 } } })],
