@@ -1,3 +1,4 @@
+import { MAX_UPLOAD_BYTES_MAX, megabytes } from "@shared/media";
 import { StorageError } from "../media/storage-errors";
 import fs from "node:fs";
 import path from "node:path";
@@ -20,7 +21,9 @@ const MAX_VISION_SIDE = 8000; // the API rejects images larger than this on eith
 // 32 MB body and 20-image (2000 px) thresholds. Older images are replaced by a note.
 const REQUEST_IMAGE_LIMIT = 20;
 const REQUEST_IMAGE_BYTES = 20_000_000;
-export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+/** The largest file an account may upload (Max uploads): whatever was stored can be attached. */
+export const MAX_ATTACHMENT_BYTES = MAX_UPLOAD_BYTES_MAX;
+const TOO_LARGE = `larger than ${megabytes(MAX_ATTACHMENT_BYTES)}`;
 const MAX_VISION_IMAGES = 5;
 const MAX_VISION_TOTAL = 8_000_000; // per message, so a run's in-memory image cache stays small
 
@@ -90,10 +93,10 @@ export async function stageAttachments(root: string, refs: AttachmentRef[], opts
     // One unavailable file should not lose the whole message: report it and keep going.
     let bytes: Buffer;
     try {
-      if (ref.sizeBytes > MAX_ATTACHMENT_BYTES) throw new Error("larger than 25 MB");
+      if (ref.sizeBytes > MAX_ATTACHMENT_BYTES) throw new Error(TOO_LARGE);
       bytes = await load(ref.stagePath, ref.id);
     } catch (error) {
-      failed.push(`${ref.filename} (${error instanceof StorageError ? error.message : error instanceof Error && error.message === "larger than 25 MB" ? error.message : "unavailable"})`);
+      failed.push(`${ref.filename} (${error instanceof StorageError ? error.message : error instanceof Error && error.message === TOO_LARGE ? error.message : "unavailable"})`);
       continue;
     }
     const relative = uniqueAttachmentPath(root, ref.filename, ref.id);

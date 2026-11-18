@@ -12,8 +12,8 @@ import { BTW_MAX_CHARS, MODELS, type AgentEvent, type AgentEventBody } from "@sh
 import { SAVED_SKILL_LIMITS } from "@shared/skills";
 import { isActiveStatus, isFinalStatus } from "@shared/taskStatus";
 import { countMedia, deleteMedia, getMedia, isElsewhere, listMedia, markMediaMissing, mediaIds, mediaStatus, openMedia, storageConfig, storeMedia, assertStorageAvailable, type MediaCursor } from "../media/snowflake";
-import { deleteFiles, vaultFullError, vaultState } from "../media/vault";
-import { DELETE_BATCH, MAX_SELECT_IDS, MAX_UPLOAD_BYTES, MEDIA_KINDS, UPLOADS_AT_ONCE, vaultFull, type MediaKind } from "@shared/media";
+import { deleteFiles, uploadTooLargeError, vaultFullError, vaultState } from "../media/vault";
+import { DELETE_BATCH, exceedsMessageLimit, MAX_MESSAGE_ATTACHMENT_BYTES, MAX_SELECT_IDS, MAX_UPLOAD_BYTES_MAX, MEDIA_KINDS, megabytes, UPLOADS_AT_ONCE, vaultFull, type MediaKind } from "@shared/media";
 import { accountOf, rateLimited, requireAdmin } from "../auth";
 import { charge, getBalance, outOfCreditsMessage } from "../credits";
 import { speakReadAloud, transcribe, voiceConfigured, VoiceError } from "../voice/engines";
@@ -104,6 +104,8 @@ async function resolveAttachments(ids: string[], userId: string) {
     if (isElsewhere(media)) throw new TaskRejected(`${media.filename} is in an earlier storage location this server no longer reads; attach it again.`);
     refs.push({ id: media.id, filename: media.filename, stagePath: media.stage_path, mimeType: media.mime_type, sizeBytes: media.size_bytes });
   }
+  // Every file is copied into the task's workspace and read: one message carries at most this much.
+  if (exceedsMessageLimit(refs.map(ref => Number(ref.sizeBytes) || 0))) throw new TaskRejected(`Total attachments exceed ${megabytes(MAX_MESSAGE_ATTACHMENT_BYTES)} for this message.`);
   return refs;
 }
 
@@ -133,7 +135,8 @@ export async function githubReposHandler(req: Request, res: Response) {
 
 // Uploads are held in memory and streamed straight to the file store; they never touch the VPS disk.
 // Free accounts get a bounded vault; the operator's and a plan's are unbounded (media/vault.ts).
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } });
+// The largest any account may send; each account's own limit (by plan) is checked around it.
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_UPLOAD_BYTES_MAX, files: 1 } });
 
 /** The vault list's filter and page (?kind=&q=&cursor=&limit=); the cursor is the server's own. */
 const mediaListQuery = z.object({
@@ -726,7 +729,7 @@ export function agentRouter() {
     res.setHeader("Cache-Control", "no-store");
     res.json({
       files, nextCursor: rows.length > limit ? cursorOf(page[page.length - 1]) : null, matching,
-      summary: vault.summary, quota: vault.quota, stage: { ok: storage.ok, detail: storage.detail }, storage,
+      summary: vault.summary, quota: vault.quota, maxUploadBytes: vault.maxUploadBytes, stage: { ok: storage.ok, detail: storage.detail }, storage,
     });
   }));
 
@@ -769,7 +772,7 @@ export function agentRouter() {
     res.json(health);
   }));
 
-  // Refuse before buffering 25 MB in memory when storage is known to be down.
+  // Refuse before buffering a file in memory when storage is known to be down.
   const uploadGuard = (_req: Request, res: Response, next: NextFunction) => {
     try {
       assertStorageAvailable();
@@ -783,19 +786,27 @@ export function agentRouter() {
       next(error);
     }
   };
+  /** The account's largest file, set by uploadQuota (Max uploads for the operator). */
+  const uploadLimitOf = (res: Response) => (typeof res.locals.uploadLimit === "number" ? res.locals.uploadLimit : MAX_UPLOAD_BYTES_MAX);
   const uploadOne = (req: Request, res: Response, next: NextFunction) => upload.single("file")(req, res, error => {
     if (!error) return next();
-    if (error instanceof multer.MulterError) return res.status(error.code === "LIMIT_FILE_SIZE" ? 413 : 400).json({ error: error.code === "LIMIT_FILE_SIZE" ? "Files are limited to 25 MB." : "Attach one file at a time.", code: error.code === "LIMIT_FILE_SIZE" ? "too_large" : "bad_upload" });
+    if (error instanceof multer.MulterError) return error.code === "LIMIT_FILE_SIZE" ? res.status(413).json(uploadTooLargeError(uploadLimitOf(res))) : res.status(400).json({ error: "Attach one file at a time.", code: "bad_upload" });
     next(error);
   });
 
-  // Accounts other than the operator: at most UPLOADS_AT_ONCE uploads in memory each (the slot is
-  // taken before anything is awaited, so a burst can't pass it), and a free vault is refused before
-  // 25 MB is buffered (from the declared size). A plan's vault has no limit.
+  // Each file is limited by the account's plan: 25 MB on Free and Pro, 100 MB on Max and for the
+  // operator. Accounts other than the operator: at most UPLOADS_AT_ONCE uploads in memory each (the
+  // slot is taken before anything is awaited, so a burst can't pass it), and a file over the
+  // account's limit or a full free vault is refused before it is buffered (from the declared size).
+  // A plan's vault has no limit.
+  const UPLOAD_FRAMING = 64 * 1024; // multipart boundaries and part headers on top of the file
   const uploading = new Map<string, number>();
   const uploadQuota = (req: Request, res: Response, next: NextFunction) => {
     const user = accountOf(req);
-    if (user.role === "admin") return next();
+    if (user.role === "admin") {
+      res.locals.uploadLimit = MAX_UPLOAD_BYTES_MAX;
+      return next();
+    }
     const held = uploading.get(user.id) ?? 0;
     if (held >= UPLOADS_AT_ONCE) {
       res.setHeader("Retry-After", "2");
@@ -810,14 +821,19 @@ export function agentRouter() {
       if (left > 0) uploading.set(user.id, left);
       else uploading.delete(user.id);
     });
-    void vaultState(user).then(({ summary, quota }) => {
-      if (vaultFull(summary, quota, Number(req.headers["content-length"]) || 0, 64 * 1024)) return res.status(413).json(vaultFullError(quota));
+    void vaultState(user).then(({ summary, quota, maxUploadBytes }) => {
+      res.locals.uploadLimit = maxUploadBytes;
+      const declared = Number(req.headers["content-length"]) || 0;
+      if (declared > maxUploadBytes + UPLOAD_FRAMING) return res.status(413).json(uploadTooLargeError(maxUploadBytes));
+      if (vaultFull(summary, quota, declared, UPLOAD_FRAMING)) return res.status(413).json(vaultFullError(quota));
       next();
     }, next);
   };
 
   router.post("/media", uploadGuard, uploadQuota, uploadOne, handle(async (req, res) => {
-    if (!req.file) return res.status(400).json({ error: "Attach a file up to 25 MB." });
+    if (!req.file) return res.status(400).json({ error: `Attach a file up to ${megabytes(uploadLimitOf(res))}.` });
+    // The real size, for a request that didn't declare one (sent in chunks) or declared too little.
+    if (req.file.size > uploadLimitOf(res)) return res.status(413).json(uploadTooLargeError(uploadLimitOf(res)));
     const user = accountOf(req);
     if (user.role !== "admin") {
       // Again with the real size, now that it's known (another upload may have finished meanwhile).

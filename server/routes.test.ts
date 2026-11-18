@@ -444,6 +444,90 @@ describe("the vault limit on uploads", () => {
     answerVault(vaultRow());
     expect((await fetch(`${base}/media`, { method: "POST", headers: OTHER, body: uploadForm() })).status).toBe(201);
   });
+
+  const MB = 1024 * 1024;
+  const later = () => new Date(Date.now() + 86_400_000);
+  const sized = (bytes: number) => {
+    const form = new FormData();
+    form.append("file", new Blob([new Uint8Array(bytes)], { type: "application/octet-stream" }), "big.bin");
+    return form;
+  };
+  // The same file sent in chunks, so the request declares no size and only the real one can decide.
+  const chunked = (bytes: number): RequestInit => {
+    const boundary = "curialy-test-boundary";
+    const head = new TextEncoder().encode(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="big.bin"\r\nContent-Type: application/octet-stream\r\n\r\n`);
+    const tail = new TextEncoder().encode(`\r\n--${boundary}--\r\n`);
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(head);
+        for (let sent = 0; sent < bytes; sent += MB) controller.enqueue(new Uint8Array(Math.min(MB, bytes - sent)));
+        controller.enqueue(tail);
+        controller.close();
+      },
+    });
+    return { method: "POST", headers: { ...OTHER, "content-type": `multipart/form-data; boundary=${boundary}` }, body, duplex: "half" } as RequestInit;
+  };
+  const STANDARD_LIMIT = { code: "too_large", error: "Files are limited to 25 MB on your plan. Max subscribers can attach up to 100 MB per message." };
+  const MAX_LIMIT = { code: "too_large", error: "Files are limited to 100 MB." };
+
+  it("keeps Free and Pro to 25 MB a file, pointing to Max", async () => {
+    for (const plan of [{}, { plan_id: "pro", plan_expires_at: later(), plan_credits_per_window: 6000 }, { plan_id: "max", plan_expires_at: new Date(Date.now() - 1000) }]) {
+      answerVault(vaultRow(plan));
+      const response = await fetch(`${base}/media`, { method: "POST", headers: OTHER, body: sized(30 * MB) });
+      expect(response.status, JSON.stringify(plan)).toBe(413);
+      expect(await response.json()).toEqual(STANDARD_LIMIT);
+    }
+    // Without a declared size the file is measured once it has arrived.
+    answerVault(vaultRow());
+    const unsized = await fetch(`${base}/media`, chunked(30 * MB));
+    expect(unsized.status).toBe(413);
+    expect(await unsized.json()).toEqual(STANDARD_LIMIT);
+    // 25 MB itself still goes through.
+    answerVault(vaultRow());
+    expect((await fetch(`${base}/media`, { method: "POST", headers: OTHER, body: sized(25 * MB) })).status).toBe(201);
+    expect(media.storeMedia).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets Max subscribers (Max alone or held with Pro) and the operator store up to 100 MB", async () => {
+    for (const plan of [{ plan_id: "max", plan_expires_at: later() }, { pro_expires_at: later(), max_expires_at: later() }]) {
+      answerVault(vaultRow(plan));
+      const response = await fetch(`${base}/media`, { method: "POST", headers: OTHER, body: sized(80 * MB) });
+      expect(response.status, JSON.stringify(plan)).toBe(201);
+      expect((await response.json()).file).toMatchObject({ id: ID, sizeBytes: 80 * MB });
+    }
+    answerVault(vaultRow({ plan_id: "max", plan_expires_at: later() }));
+    expect((await fetch(`${base}/media`, chunked(80 * MB))).status).toBe(201);
+    expect((await fetch(`${base}/media`, { method: "POST", body: sized(80 * MB) })).status).toBe(201);
+    expect(media.storeMedia).toHaveBeenCalledTimes(4);
+    for (const [input] of media.storeMedia.mock.calls) expect(input.buffer.length).toBe(80 * MB);
+    expect(media.storeMedia).toHaveBeenLastCalledWith(expect.objectContaining({ userId: "admin", kind: "upload" }));
+  });
+
+  it("refuses 105 MB from anyone", async () => {
+    answerVault(vaultRow());
+    const free = await fetch(`${base}/media`, { method: "POST", headers: OTHER, body: sized(105 * MB) });
+    expect(free.status).toBe(413);
+    expect(await free.json()).toEqual(STANDARD_LIMIT);
+    answerVault(vaultRow({ plan_id: "max", plan_expires_at: later() }));
+    const max = await fetch(`${base}/media`, { method: "POST", headers: OTHER, body: sized(105 * MB) });
+    expect(max.status).toBe(413);
+    expect(await max.json()).toEqual(MAX_LIMIT);
+    const maxUnsized = await fetch(`${base}/media`, chunked(105 * MB));
+    expect(maxUnsized.status).toBe(413);
+    expect(await maxUnsized.json()).toEqual(MAX_LIMIT);
+    const operator = await fetch(`${base}/media`, { method: "POST", body: sized(105 * MB) });
+    expect(operator.status).toBe(413);
+    expect(await operator.json()).toEqual(MAX_LIMIT);
+    expect(media.storeMedia).not.toHaveBeenCalled();
+  });
+
+  it("tells the vault page the account's own limit", async () => {
+    answerVault(vaultRow());
+    expect((await (await fetch(`${base}/media`, { headers: OTHER })).json()).maxUploadBytes).toBe(25 * MB);
+    answerVault(vaultRow({ plan_id: "max", plan_expires_at: later() }));
+    expect((await (await fetch(`${base}/media`, { headers: OTHER })).json()).maxUploadBytes).toBe(100 * MB);
+    expect((await (await fetch(`${base}/media`)).json()).maxUploadBytes).toBe(100 * MB);
+  });
 });
 
 // ---- Task routes over a scripted row ----
@@ -839,6 +923,15 @@ describe("accounts: each sees only its own", () => {
     const response = await fetch(`${base}/tasks`, as({ method: "POST", body: JSON.stringify({ prompt: "Use my screenshot", attachmentIds: [ID] }) }));
     expect(response.status).toBe(409);
     expect((await response.json()).error).toMatch(/not found/);
+  });
+
+  it("refuses a message whose attachments add up to more than 100 MB", async () => {
+    const ids = [ID, "22222222-3333-4444-8555-666666666666"];
+    media.getMedia.mockImplementation(async (id: string) => mediaRow({ id, user_id: "user-b", size_bytes: 60 * 1024 * 1024 }));
+    db.handler = call => (call.text.includes("count(*) AS n FROM curialy.chat_sessions") ? { rows: [{ n: "0" }] } : { rows: [], rowCount: 0 });
+    const response = await fetch(`${base}/tasks`, as({ method: "POST", body: JSON.stringify({ prompt: "Compare these", attachmentIds: ids }) }));
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toBe("Total attachments exceed 100 MB for this message.");
   });
 
   it("answers 402 without credits and 429 while another run of the account is active", async () => {

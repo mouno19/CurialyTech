@@ -4,7 +4,7 @@ import { Link, useLocation } from "wouter";
 import type { LucideIcon } from "lucide-react";
 import { CheckCheck, CloudOff, Download, File as FileIcon, FileArchive, FileAudio, FileCode2, FileSpreadsheet, FileText, FileVideo, ImageOff, Images, ListChecks, RotateCcw, Search, Trash2, TriangleAlert, Upload, X } from "lucide-react";
 import { toast } from "sonner";
-import { FREE_VAULT_BYTES, FREE_VAULT_FILES, MAX_UPLOAD_BYTES, vaultFull, type MediaKind, type VaultQuota, type VaultSummary } from "@shared/media";
+import { FREE_VAULT_BYTES, FREE_VAULT_FILES, MAX_UPLOAD_BYTES_MAX, megabytes, vaultFull, type MediaKind, type VaultQuota, type VaultSummary } from "@shared/media";
 import { AppShell, type TopbarAction } from "@/components/shell/AppShell";
 import { Button } from "@/components/common/Button";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
@@ -16,6 +16,7 @@ import { MediaImage, MediaLink } from "@/components/MediaImage";
 import { agentApi, ApiError, busyWait, errorMessage, formatBytes, relativeTime, type MediaFile, type MediaHealth, type MediaQuery } from "@/lib/api";
 import { mediaHealth, useMediaHealth } from "@/lib/mediaHealth";
 import { whileBusy } from "@/lib/uploads";
+import { useUploadLimit } from "@/lib/useAttachments";
 import { deleteInTurns, goneCount, toggleSelection, type DeleteOutcome } from "@/lib/vaultSelection";
 
 type KindFilter = "all" | MediaKind;
@@ -49,7 +50,8 @@ const filesText = (value: number) => `${count(value)} ${value === 1 ? "file" : "
 type View = { kind: KindFilter; q: string };
 const queryOf = (view: View): MediaQuery => ({ kind: view.kind === "all" ? undefined : view.kind, q: view.q || undefined });
 type Listing = { files: MediaFile[]; nextCursor: string | null; matching: number };
-type Vault = { summary: VaultSummary; quota: VaultQuota; storage: MediaHealth };
+/** maxUploadBytes: the largest file this account may upload, by its plan (from the server). */
+type Vault = { summary: VaultSummary; quota: VaultQuota; storage: MediaHealth; maxUploadBytes?: number };
 
 /** The vault without one file the page knows (its kind, size and state). */
 function withoutFile(summary: VaultSummary, file: MediaFile): VaultSummary {
@@ -70,10 +72,10 @@ type UploadState = "waiting" | "uploading" | "saving" | "done" | "failed" | "can
 type UploadItem = { key: number; file: File; state: UploadState; sent: number; waitingOnOthers?: boolean; error?: string; retryable?: boolean };
 const isActive = (item: UploadItem) => item.state === "waiting" || item.state === "uploading" || item.state === "saving";
 
-function uploadError(error: unknown) {
+function uploadError(error: unknown, maxBytes: number) {
   if (error instanceof ApiError) {
     if (error.code === "quota") return "Your Media Vault is full";
-    if (error.code === "too_large" || (error.status === 413 && !error.code)) return "Larger than 25 MB";
+    if (error.code === "too_large" || (error.status === 413 && !error.code)) return `Larger than ${megabytes(maxBytes)}`;
     if (error.code === "storage_unavailable") return "File storage isn't available right now";
     if (error.code === "busy") return "Your other uploads took too long. Try again.";
   }
@@ -100,6 +102,9 @@ export default function Media() {
   const [dragging, setDragging] = useState(false);
   const store = useMediaHealth();
   const [, navigate] = useLocation();
+  // The account's own limit: 100 MB on Max and for the operator, 25 MB on Free and Pro.
+  const account = useUploadLimit();
+  const maxUploadBytes = vault?.maxUploadBytes ?? account.maxBytes;
   const input = useRef<HTMLInputElement>(null);
   const gridRef = useRef<HTMLUListElement>(null);
   const barRef = useRef<HTMLElement>(null);
@@ -121,7 +126,7 @@ export default function Media() {
       if (ticket !== request.current) return;
       mediaHealth.observe(page.storage);
       setListing({ files: page.files, nextCursor: page.nextCursor, matching: page.matching });
-      setVault({ summary: page.summary, quota: page.quota, storage: page.storage });
+      setVault({ summary: page.summary, quota: page.quota, storage: page.storage, maxUploadBytes: page.maxUploadBytes });
       setLoadError(null);
     } catch (error) {
       if (ticket === request.current) setLoadError(errorMessage(error, "Couldn't load your files."));
@@ -162,7 +167,7 @@ export default function Media() {
         const seen = new Set(current.files.map(file => file.id));
         return { files: [...current.files, ...page.files.filter(file => !seen.has(file.id))], nextCursor: page.nextCursor, matching: page.matching };
       });
-      setVault({ summary: page.summary, quota: page.quota, storage: page.storage });
+      setVault({ summary: page.summary, quota: page.quota, storage: page.storage, maxUploadBytes: page.maxUploadBytes });
     } catch (error) {
       if (ticket === request.current) toast.error("Couldn't show more files", { description: errorMessage(error) });
     } finally {
@@ -198,9 +203,12 @@ export default function Media() {
     }
     if (!uploadAbort.current || uploadAbort.current.signal.aborted) uploadAbort.current = new AbortController();
     const signal = uploadAbort.current.signal;
-    const items: UploadItem[] = picked.map(file => (file.size > MAX_UPLOAD_BYTES
-      ? { key: ++uploadKey.current, file, state: "failed", sent: 0, error: "Larger than 25 MB" }
+    const items: UploadItem[] = picked.map(file => (file.size > maxUploadBytes
+      ? { key: ++uploadKey.current, file, state: "failed", sent: 0, error: `Larger than ${megabytes(maxUploadBytes)}` }
       : { key: ++uploadKey.current, file, state: "waiting", sent: 0 }));
+    if (maxUploadBytes < MAX_UPLOAD_BYTES_MAX && items.some(item => item.state === "failed")) {
+      toast.error(`Files over ${megabytes(maxUploadBytes)} need Max`, { description: `Upgrade to Max for up to ${megabytes(MAX_UPLOAD_BYTES_MAX)} uploads.`, action: { label: "See plans", onClick: () => navigate("/billing") } });
+    }
     // A new batch replaces a finished one; while one runs, it joins it.
     setUploads(current => (current.some(isActive) ? [...current, ...items] : items));
     const stored: string[] = [];
@@ -220,7 +228,7 @@ export default function Media() {
           patch(item.key, stopped ? { state: "failed", error: stopped, retryable: true } : { state: "cancelled" });
           return;
         }
-        const message = uploadError(error);
+        const message = uploadError(error, maxUploadBytes);
         // A full vault or storage going down stops the rest at once instead of failing them one by one.
         if (error instanceof ApiError && (error.code === "quota" || error.code === "storage_unavailable") && !stopped) {
           stopped = message;
@@ -455,7 +463,7 @@ export default function Media() {
       priority: "primary",
       tone: "accent",
       disabled: storageDown,
-      title: storageDown ? "Uploads are paused while file storage is unavailable" : "Upload files, up to 25 MB each (pick or drop several at once)",
+      title: storageDown ? "Uploads are paused while file storage is unavailable" : `Upload files, up to ${megabytes(maxUploadBytes)} each (pick or drop several at once)`,
       onSelect: () => input.current?.click(),
     },
     {

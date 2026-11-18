@@ -1,4 +1,4 @@
-import { FREE_VAULT_BYTES, FREE_VAULT_FILES, type MediaDeleteResult, type VaultQuota, type VaultSummary } from "@shared/media";
+import { FREE_VAULT_BYTES, FREE_VAULT_FILES, hasMaxUploads, MAX_UPLOAD_BYTES_MAX, maxUploadBytesForTier, megabytes, type MediaDeleteResult, type VaultQuota, type VaultSummary } from "@shared/media";
 import { activePlan, type PlanColumns } from "../credits";
 import { query } from "../db/pg";
 import { deleteMedia, ownedMedia } from "./snowflake";
@@ -9,8 +9,11 @@ import { redact, StorageError } from "./storage-errors";
 
 type VaultRow = PlanColumns & { total: string; upload: string; screenshot: string; artifact: string; used_files: string; used_bytes: string };
 
-/** The account's vault in one read: counts by kind, what counts toward the limit, and the limit. */
-export async function vaultState(user: { id: string; role: string }): Promise<{ summary: VaultSummary; quota: VaultQuota }> {
+/**
+ * The account's vault in one read: counts by kind, what counts toward the limit, the limit, and the
+ * largest file it may upload (maxUploadBytes: by its highest plan).
+ */
+export async function vaultState(user: { id: string; role: string }): Promise<{ summary: VaultSummary; quota: VaultQuota; maxUploadBytes: number }> {
   const { rows: [row] } = await query<VaultRow>(
     `SELECT count(f.id) AS total, count(f.id) FILTER (WHERE f.kind = 'upload') AS upload,
             count(f.id) FILTER (WHERE f.kind = 'screenshot') AS screenshot, count(f.id) FILTER (WHERE f.kind = 'artifact') AS artifact,
@@ -26,13 +29,20 @@ export async function vaultState(user: { id: string; role: string }): Promise<{ 
     usedBytes: count(row?.used_bytes),
     usedFiles: count(row?.used_files),
   };
-  return { summary, quota: quotaFor(user, row ? activePlan(row) : null) };
+  const plan = row ? activePlan(row) : null;
+  return { summary, quota: quotaFor(user, plan), maxUploadBytes: maxUploadBytesForTier(hasMaxUploads({ role: user.role, planId: plan?.id })) };
 }
 
 export function quotaFor(user: { role: string }, plan: { name: string } | null): VaultQuota {
   if (user.role === "admin") return { unlimited: true, reason: "operator", plan: null, maxBytes: null, maxFiles: null };
   if (plan) return { unlimited: true, reason: "plan", plan: plan.name, maxBytes: null, maxFiles: null };
   return { unlimited: false, reason: null, plan: null, maxBytes: FREE_VAULT_BYTES, maxFiles: FREE_VAULT_FILES };
+}
+
+/** The 413 body for a file over the account's upload limit (`limit`: its maxUploadBytes). */
+export function uploadTooLargeError(limit: number) {
+  if (limit >= MAX_UPLOAD_BYTES_MAX) return { error: `Files are limited to ${megabytes(MAX_UPLOAD_BYTES_MAX)}.`, code: "too_large" };
+  return { error: `Files are limited to ${megabytes(limit)} on your plan. Max subscribers can attach up to ${megabytes(MAX_UPLOAD_BYTES_MAX)} per message.`, code: "too_large" };
 }
 
 /** The 413 body for a full free vault. */

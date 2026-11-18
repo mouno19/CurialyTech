@@ -35,6 +35,9 @@ import { computeRouter } from "../compute/routes";
 async function startServer() {
   const app = express();
   const server = createServer(app);
+  // A 100 MB upload on a slow connection takes longer than Node's default five minutes to arrive.
+  // nginx in front still drops a client that stops sending (client_body_timeout).
+  server.requestTimeout = 20 * 60_000;
   attachComputeHub(server);
   // nginx terminates TLS on this host and forwards X-Forwarded-* from loopback.
   app.set("trust proxy", "loopback");

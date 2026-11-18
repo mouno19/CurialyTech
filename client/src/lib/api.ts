@@ -126,7 +126,8 @@ export type UploadedFile = { id: string; filename: string; mimeType: string; siz
 export type MediaFile = UploadedFile & { kind: string; sessionId: string | null; createdAt: string; state: "stored" | "missing" | "elsewhere" };
 export type MediaHealth = { ok: boolean; state: "ok" | "unavailable" | "not_configured"; kind: string | null; retryAfter: number; detail: string };
 /** A page of the vault: nextCursor continues it; matching counts every file the filter matches. */
-export type MediaList = { files: MediaFile[]; nextCursor: string | null; matching: number; summary: VaultSummary; quota: VaultQuota; stage: { ok: boolean; detail: string }; storage: MediaHealth };
+/** maxUploadBytes: the largest file this account may upload, by its plan. */
+export type MediaList = { files: MediaFile[]; nextCursor: string | null; matching: number; summary: VaultSummary; quota: VaultQuota; maxUploadBytes: number; stage: { ok: boolean; detail: string }; storage: MediaHealth };
 export type MediaQuery = { kind?: MediaKind; q?: string };
 export type GitHubRepo = { id: number; name: string; full_name: string; private: boolean; default_branch: string; description: string | null; updated_at: string; language: string | null };
 /** autoApprove: the account turned off asking before the agent changes something on GitHub. */

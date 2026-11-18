@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import snowflake from "snowflake-sdk";
-import type { MediaKind } from "@shared/media";
+import { MAX_UPLOAD_BYTES_MAX, type MediaKind } from "@shared/media";
 import { query } from "../db/pg";
 import { classifyStorageError, logStorageError, publicStorageMessage, redact, StorageBreaker, StorageError, type StorageFailure } from "./storage-errors";
 
@@ -9,10 +9,11 @@ import { classifyStorageError, logStorageError, publicStorageMessage, redact, St
 // written to the VPS disk, including the driver's own log (routed to stdout / the journal).
 
 const STAGE = process.env.SNOWFLAKE_MEDIA_STAGE || "@CURIALY_DB.PUBLIC.USER_MEDIA_STAGE";
-const MAX_BYTES = 25 * 1024 * 1024;
+/** The largest file any account may store (Max uploads); reads are capped at the same size. */
+const MAX_BYTES = MAX_UPLOAD_BYTES_MAX;
 const CONNECT_TIMEOUT_MS = 15_000;
 const STATEMENT_TIMEOUT_MS = 20_000;
-const PUT_TIMEOUT_MS = 90_000;
+const PUT_TIMEOUT_MS = 90_000; // a 100 MB file, with room to spare (at least 60 s)
 const FETCH_TIMEOUT_MS = 15_000;
 
 snowflake.configure({ logLevel: "ERROR", logFilePath: "STDOUT", additionalLogToConsole: false } as never);

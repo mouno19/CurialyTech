@@ -1,8 +1,24 @@
 // The Media Vault: what an account may keep, and the shapes of its API (server/agent/routes.ts,
 // server/media/vault.ts, client/src/pages/Media.tsx).
 
-/** One file, any account: an upload is held in the server's memory on its way to storage. */
-export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+/**
+ * One file: 25 MB on Free and Pro, 100 MB for Max subscribers and the operator. An upload is held in
+ * the server's memory on its way to storage.
+ */
+export const MAX_UPLOAD_BYTES_STANDARD = 25 * 1024 * 1024;
+export const MAX_UPLOAD_BYTES_MAX = 100 * 1024 * 1024;
+export function maxUploadBytesForTier(isMax: boolean): number {
+  return isMax ? MAX_UPLOAD_BYTES_MAX : MAX_UPLOAD_BYTES_STANDARD;
+}
+/** The account gets Max uploads: the operator, or a Max plan while it lasts (alone or held with Pro). */
+export const hasMaxUploads = (account: { role?: string | null; planId?: string | null }) => account.role === "admin" || account.planId === "max";
+
+/** Every file one message carries together, any account (a message carries up to 10 files). */
+export const MAX_MESSAGE_ATTACHMENT_BYTES = 100 * 1024 * 1024;
+/** Whether files of these sizes are more than one message may carry. */
+export const exceedsMessageLimit = (sizes: number[]) => sizes.reduce((total, size) => total + size, 0) > MAX_MESSAGE_ATTACHMENT_BYTES;
+/** "25 MB", "100 MB". */
+export const megabytes = (bytes: number) => `${Math.round(bytes / 1024 / 1024)} MB`;
 /** A free account's vault. The operator and accounts with an active plan have no limit. */
 export const FREE_VAULT_BYTES = 250 * 1024 * 1024;
 export const FREE_VAULT_FILES = 500;

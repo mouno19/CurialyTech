@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent } from "react";
 import { Paperclip, X } from "lucide-react";
+import { hasMaxUploads, MAX_MESSAGE_ATTACHMENT_BYTES, MAX_UPLOAD_BYTES_MAX, MAX_UPLOAD_BYTES_STANDARD, maxUploadBytesForTier, megabytes } from "@shared/media";
+import { useAccount } from "@/lib/account";
 import { agentApi, type UploadedFile } from "@/lib/api";
 import { mediaHealth } from "@/lib/mediaHealth";
 import { Spinner } from "@/components/common/Spinner";
@@ -8,7 +10,27 @@ import { Spinner } from "@/components/common/Spinner";
 // (Ctrl/Cmd+V screenshots) and drag & drop, uploading straight to Curialy Vault.
 
 export const MAX_ATTACHMENTS = 10;
-const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+
+/**
+ * The largest file this account may upload: 100 MB for Max subscribers (a Max plan alone or held
+ * with Pro) and the operator, 25 MB on Free and Pro. Until the account has loaded, files up to
+ * 100 MB are sent and the server, which knows the plan, decides.
+ */
+export function useUploadLimit() {
+  const { info } = useAccount();
+  const isMax = hasMaxUploads({ role: info?.user?.role, planId: info?.credits?.plan?.id });
+  return { isMax, maxBytes: info ? maxUploadBytesForTier(isMax) : MAX_UPLOAD_BYTES_MAX };
+}
+
+/** Why this file can't be attached under `maxBytes`, or null when it can. */
+export function tooLargeMessage(file: { name: string; size: number }, maxBytes: number) {
+  if (file.size <= maxBytes) return null;
+  return maxBytes >= MAX_UPLOAD_BYTES_MAX
+    ? `${file.name} is larger than ${megabytes(MAX_UPLOAD_BYTES_MAX)}.`
+    : `${file.name} is larger than ${megabytes(MAX_UPLOAD_BYTES_STANDARD)}. Upgrade to Max for up to ${megabytes(MAX_UPLOAD_BYTES_MAX)} uploads.`;
+}
+
+export const MESSAGE_TOO_LARGE = `Total attachments exceed ${megabytes(MAX_MESSAGE_ATTACHMENT_BYTES)} for this message.`;
 
 export type PendingAttachment = UploadedFile & { previewUrl?: string };
 
@@ -30,6 +52,9 @@ export function useAttachments() {
   // Slots are claimed synchronously when a batch is accepted, so overlapping picks/pastes/drops
   // cannot exceed the limit while earlier uploads are still in flight.
   const claimed = useRef(0);
+  // Bytes of the files attached or uploading, claimed the same way (one message carries up to 100 MB).
+  const claimedBytes = useRef(0);
+  const { maxBytes } = useUploadLimit();
   const filesRef = useRef<PendingAttachment[]>([]);
   filesRef.current = files;
   const mounted = useRef(true);
@@ -63,11 +88,13 @@ export function useAttachments() {
     claimed.current += accepted.length;
     await Promise.all(accepted.map(async raw => {
       const file = named(raw);
-      if (file.size > MAX_UPLOAD_BYTES) {
-        setError(`${file.name} is larger than 25 MB.`);
+      const tooLarge = tooLargeMessage(file, maxBytes);
+      if (tooLarge || claimedBytes.current + file.size > MAX_MESSAGE_ATTACHMENT_BYTES) {
+        setError(tooLarge ?? MESSAGE_TOO_LARGE);
         claimed.current--;
         return;
       }
+      claimedBytes.current += file.size;
       setUploading(value => value + 1);
       try {
         const uploaded = await agentApi.upload(file);
@@ -76,6 +103,7 @@ export function useAttachments() {
         setFiles(current => [...current, { ...uploaded, previewUrl }]);
       } catch (uploadError) {
         claimed.current--;
+        claimedBytes.current = Math.max(0, claimedBytes.current - file.size);
         setError(`${file.name}: ${uploadError instanceof Error ? uploadError.message : "upload failed"}`);
       } finally {
         if (mounted.current) setUploading(value => value - 1);
@@ -88,6 +116,7 @@ export function useAttachments() {
     const drop = current.filter(file => !ids || ids.includes(file.id));
     drop.forEach(file => file.previewUrl && URL.revokeObjectURL(file.previewUrl));
     claimed.current = Math.max(0, claimed.current - drop.length);
+    claimedBytes.current = Math.max(0, claimedBytes.current - drop.reduce((total, file) => total + file.sizeBytes, 0));
     return current.filter(file => !drop.includes(file));
   });
   const remove = (id: string) => removeMany([id]);
