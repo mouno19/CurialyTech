@@ -83,7 +83,7 @@ const followUpSchema = z.object({
 });
 const skillWriteSchema = z.object({
   name: z.string().trim().min(1, "Name the skill.").max(SAVED_SKILL_LIMITS.name, `Keep the name under ${SAVED_SKILL_LIMITS.name} characters.`),
-  body: z.string().trim().min(1, "Write the procedure.").max(SAVED_SKILL_LIMITS.body, `Keep the procedure under ${SAVED_SKILL_LIMITS.body} characters.`),
+  body: z.string().trim().min(1, "Write the procedure.").max(SAVED_SKILL_LIMITS.body, `Keep the procedure under ${SAVED_SKILL_LIMITS.body.toLocaleString("en-US")} characters.`),
 });
 /** POST /skills/import as JSON: a link, or pasted text (and its file name, for a skill with no title). */
 const skillImportSchema = z.object({
